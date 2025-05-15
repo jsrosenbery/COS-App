@@ -18,7 +18,64 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.textContent = term;
     tab.addEventListener('click', () => selectTerm(term, tab));
     tabs.appendChild(tab);
+  
+document.getElementById('availability-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'block';
+};
+
+// Close modal logic
+document.querySelector('.close-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'none';
+};
+window.onclick = event => {
+  if (event.target == document.getElementById('availability-modal')) {
+    document.getElementById('availability-modal').style.display = 'none';
+  }
+};
+
+// Populate time selects
+function populateTimeSelects() {
+  const startSelect = document.getElementById('start-time');
+  const endSelect = document.getElementById('end-time');
+  for(let m=360;m<=1320;m+=5) {
+    const h=Math.floor(m/60),min=m%60;
+    const ap=h<12?'AM':'PM',h12=(h+11)%12+1;
+    const time=`${('0'+h12).slice(-2)}:${('0'+min).slice(-2)}${ap}`;
+    startSelect.innerHTML+=`<option>${time}</option>`;
+    endSelect.innerHTML+=`<option>${time}</option>`;
+  }
+}
+populateTimeSelects();
+
+// Check availability
+document.getElementById('check-availability-btn').onclick = () => {
+  const selectedDays = [...document.querySelectorAll('#day-checkboxes input:checked')].map(cb=>cb.value);
+  const start=document.getElementById('start-time').value;
+  const end=document.getElementById('end-time').value;
+  if(!selectedDays.length||!start||!end){alert('Please select days and times');return;}
+  const sMin=toMin(start),eMin=toMin(end);
+  const rooms=Array.from(new Set(currentData.map(i=>i.Building+'-'+i.Room)));
+  const occ=new Set();
+  currentData.forEach(i=>{
+    selectedDays.forEach(day=>{
+      if(i.Days.includes(day)){
+        const si=parseTime(i.Start_Time),ei=parseTime(i.End_Time);
+        if(!(ei<=sMin||si>=eMin))occ.add(i.Building+'-'+i.Room);
+      }
+    });
   });
+  const avail=rooms.filter(r=>!occ.has(r));
+  alert('Available rooms:\n'+(avail.length?avail.join(', '):'None'));
+};
+
+function toMin(t) {
+  const [time,ap]=[t.slice(0,-2),t.slice(-2)];
+  let [h,m]=time.split(':').map(Number);
+  if(ap=='PM'&&h<12)h+=12;if(ap=='AM'&&h==12)h=0;
+  return h*60+m;
+}
+
+});
 
   // Initial load
   selectTerm(terms[2], tabs.children[2]);
@@ -46,8 +103,122 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-      });
+      
+document.getElementById('availability-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'block';
+};
+
+// Close modal logic
+document.querySelector('.close-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'none';
+};
+window.onclick = event => {
+  if (event.target == document.getElementById('availability-modal')) {
+    document.getElementById('availability-modal').style.display = 'none';
+  }
+};
+
+// Populate time selects
+function populateTimeSelects() {
+  const startSelect = document.getElementById('start-time');
+  const endSelect = document.getElementById('end-time');
+  for(let m=360;m<=1320;m+=5) {
+    const h=Math.floor(m/60),min=m%60;
+    const ap=h<12?'AM':'PM',h12=(h+11)%12+1;
+    const time=`${('0'+h12).slice(-2)}:${('0'+min).slice(-2)}${ap}`;
+    startSelect.innerHTML+=`<option>${time}</option>`;
+    endSelect.innerHTML+=`<option>${time}</option>`;
+  }
+}
+populateTimeSelects();
+
+// Check availability
+document.getElementById('check-availability-btn').onclick = () => {
+  const selectedDays = [...document.querySelectorAll('#day-checkboxes input:checked')].map(cb=>cb.value);
+  const start=document.getElementById('start-time').value;
+  const end=document.getElementById('end-time').value;
+  if(!selectedDays.length||!start||!end){alert('Please select days and times');return;}
+  const sMin=toMin(start),eMin=toMin(end);
+  const rooms=Array.from(new Set(currentData.map(i=>i.Building+'-'+i.Room)));
+  const occ=new Set();
+  currentData.forEach(i=>{
+    selectedDays.forEach(day=>{
+      if(i.Days.includes(day)){
+        const si=parseTime(i.Start_Time),ei=parseTime(i.End_Time);
+        if(!(ei<=sMin||si>=eMin))occ.add(i.Building+'-'+i.Room);
+      }
     });
+  });
+  const avail=rooms.filter(r=>!occ.has(r));
+  alert('Available rooms:\n'+(avail.length?avail.join(', '):'None'));
+};
+
+function toMin(t) {
+  const [time,ap]=[t.slice(0,-2),t.slice(-2)];
+  let [h,m]=time.split(':').map(Number);
+  if(ap=='PM'&&h<12)h+=12;if(ap=='AM'&&h==12)h=0;
+  return h*60+m;
+}
+
+});
+    
+document.getElementById('availability-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'block';
+};
+
+// Close modal logic
+document.querySelector('.close-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'none';
+};
+window.onclick = event => {
+  if (event.target == document.getElementById('availability-modal')) {
+    document.getElementById('availability-modal').style.display = 'none';
+  }
+};
+
+// Populate time selects
+function populateTimeSelects() {
+  const startSelect = document.getElementById('start-time');
+  const endSelect = document.getElementById('end-time');
+  for(let m=360;m<=1320;m+=5) {
+    const h=Math.floor(m/60),min=m%60;
+    const ap=h<12?'AM':'PM',h12=(h+11)%12+1;
+    const time=`${('0'+h12).slice(-2)}:${('0'+min).slice(-2)}${ap}`;
+    startSelect.innerHTML+=`<option>${time}</option>`;
+    endSelect.innerHTML+=`<option>${time}</option>`;
+  }
+}
+populateTimeSelects();
+
+// Check availability
+document.getElementById('check-availability-btn').onclick = () => {
+  const selectedDays = [...document.querySelectorAll('#day-checkboxes input:checked')].map(cb=>cb.value);
+  const start=document.getElementById('start-time').value;
+  const end=document.getElementById('end-time').value;
+  if(!selectedDays.length||!start||!end){alert('Please select days and times');return;}
+  const sMin=toMin(start),eMin=toMin(end);
+  const rooms=Array.from(new Set(currentData.map(i=>i.Building+'-'+i.Room)));
+  const occ=new Set();
+  currentData.forEach(i=>{
+    selectedDays.forEach(day=>{
+      if(i.Days.includes(day)){
+        const si=parseTime(i.Start_Time),ei=parseTime(i.End_Time);
+        if(!(ei<=sMin||si>=eMin))occ.add(i.Building+'-'+i.Room);
+      }
+    });
+  });
+  const avail=rooms.filter(r=>!occ.has(r));
+  alert('Available rooms:\n'+(avail.length?avail.join(', '):'None'));
+};
+
+function toMin(t) {
+  const [time,ap]=[t.slice(0,-2),t.slice(-2)];
+  let [h,m]=time.split(':').map(Number);
+  if(ap=='PM'&&h<12)h+=12;if(ap=='AM'&&h==12)h=0;
+  return h*60+m;
+}
+
+});
   }
 
   function buildRoomDropdown() {
@@ -102,7 +273,64 @@ document.addEventListener('DOMContentLoaded', () => {
           ev.col = columns.length;
           columns.push([ev]);
         }
-      });
+      
+document.getElementById('availability-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'block';
+};
+
+// Close modal logic
+document.querySelector('.close-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'none';
+};
+window.onclick = event => {
+  if (event.target == document.getElementById('availability-modal')) {
+    document.getElementById('availability-modal').style.display = 'none';
+  }
+};
+
+// Populate time selects
+function populateTimeSelects() {
+  const startSelect = document.getElementById('start-time');
+  const endSelect = document.getElementById('end-time');
+  for(let m=360;m<=1320;m+=5) {
+    const h=Math.floor(m/60),min=m%60;
+    const ap=h<12?'AM':'PM',h12=(h+11)%12+1;
+    const time=`${('0'+h12).slice(-2)}:${('0'+min).slice(-2)}${ap}`;
+    startSelect.innerHTML+=`<option>${time}</option>`;
+    endSelect.innerHTML+=`<option>${time}</option>`;
+  }
+}
+populateTimeSelects();
+
+// Check availability
+document.getElementById('check-availability-btn').onclick = () => {
+  const selectedDays = [...document.querySelectorAll('#day-checkboxes input:checked')].map(cb=>cb.value);
+  const start=document.getElementById('start-time').value;
+  const end=document.getElementById('end-time').value;
+  if(!selectedDays.length||!start||!end){alert('Please select days and times');return;}
+  const sMin=toMin(start),eMin=toMin(end);
+  const rooms=Array.from(new Set(currentData.map(i=>i.Building+'-'+i.Room)));
+  const occ=new Set();
+  currentData.forEach(i=>{
+    selectedDays.forEach(day=>{
+      if(i.Days.includes(day)){
+        const si=parseTime(i.Start_Time),ei=parseTime(i.End_Time);
+        if(!(ei<=sMin||si>=eMin))occ.add(i.Building+'-'+i.Room);
+      }
+    });
+  });
+  const avail=rooms.filter(r=>!occ.has(r));
+  alert('Available rooms:\n'+(avail.length?avail.join(', '):'None'));
+};
+
+function toMin(t) {
+  const [time,ap]=[t.slice(0,-2),t.slice(-2)];
+  let [h,m]=time.split(':').map(Number);
+  if(ap=='PM'&&h<12)h+=12;if(ap=='AM'&&h==12)h=0;
+  return h*60+m;
+}
+
+});
       const colCount = columns.length || 1;
       columns.flat().forEach(ev => {
         const top = ((ev.startMin - 360) / (22*60 - 360)) * 100;
@@ -121,8 +349,122 @@ document.addEventListener('DOMContentLoaded', () => {
 <span>${format12(ev.Start_Time).toLowerCase()} - ${format12(ev.End_Time).toLowerCase()}</span>
 </div>`;
         container.appendChild(block);
-      });
+      
+document.getElementById('availability-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'block';
+};
+
+// Close modal logic
+document.querySelector('.close-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'none';
+};
+window.onclick = event => {
+  if (event.target == document.getElementById('availability-modal')) {
+    document.getElementById('availability-modal').style.display = 'none';
+  }
+};
+
+// Populate time selects
+function populateTimeSelects() {
+  const startSelect = document.getElementById('start-time');
+  const endSelect = document.getElementById('end-time');
+  for(let m=360;m<=1320;m+=5) {
+    const h=Math.floor(m/60),min=m%60;
+    const ap=h<12?'AM':'PM',h12=(h+11)%12+1;
+    const time=`${('0'+h12).slice(-2)}:${('0'+min).slice(-2)}${ap}`;
+    startSelect.innerHTML+=`<option>${time}</option>`;
+    endSelect.innerHTML+=`<option>${time}</option>`;
+  }
+}
+populateTimeSelects();
+
+// Check availability
+document.getElementById('check-availability-btn').onclick = () => {
+  const selectedDays = [...document.querySelectorAll('#day-checkboxes input:checked')].map(cb=>cb.value);
+  const start=document.getElementById('start-time').value;
+  const end=document.getElementById('end-time').value;
+  if(!selectedDays.length||!start||!end){alert('Please select days and times');return;}
+  const sMin=toMin(start),eMin=toMin(end);
+  const rooms=Array.from(new Set(currentData.map(i=>i.Building+'-'+i.Room)));
+  const occ=new Set();
+  currentData.forEach(i=>{
+    selectedDays.forEach(day=>{
+      if(i.Days.includes(day)){
+        const si=parseTime(i.Start_Time),ei=parseTime(i.End_Time);
+        if(!(ei<=sMin||si>=eMin))occ.add(i.Building+'-'+i.Room);
+      }
     });
+  });
+  const avail=rooms.filter(r=>!occ.has(r));
+  alert('Available rooms:\n'+(avail.length?avail.join(', '):'None'));
+};
+
+function toMin(t) {
+  const [time,ap]=[t.slice(0,-2),t.slice(-2)];
+  let [h,m]=time.split(':').map(Number);
+  if(ap=='PM'&&h<12)h+=12;if(ap=='AM'&&h==12)h=0;
+  return h*60+m;
+}
+
+});
+    
+document.getElementById('availability-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'block';
+};
+
+// Close modal logic
+document.querySelector('.close-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'none';
+};
+window.onclick = event => {
+  if (event.target == document.getElementById('availability-modal')) {
+    document.getElementById('availability-modal').style.display = 'none';
+  }
+};
+
+// Populate time selects
+function populateTimeSelects() {
+  const startSelect = document.getElementById('start-time');
+  const endSelect = document.getElementById('end-time');
+  for(let m=360;m<=1320;m+=5) {
+    const h=Math.floor(m/60),min=m%60;
+    const ap=h<12?'AM':'PM',h12=(h+11)%12+1;
+    const time=`${('0'+h12).slice(-2)}:${('0'+min).slice(-2)}${ap}`;
+    startSelect.innerHTML+=`<option>${time}</option>`;
+    endSelect.innerHTML+=`<option>${time}</option>`;
+  }
+}
+populateTimeSelects();
+
+// Check availability
+document.getElementById('check-availability-btn').onclick = () => {
+  const selectedDays = [...document.querySelectorAll('#day-checkboxes input:checked')].map(cb=>cb.value);
+  const start=document.getElementById('start-time').value;
+  const end=document.getElementById('end-time').value;
+  if(!selectedDays.length||!start||!end){alert('Please select days and times');return;}
+  const sMin=toMin(start),eMin=toMin(end);
+  const rooms=Array.from(new Set(currentData.map(i=>i.Building+'-'+i.Room)));
+  const occ=new Set();
+  currentData.forEach(i=>{
+    selectedDays.forEach(day=>{
+      if(i.Days.includes(day)){
+        const si=parseTime(i.Start_Time),ei=parseTime(i.End_Time);
+        if(!(ei<=sMin||si>=eMin))occ.add(i.Building+'-'+i.Room);
+      }
+    });
+  });
+  const avail=rooms.filter(r=>!occ.has(r));
+  alert('Available rooms:\n'+(avail.length?avail.join(', '):'None'));
+};
+
+function toMin(t) {
+  const [time,ap]=[t.slice(0,-2),t.slice(-2)];
+  let [h,m]=time.split(':').map(Number);
+  if(ap=='PM'&&h<12)h+=12;if(ap=='AM'&&h==12)h=0;
+  return h*60+m;
+}
+
+});
   }
 
   function showAvailability() {
@@ -139,11 +481,125 @@ document.addEventListener('DOMContentLoaded', () => {
         const si=parseTime(i.Start_Time), ei=parseTime(i.End_Time);
         if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
       }
+    
+document.getElementById('availability-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'block';
+};
+
+// Close modal logic
+document.querySelector('.close-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'none';
+};
+window.onclick = event => {
+  if (event.target == document.getElementById('availability-modal')) {
+    document.getElementById('availability-modal').style.display = 'none';
+  }
+};
+
+// Populate time selects
+function populateTimeSelects() {
+  const startSelect = document.getElementById('start-time');
+  const endSelect = document.getElementById('end-time');
+  for(let m=360;m<=1320;m+=5) {
+    const h=Math.floor(m/60),min=m%60;
+    const ap=h<12?'AM':'PM',h12=(h+11)%12+1;
+    const time=`${('0'+h12).slice(-2)}:${('0'+min).slice(-2)}${ap}`;
+    startSelect.innerHTML+=`<option>${time}</option>`;
+    endSelect.innerHTML+=`<option>${time}</option>`;
+  }
+}
+populateTimeSelects();
+
+// Check availability
+document.getElementById('check-availability-btn').onclick = () => {
+  const selectedDays = [...document.querySelectorAll('#day-checkboxes input:checked')].map(cb=>cb.value);
+  const start=document.getElementById('start-time').value;
+  const end=document.getElementById('end-time').value;
+  if(!selectedDays.length||!start||!end){alert('Please select days and times');return;}
+  const sMin=toMin(start),eMin=toMin(end);
+  const rooms=Array.from(new Set(currentData.map(i=>i.Building+'-'+i.Room)));
+  const occ=new Set();
+  currentData.forEach(i=>{
+    selectedDays.forEach(day=>{
+      if(i.Days.includes(day)){
+        const si=parseTime(i.Start_Time),ei=parseTime(i.End_Time);
+        if(!(ei<=sMin||si>=eMin))occ.add(i.Building+'-'+i.Room);
+      }
     });
+  });
+  const avail=rooms.filter(r=>!occ.has(r));
+  alert('Available rooms:\n'+(avail.length?avail.join(', '):'None'));
+};
+
+function toMin(t) {
+  const [time,ap]=[t.slice(0,-2),t.slice(-2)];
+  let [h,m]=time.split(':').map(Number);
+  if(ap=='PM'&&h<12)h+=12;if(ap=='AM'&&h==12)h=0;
+  return h*60+m;
+}
+
+});
     const avail = rooms.filter(r => !occ.has(r));
     alert('Available rooms on ' + day + ' ' + start + '-' + end + ':\n' + (avail.length?avail.join(', '):'None'));
   }
 
   function parseTime(t) { const [h,m]=t.split(':').map(Number); return h*60 + m; }
   function format12(t) { let [h,m]=t.split(':').map(Number); const ap=h<12?'AM':'PM'; h=((h+11)%12)+1; return `${h}:${('0'+m).slice(-2)}${ap}`; }
+
+document.getElementById('availability-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'block';
+};
+
+// Close modal logic
+document.querySelector('.close-btn').onclick = () => {
+  document.getElementById('availability-modal').style.display = 'none';
+};
+window.onclick = event => {
+  if (event.target == document.getElementById('availability-modal')) {
+    document.getElementById('availability-modal').style.display = 'none';
+  }
+};
+
+// Populate time selects
+function populateTimeSelects() {
+  const startSelect = document.getElementById('start-time');
+  const endSelect = document.getElementById('end-time');
+  for(let m=360;m<=1320;m+=5) {
+    const h=Math.floor(m/60),min=m%60;
+    const ap=h<12?'AM':'PM',h12=(h+11)%12+1;
+    const time=`${('0'+h12).slice(-2)}:${('0'+min).slice(-2)}${ap}`;
+    startSelect.innerHTML+=`<option>${time}</option>`;
+    endSelect.innerHTML+=`<option>${time}</option>`;
+  }
+}
+populateTimeSelects();
+
+// Check availability
+document.getElementById('check-availability-btn').onclick = () => {
+  const selectedDays = [...document.querySelectorAll('#day-checkboxes input:checked')].map(cb=>cb.value);
+  const start=document.getElementById('start-time').value;
+  const end=document.getElementById('end-time').value;
+  if(!selectedDays.length||!start||!end){alert('Please select days and times');return;}
+  const sMin=toMin(start),eMin=toMin(end);
+  const rooms=Array.from(new Set(currentData.map(i=>i.Building+'-'+i.Room)));
+  const occ=new Set();
+  currentData.forEach(i=>{
+    selectedDays.forEach(day=>{
+      if(i.Days.includes(day)){
+        const si=parseTime(i.Start_Time),ei=parseTime(i.End_Time);
+        if(!(ei<=sMin||si>=eMin))occ.add(i.Building+'-'+i.Room);
+      }
+    });
+  });
+  const avail=rooms.filter(r=>!occ.has(r));
+  alert('Available rooms:\n'+(avail.length?avail.join(', '):'None'));
+};
+
+function toMin(t) {
+  const [time,ap]=[t.slice(0,-2),t.slice(-2)];
+  let [h,m]=time.split(':').map(Number);
+  if(ap=='PM'&&h<12)h+=12;if(ap=='AM'&&h==12)h=0;
+  return h*60+m;
+}
+
 });

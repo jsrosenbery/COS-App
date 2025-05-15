@@ -23,5 +23,27 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
   <script src="js/parser.js"></script>
   <script src="js/app.js"></script>
+
+<div id="availability-modal" class="modal">
+  <div class="modal-content">
+    <span class="close-btn">&times;</span>
+    <h3>Check Room Availability</h3>
+    <label>Select Day(s):</label>
+    <div id="day-checkboxes">
+      Sunday <input type="checkbox" value="Sunday">
+      Monday <input type="checkbox" value="Monday">
+      Tuesday <input type="checkbox" value="Tuesday">
+      Wednesday <input type="checkbox" value="Wednesday">
+      Thursday <input type="checkbox" value="Thursday">
+      Friday <input type="checkbox" value="Friday">
+      Saturday <input type="checkbox" value="Saturday">
+    </div>
+    <label>Start Time:</label>
+    <select id="start-time"></select>
+    <label>End Time:</label>
+    <select id="end-time"></select>
+    <button id="check-availability-btn">Check Availability</button>
+  </div>
+</div>
 </body>
 </html>
