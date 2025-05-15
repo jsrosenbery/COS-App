@@ -24,10 +24,10 @@ function parseCSVFile(file, callback) {
             });
           }
           return {
-            Course_Code: r['Subject_Course'] || '',
+            Subject_Course: r['Subject_Course'] || r['Title'] || '',
             CRN: r['CRN'],
-            Building: r['BUILDING'],  // ensure Building is included
-            Room: r['ROOM'],          // ensure Room is included
+            Building: r['BUILDING'],
+            Room: r['ROOM'],
             Days: daysArr,
             Start_Time: start24,
             End_Time: end24
