@@ -9,7 +9,6 @@ function parseCSVFile(file, callback) {
         .map(r => {
           const daysMap = {'M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday'};
           const daysArr = (r['DAYS']||'').split('').map(d => daysMap[d]||d);
-          // split time into start/end
           const rawTime = r['Time'] || r['TIME'] || '';
           const parts = rawTime.split(' - ');
           let start24 = '00:00', end24 = '00:00';
