@@ -14,7 +14,46 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.textContent = term;
     tab.onclick = () => selectTerm(term, tab);
     tabs.appendChild(tab);
-  });
+  
+  function showAvailability() {
+    if (!currentData.length) {
+      alert('Please upload a schedule first.');
+      return;
+    }
+    const day = prompt('Enter day (e.g. Monday):');
+    if (!day) return;
+    const start = prompt('Enter start time (e.g. 10:00AM):');
+    if (!start) return;
+    const end = prompt('Enter end time (e.g. 12:00PM):');
+    if (!end) return;
+    // convert start/end to minutes
+    const toMin = s => {
+      let ap = s.slice(-2).toUpperCase();
+      let [h, m] = s.slice(0, -2).split(':').map(Number);
+      if (ap === 'PM' && h < 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+    const sMin = toMin(start);
+    const eMin = toMin(end);
+    // get all rooms
+    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
+    // find occupied
+    const occupied = new Set();
+    currentData.forEach(i => {
+      if (i.Days.includes(day)) {
+        const si = parseTime(i.Start_Time);
+        const ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) {
+          occupied.add(i.Building + '-' + i.Room);
+        }
+      }
+    });
+    const available = rooms.filter(r => !occupied.has(r));
+    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
+  }
+
+});
   selectTerm(terms[2], tabs.children[2]);
 
   function selectTerm(term, tabElem) {
@@ -28,6 +67,11 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadDiv.innerHTML = '<label>Upload CSV: <input type="file" id="file-input" accept=".csv"></label>';
     roomDiv.innerHTML = '';
     document.getElementById('file-input').onchange = e => {
+      // update timestamp
+      const tsDiv = document.getElementById('upload-timestamp');
+      const now = new Date();
+      tsDiv.textContent = 'Last upload: ' + now.toLocaleString();
+
       parseCSVFile(e.target.files[0], data => {
         currentData = data.map(item => ({
           ...item,
@@ -36,7 +80,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }));
         buildRoomDropdown();
         renderSchedule();
-      });
+      
+  function showAvailability() {
+    if (!currentData.length) {
+      alert('Please upload a schedule first.');
+      return;
+    }
+    const day = prompt('Enter day (e.g. Monday):');
+    if (!day) return;
+    const start = prompt('Enter start time (e.g. 10:00AM):');
+    if (!start) return;
+    const end = prompt('Enter end time (e.g. 12:00PM):');
+    if (!end) return;
+    // convert start/end to minutes
+    const toMin = s => {
+      let ap = s.slice(-2).toUpperCase();
+      let [h, m] = s.slice(0, -2).split(':').map(Number);
+      if (ap === 'PM' && h < 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+    const sMin = toMin(start);
+    const eMin = toMin(end);
+    // get all rooms
+    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
+    // find occupied
+    const occupied = new Set();
+    currentData.forEach(i => {
+      if (i.Days.includes(day)) {
+        const si = parseTime(i.Start_Time);
+        const ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) {
+          occupied.add(i.Building + '-' + i.Room);
+        }
+      }
+    });
+    const available = rooms.filter(r => !occupied.has(r));
+    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
+  }
+
+});
     };
   }
 
@@ -97,7 +180,46 @@ document.addEventListener('DOMContentLoaded', () => {
           ev.col = columns.length;
           columns.push([ev]);
         }
-      });
+      
+  function showAvailability() {
+    if (!currentData.length) {
+      alert('Please upload a schedule first.');
+      return;
+    }
+    const day = prompt('Enter day (e.g. Monday):');
+    if (!day) return;
+    const start = prompt('Enter start time (e.g. 10:00AM):');
+    if (!start) return;
+    const end = prompt('Enter end time (e.g. 12:00PM):');
+    if (!end) return;
+    // convert start/end to minutes
+    const toMin = s => {
+      let ap = s.slice(-2).toUpperCase();
+      let [h, m] = s.slice(0, -2).split(':').map(Number);
+      if (ap === 'PM' && h < 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+    const sMin = toMin(start);
+    const eMin = toMin(end);
+    // get all rooms
+    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
+    // find occupied
+    const occupied = new Set();
+    currentData.forEach(i => {
+      if (i.Days.includes(day)) {
+        const si = parseTime(i.Start_Time);
+        const ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) {
+          occupied.add(i.Building + '-' + i.Room);
+        }
+      }
+    });
+    const available = rooms.filter(r => !occupied.has(r));
+    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
+  }
+
+});
       columns.flat().forEach(ev => {
         const topPct = ((ev.startMin - 360) / (1320 - 360)) * 100;
         const heightPct = ((ev.endMin - ev.startMin) / (1320 - 360)) * 100;
@@ -116,8 +238,86 @@ document.addEventListener('DOMContentLoaded', () => {
 <span>${format12(ev.Start_Time).toLowerCase().replace(/m$/,'.m.') } - ${format12(ev.End_Time).toLowerCase().replace(/m$/,'.m.') }</span>
 </div>`;
         container.appendChild(block);
-      });
+      
+  function showAvailability() {
+    if (!currentData.length) {
+      alert('Please upload a schedule first.');
+      return;
+    }
+    const day = prompt('Enter day (e.g. Monday):');
+    if (!day) return;
+    const start = prompt('Enter start time (e.g. 10:00AM):');
+    if (!start) return;
+    const end = prompt('Enter end time (e.g. 12:00PM):');
+    if (!end) return;
+    // convert start/end to minutes
+    const toMin = s => {
+      let ap = s.slice(-2).toUpperCase();
+      let [h, m] = s.slice(0, -2).split(':').map(Number);
+      if (ap === 'PM' && h < 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+    const sMin = toMin(start);
+    const eMin = toMin(end);
+    // get all rooms
+    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
+    // find occupied
+    const occupied = new Set();
+    currentData.forEach(i => {
+      if (i.Days.includes(day)) {
+        const si = parseTime(i.Start_Time);
+        const ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) {
+          occupied.add(i.Building + '-' + i.Room);
+        }
+      }
     });
+    const available = rooms.filter(r => !occupied.has(r));
+    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
+  }
+
+});
+    
+  function showAvailability() {
+    if (!currentData.length) {
+      alert('Please upload a schedule first.');
+      return;
+    }
+    const day = prompt('Enter day (e.g. Monday):');
+    if (!day) return;
+    const start = prompt('Enter start time (e.g. 10:00AM):');
+    if (!start) return;
+    const end = prompt('Enter end time (e.g. 12:00PM):');
+    if (!end) return;
+    // convert start/end to minutes
+    const toMin = s => {
+      let ap = s.slice(-2).toUpperCase();
+      let [h, m] = s.slice(0, -2).split(':').map(Number);
+      if (ap === 'PM' && h < 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+    const sMin = toMin(start);
+    const eMin = toMin(end);
+    // get all rooms
+    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
+    // find occupied
+    const occupied = new Set();
+    currentData.forEach(i => {
+      if (i.Days.includes(day)) {
+        const si = parseTime(i.Start_Time);
+        const ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) {
+          occupied.add(i.Building + '-' + i.Room);
+        }
+      }
+    });
+    const available = rooms.filter(r => !occupied.has(r));
+    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
+  }
+
+});
   }
 
   function parseTime(t24) {
@@ -131,4 +331,43 @@ document.addEventListener('DOMContentLoaded', () => {
     h = ((h + 11) % 12) + 1;
     return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
+
+  function showAvailability() {
+    if (!currentData.length) {
+      alert('Please upload a schedule first.');
+      return;
+    }
+    const day = prompt('Enter day (e.g. Monday):');
+    if (!day) return;
+    const start = prompt('Enter start time (e.g. 10:00AM):');
+    if (!start) return;
+    const end = prompt('Enter end time (e.g. 12:00PM):');
+    if (!end) return;
+    // convert start/end to minutes
+    const toMin = s => {
+      let ap = s.slice(-2).toUpperCase();
+      let [h, m] = s.slice(0, -2).split(':').map(Number);
+      if (ap === 'PM' && h < 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+    const sMin = toMin(start);
+    const eMin = toMin(end);
+    // get all rooms
+    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
+    // find occupied
+    const occupied = new Set();
+    currentData.forEach(i => {
+      if (i.Days.includes(day)) {
+        const si = parseTime(i.Start_Time);
+        const ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) {
+          occupied.add(i.Building + '-' + i.Room);
+        }
+      }
+    });
+    const available = rooms.filter(r => !occupied.has(r));
+    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
+  }
+
 });
