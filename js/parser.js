@@ -24,10 +24,8 @@ function parseCSVFile(file, callback) {
             });
           }
           return {
-            Subject_Course: r['Title'] || r['Subject_Course'] || '',
+            Course_Code: r['Subject_Course'] || '',
             CRN: r['CRN'],
-            Building: r['BUILDING'],
-            Room: r['ROOM'],
             Days: daysArr,
             Start_Time: start24,
             End_Time: end24

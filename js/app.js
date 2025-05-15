@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const uploadDiv = document.getElementById('upload-container');
   const roomDiv = document.getElementById('room-filter');
 
-  // create tabs
   terms.forEach((term, idx) => {
     const tab = document.createElement('div');
     tab.className = 'tab' + (idx === 2 ? ' active' : '');
@@ -16,7 +15,6 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.onclick = () => selectTerm(term, tab);
     tabs.appendChild(tab);
   });
-
   selectTerm(terms[2], tabs.children[2]);
 
   function selectTerm(term, tabElem) {
@@ -31,7 +29,11 @@ document.addEventListener('DOMContentLoaded', () => {
     roomDiv.innerHTML = '';
     document.getElementById('file-input').onchange = e => {
       parseCSVFile(e.target.files[0], data => {
-        currentData = data;
+        currentData = data.map(item => ({
+          ...item,
+          Building: item.Building,
+          Room: item.Room
+        }));
         buildRoomDropdown();
         renderSchedule();
       });
@@ -49,7 +51,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function clearSchedule() {
     table.innerHTML = '';
     container.querySelectorAll('.class-block').forEach(e => e.remove());
-    // build header and grid
     const header = table.insertRow();
     header.insertCell().outerHTML = '<th>Time</th>';
     daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
@@ -100,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
       columns.flat().forEach(ev => {
         const topPct = ((ev.startMin - 360) / (1320 - 360)) * 100;
         const heightPct = ((ev.endMin - ev.startMin) / (1320 - 360)) * 100;
-        const dayWidthPct = 100 / (1 + totalCols); // including time col
+        const dayWidthPct = 100 / (1 + totalCols);
         const leftPct = ((dIdx + 1) * dayWidthPct) + (ev.col * (dayWidthPct / columns.length));
         const widthPct = dayWidthPct / columns.length;
         const block = document.createElement('div');
@@ -109,7 +110,11 @@ document.addEventListener('DOMContentLoaded', () => {
         block.style.left = leftPct + '%';
         block.style.width = widthPct + '%';
         block.style.height = heightPct + '%';
-        block.innerHTML = `<strong>${ev.Subject_Course} - ${ev.CRN}</strong><br>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}`;
+        block.innerHTML = `<div>
+<span>${ev.Course_Code}</span><br>
+<span>${ev.CRN}</span><br>
+<span>${format12(ev.Start_Time).toLowerCase().replace(/m$/,'.m.') } - ${format12(ev.End_Time).toLowerCase().replace(/m$/,'.m.') }</span>
+</div>`;
         container.appendChild(block);
       });
     });
@@ -126,5 +131,4 @@ document.addEventListener('DOMContentLoaded', () => {
     h = ((h + 11) % 12) + 1;
     return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
-
 });
