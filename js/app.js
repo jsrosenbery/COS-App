@@ -2,125 +2,52 @@ document.addEventListener('DOMContentLoaded', () => {
   const terms = ['Summer 2025','Fall 2025','Spring 2026','Summer 2026','Fall 2026','Spring 2027','Summer 2027','Fall 2027','Spring 2028'];
   const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   let currentData = [];
-  const container = document.getElementById('schedule-container');
-  const table = document.getElementById('schedule-table');
+
   const tabs = document.getElementById('term-tabs');
   const uploadDiv = document.getElementById('upload-container');
+  const tsDiv = document.getElementById('upload-timestamp');
   const roomDiv = document.getElementById('room-filter');
+  const table = document.getElementById('schedule-table');
+  const container = document.getElementById('schedule-container');
+  const availabilityBtn = document.getElementById('availability-btn');
 
+  // Create tabs
   terms.forEach((term, idx) => {
     const tab = document.createElement('div');
     tab.className = 'tab' + (idx === 2 ? ' active' : '');
     tab.textContent = term;
-    tab.onclick = () => selectTerm(term, tab);
+    tab.addEventListener('click', () => selectTerm(term, tab));
     tabs.appendChild(tab);
-  
-  function showAvailability() {
-    if (!currentData.length) {
-      alert('Please upload a schedule first.');
-      return;
-    }
-    const day = prompt('Enter day (e.g. Monday):');
-    if (!day) return;
-    const start = prompt('Enter start time (e.g. 10:00AM):');
-    if (!start) return;
-    const end = prompt('Enter end time (e.g. 12:00PM):');
-    if (!end) return;
-    // convert start/end to minutes
-    const toMin = s => {
-      let ap = s.slice(-2).toUpperCase();
-      let [h, m] = s.slice(0, -2).split(':').map(Number);
-      if (ap === 'PM' && h < 12) h += 12;
-      if (ap === 'AM' && h === 12) h = 0;
-      return h * 60 + m;
-    };
-    const sMin = toMin(start);
-    const eMin = toMin(end);
-    // get all rooms
-    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
-    // find occupied
-    const occupied = new Set();
-    currentData.forEach(i => {
-      if (i.Days.includes(day)) {
-        const si = parseTime(i.Start_Time);
-        const ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) {
-          occupied.add(i.Building + '-' + i.Room);
-        }
-      }
-    });
-    const available = rooms.filter(r => !occupied.has(r));
-    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
-  }
+  });
 
-});
+  // Initial load
   selectTerm(terms[2], tabs.children[2]);
 
+  // Bind availability
+  availabilityBtn.addEventListener('click', showAvailability);
+
   function selectTerm(term, tabElem) {
+    // Activate tab
     Array.from(tabs.children).forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
+    // Reset
     setupUpload();
     clearSchedule();
+    tsDiv.textContent = '';
   }
 
   function setupUpload() {
     uploadDiv.innerHTML = '<label>Upload CSV: <input type="file" id="file-input" accept=".csv"></label>';
-    roomDiv.innerHTML = '';
-    document.getElementById('file-input').onchange = e => {
-      // update timestamp
-      const tsDiv = document.getElementById('upload-timestamp');
-      const now = new Date();
-      tsDiv.textContent = 'Last upload: ' + now.toLocaleString();
-
-      parseCSVFile(e.target.files[0], data => {
-        currentData = data.map(item => ({
-          ...item,
-          Building: item.Building,
-          Room: item.Room
-        }));
+    document.getElementById('file-input').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      parseCSVFile(file, data => {
+        currentData = data;
+        tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-      
-  function showAvailability() {
-    if (!currentData.length) {
-      alert('Please upload a schedule first.');
-      return;
-    }
-    const day = prompt('Enter day (e.g. Monday):');
-    if (!day) return;
-    const start = prompt('Enter start time (e.g. 10:00AM):');
-    if (!start) return;
-    const end = prompt('Enter end time (e.g. 12:00PM):');
-    if (!end) return;
-    // convert start/end to minutes
-    const toMin = s => {
-      let ap = s.slice(-2).toUpperCase();
-      let [h, m] = s.slice(0, -2).split(':').map(Number);
-      if (ap === 'PM' && h < 12) h += 12;
-      if (ap === 'AM' && h === 12) h = 0;
-      return h * 60 + m;
-    };
-    const sMin = toMin(start);
-    const eMin = toMin(end);
-    // get all rooms
-    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
-    // find occupied
-    const occupied = new Set();
-    currentData.forEach(i => {
-      if (i.Days.includes(day)) {
-        const si = parseTime(i.Start_Time);
-        const ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) {
-          occupied.add(i.Building + '-' + i.Room);
-        }
-      }
+      });
     });
-    const available = rooms.filter(r => !occupied.has(r));
-    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
-  }
-
-});
-    };
   }
 
   function buildRoomDropdown() {
@@ -128,20 +55,22 @@ document.addEventListener('DOMContentLoaded', () => {
     roomDiv.innerHTML = '<label>Filter Bldg-Room: <select id="room-select"><option>All</option>' +
       combos.map(r => `<option>${r}</option>`).join('') +
       '</select></label>';
-    document.getElementById('room-select').onchange = renderSchedule;
+    document.getElementById('room-select').addEventListener('change', renderSchedule);
   }
 
   function clearSchedule() {
     table.innerHTML = '';
-    container.querySelectorAll('.class-block').forEach(e => e.remove());
+    container.querySelectorAll('.class-block').forEach(el => el.remove());
+    // Header
     const header = table.insertRow();
     header.insertCell().outerHTML = '<th>Time</th>';
     daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
-    for (let t = 360; t <= 1320; t += 30) {
+    // Rows 6:00 to 22:00
+    for (let t = 360; t <= 22*60; t += 30) {
       const row = table.insertRow();
       const hh = Math.floor(t/60), mm = t % 60;
-      const h12 = ((hh + 11) % 12 + 1), ampm = hh < 12 ? 'AM' : 'PM';
-      row.insertCell().outerHTML = `<th>${h12}:${('0'+mm).slice(-2)}${ampm}</th>`;
+      const h12 = ((hh+11)%12+1), ap = hh<12?'AM':'PM';
+      row.insertCell().outerHTML = `<th>${h12}:${('0'+mm).slice(-2)}${ap}</th>`;
       for (let i = 0; i < daysOfWeek.length; i++) {
         row.insertCell();
       }
@@ -150,21 +79,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderSchedule() {
     clearSchedule();
-    const filterVal = document.getElementById('room-select')?.value;
-    const data = filterVal && filterVal !== 'All'
-      ? currentData.filter(i => `${i.Building}-${i.Room}` === filterVal)
-      : currentData;
-    const containerRect = container.getBoundingClientRect();
-    const totalHeight = containerRect.height;
-    const totalCols = daysOfWeek.length;
+    const filter = document.getElementById('room-select')?.value || 'All';
+    const data = filter === 'All' ? currentData : currentData.filter(i => (i.Building + '-' + i.Room) === filter);
     daysOfWeek.forEach((day, dIdx) => {
+      // Filter events for day
       const events = data.filter(i => i.Days.includes(day))
-        .map(i => ({
-          ...i,
-          startMin: parseTime(i.Start_Time),
-          endMin: parseTime(i.End_Time)
-        }))
+        .map(i => ({ ...i, startMin: parseTime(i.Start_Time), endMin: parseTime(i.End_Time) }))
         .sort((a, b) => a.startMin - b.startMin);
+      // Column logic
       const columns = [];
       events.forEach(ev => {
         let placed = false;
@@ -180,194 +102,48 @@ document.addEventListener('DOMContentLoaded', () => {
           ev.col = columns.length;
           columns.push([ev]);
         }
-      
-  function showAvailability() {
-    if (!currentData.length) {
-      alert('Please upload a schedule first.');
-      return;
-    }
-    const day = prompt('Enter day (e.g. Monday):');
-    if (!day) return;
-    const start = prompt('Enter start time (e.g. 10:00AM):');
-    if (!start) return;
-    const end = prompt('Enter end time (e.g. 12:00PM):');
-    if (!end) return;
-    // convert start/end to minutes
-    const toMin = s => {
-      let ap = s.slice(-2).toUpperCase();
-      let [h, m] = s.slice(0, -2).split(':').map(Number);
-      if (ap === 'PM' && h < 12) h += 12;
-      if (ap === 'AM' && h === 12) h = 0;
-      return h * 60 + m;
-    };
-    const sMin = toMin(start);
-    const eMin = toMin(end);
-    // get all rooms
-    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
-    // find occupied
-    const occupied = new Set();
-    currentData.forEach(i => {
-      if (i.Days.includes(day)) {
-        const si = parseTime(i.Start_Time);
-        const ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) {
-          occupied.add(i.Building + '-' + i.Room);
-        }
-      }
-    });
-    const available = rooms.filter(r => !occupied.has(r));
-    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
-  }
-
-});
+      });
+      const colCount = columns.length || 1;
       columns.flat().forEach(ev => {
-        const topPct = ((ev.startMin - 360) / (1320 - 360)) * 100;
-        const heightPct = ((ev.endMin - ev.startMin) / (1320 - 360)) * 100;
-        const dayWidthPct = 100 / (1 + totalCols);
-        const leftPct = ((dIdx + 1) * dayWidthPct) + (ev.col * (dayWidthPct / columns.length));
-        const widthPct = dayWidthPct / columns.length;
+        const top = ((ev.startMin - 360) / (22*60 - 360)) * 100;
+        const height = ((ev.endMin - ev.startMin) / (22*60 - 360)) * 100;
+        const left = ((dIdx + 1) / (daysOfWeek.length + 1) * 100) + (ev.col * (100 / (daysOfWeek.length + 1) / colCount));
+        const width = (100 / (daysOfWeek.length + 1) / colCount);
         const block = document.createElement('div');
         block.className = 'class-block';
-        block.style.top = topPct + '%';
-        block.style.left = leftPct + '%';
-        block.style.width = widthPct + '%';
-        block.style.height = heightPct + '%';
-        block.innerHTML = `<div>
-<span>${ev.Course_Code}</span><br>
+        block.style.top = top + '%';
+        block.style.left = left + '%';
+        block.style.width = width + '%';
+        block.style.height = height + '%';
+        block.innerHTML = `<div style="text-align:center;">
+<span>${ev.Subject_Course}</span><br>
 <span>${ev.CRN}</span><br>
-<span>${format12(ev.Start_Time).toLowerCase().replace(/m$/,'.m.') } - ${format12(ev.End_Time).toLowerCase().replace(/m$/,'.m.') }</span>
+<span>${format12(ev.Start_Time).toLowerCase()} - ${format12(ev.End_Time).toLowerCase()}</span>
 </div>`;
         container.appendChild(block);
-      
-  function showAvailability() {
-    if (!currentData.length) {
-      alert('Please upload a schedule first.');
-      return;
-    }
-    const day = prompt('Enter day (e.g. Monday):');
-    if (!day) return;
-    const start = prompt('Enter start time (e.g. 10:00AM):');
-    if (!start) return;
-    const end = prompt('Enter end time (e.g. 12:00PM):');
-    if (!end) return;
-    // convert start/end to minutes
-    const toMin = s => {
-      let ap = s.slice(-2).toUpperCase();
-      let [h, m] = s.slice(0, -2).split(':').map(Number);
-      if (ap === 'PM' && h < 12) h += 12;
-      if (ap === 'AM' && h === 12) h = 0;
-      return h * 60 + m;
-    };
-    const sMin = toMin(start);
-    const eMin = toMin(end);
-    // get all rooms
-    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
-    // find occupied
-    const occupied = new Set();
-    currentData.forEach(i => {
-      if (i.Days.includes(day)) {
-        const si = parseTime(i.Start_Time);
-        const ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) {
-          occupied.add(i.Building + '-' + i.Room);
-        }
-      }
+      });
     });
-    const available = rooms.filter(r => !occupied.has(r));
-    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
-  }
-
-});
-    
-  function showAvailability() {
-    if (!currentData.length) {
-      alert('Please upload a schedule first.');
-      return;
-    }
-    const day = prompt('Enter day (e.g. Monday):');
-    if (!day) return;
-    const start = prompt('Enter start time (e.g. 10:00AM):');
-    if (!start) return;
-    const end = prompt('Enter end time (e.g. 12:00PM):');
-    if (!end) return;
-    // convert start/end to minutes
-    const toMin = s => {
-      let ap = s.slice(-2).toUpperCase();
-      let [h, m] = s.slice(0, -2).split(':').map(Number);
-      if (ap === 'PM' && h < 12) h += 12;
-      if (ap === 'AM' && h === 12) h = 0;
-      return h * 60 + m;
-    };
-    const sMin = toMin(start);
-    const eMin = toMin(end);
-    // get all rooms
-    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
-    // find occupied
-    const occupied = new Set();
-    currentData.forEach(i => {
-      if (i.Days.includes(day)) {
-        const si = parseTime(i.Start_Time);
-        const ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) {
-          occupied.add(i.Building + '-' + i.Room);
-        }
-      }
-    });
-    const available = rooms.filter(r => !occupied.has(r));
-    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
-  }
-
-});
-  }
-
-  function parseTime(t24) {
-    const [h, m] = t24.split(':').map(Number);
-    return h * 60 + m;
-  }
-
-  function format12(t24) {
-    let [h, m] = t24.split(':').map(Number);
-    const ap = h < 12 ? 'AM' : 'PM';
-    h = ((h + 11) % 12) + 1;
-    return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
 
   function showAvailability() {
-    if (!currentData.length) {
-      alert('Please upload a schedule first.');
-      return;
-    }
-    const day = prompt('Enter day (e.g. Monday):');
-    if (!day) return;
-    const start = prompt('Enter start time (e.g. 10:00AM):');
-    if (!start) return;
-    const end = prompt('Enter end time (e.g. 12:00PM):');
-    if (!end) return;
-    // convert start/end to minutes
-    const toMin = s => {
-      let ap = s.slice(-2).toUpperCase();
-      let [h, m] = s.slice(0, -2).split(':').map(Number);
-      if (ap === 'PM' && h < 12) h += 12;
-      if (ap === 'AM' && h === 12) h = 0;
-      return h * 60 + m;
-    };
-    const sMin = toMin(start);
-    const eMin = toMin(end);
-    // get all rooms
+    if (!currentData.length) { alert('Upload schedule first'); return; }
+    const day = prompt('Day (e.g. Monday):'); if (!day) return;
+    const start = prompt('Start time (e.g. 10:00AM):'); if (!start) return;
+    const end = prompt('End time (e.g. 12:00PM):'); if (!end) return;
+    const toMin = s => { const ap=s.slice(-2).toUpperCase(); let [h,m]=s.slice(0,-2).split(':').map(Number); if(ap==='PM'&&h<12)h+=12; if(ap==='AM'&&h===12)h=0; return h*60+m; };
+    const sMin=toMin(start), eMin=toMin(end);
     const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
-    // find occupied
-    const occupied = new Set();
+    const occ = new Set();
     currentData.forEach(i => {
       if (i.Days.includes(day)) {
-        const si = parseTime(i.Start_Time);
-        const ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) {
-          occupied.add(i.Building + '-' + i.Room);
-        }
+        const si=parseTime(i.Start_Time), ei=parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
       }
     });
-    const available = rooms.filter(r => !occupied.has(r));
-    alert(`Available rooms on ${day} between ${start} and ${end}:\n` + (available.length ? available.join(', ') : 'None'));
+    const avail = rooms.filter(r => !occ.has(r));
+    alert('Available rooms on ' + day + ' ' + start + '-' + end + ':\n' + (avail.length?avail.join(', '):'None'));
   }
 
+  function parseTime(t) { const [h,m]=t.split(':').map(Number); return h*60 + m; }
+  function format12(t) { let [h,m]=t.split(':').map(Number); const ap=h<12?'AM':'PM'; h=((h+11)%12)+1; return `${h}:${('0'+m).slice(-2)}${ap}`; }
 });
