@@ -9,7 +9,7 @@ function parseCSVFile(file, callback) {
         .map(r => {
           const daysMap = {'M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday'};
           const daysArr = (r['DAYS']||'').split('').map(d => daysMap[d]||d);
-          const timeParts = (r['Time']||'').split(' - ');
+          const timeParts = (r['Time']||r['TIME']||'').split(' - ');
           let start = '00:00', end = '00:00';
           if (timeParts.length === 2) {
             ['start','end'].forEach((t, i) => {

@@ -4,10 +4,10 @@ header { display: flex; align-items: center; background: #003366; color: #fff; p
 #term-tabs { display: flex; background: #f4f4f4; padding: 0.5rem; }
 .tab { margin-right: 0.5rem; padding: 0.5rem 1rem; cursor: pointer; }
 .tab.active { background: #003366; color: #fff; }
-#upload-container { padding: 1rem; }
+#upload-container, #room-filter { padding: 0.5rem 1rem; }
 #schedule-container { overflow-x: auto; padding: 1rem; }
-#schedule-table { border-collapse: collapse; width: 100%; }
+#schedule-table { border-collapse: collapse; width: 100%; table-layout: fixed; }
 #schedule-table th, #schedule-table td { border: 1px solid #ccc; text-align: center; padding: 0.25rem; }
 #schedule-table th { background: #e0e0e0; }
-.class-block { background: #cce5ff; }
+.class-block { background: #cce5ff; margin: 1px; padding: 0.25rem; }
 #availability-btn { margin: 1rem; padding: 0.5rem 1rem; background: #007ACC; color: #fff; border: none; cursor: pointer; }
