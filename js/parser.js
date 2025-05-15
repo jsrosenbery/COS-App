@@ -7,7 +7,7 @@ function parseCSVFile(file, callback) {
         .filter(r => r['ROOM'] && !['', 'N/A', 'LIVE'].includes(r['ROOM'].toUpperCase()))
         .filter(r => !(r['BUILDING'] && r['BUILDING'].toUpperCase() === 'ONLINE'))
         .map(r => {
-          const daysMap = {'M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday'};
+          const daysMap = {'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday'};
           const daysArr = (r['DAYS']||'').split('').map(d => daysMap[d]||d);
           const rawTime = r['Time'] || r['TIME'] || '';
           const parts = rawTime.split(' - ');
