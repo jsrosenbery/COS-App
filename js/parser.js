@@ -26,6 +26,8 @@ function parseCSVFile(file, callback) {
           return {
             Course_Code: r['Subject_Course'] || '',
             CRN: r['CRN'],
+            Building: r['BUILDING'],  // ensure Building is included
+            Room: r['ROOM'],          // ensure Room is included
             Days: daysArr,
             Start_Time: start24,
             End_Time: end24
