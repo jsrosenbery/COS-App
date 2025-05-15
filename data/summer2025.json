@@ -1,0 +1,36 @@
+[
+  {
+    "Subject_Course": "Strategies of Sport",
+    "CRN": "31062",
+    "Building": "COSEXT",
+    "Room": "FIELD",
+    "Days": [
+      "M",
+      "T",
+      "W",
+      "R"
+    ],
+    "Start_Time": "10:00",
+    "End_Time": "12:10",
+    "Start_Date": "2025-07-07",
+    "End_Date": "2025-07-31",
+    "Instructor": "Campos Payan, A"
+  },
+  {
+    "Subject_Course": "Performance of Sport",
+    "CRN": "31064",
+    "Building": "COSEXT",
+    "Room": "FIELD",
+    "Days": [
+      "M",
+      "T",
+      "W",
+      "R"
+    ],
+    "Start_Time": "08:00",
+    "End_Time": "10:10",
+    "Start_Date": "2025-07-07",
+    "End_Date": "2025-07-31",
+    "Instructor": "Morris, B"
+  }
+]
