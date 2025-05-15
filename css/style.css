@@ -18,3 +18,9 @@ header { display: flex; align-items: center; background: #003366; color: #fff; p
   color: #555;
   padding: 0 1rem 0.5rem 1rem;
 }
+
+/* Center the availability button between tabs and grid */
+#availability-btn {
+  display: block;
+  margin: 0.5rem auto;
+}
