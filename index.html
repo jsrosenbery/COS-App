@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>COS Scheduling App</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -14,27 +15,11 @@
   <div id="upload-container"></div>
   <div id="upload-timestamp" class="upload-timestamp"></div>
   <div id="room-filter"></div>
-  <div id="availability-ui" class="availability-ui">
-    <h3>Check Room Availability</h3>
-    <div class="availability-controls">
-      <div class="days">
-        <label><input type="checkbox" value="Sunday">Sun</label>
-        <label><input type="checkbox" value="Monday">Mon</label>
-        <label><input type="checkbox" value="Tuesday">Tue</label>
-        <label><input type="checkbox" value="Wednesday">Wed</label>
-        <label><input type="checkbox" value="Thursday">Thu</label>
-        <label><input type="checkbox" value="Friday">Fri</label>
-        <label><input type="checkbox" value="Saturday">Sat</label>
-      </div>
-      <div class="times">
-        <label>Start:<select id="avail-start"></select></label>
-        <label>End:<select id="avail-end"></select></label>
-        <button id="avail-check-btn">Check</button>
-      </div>
-    </div>
-    <div id="avail-results" class="avail-results"></div>
+  <button id="availability-btn">Room Availability</button>
+  <div id="schedule-container">
+    <table id="schedule-table"></table>
   </div>
-  <div id="schedule-container"><table id="schedule-table"></table></div>
+  
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
   <script src="js/parser.js"></script>
   <script src="js/app.js"></script>
