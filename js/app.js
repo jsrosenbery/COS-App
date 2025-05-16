@@ -85,22 +85,19 @@ function renderSchedule() {
   const containerRect = container.getBoundingClientRect();
 
   daysOfWeek.forEach((day, dIdx) => {
-    // filter events for this day
     const events = data
       .filter(i => i.Days.includes(day))
       .map(i => ({...i, startMin: parseTime(i.Start_Time), endMin: parseTime(i.End_Time)}))
       .sort((a, b) => a.startMin - b.startMin);
 
-    // overlap columns
+    // overlap columns logic
     const columns = [];
     events.forEach(ev => {
       let placed = false;
       for (let c = 0; c < columns.length; c++) {
         if (columns[c][columns[c].length - 1].endMin <= ev.startMin) {
           columns[c].push(ev);
-          ev.col = c;
-          placed = true;
-          break;
+          ev.col = c; placed = true; break;
         }
       }
       if (!placed) {
@@ -110,9 +107,7 @@ function renderSchedule() {
     });
     const colCount = columns.length || 1;
 
-    // render each
     columns.flat().forEach(ev => {
-      // compute row index
       const rowIndex = Math.floor((ev.startMin - 360) / 30) + 1;
       const cell = table.rows[rowIndex].cells[dIdx + 1];
       const cellRect = cell.getBoundingClientRect();
@@ -125,7 +120,7 @@ function renderSchedule() {
       block.className = 'class-block';
       block.style.position = 'absolute';
       block.style.top = topPx + 'px';
-      block.style.left = leftPx + ev.col * widthPx + 'px';
+      block.style.left = (leftPx + ev.col * widthPx) + 'px';
       block.style.width = widthPx + 'px';
       block.style.height = heightPx + 'px';
       block.innerHTML = `
@@ -133,7 +128,8 @@ function renderSchedule() {
           <span>${ev.Subject_Course}</span><br>
           <span>${ev.CRN}</span><br>
           <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>
-        </div>`.trim();
+        </div>
+      `.trim();
       container.appendChild(block);
     });
   });
