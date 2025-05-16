@@ -1,23 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-  let currentTerm = '';
-  // Load saved schedule
-  const saved = localStorage.getItem('scheduleData');
-  if (saved) {
-    const { term, data, timestamp } = JSON.parse(saved);
-    currentTerm = term;
-    currentData = data;
-    document.getElementById('upload-timestamp').textContent = 'Last upload: ' + timestamp;
-    // Activate saved term tab
-    const tabs = document.getElementById('term-tabs');
-    Array.from(tabs.children).forEach(t => {
-      t.classList.toggle('active', t.textContent === term);
-    });
-    buildRoomDropdown();
-    renderSchedule();
-        // Persist schedule
-        localStorage.setItem('scheduleData', JSON.stringify({ term: currentTerm, data: currentData, timestamp: new Date().toLocaleString() }));
-  }
-
   const terms = ['Summer 2025','Fall 2025','Spring 2026','Summer 2026','Fall 2026','Spring 2027','Summer 2027','Fall 2027','Spring 2028'];
   const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   let currentData = [];
@@ -82,10 +63,151 @@ document.addEventListener('DOMContentLoaded', () => {
           occupied.add(i.Building + '-' + i.Room);
         }
       }
+    
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
     });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
+
+});
     const available = rooms.filter(r => !occupied.has(r));
     alert('Available rooms:\n' + (available.length ? available.join(', ') : 'None'));
+  
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
   });
+}
+setupAvailabilityUI();
+
+});
+
+
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
 
 });
 
@@ -96,7 +218,6 @@ document.addEventListener('DOMContentLoaded', () => {
   availabilityBtn.addEventListener('click', showAvailability);
 
   function selectTerm(term, tabElem) {
-    currentTerm = term;
     // Activate tab
     Array.from(tabs.children).forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
@@ -107,7 +228,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function setupUpload() {
-    currentTerm = document.querySelector('.tab.active').textContent;
     uploadDiv.innerHTML = '<label>Upload CSV: <input type="file" id="file-input" accept=".csv"></label>';
     document.getElementById('file-input').addEventListener('change', e => {
       const file = e.target.files[0];
@@ -117,8 +237,6 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-        // Persist schedule
-        localStorage.setItem('scheduleData', JSON.stringify({ term: currentTerm, data: currentData, timestamp: new Date().toLocaleString() }));
       
   // Populate time selects in 5-min increments
   function populateAvailabilityTimes() {
@@ -164,10 +282,151 @@ document.addEventListener('DOMContentLoaded', () => {
           occupied.add(i.Building + '-' + i.Room);
         }
       }
+    
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
     });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
+
+});
     const available = rooms.filter(r => !occupied.has(r));
     alert('Available rooms:\n' + (available.length ? available.join(', ') : 'None'));
+  
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
   });
+}
+setupAvailabilityUI();
+
+});
+
+
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
 
 });
     
@@ -215,10 +474,151 @@ document.addEventListener('DOMContentLoaded', () => {
           occupied.add(i.Building + '-' + i.Room);
         }
       }
+    
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
     });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
+
+});
     const available = rooms.filter(r => !occupied.has(r));
     alert('Available rooms:\n' + (available.length ? available.join(', ') : 'None'));
+  
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
   });
+}
+setupAvailabilityUI();
+
+});
+
+
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
 
 });
   }
@@ -320,10 +720,151 @@ document.addEventListener('DOMContentLoaded', () => {
           occupied.add(i.Building + '-' + i.Room);
         }
       }
+    
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
     });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
+
+});
     const available = rooms.filter(r => !occupied.has(r));
     alert('Available rooms:\n' + (available.length ? available.join(', ') : 'None'));
+  
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
   });
+}
+setupAvailabilityUI();
+
+});
+
+
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
 
 });
       const colCount = columns.length || 1;
@@ -389,10 +930,151 @@ document.addEventListener('DOMContentLoaded', () => {
           occupied.add(i.Building + '-' + i.Room);
         }
       }
+    
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
     });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
+
+});
     const available = rooms.filter(r => !occupied.has(r));
     alert('Available rooms:\n' + (available.length ? available.join(', ') : 'None'));
+  
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
   });
+}
+setupAvailabilityUI();
+
+});
+
+
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
 
 });
     
@@ -440,10 +1122,151 @@ document.addEventListener('DOMContentLoaded', () => {
           occupied.add(i.Building + '-' + i.Room);
         }
       }
+    
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
     });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
+
+});
     const available = rooms.filter(r => !occupied.has(r));
     alert('Available rooms:\n' + (available.length ? available.join(', ') : 'None'));
+  
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
   });
+}
+setupAvailabilityUI();
+
+});
+
+
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
 
 });
   }
@@ -507,10 +1330,151 @@ document.addEventListener('DOMContentLoaded', () => {
           occupied.add(i.Building + '-' + i.Room);
         }
       }
+    
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
     });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
+
+});
     const available = rooms.filter(r => !occupied.has(r));
     alert('Available rooms:\n' + (available.length ? available.join(', ') : 'None'));
+  
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
   });
+}
+setupAvailabilityUI();
+
+});
+
+
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
 
 });
     const avail = rooms.filter(r => !occ.has(r));
@@ -564,9 +1528,150 @@ document.addEventListener('DOMContentLoaded', () => {
           occupied.add(i.Building + '-' + i.Room);
         }
       }
+    
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
     });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
+
+});
     const available = rooms.filter(r => !occupied.has(r));
     alert('Available rooms:\n' + (available.length ? available.join(', ') : 'None'));
+  
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
   });
+}
+setupAvailabilityUI();
+
+});
+
+
+// Availability UI logic
+function setupAvailabilityUI() {
+  // populate time dropdowns in 5-min increments
+  const startSel = document.getElementById('avail-start');
+  const endSel = document.getElementById('avail-end');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSel.innerHTML += `<option>${label}</option>`;
+    endSel.innerHTML += `<option>${label}</option>`;
+  }
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    // gather days
+    const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
+      .map(cb => cb.value);
+    const start = startSel.value;
+    const end = endSel.value;
+    if (!days.length || !start || !end) {
+      alert('Select days and times.');
+      return;
+    }
+    // convert to minutes
+    const toMin = s => {
+      const [time, ap] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12) h=0;
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+    const occ = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+      }
+    });
+    const available = rooms.filter(r => !occ.has(r));
+    alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+  });
+}
+setupAvailabilityUI();
 
 });
