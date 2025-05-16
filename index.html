@@ -20,6 +20,7 @@
 
   <div id="availability-ui" class="availability-ui">
     <h3>Check Room Availability</h3>
+    <!-- Day checkboxes -->
     <div class="days">
       <label><input type="checkbox" value="Sunday"> Sun</label>
       <label><input type="checkbox" value="Monday"> Mon</label>
@@ -29,11 +30,14 @@
       <label><input type="checkbox" value="Friday"> Fri</label>
       <label><input type="checkbox" value="Saturday"> Sat</label>
     </div>
+    <!-- Time inputs + buttons -->
     <div class="times">
       <label>Start: <input type="time" id="avail-start" step="300"></label>
       <label>End:   <input type="time" id="avail-end"   step="300"></label>
       <button id="avail-check-btn">Check</button>
+      <button id="avail-clear-btn">Clear</button>
     </div>
+    <!-- Results -->
     <div id="avail-results" class="avail-results"></div>
   </div>
 
