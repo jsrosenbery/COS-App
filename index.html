@@ -26,13 +26,13 @@
         <label><input type="checkbox" value="Friday">Fri</label>
         <label><input type="checkbox" value="Saturday">Sat</label>
       </div>
-      <div class="times">
-        <label>Start:<select id="avail-start"></select></label>
-        <label>End:<select id="avail-end"></select></label>
-        <button id="avail-check-btn">Check</button>
-      </div>
-    </div>
-    <div id="avail-results" class="avail-results"></div>
+<div class="times">
+  <label>Start: <input type="time" id="avail-start" step="300"></label>
+  <label>End:   <input type="time" id="avail-end"   step="300"></label>
+  <button id="avail-check-btn">Check</button>
+</div>
+<div id="avail-results" class="avail-results"></div>
+
   </div>
   <div id="schedule-container"><table id="schedule-table"></table></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
