@@ -147,3 +147,61 @@ document.addEventListener('DOMContentLoaded', () => {
   function parseTime(t) { const [h,m]=t.split(':').map(Number); return h*60 + m; }
   function format12(t) { let [h,m]=t.split(':').map(Number); const ap=h<12?'AM':'PM'; h=((h+11)%12)+1; return `${h}:${('0'+m).slice(-2)}${ap}`; }
 });
+
+
+// Modal and enhanced availability UI
+const availBtn = document.getElementById('availability-btn');
+const modal = document.getElementById('availability-modal');
+const closeBtn = document.querySelector('.close-btn');
+
+// Show/hide modal
+availBtn.addEventListener('click', () => modal.style.display = 'block');
+closeBtn.addEventListener('click', () => modal.style.display = 'none');
+window.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+
+// Populate time dropdowns (5-min increments)
+function populateTimes() {
+  const startSelect = document.getElementById('start-time');
+  const endSelect = document.getElementById('end-time');
+  for (let m = 360; m <= 22*60; m += 5) {
+    const h = Math.floor(m/60), mm = m % 60;
+    const ap = h < 12 ? 'AM' : 'PM';
+    const h12 = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+    startSelect.innerHTML += `<option>${label}</option>`;
+    endSelect.innerHTML += `<option>${label}</option>`;
+  }
+}
+populateTimes();
+
+// Check availability in modal
+document.getElementById('check-availability-btn').addEventListener('click', () => {
+  const days = [...document.querySelectorAll('#day-checkboxes input:checked')].map(cb => cb.value);
+  const start = document.getElementById('start-time').value;
+  const end = document.getElementById('end-time').value;
+  if (!days.length || !start || !end) {
+    alert('Please select at least one day and both start/end times.');
+    return;
+  }
+  const toMin = s => {
+    const [time, ap] = s.split(' ');
+    let [h, m] = time.split(':').map(Number);
+    if (ap === 'PM' && h < 12) h += 12;
+    if (ap === 'AM' && h === 12) h = 0;
+    return h*60 + m;
+  };
+  const sMin = toMin(start), eMin = toMin(end);
+  const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
+  const occupied = new Set();
+  currentData.forEach(i => {
+    days.forEach(d => {
+      if (i.Days.includes(d)) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) occupied.add(i.Building + '-' + i.Room);
+      }
+    });
+  });
+  const available = rooms.filter(r => !occupied.has(r));
+  alert('Available rooms:\n' + (available.length ? available.join(', ') : 'None'));
+  modal.style.display = 'none';
+});
