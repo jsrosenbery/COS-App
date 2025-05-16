@@ -72,6 +72,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initial load
   selectTerm(terms[2], tabs.children[2]);
+    // Bind room-select change even before upload
+    document.getElementById('room-select')?.addEventListener('change', renderSchedule);
+
 
   // Bind availability
   availabilityBtn.addEventListener('click', showAvailability);
