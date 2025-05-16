@@ -8,53 +8,56 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentData = [];
   let currentTerm = '';
 
-  // Cache DOM refs
-  const tabs         = document.getElementById('term-tabs');
-  const uploadDiv    = document.getElementById('upload-container');
-  const tsDiv        = document.getElementById('upload-timestamp');
-  const roomDiv      = document.getElementById('room-filter');
-  const startSel     = document.getElementById('avail-start');
-  const endSel       = document.getElementById('avail-end');
-  const checkBtn     = document.getElementById('avail-check-btn');
-  const resultsDiv   = document.getElementById('avail-results');
-  const table        = document.getElementById('schedule-table');
-  const container    = document.getElementById('schedule-container');
+  // Cached DOM refs
+  const tabs       = document.getElementById('term-tabs');
+  const uploadDiv  = document.getElementById('upload-container');
+  const tsDiv      = document.getElementById('upload-timestamp');
+  const roomDiv    = document.getElementById('room-filter');
+  const startSel   = document.getElementById('avail-start');
+  const endSel     = document.getElementById('avail-end');
+  const checkBtn   = document.getElementById('avail-check-btn');
+  const resultsDiv = document.getElementById('avail-results');
+  const table      = document.getElementById('schedule-table');
+  const container  = document.getElementById('schedule-container');
 
   // Build semester tabs
-  terms.forEach((term, idx) => {
+  terms.forEach((term, i) => {
     const tab = document.createElement('div');
-    tab.className = 'tab' + (idx === 2 ? ' active' : '');
+    tab.className = 'tab' + (i === 2 ? ' active' : '');
     tab.textContent = term;
     tab.onclick = () => selectTerm(term, tab);
     tabs.appendChild(tab);
   });
-  // Select default term
+  // Default select
   selectTerm(terms[2], tabs.children[2]);
 
-  // ───── POPULATE TIME DROPDOWNS ─────────────────────
-  for (let m = 360; m <= 22*60; m += 5) {
-    const h    = Math.floor(m / 60),
-          mm   = m % 60,
-          ap   = h < 12 ? 'AM' : 'PM',
-          h12  = ((h + 11) % 12) + 1,
-          label= `${h12}:${('0'+mm).slice(-2)} ${ap}`;
-    startSel.innerHTML += `<option>${label}</option>`;
-    endSel  .innerHTML += `<option>${label}</option>`;
+  // ───── Populate the 5-minute time dropdowns ─────
+  if (startSel && endSel) {
+    for (let m = 360; m <= 22*60; m += 5) {
+      const h    = Math.floor(m/60);
+      const mm   = m % 60;
+      const ap   = h < 12 ? 'AM' : 'PM';
+      const h12  = ((h + 11) % 12) + 1;
+      const label= `${h12}:${('0'+mm).slice(-2)} ${ap}`;
+      startSel.add(new Option(label, label));
+      endSel  .add(new Option(label, label));
+    }
   }
 
+  // Wire up availability button
   checkBtn.onclick = handleAvailability;
 
-  // ───── Function Definitions ───────────────────────
+  // ───── Helper Functions ───────────────────────
 
   function selectTerm(term, tabElem) {
-    // highlight active tab
     currentTerm = term;
+    // Highlight active tab
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
-    // reset
+    // Reset & upload UI
     clearSchedule();
     setupUpload();
-    // load saved if any
+    // Load saved for this term
     const key = 'cos_schedule_' + term;
     const saved = localStorage.getItem(key);
     if (saved) {
@@ -79,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-        // save
+        // Save this term
         const key = 'cos_schedule_' + currentTerm;
         localStorage.setItem(key, JSON.stringify({
           data: currentData,
@@ -90,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function buildRoomDropdown() {
-    const combos = [...new Set(currentData.map(i => i.Building + '-' + i.Room))].sort();
+    const combos = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))].sort();
     roomDiv.innerHTML = `
       <label>Filter Bldg-Room:
         <select id="room-select">
@@ -104,15 +107,15 @@ document.addEventListener('DOMContentLoaded', () => {
   function clearSchedule() {
     table.innerHTML = '';
     container.querySelectorAll('.class-block').forEach(e => e.remove());
-    // header row
+    // Create header
     const header = table.insertRow();
     header.insertCell().outerHTML = '<th>Time</th>';
     daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
-    // time slots 6:00–22:00
+    // Rows 6:00–22:00
     for (let t = 360; t <= 22*60; t += 30) {
       const row = table.insertRow();
-      const hh = Math.floor(t/60), mm = t%60;
-      const h12 = ((hh + 11) % 12) + 1, ap = hh<12 ? 'AM':'PM';
+      const hh = Math.floor(t/60), mm = t % 60;
+      const h12 = ((hh + 11) % 12) + 1, ap = hh < 12 ? 'AM' : 'PM';
       row.insertCell().outerHTML = `<th>${h12}:${('0'+mm).slice(-2)}${ap}</th>`;
       daysOfWeek.forEach(() => row.insertCell());
     }
@@ -127,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rect = container.getBoundingClientRect();
 
     daysOfWeek.forEach((day, dIdx) => {
-      // gather and sort events
+      // Collect events
       const events = data
         .filter(i => i.Days.includes(day))
         .map(i => ({
@@ -137,7 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }))
         .sort((a,b) => a.startMin - b.startMin);
 
-      // column packing for overlaps
+      // Overlap packing
       const cols = [];
       events.forEach(ev => {
         let placed = false;
@@ -156,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const colCount = cols.length || 1;
 
-      // draw each block
+      // Render blocks
       cols.flat().forEach(ev => {
         const minutesFromStart = ev.startMin - 360;
         const rowIndex = Math.floor(minutesFromStart / 30) + 1;
@@ -164,7 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const cell       = table.rows[rowIndex].cells[dIdx+1];
         const cellRect   = cell.getBoundingClientRect();
         const topPx      = cellRect.top - rect.top + (remainder/30)*cellRect.height;
-        const leftPx     = cellRect.left - rect.left + ev.col * (cellRect.width/colCount);
+        const leftPx     = cellRect.left - rect.left + ev.col*(cellRect.width/colCount);
         const widthPx    = cellRect.width/colCount;
         const heightPx   = ((ev.endMin-ev.startMin)/30)*cellRect.height;
 
@@ -195,9 +198,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const toMin = t => {
       const [time, ap] = t.split(' ');
       let [h,m] = time.split(':').map(Number);
-      if (ap === 'PM' && h<12) h += 12;
-      if (ap === 'AM' && h===12) h = 0;
-      return h*60 + m;
+      if (ap==='PM'&&h<12) h+=12;
+      if (ap==='AM'&&h===12)h=0;
+      return h*60+m;
     };
     const sMin = toMin(s), eMin = toMin(e);
     const rooms = [...new Set(currentData.map(i=>i.Building+'-'+i.Room))];
@@ -205,10 +208,10 @@ document.addEventListener('DOMContentLoaded', () => {
     currentData.forEach(i => {
       if (i.Days.some(d=>days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
-        if (!(ei<=sMin || si>=eMin)) occ.add(i.Building+'-'+i.Room);
+        if (!(ei<=sMin||si>=eMin)) occ.add(i.Building+'-'+i.Room);
       }
     });
-    const avail = rooms.filter(r=>!occ.has(r));
+    const avail = rooms.filter(r => !occ.has(r));
     if (avail.length) {
       resultsDiv.innerHTML = '<ul>' + avail.map(r=>`<li>${r}</li>`).join('') + '</ul>';
     } else {
@@ -223,7 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function format12(t) {
     let [h,m] = t.split(':').map(Number);
-    const ap = h<12 ? 'AM':'PM';
+    const ap  = h<12?'AM':'PM';
     h = ((h+11)%12)+1;
     return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
