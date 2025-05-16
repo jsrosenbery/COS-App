@@ -1,7 +1,32 @@
 document.addEventListener('DOMContentLoaded', () => {
+
+  // Load saved schedule from localStorage
+  const saved = localStorage.getItem('scheduleData');
+  if (saved) {
+    const { term: savedTerm, data: savedData, timestamp: savedTs } = JSON.parse(saved);
+    currentTerm = savedTerm;
+    currentData = savedData;
+    document.getElementById('upload-timestamp').textContent = 'Last upload: ' + savedTs;
+    buildRoomDropdown();
+    renderSchedule();
+
+        // persist to localStorage
+        localStorage.setItem('scheduleData', JSON.stringify({
+          term: currentTerm,
+          data: currentData,
+          timestamp: new Date().toLocaleString()
+        }));
+
+    // activate saved term tab
+    Array.from(tabs.children).forEach(t => {
+      if (t.textContent === savedTerm) { t.classList.add('active'); } else { t.classList.remove('active'); }
+    });
+  }
+
   const terms = ['Summer 2025','Fall 2025','Spring 2026','Summer 2026','Fall 2026','Spring 2027','Summer 2027','Fall 2027','Spring 2028'];
   const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   let currentData = [];
+  let currentTerm = '';
 
   const tabs = document.getElementById('term-tabs');
   const uploadDiv = document.getElementById('upload-container');
@@ -72,14 +97,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initial load
   selectTerm(terms[2], tabs.children[2]);
-    // Bind room-select change even before upload
-    document.getElementById('room-select')?.addEventListener('change', renderSchedule);
-
 
   // Bind availability
   availabilityBtn.addEventListener('click', showAvailability);
 
   function selectTerm(term, tabElem) {
+    currentTerm = term;
     // Activate tab
     Array.from(tabs.children).forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
@@ -90,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function setupUpload() {
+    currentTerm = document.querySelector('.tab.active').textContent; {
     uploadDiv.innerHTML = '<label>Upload CSV: <input type="file" id="file-input" accept=".csv"></label>';
     document.getElementById('file-input').addEventListener('change', e => {
       const file = e.target.files[0];
@@ -99,6 +123,14 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
+
+        // persist to localStorage
+        localStorage.setItem('scheduleData', JSON.stringify({
+          term: currentTerm,
+          data: currentData,
+          timestamp: new Date().toLocaleString()
+        }));
+
       
   // Populate time selects in 5-min increments
   function populateAvailabilityTimes() {
