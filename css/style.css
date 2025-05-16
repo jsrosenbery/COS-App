@@ -1,26 +1,20 @@
-body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-header { display: flex; align-items: center; background: #003366; color: #fff; padding: 1rem; }
-.logo { height: 120px; margin-right: 1rem; }
-#term-tabs { display: flex; background: #f4f4f4; padding: 0.5rem; }
-.tab { margin-right: 0.5rem; padding: 0.5rem 1rem; cursor: pointer; }
-.tab.active { background: #003366; color: #fff; }
-#upload-container, #room-filter { padding: 0.5rem 1rem; }
-#schedule-container { position: relative; margin: 1rem; border: 1px solid #ccc; overflow-y: auto; max-height: 100vh; }
-#schedule-container table { border-collapse: collapse; width: 100%; height: 100%; table-layout: fixed; }
-#schedule-table th, #schedule-table td { border: 1px solid #ccc; text-align: center; padding: 0; height: 30px; }
-#schedule-table th { background: #e0e0e0; font-size: 0.85rem; }
-.class-block { position: absolute; background: #FFA500; border: 2px solid #003366; box-sizing: border-box; padding: 2px; overflow: hidden; font-size: 0.75rem; text-align: center; }
-#availability-btn { margin: 1rem; padding: 0.5rem 1rem; background: #007ACC; color: #fff; border: none; cursor: pointer; }
-
-/* Timestamp styling */
-.upload-timestamp {
-  font-size: 0.85rem;
-  color: #555;
-  padding: 0 1rem 0.5rem 1rem;
-}
-
-/* Center the availability button between tabs and grid */
-#availability-btn {
-  display: block;
-  margin: 0.5rem auto;
-}
+body { font-family: Arial,sans-serif; margin:0; padding:0; }
+header { display:flex; align-items:center; background:#003366; color:#fff; padding:1rem; }
+.logo { height:120px; margin-right:1rem; }
+h1 { margin:0; font-size:1.5rem; }
+#term-tabs { display:flex; background:#f4f4f4; padding:0.5rem; }
+.tab { margin-right:0.5rem; padding:0.5rem 1rem; cursor:pointer; }
+.tab.active { background:#003366; color:#fff; }
+#upload-container, .upload-timestamp, #room-filter, .availability-ui { padding:0.5rem 1rem; }
+.schedule-container, #schedule-container { position:relative; margin:1rem; border:1px solid #ccc; overflow-x:auto; }
+#schedule-table { border-collapse:collapse; width:100%; table-layout:fixed; }
+#schedule-table th, #schedule-table td { border:1px solid #ccc; text-align:center; padding:0; height:30px; }
+#schedule-table th { background:#e0e0e0; font-size:0.85rem; }
+.class-block { position:absolute; background:#FFA500; border:2px solid #003366; box-sizing:border-box; padding:2px; font-size:0.75rem; text-align:center; overflow:hidden; }
+.upload-timestamp { font-size:0.85rem; color:#555; }
+.availability-ui { background:#f9f9f9; border:1px solid #ccc; border-radius:4px; }
+.availability-ui h3 { margin-top:0; }
+.availability-controls { display:flex; flex-wrap:wrap; gap:1rem; align-items:center; }
+.availability-controls .days label { margin-right:0.5rem; }
+.availability-controls .times label { margin-right:1rem; }
+.avail-results { margin-top:0.5rem; font-size:0.9rem; }
