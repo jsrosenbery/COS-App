@@ -34,6 +34,13 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   function selectTerm(term,tab){
+    // Highlight active tab
+    const tabContainer = document.getElementById('term-tabs');
+    tabContainer.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentTerm = term;
+    // Save currentTerm schedule if any
+    
     // Save current if any
     if (currentTerm) {
       schedules[currentTerm] = { data: currentData, timestamp: tsDiv.textContent };
