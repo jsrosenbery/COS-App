@@ -8,19 +8,19 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentData = [];
   let currentTerm = '';
 
-  // Cache DOM references
+  // Cache DOM refs
   const tabs       = document.getElementById('term-tabs');
   const uploadDiv  = document.getElementById('upload-container');
   const tsDiv      = document.getElementById('upload-timestamp');
   const roomDiv    = document.getElementById('room-filter');
-  const startSel   = document.getElementById('avail-start');
-  const endSel     = document.getElementById('avail-end');
+  const startInput = document.getElementById('avail-start');
+  const endInput   = document.getElementById('avail-end');
   const checkBtn   = document.getElementById('avail-check-btn');
   const resultsDiv = document.getElementById('avail-results');
   const table      = document.getElementById('schedule-table');
   const container  = document.getElementById('schedule-container');
 
-  // Build semester tabs
+  // Build and select tabs
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
     tab.className = 'tab' + (i === 2 ? ' active' : '');
@@ -28,34 +28,21 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.onclick = () => selectTerm(term, tab);
     tabs.appendChild(tab);
   });
-  // Default selection
   selectTerm(terms[2], tabs.children[2]);
 
-  // ───── Populate 5-minute time dropdowns ─────
-  for (let m = 360; m <= 22 * 60; m += 5) {
-    const h    = Math.floor(m / 60);
-    const mm   = m % 60;
-    const ap   = h < 12 ? 'AM' : 'PM';
-    const h12  = ((h + 11) % 12) + 1;
-    const label = `${h12}:${('0' + mm).slice(-2)} ${ap}`;
-    startSel.add(new Option(label, label));
-    endSel  .add(new Option(label, label));
-  }
-
+  // Wire the availability button
   checkBtn.onclick = handleAvailability;
 
-  // ───── Functions ───────────────────────────
+  // ───── Functions ───────────────────────────────────
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
-    // Highlight active tab
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
 
     clearSchedule();
     setupUpload();
 
-    // Load saved schedule if exists
     const key = 'cos_schedule_' + term;
     const saved = localStorage.getItem(key);
     if (saved) {
@@ -80,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-        // Save to localStorage
+        // Save
         const key = 'cos_schedule_' + currentTerm;
         localStorage.setItem(key, JSON.stringify({
           data: currentData,
@@ -105,15 +92,15 @@ document.addEventListener('DOMContentLoaded', () => {
   function clearSchedule() {
     table.innerHTML = '';
     container.querySelectorAll('.class-block').forEach(e => e.remove());
-    // Header row
+    // Header
     const header = table.insertRow();
     header.insertCell().outerHTML = '<th>Time</th>';
     daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
-    // Time slots 6:00–22:00
+    // Rows
     for (let t = 360; t <= 22*60; t += 30) {
       const row = table.insertRow();
       const hh = Math.floor(t/60), mm = t%60;
-      const h12 = ((hh + 11) % 12) + 1, ap = hh < 12 ? 'AM' : 'PM';
+      const h12 = ((hh + 11)%12)+1, ap = hh<12?'AM':'PM';
       row.insertCell().outerHTML = `<th>${h12}:${('0'+mm).slice(-2)}${ap}</th>`;
       daysOfWeek.forEach(() => row.insertCell());
     }
@@ -128,7 +115,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const rect = container.getBoundingClientRect();
 
     daysOfWeek.forEach((day, dIdx) => {
-      // Gather and sort events
       const events = data
         .filter(i => i.Days.includes(day))
         .map(i => ({
@@ -138,11 +124,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }))
         .sort((a,b) => a.startMin - b.startMin);
 
-      // Overlap packing
       const cols = [];
       events.forEach(ev => {
         let placed = false;
-        for (let c = 0; c < cols.length; c++) {
+        for (let c=0; c<cols.length; c++) {
           if (cols[c][cols[c].length-1].endMin <= ev.startMin) {
             cols[c].push(ev);
             ev.col = c;
@@ -157,17 +142,16 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const colCount = cols.length || 1;
 
-      // Render each block
       cols.flat().forEach(ev => {
-        const minutesFromStart = ev.startMin - 360;
-        const rowIndex = Math.floor(minutesFromStart / 30) + 1;
-        const remainder  = minutesFromStart % 30;
-        const cell       = table.rows[rowIndex].cells[dIdx+1];
-        const cellRect   = cell.getBoundingClientRect();
-        const topPx      = cellRect.top - rect.top + (remainder/30)*cellRect.height;
-        const leftPx     = cellRect.left - rect.left + ev.col*(cellRect.width/colCount);
-        const widthPx    = cellRect.width/colCount;
-        const heightPx   = ((ev.endMin-ev.startMin)/30)*cellRect.height;
+        const offset = ev.startMin - 360;
+        const rowIndex = Math.floor(offset/30) + 1;
+        const remainder = offset % 30;
+        const cell = table.rows[rowIndex].cells[dIdx+1];
+        const cr = cell.getBoundingClientRect();
+        const topPx = cr.top - rect.top + (remainder/30)*cr.height;
+        const leftPx = cr.left - rect.left + ev.col*(cr.width/colCount);
+        const widthPx = cr.width/colCount;
+        const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
 
         const block = document.createElement('div');
         block.className = 'class-block';
@@ -188,30 +172,23 @@ document.addEventListener('DOMContentLoaded', () => {
   function handleAvailability() {
     resultsDiv.textContent = '';
     const days = [...document.querySelectorAll('.availability-ui input:checked')].map(cb => cb.value);
-    const s    = startSel.value, e = endSel.value;
+    const s = startInput.value, e = endInput.value;
     if (!days.length || !s || !e) {
       resultsDiv.textContent = 'Please select days and both start/end times.';
       return;
     }
-    const toMin = t => {
-      const [time, ap] = t.split(' ');
-      let [h,m] = time.split(':').map(Number);
-      if (ap==='PM' && h<12) h+=12;
-      if (ap==='AM' && h===12)h=0;
-      return h*60 + m;
-    };
-    const sMin = toMin(s), eMin = toMin(e);
-    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
-    const occ   = new Set();
+    const sMin = parseTime(s), eMin = parseTime(e);
+    const rooms = [...new Set(currentData.map(i=>`${i.Building}-${i.Room}`))];
+    const occ = new Set();
     currentData.forEach(i => {
-      if (i.Days.some(d => days.includes(d))) {
+      if (i.Days.some(d=>days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) occ.add(`${i.Building}-${i.Room}`);
+        if (!(ei<=sMin || si>=eMin)) occ.add(`${i.Building}-${i.Room}`);
       }
     });
     const avail = rooms.filter(r => !occ.has(r));
     if (avail.length) {
-      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
+      resultsDiv.innerHTML = '<ul>' + avail.map(r=>`<li>${r}</li>`).join('') + '</ul>';
     } else {
       resultsDiv.textContent = 'No rooms available.';
     }
@@ -224,8 +201,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function format12(t) {
     let [h,m] = t.split(':').map(Number);
-    const ap = h < 12 ? 'AM' : 'PM';
-    h = ((h + 11) % 12) + 1;
+    const ap = h<12?'AM':'PM';
+    h = ((h+11)%12)+1;
     return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
 });
