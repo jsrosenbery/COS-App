@@ -1,26 +1,42 @@
 function parseCSVFile(file, callback) {
-  Papa.parse(file, { header:true, skipEmptyLines:true,
-    complete: results => {
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
       const data = results.data
         .filter(r => r['ROOM'] && !['', 'N/A', 'LIVE'].includes(r['ROOM'].toUpperCase()))
-        .filter(r => !(r['BUILDING'] && r['BUILDING'].toUpperCase()==='ONLINE'))
+        .filter(r => !(r['BUILDING'] && r['BUILDING'].toUpperCase() === 'ONLINE'))
         .map(r => {
-          const daysMap={'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday'};
-          const daysArr=(r['DAYS']||'').split('').map(d=>daysMap[d]||d);
-          const raw=r['Time']||r['TIME']||'';
-          const parts=raw.split(' - ');
-          let s='00:00',e='00:00';
-          if(parts.length===2){
-            ['start','end'].forEach((t,i)=>{
-              let str=parts[i].trim(); const ap=str.slice(-2);
-              let [h,m]=str.slice(0,-2).split(':').map(Number);
-              if(ap==='PM'&&h<12)h+=12; if(ap==='AM'&&h===12)h=0;
-              const hh=('0'+h).slice(-2), mm=('0'+m).slice(-2);
-              if(t==='start')s=`${hh}:${mm}`; else e=`${hh}:${mm}`;
-            });
+          const daysMap = {'M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','U':'Sunday','S':'Saturday'};
+          const daysArr = (r['DAYS']||'').split('').map(d => daysMap[d]||d);
+          const timeStr = (r['Time']||r['TIME']||'').trim();
+          const parts = timeStr.split('-').map(s => s.trim());
+          let start24 = '00:00', end24 = '00:00';
+          const to24 = (t) => {
+            const m = t.match(/^(\d{1,2}):?(\d{2})?\s*(AM|PM)/i);
+            if (m) {
+              let h = parseInt(m[1],10);
+              let min = m[2] ? parseInt(m[2],10) : 0;
+              const ap = m[3].toUpperCase();
+              if (ap === 'PM' && h < 12) h += 12;
+              if (ap === 'AM' && h === 12) h = 0;
+              return (h<10? '0'+h : h) + ':' + (min<10? '0'+min : min);
+            }
+            return '00:00';
+          };
+          if (parts.length === 2) {
+            start24 = to24(parts[0]);
+            end24 = to24(parts[1]);
           }
-          return { Subject_Course:r['Subject_Course']||r['Title']||'', CRN:r['CRN'],
-                   Building:r['BUILDING'], Room:r['ROOM'], Days:daysArr, Start_Time:s, End_Time:e };
+          return {
+            Subject_Course: r['Subject_Course'] || r['Title'] || '',
+            CRN: r['CRN'],
+            Building: r['BUILDING'],
+            Room: r['ROOM'],
+            Days: daysArr,
+            Start_Time: start24,
+            End_Time: end24
+          };
         });
       callback(data);
     }
