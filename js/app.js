@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentData = [];
   let currentTerm = '';
 
-  // Cached DOM refs
+  // Cache DOM references
   const tabs       = document.getElementById('term-tabs');
   const uploadDiv  = document.getElementById('upload-container');
   const tsDiv      = document.getElementById('upload-timestamp');
@@ -28,36 +28,34 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.onclick = () => selectTerm(term, tab);
     tabs.appendChild(tab);
   });
-  // Default select
+  // Default selection
   selectTerm(terms[2], tabs.children[2]);
 
-  // ───── Populate the 5-minute time dropdowns ─────
-  if (startSel && endSel) {
-    for (let m = 360; m <= 22*60; m += 5) {
-      const h    = Math.floor(m/60);
-      const mm   = m % 60;
-      const ap   = h < 12 ? 'AM' : 'PM';
-      const h12  = ((h + 11) % 12) + 1;
-      const label= `${h12}:${('0'+mm).slice(-2)} ${ap}`;
-      startSel.add(new Option(label, label));
-      endSel  .add(new Option(label, label));
-    }
+  // ───── Populate 5-minute time dropdowns ─────
+  for (let m = 360; m <= 22 * 60; m += 5) {
+    const h    = Math.floor(m / 60);
+    const mm   = m % 60;
+    const ap   = h < 12 ? 'AM' : 'PM';
+    const h12  = ((h + 11) % 12) + 1;
+    const label = `${h12}:${('0' + mm).slice(-2)} ${ap}`;
+    startSel.add(new Option(label, label));
+    endSel  .add(new Option(label, label));
   }
 
-  // Wire up availability button
   checkBtn.onclick = handleAvailability;
 
-  // ───── Helper Functions ───────────────────────
+  // ───── Functions ───────────────────────────
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
     // Highlight active tab
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
-    // Reset & upload UI
+
     clearSchedule();
     setupUpload();
-    // Load saved for this term
+
+    // Load saved schedule if exists
     const key = 'cos_schedule_' + term;
     const saved = localStorage.getItem(key);
     if (saved) {
@@ -82,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-        // Save this term
+        // Save to localStorage
         const key = 'cos_schedule_' + currentTerm;
         localStorage.setItem(key, JSON.stringify({
           data: currentData,
@@ -107,14 +105,14 @@ document.addEventListener('DOMContentLoaded', () => {
   function clearSchedule() {
     table.innerHTML = '';
     container.querySelectorAll('.class-block').forEach(e => e.remove());
-    // Create header
+    // Header row
     const header = table.insertRow();
     header.insertCell().outerHTML = '<th>Time</th>';
     daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
-    // Rows 6:00–22:00
+    // Time slots 6:00–22:00
     for (let t = 360; t <= 22*60; t += 30) {
       const row = table.insertRow();
-      const hh = Math.floor(t/60), mm = t % 60;
+      const hh = Math.floor(t/60), mm = t%60;
       const h12 = ((hh + 11) % 12) + 1, ap = hh < 12 ? 'AM' : 'PM';
       row.insertCell().outerHTML = `<th>${h12}:${('0'+mm).slice(-2)}${ap}</th>`;
       daysOfWeek.forEach(() => row.insertCell());
@@ -130,7 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rect = container.getBoundingClientRect();
 
     daysOfWeek.forEach((day, dIdx) => {
-      // Collect events
+      // Gather and sort events
       const events = data
         .filter(i => i.Days.includes(day))
         .map(i => ({
@@ -159,7 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const colCount = cols.length || 1;
 
-      // Render blocks
+      // Render each block
       cols.flat().forEach(ev => {
         const minutesFromStart = ev.startMin - 360;
         const rowIndex = Math.floor(minutesFromStart / 30) + 1;
@@ -189,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function handleAvailability() {
     resultsDiv.textContent = '';
-    const days = [...document.querySelectorAll('.availability-ui input:checked')].map(cb=>cb.value);
+    const days = [...document.querySelectorAll('.availability-ui input:checked')].map(cb => cb.value);
     const s    = startSel.value, e = endSel.value;
     if (!days.length || !s || !e) {
       resultsDiv.textContent = 'Please select days and both start/end times.';
@@ -198,22 +196,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const toMin = t => {
       const [time, ap] = t.split(' ');
       let [h,m] = time.split(':').map(Number);
-      if (ap==='PM'&&h<12) h+=12;
-      if (ap==='AM'&&h===12)h=0;
-      return h*60+m;
+      if (ap==='PM' && h<12) h+=12;
+      if (ap==='AM' && h===12)h=0;
+      return h*60 + m;
     };
     const sMin = toMin(s), eMin = toMin(e);
-    const rooms = [...new Set(currentData.map(i=>i.Building+'-'+i.Room))];
+    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
     const occ   = new Set();
     currentData.forEach(i => {
-      if (i.Days.some(d=>days.includes(d))) {
+      if (i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
-        if (!(ei<=sMin||si>=eMin)) occ.add(i.Building+'-'+i.Room);
+        if (!(ei <= sMin || si >= eMin)) occ.add(`${i.Building}-${i.Room}`);
       }
     });
     const avail = rooms.filter(r => !occ.has(r));
     if (avail.length) {
-      resultsDiv.innerHTML = '<ul>' + avail.map(r=>`<li>${r}</li>`).join('') + '</ul>';
+      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
     } else {
       resultsDiv.textContent = 'No rooms available.';
     }
@@ -226,8 +224,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function format12(t) {
     let [h,m] = t.split(':').map(Number);
-    const ap  = h<12?'AM':'PM';
-    h = ((h+11)%12)+1;
+    const ap = h < 12 ? 'AM' : 'PM';
+    h = ((h + 11) % 12) + 1;
     return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
 });
