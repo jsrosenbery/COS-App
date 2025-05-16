@@ -1,4 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
+  // Load schedules cache
+  let schedules = JSON.parse(localStorage.getItem('cos_schedules') || '{}');
+
   const terms=['Summer 2025','Fall 2025','Spring 2026','Summer 2026','Fall 2026','Spring 2027','Summer 2027','Fall 2027','Spring 2028'];
   const daysOfWeek=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   let currentData=[], currentTerm='';
@@ -30,8 +33,28 @@ document.addEventListener('DOMContentLoaded', () => {
     else resultsDiv.textContent='No rooms available.';
   };
 
-  function selectTerm(term,tab){ Array.from(tabs.children).forEach(t=>t.classList.remove('active')); tab.classList.add('active'); currentTerm=term; tsDiv.textContent=''; currentData=[]; setupUpload(); clearSchedule(); }
-  function setupUpload(){ roomDiv.innerHTML=''; uploadDiv.innerHTML=`<label>Upload CSV for ${currentTerm}: <input type="file" id="file-input" accept=".csv"></label>`; document.getElementById('file-input').onchange=e=>{ parseCSVFile(e.target.files[0],data=>{ currentData=data; tsDiv.textContent='Last upload: '+new Date().toLocaleString(); buildRoomDropdown(); renderSchedule(); }); }; }
+  function selectTerm(term,tab){
+    // Save current if any
+    if (currentTerm) {
+      schedules[currentTerm] = { data: currentData, timestamp: tsDiv.textContent };
+      localStorage.setItem('cos_schedules', JSON.stringify(schedules));
+    }
+    // Load for new term
+    if (schedules[term]) {
+      currentData = schedules[term].data;
+      tsDiv.textContent = schedules[term].timestamp;
+      buildRoomDropdown();
+      renderSchedule();
+    } else {
+      currentData = [];
+      tsDiv.textContent = '';
+    }
+ Array.from(tabs.children).forEach(t=>t.classList.remove('active')); tab.classList.add('active'); currentTerm=term; tsDiv.textContent=''; currentData=[]; setupUpload(); clearSchedule(); }
+  function setupUpload(){ roomDiv.innerHTML=''; uploadDiv.innerHTML=`<label>Upload CSV for ${currentTerm}: <input type="file" id="file-input" accept=".csv"></label>`; document.getElementById('file-input').onchange=e=>{ parseCSVFile(e.target.files[0],data=>{ currentData=data; tsDiv.textContent='Last upload: '+new Date().toLocaleString(); buildRoomDropdown();
+        renderSchedule();
+        // Save this term's schedule
+        schedules[currentTerm] = { data: currentData, timestamp: tsDiv.textContent };
+        localStorage.setItem('cos_schedules', JSON.stringify(schedules)); }); }; }
   function buildRoomDropdown(){ const combos=[...new Set(currentData.map(i=>`${i.Building}-${i.Room}`))].sort(); roomDiv.innerHTML=`<label>Filter Bldg-Room: <select id="room-select"><option>All</option>${combos.map(r=>`<option>${r}</option>`).join('')}</select></label>`; document.getElementById('room-select').onchange=renderSchedule; }
   function clearSchedule(){ table.innerHTML=''; container.querySelectorAll('.class-block').forEach(e=>e.remove()); const header=table.insertRow(); header.insertCell().outerHTML='<th>Time</th>'; daysOfWeek.forEach(d=>header.insertCell().outerHTML=`<th>${d}</th>`); for(let t=360;t<=22*60;t+=30){ const row=table.insertRow(); const hh=Math.floor(t/60),mm=t%60,h12=(hh+11)%12+1,ap=hh<12?'AM':'PM'; row.insertCell().outerHTML=`<th>${h12}:${('0'+mm).slice(-2)}${ap}</th>`; daysOfWeek.forEach(()=>row.insertCell()); } }
   function renderSchedule(){ clearSchedule(); const filt=document.getElementById('room-select')?.value||'All',data=filt==='All'?currentData:currentData.filter(i=>`${i.Building}-${i.Room}`===filt),rect=container.getBoundingClientRect(); daysOfWeek.forEach((day,dIdx)=>{ const events=data.filter(i=>i.Days.includes(day)).map(i=>({...i,startMin:parseTime(i.Start_Time),endMin:parseTime(i.End_Time)})).sort((a,b)=>a.startMin-b.startMin),cols=[]; events.forEach(ev=>{ let placed=false; for(let c=0;c<cols.length;c++){ if(cols[c][cols[c].length-1].endMin<=ev.startMin){ cols[c].push(ev); ev.col=c; placed=true; break; } } if(!placed){ ev.col=cols.length; cols.push([ev]); }}); const colCount=cols.length||1; cols.flat().forEach(ev=>{ const minutes=ev.startMin-360, rowIndex=Math.floor(minutes/30)+1, remainder=minutes%30; const cell=table.rows[rowIndex].cells[dIdx+1],cellRect=cell.getBoundingClientRect(), topPx=cellRect.top-rect.top+(remainder/30)*cellRect.height, leftPx=cellRect.left-rect.left+ev.col*(cellRect.width/colCount), widthPx=cellRect.width/colCount, heightPx=((ev.endMin-ev.startMin)/30)*cellRect.height; const block=document.createElement('div'); block.className='class-block'; block.style.top=topPx+'px'; block.style.left=leftPx+'px'; block.style.width=widthPx+'px'; block.style.height=heightPx+'px'; block.innerHTML=`<span>${ev.Subject_Course}</span><br><span>${ev.CRN}</span><br><span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>`; container.appendChild(block); }); }); }
