@@ -18,31 +18,24 @@
   <div id="upload-timestamp" class="upload-timestamp"></div>
   <div id="room-filter"></div>
 
- <div id="availability-ui" class="availability-ui">
-  <h3>Check Room Availability</h3>
-
-  <!-- Day checkboxes -->
-  <div class="days">
-    <label><input type="checkbox" value="Sunday"> Sun</label>
-    <label><input type="checkbox" value="Monday"> Mon</label>
-    <label><input type="checkbox" value="Tuesday"> Tue</label>
-    <label><input type="checkbox" value="Wednesday"> Wed</label>
-    <label><input type="checkbox" value="Thursday"> Thu</label>
-    <label><input type="checkbox" value="Friday"> Fri</label>
-    <label><input type="checkbox" value="Saturday"> Sat</label>
+  <div id="availability-ui" class="availability-ui">
+    <h3>Check Room Availability</h3>
+    <div class="days">
+      <label><input type="checkbox" value="Sunday"> Sun</label>
+      <label><input type="checkbox" value="Monday"> Mon</label>
+      <label><input type="checkbox" value="Tuesday"> Tue</label>
+      <label><input type="checkbox" value="Wednesday"> Wed</label>
+      <label><input type="checkbox" value="Thursday"> Thu</label>
+      <label><input type="checkbox" value="Friday"> Fri</label>
+      <label><input type="checkbox" value="Saturday"> Sat</label>
+    </div>
+    <div class="times">
+      <label>Start: <input type="time" id="avail-start" step="300"></label>
+      <label>End:   <input type="time" id="avail-end"   step="300"></label>
+      <button id="avail-check-btn">Check</button>
+    </div>
+    <div id="avail-results" class="avail-results"></div>
   </div>
-
-  <!-- Time inputs + check button -->
-  <div class="times">
-    <label>Start: <input type="time" id="avail-start" step="300"></label>
-    <label>End:   <input type="time" id="avail-end"   step="300"></label>
-    <button id="avail-check-btn">Check</button>
-  </div>
-
-  <!-- Where results go -->
-  <div id="avail-results" class="avail-results"></div>
-</div>
-
 
   <div id="schedule-container">
     <table id="schedule-table"></table>
