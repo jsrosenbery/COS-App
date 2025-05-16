@@ -77,116 +77,65 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function renderSchedule() {
-    clearSchedule();
-    const filter = document.getElementById('room-select')?.value || 'All';
-    const data = filter === 'All' ? currentData : currentData.filter(i => (i.Building + '-' + i.Room) === filter);
-    daysOfWeek.forEach((day, dIdx) => {
-      // Filter events for day
-      const events = data.filter(i => i.Days.includes(day))
-        .map(i => ({ ...i, startMin: parseTime(i.Start_Time), endMin: parseTime(i.End_Time) }))
-        .sort((a, b) => a.startMin - b.startMin);
-      // Column logic
-      const columns = [];
-      events.forEach(ev => {
-        let placed = false;
-        for (let c = 0; c < columns.length; c++) {
-          if (columns[c][columns[c].length - 1].endMin <= ev.startMin) {
-            columns[c].push(ev);
-            ev.col = c;
-            placed = true;
-            break;
-          }
-        }
-        if (!placed) {
-          ev.col = columns.length;
-          columns.push([ev]);
-        }
-      });
-      const colCount = columns.length || 1;
-      columns.flat().forEach(ev => {
-        const top = ((ev.startMin - 360) / (22*60 - 360)) * 100;
-        const height = ((ev.endMin - ev.startMin) / (22*60 - 360)) * 100;
-        const left = ((dIdx + 1) / (daysOfWeek.length + 1) * 100) + (ev.col * (100 / (daysOfWeek.length + 1) / colCount));
-        const width = (100 / (daysOfWeek.length + 1) / colCount);
-        const block = document.createElement('div');
-        block.className = 'class-block';
-        block.style.top = top + '%';
-        block.style.left = left + '%';
-        block.style.width = width + '%';
-        block.style.height = height + '%';
-        block.innerHTML = `<div style="text-align:center;">
-<span>${ev.Subject_Course}</span><br>
-<span>${ev.CRN}</span><br>
-<span>${format12(ev.Start_Time).toLowerCase()} - ${format12(ev.End_Time).toLowerCase()}</span>
-</div>`;
-        container.appendChild(block);
-      });
-    });
-  }
+  
+function renderSchedule() {
+  clearSchedule();
+  const filter = document.getElementById('room-select')?.value || 'All';
+  const data = filter === 'All' ? currentData : currentData.filter(i => `${i.Building}-${i.Room}` === filter);
+  const containerRect = container.getBoundingClientRect();
 
-  function showAvailability() {
-    if (!currentData.length) { alert('Upload schedule first'); return; }
-    const day = prompt('Day (e.g. Monday):'); if (!day) return;
-    const start = prompt('Start time (e.g. 10:00AM):'); if (!start) return;
-    const end = prompt('End time (e.g. 12:00PM):'); if (!end) return;
-    const toMin = s => { const ap=s.slice(-2).toUpperCase(); let [h,m]=s.slice(0,-2).split(':').map(Number); if(ap==='PM'&&h<12)h+=12; if(ap==='AM'&&h===12)h=0; return h*60+m; };
-    const sMin=toMin(start), eMin=toMin(end);
-    const rooms = Array.from(new Set(currentData.map(i => i.Building + '-' + i.Room)));
-    const occ = new Set();
-    currentData.forEach(i => {
-      if (i.Days.includes(day)) {
-        const si=parseTime(i.Start_Time), ei=parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
+  daysOfWeek.forEach((day, dIdx) => {
+    // filter events for this day
+    const events = data
+      .filter(i => i.Days.includes(day))
+      .map(i => ({...i, startMin: parseTime(i.Start_Time), endMin: parseTime(i.End_Time)}))
+      .sort((a, b) => a.startMin - b.startMin);
+
+    // overlap columns
+    const columns = [];
+    events.forEach(ev => {
+      let placed = false;
+      for (let c = 0; c < columns.length; c++) {
+        if (columns[c][columns[c].length - 1].endMin <= ev.startMin) {
+          columns[c].push(ev);
+          ev.col = c;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        ev.col = columns.length;
+        columns.push([ev]);
       }
     });
-    const avail = rooms.filter(r => !occ.has(r));
-    alert('Available rooms on ' + day + ' ' + start + '-' + end + ':\n' + (avail.length?avail.join(', '):'None'));
-  }
+    const colCount = columns.length || 1;
 
-  function parseTime(t) { const [h,m]=t.split(':').map(Number); return h*60 + m; }
-  function format12(t) { let [h,m]=t.split(':').map(Number); const ap=h<12?'AM':'PM'; h=((h+11)%12)+1; return `${h}:${('0'+m).slice(-2)}${ap}`; }
+    // render each
+    columns.flat().forEach(ev => {
+      // compute row index
+      const rowIndex = Math.floor((ev.startMin - 360) / 30) + 1;
+      const cell = table.rows[rowIndex].cells[dIdx + 1];
+      const cellRect = cell.getBoundingClientRect();
+      const topPx = cellRect.top - containerRect.top;
+      const leftPx = cellRect.left - containerRect.left;
+      const widthPx = cellRect.width / colCount;
+      const heightPx = ((ev.endMin - ev.startMin) / 30) * cellRect.height;
 
-  // Setup availability UI
-  function setupAvailabilityUI() {
-    const startSel = document.getElementById('avail-start');
-    const endSel = document.getElementById('avail-end');
-    for (let m = 360; m <= 22*60; m += 5) {
-      const h = Math.floor(m/60), mm = m % 60;
-      const ap = h < 12 ? 'AM' : 'PM';
-      const h12 = ((h + 11) % 12) + 1;
-      const label = `${h12}:${('0'+mm).slice(-2)} ${ap}`;
-      startSel.innerHTML += `<option>${label}</option>`;
-      endSel.innerHTML += `<option>${label}</option>`;
-    }
-    document.getElementById('avail-check-btn').addEventListener('click', () => {
-      const days = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked'))
-        .map(cb => cb.value);
-      const start = startSel.value, end = endSel.value;
-      if (!days.length || !start || !end) {
-        alert('Select days and times.');
-        return;
-      }
-      const toMin = s => {
-        const [time, ap] = s.split(' ');
-        let [h, m] = time.split(':').map(Number);
-        if (ap==='PM' && h<12) h+=12;
-        if (ap==='AM' && h===12) h=0;
-        return h*60 + m;
-      };
-      const sMin = toMin(start), eMin = toMin(end);
-      const rooms = [...new Set(currentData.map(i => i.Building + '-' + i.Room))];
-      const occ = new Set();
-      currentData.forEach(i => {
-        if (i.Days.some(d => days.includes(d))) {
-          const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
-          if (!(ei <= sMin || si >= eMin)) occ.add(i.Building + '-' + i.Room);
-        }
-      });
-      const available = rooms.filter(r => !occ.has(r));
-      alert('Available rooms:\n' + (available.length?available.join(', '):'None'));
+      const block = document.createElement('div');
+      block.className = 'class-block';
+      block.style.position = 'absolute';
+      block.style.top = topPx + 'px';
+      block.style.left = leftPx + ev.col * widthPx + 'px';
+      block.style.width = widthPx + 'px';
+      block.style.height = heightPx + 'px';
+      block.innerHTML = `
+        <div style="text-align:center;">
+          <span>${ev.Subject_Course}</span><br>
+          <span>${ev.CRN}</span><br>
+          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>
+        </div>`.trim();
+      container.appendChild(block);
     });
-  }
-  setupAvailabilityUI();
-
-});
+  });
+}
+);

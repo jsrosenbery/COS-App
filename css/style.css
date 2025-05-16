@@ -24,9 +24,3 @@ header { display: flex; align-items: center; background: #003366; color: #fff; p
   display: block;
   margin: 0.5rem auto;
 }
-
-/* Availability UI styling */
-#availability-ui { background: #f9f9f9; }
-#availability-ui label { margin-right: 0.5rem; }
-#availability-ui select { margin: 0 1rem 0 0; }
-#availability-ui button { margin-left: 1rem; }
