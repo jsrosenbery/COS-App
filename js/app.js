@@ -1,32 +1,26 @@
 document.addEventListener('DOMContentLoaded', () => {
-
-  // Load saved schedule from localStorage
+  let currentTerm = '';
+  // Load saved schedule
   const saved = localStorage.getItem('scheduleData');
   if (saved) {
-    const { term: savedTerm, data: savedData, timestamp: savedTs } = JSON.parse(saved);
-    currentTerm = savedTerm;
-    currentData = savedData;
-    document.getElementById('upload-timestamp').textContent = 'Last upload: ' + savedTs;
+    const { term, data, timestamp } = JSON.parse(saved);
+    currentTerm = term;
+    currentData = data;
+    document.getElementById('upload-timestamp').textContent = 'Last upload: ' + timestamp;
+    // Activate saved term tab
+    const tabs = document.getElementById('term-tabs');
+    Array.from(tabs.children).forEach(t => {
+      t.classList.toggle('active', t.textContent === term);
+    });
     buildRoomDropdown();
     renderSchedule();
-
-        // persist to localStorage
-        localStorage.setItem('scheduleData', JSON.stringify({
-          term: currentTerm,
-          data: currentData,
-          timestamp: new Date().toLocaleString()
-        }));
-
-    // activate saved term tab
-    Array.from(tabs.children).forEach(t => {
-      if (t.textContent === savedTerm) { t.classList.add('active'); } else { t.classList.remove('active'); }
-    });
+        // Persist schedule
+        localStorage.setItem('scheduleData', JSON.stringify({ term: currentTerm, data: currentData, timestamp: new Date().toLocaleString() }));
   }
 
   const terms = ['Summer 2025','Fall 2025','Spring 2026','Summer 2026','Fall 2026','Spring 2027','Summer 2027','Fall 2027','Spring 2028'];
   const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   let currentData = [];
-  let currentTerm = '';
 
   const tabs = document.getElementById('term-tabs');
   const uploadDiv = document.getElementById('upload-container');
@@ -113,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function setupUpload() {
-    currentTerm = document.querySelector('.tab.active').textContent; {
+    currentTerm = document.querySelector('.tab.active').textContent;
     uploadDiv.innerHTML = '<label>Upload CSV: <input type="file" id="file-input" accept=".csv"></label>';
     document.getElementById('file-input').addEventListener('change', e => {
       const file = e.target.files[0];
@@ -123,14 +117,8 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-
-        // persist to localStorage
-        localStorage.setItem('scheduleData', JSON.stringify({
-          term: currentTerm,
-          data: currentData,
-          timestamp: new Date().toLocaleString()
-        }));
-
+        // Persist schedule
+        localStorage.setItem('scheduleData', JSON.stringify({ term: currentTerm, data: currentData, timestamp: new Date().toLocaleString() }));
       
   // Populate time selects in 5-min increments
   function populateAvailabilityTimes() {
