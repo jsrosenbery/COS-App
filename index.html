@@ -1,34 +1,56 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>COS Room Scheduler</title>
     <!-- Favicon -->
-    <link rel="icon" href="images/Screenshot_2025-05-20_131914-removebg-preview.png" type="image/png">
+    <link rel="icon" href="images/favicon.png" type="image/png">
     <link rel="stylesheet" href="css/style.css">
 </head>
+</head>
 <body>
-    <div class="container">
-        <header>
-            <img src="images/logo.png" alt="COS Logo" class="logo">
-            <h1>COS Room Scheduler</h1>
-        </header>
+  <header>
+    <img src="images/logo.png" alt="COS Logo" class="logo">
+    <h1>COS Course Scheduler</h1>
+  </header>
 
-        <!-- semester tabs and upload controls here -->
+  <nav id="term-tabs"></nav>
 
-        <div class="controls">
-            <label for="roomSelect">Select Room:</label>
-            <select id="roomSelect"></select>
-            <button id="availabilityBtn">Room Availability</button>
-        </div>
+  <div id="upload-container"></div>
+  <div id="upload-timestamp" class="upload-timestamp"></div>
+  <div id="room-filter"></div>
 
-        <div id="availabilityList" class="availability-list"></div>
-
-        <div id="scheduleGrid" class="schedule-grid"></div>
+  <div id="availability-ui" class="availability-ui">
+    <h3>Check Room Availability</h3>
+    <!-- Day checkboxes -->
+    <div class="days">
+      <label><input type="checkbox" value="Sunday"> Sun</label>
+      <label><input type="checkbox" value="Monday"> Mon</label>
+      <label><input type="checkbox" value="Tuesday"> Tue</label>
+      <label><input type="checkbox" value="Wednesday"> Wed</label>
+      <label><input type="checkbox" value="Thursday"> Thu</label>
+      <label><input type="checkbox" value="Friday"> Fri</label>
+      <label><input type="checkbox" value="Saturday"> Sat</label>
     </div>
+    <!-- Time inputs + buttons -->
+    <div class="times">
+      <label>Start: <input type="time" id="avail-start" step="300"></label>
+      <label>End:   <input type="time" id="avail-end"   step="300"></label>
+      <button id="avail-check-btn">Check</button>
+      <button id="avail-clear-btn">Clear</button>
+    </div>
+    <!-- Results -->
+    <div id="avail-results" class="avail-results"></div>
+  </div>
 
-    <script src="js/parser.js"></script>
-    <script src="js/app.js"></script>
+  <div id="schedule-container">
+    <table id="schedule-table"></table>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
