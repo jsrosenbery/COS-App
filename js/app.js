@@ -123,17 +123,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const rect = container.getBoundingClientRect();
 
     daysOfWeek.forEach((day, dIdx) => {
-      // collect & sort events
       const evs = data
         .filter(i => i.Days.includes(day))
-        .map(i => ({
-          ...i,
-          startMin: parseTime(i.Start_Time),
-          endMin:   parseTime(i.End_Time)
-        }))
+        .map(i => ({ ...i, startMin: parseTime(i.Start_Time), endMin: parseTime(i.End_Time) }))
         .sort((a,b) => a.startMin - b.startMin);
 
-      // overlap columns
       const cols = [];
       evs.forEach(ev => {
         let placed = false;
@@ -142,18 +136,14 @@ document.addEventListener('DOMContentLoaded', () => {
             cols[c].push(ev); ev.col = c; placed = true; break;
           }
         }
-        if (!placed) {
-          ev.col = cols.length; cols.push([ev]);
-        }
+        if (!placed) { ev.col = cols.length; cols.push([ev]); }
       });
       const colCount = cols.length || 1;
 
-      // render
       cols.flat().forEach(ev => {
         const offset = ev.startMin - 360;
         const rowIndex = Math.floor(offset/30) + 1;
         const rem = offset % 30;
-        // guard out-of-bounds
         if (rowIndex < 1 || rowIndex >= table.rows.length) return;
 
         const cell = table.rows[rowIndex].cells[dIdx+1];
@@ -178,11 +168,40 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ───── Helpers ────────────────────────────────────
-  function parseTime(t) {
-    const [h,m] = t.split(':').map(Number);
-    return h*60 + m;
+  // ───── Availability Handler ───────────────────────
+  function handleAvailability() {
+    resultsDiv.textContent = '';
+    const days = Array.from(
+      document.querySelectorAll('#availability-ui .days input:checked')
+    ).map(cb => cb.value);
+    const start = startInput.value, end = endInput.value;
+    if (!days.length || !start || !end) {
+      resultsDiv.textContent = 'Please select at least one day and both start and end times.';
+      return;
+    }
+    const toMin = t => { const [h,m] = t.split(':').map(Number); return h*60 + m; };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
+    const avail = rooms.filter(room => {
+      const classes = currentData.filter(i =>
+        `${i.Building}-${i.Room}` === room && i.Days.some(d => days.includes(d))
+      );
+      if (!classes.length) return true;
+      return classes.every(i => {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        return ei <= sMin || si >= eMin;
+      });
+    }).sort((a,b) => a.localeCompare(b));
+
+    if (avail.length) {
+      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
+    } else {
+      resultsDiv.textContent = 'No rooms available.';
+    }
   }
+
+  // ───── Helpers ────────────────────────────────────
+  function parseTime(t) { const [h,m] = t.split(':').map(Number); return h*60 + m; }
   function format12(t) {
     let [h,m] = t.split(':').map(Number);
     const ap = h<12 ? 'AM':'PM';
