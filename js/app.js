@@ -204,7 +204,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     });
-    const avail = rooms.filter(r => !occ.has(r));
+    let avail = rooms.filter(r => !occ.has(r));
+    // sort alphabetically
+    avail.sort((a, b) => a.localeCompare(b));
+
     if (avail.length) {
       resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
     } else {
