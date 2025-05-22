@@ -178,43 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ───── Availability Handler ───────────────────────
-  function handleAvailability() {
-    resultsDiv.textContent = '';
-    const days = Array.from(
-      document.querySelectorAll('#availability-ui .days input:checked')
-    ).map(cb => cb.value);
-    const start = startInput.value, end = endInput.value;
-    if (!days.length || !start || !end) {
-      resultsDiv.textContent = 'Please select at least one day and both start/end times.';
-      return;
-    }
-    const toMin = t => {
-      const [h,m] = t.split(':').map(Number);
-      return h*60 + m;
-    };
-    const sMin = toMin(start), eMin = toMin(end);
-    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
-    const occ   = new Set();
-    currentData.forEach(i => {
-      if (i.Days.some(d => days.includes(d))) {
-        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) {
-          occ.add(`${i.Building}-${i.Room}`);
-        }
-      }
-    });
-    let avail = rooms.filter(r => !occ.has(r));
-    // sort alphabetically
-    avail.sort((a, b) => a.localeCompare(b));
-
-    if (avail.length) {
-      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
-    } else {
-      resultsDiv.textContent = 'No rooms available.';
-    }
-  }
-
   // ───── Helpers ────────────────────────────────────
   function parseTime(t) {
     const [h,m] = t.split(':').map(Number);
