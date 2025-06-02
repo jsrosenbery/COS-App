@@ -3,8 +3,39 @@
 let parsedRows = [];
 let weekStartDate = null;
 
+function parseDate(str) {
+  const parts = str.split('/');
+  const m = parseInt(parts[0], 10);
+  const d = parseInt(parts[1], 10);
+  const y = parseInt(parts[2], 10);
+  return new Date(y, m - 1, d);
+}
+
+function startOfWeek(date) {
+  const dow = date.getDay();
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - dow);
+}
+
+function addDays(date, n) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
+}
+
+function formatDateEEE_MMdd(date) {
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const mm = date.getMonth() + 1;
+  const dd = date.getDate();
+  const day = days[date.getDay()];
+  return day + ' ' + String(mm).padStart(2,'0') + '/' + String(dd).padStart(2,'0');
+}
+
+function formatDateyyyy_MM_dd(date) {
+  const mm = String(date.getMonth() + 1).padStart(2,'0');
+  const dd = String(date.getDate()).padStart(2,'0');
+  const y = date.getFullYear();
+  return y + '-' + mm + '-' + dd;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  const { parse, format, addDays, startOfWeek } = window.dateFns;
   document.getElementById('csvInput').addEventListener('change', handleFileUpload);
 });
 
@@ -14,13 +45,12 @@ function handleFileUpload(e) {
   parseCSVFile(file, rows => {
     parsedRows = rows.map(r => ({
       ...r,
-      startDate: parse(r.Start_Date, 'MM/dd/yyyy', new Date()),
-      endDate: parse(r.End_Date, 'MM/dd/yyyy', new Date())
+      startDate: parseDate(r.Start_Date),
+      endDate: parseDate(r.End_Date)
     }));
     if (parsedRows.length === 0) return;
-    // Determine earliest startDate
     const earliest = parsedRows.reduce((min, r) => r.startDate < min ? r.startDate : min, parsedRows[0].startDate);
-    weekStartDate = startOfWeek(earliest, { weekStartsOn: 0 });
+    weekStartDate = startOfWeek(earliest);
     renderCalendar();
     document.getElementById('upload-timestamp').textContent = 'Loaded: ' + new Date().toLocaleString();
   });
@@ -29,41 +59,41 @@ function handleFileUpload(e) {
 function renderCalendar() {
   const table = document.getElementById('schedule-table');
   table.innerHTML = '';
-  // Header row
   const thead = table.createTHead();
   const hr = thead.insertRow();
   hr.insertCell().textContent = '';
   for (let i = 0; i < 7; i++) {
     const dt = addDays(weekStartDate, i);
     const cell = hr.insertCell();
-    cell.textContent = format(dt, 'EEE MM/dd');
+    cell.textContent = formatDateEEE_MMdd(dt);
   }
-  // Body rows for hours 6am-10pm
   const tbody = table.createTBody();
   for (let h = 6; h <= 22; h++) {
     const row = tbody.insertRow();
     const labelCell = row.insertCell();
     const ampm = h < 12 ? 'AM' : 'PM';
     const disp = h % 12 === 0 ? 12 : h % 12;
-    labelCell.textContent = `${disp} ${ampm}`;
+    labelCell.textContent = disp + ' ' + ampm;
     for (let d = 0; d < 7; d++) {
       const cell = row.insertCell();
-      cell.dataset.date = format(addDays(weekStartDate, d), 'yyyy-MM-dd');
+      const dt = addDays(weekStartDate, d);
+      cell.dataset.date = formatDateyyyy_MM_dd(dt);
       cell.dataset.hour = h;
       cell.classList.add('time-cell');
     }
   }
-  // Place events
   parsedRows.forEach(r => {
     r.DAYS.forEach(dow => {
       const dayIndex = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf(dow);
       if (dayIndex < 0) return;
       const dt = addDays(weekStartDate, dayIndex);
       if (dt < r.startDate || dt > r.endDate) return;
-      const startHour = parseInt(r.Start_Time.split(':')[0]) + (r.Start_Time.includes('PM') && !r.Start_Time.startsWith('12') ? 12 : 0);
-      const rowIndex = startHour - 6;
+      const timeParts = r.Start_Time.split(':');
+      let hour = parseInt(timeParts[0], 10);
+      if (r.Start_Time.includes('PM') && !r.Start_Time.startsWith('12')) hour += 12;
+      const rowIndex = hour - 6;
       if (rowIndex < 0 || rowIndex > 16) return;
-      const cell = document.querySelector(`#schedule-table tbody tr:nth-child(${rowIndex + 1}) td:nth-child(${dayIndex + 2})`);
+      const cell = document.querySelector('#schedule-table tbody').rows[rowIndex].cells[dayIndex + 1];
       if (cell) {
         const div = document.createElement('div');
         div.classList.add('event-block');
@@ -72,6 +102,5 @@ function renderCalendar() {
       }
     });
   });
-  // Week label
-  document.getElementById('week-label').textContent = 'Week of ' + format(weekStartDate, 'MM/dd/yyyy');
+  document.getElementById('week-label').textContent = 'Week of ' + formatDateEEE_MMdd(weekStartDate);
 }
