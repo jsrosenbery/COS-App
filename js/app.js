@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAvailability();
   initHeatmapTool();
   setupUploadListener();
+  setupRoomFilterListener();
   const firstTerm = Object.keys(termDefinitions)[0];
   if (firstTerm) selectTerm(firstTerm);
 });
@@ -44,6 +45,7 @@ function selectTerm(term) {
   document.querySelectorAll('#term-tabs button').forEach(b => {
     b.classList.toggle('active', b.dataset.term === term);
   });
+  populateRoomFilter(term);
   if (parsedRowsPerTerm[term]) {
     allEvents = buildEvents(parsedRowsPerTerm[term], term);
     currentSunday = getTermSunday(term);
@@ -53,6 +55,8 @@ function selectTerm(term) {
   } else {
     document.getElementById('schedule-table').innerHTML = '';
     document.getElementById('currentWeekLabel').textContent = '';
+    document.getElementById('conflictResults').innerHTML = '';
+    document.getElementById('heatmapContainer').innerHTML = '';
     allEvents = [];
   }
 }
@@ -126,7 +130,9 @@ function renderWeeklyGrid() {
       if (termDefinitions[currentTerm].holidays.includes(dateStr)) cell.classList.add('holiday-cell');
     }
   }
+  const selectedRoom = document.getElementById('roomSelect').value;
   allEvents.forEach(ev => {
+    if (selectedRoom !== 'All' && ev.room !== selectedRoom) return;
     const ed = parse(ev.date, 'yyyy-MM-dd', new Date());
     const di = ed.getDay();
     const [st] = ev.startTime.split(' ');
@@ -191,6 +197,22 @@ function setupUploadListener() {
   });
 }
 
+// Room Filter population and listener
+function populateRoomFilter(term) {
+  const rf = document.getElementById('room-filter');
+  rf.innerHTML = '<label for="roomSelect">Room: </label><select id="roomSelect"><option>All</option></select>';
+  if (!parsedRowsPerTerm[term]) return;
+  const rooms = Array.from(new Set(parsedRowsPerTerm[term].map(r => r.ROOM))).sort();
+  const select = document.getElementById('roomSelect');
+  rooms.forEach(rm => {
+    const opt = document.createElement('option');
+    opt.value = rm;
+    opt.textContent = rm;
+    select.appendChild(opt);
+  });
+  select.addEventListener('change', () => renderWeeklyGrid());
+}
+
 // Availability
 function initAvailability() {
   document.getElementById('avail-check-btn').addEventListener('click', () => {
@@ -198,16 +220,26 @@ function initAvailability() {
     const sTime = document.getElementById('avail-start').value;
     const eTime = document.getElementById('avail-end').value;
     const occ = new Set();
-    Object.values(parsedRowsPerTerm).flat().forEach(ev => {
-      if (ev.DAYS.some(d => sDays.includes(d)) && ev.Start_Time < eTime && ev.End_Time > sTime) occ.add(ev.ROOM);
-    });
-    const allRooms = Array.from(new Set(Object.values(parsedRowsPerTerm).flat().map(r => r.ROOM)));
+    if (currentTerm && parsedRowsPerTerm[currentTerm]) {
+      parsedRowsPerTerm[currentTerm].forEach(ev => {
+        if (ev.DAYS.some(d => sDays.includes(d)) && ev.Start_Time < eTime && ev.End_Time > sTime) {
+          occ.add(ev.ROOM);
+        }
+      });
+    }
+    const allRooms = currentTerm && parsedRowsPerTerm[currentTerm] ? Array.from(new Set(parsedRowsPerTerm[currentTerm].map(r => r.ROOM))) : [];
     const avail = allRooms.filter(rm => !occ.has(rm)).sort();
     const res = document.getElementById('avail-results');
     res.innerHTML = '';
-    if (avail.length === 0) res.textContent = 'No rooms available.'; else {
+    if (avail.length === 0) {
+      res.textContent = 'No rooms available.';
+    } else {
       const ul = document.createElement('ul');
-      avail.forEach(rm => { const li = document.createElement('li'); li.textContent = rm; ul.appendChild(li); });
+      avail.forEach(rm => {
+        const li = document.createElement('li');
+        li.textContent = rm;
+        ul.appendChild(li);
+      });
       res.appendChild(ul);
     }
   });
@@ -228,8 +260,8 @@ let dtInstance;
 let choiceInst;
 
 function initHeatmapTool() {
-  choiceInst = new Choices('#courseSelect',{removeItemButton:true,searchEnabled:true,placeholderValue:'Filter by discipline/course'});
-  dtInstance = $('#dataTable').DataTable({data:[],columns:[{title:'Course'},{title:'Building'},{title:'Room'},{title:'Days'},{title:'Time'}],destroy:true,searching:true});
+  choiceInst = new Choices('#courseSelect', { removeItemButton:true, searchEnabled:true, placeholderValue:'Filter by discipline/course' });
+  dtInstance = $('#dataTable').DataTable({ data:[], columns:[{title:'Course'},{title:'Building'},{title:'Room'},{title:'Days'},{title:'Time'}], destroy:true, searching:true });
   dtInstance.on('search.dt', updateHeatmap);
 }
 
@@ -237,77 +269,76 @@ function feedHeatmapTool(rows) {
   heatData = rows.map(r => {
     const parts = r.Subject_Course.trim().split(/\s+/);
     const key = parts.length>=2?parts[0]+' '+parts[1]:r.Subject_Course.trim();
-    return {key,BUILDING:r.BUILDING.trim(),ROOM:r.ROOM.trim(),DAYS:r.DAYS.map(d=>d.charAt(0)).join(''),Time:`${r.Start_Time} - ${r.End_Time}`};
+    return { key, BUILDING: r.BUILDING.trim(), ROOM: r.ROOM.trim(), DAYS: r.DAYS.map(d=>d.charAt(0)).join(''), Time:`${r.Start_Time} - ${r.End_Time}` };
   });
-  const keys = Array.from(new Set(heatData.map(d=>d.key))).sort(); const choices = keys.map(k=>({value:k,label:k}));
+  const keys = Array.from(new Set(heatData.map(d=>d.key))).sort();
+  const choices = keys.map(k=>({value:k,label:k}));
   choiceInst.setChoices(choices,'value','label',true);
   updateAllHeatmapViews();
 }
 
 function updateAllHeatmapViews() {
   const sel = choiceInst.getValue(true);
-  const rows = heatData.filter(r => {
-    if (sel.length && !sel.includes(r.key)) return false;
-    const b = r.BUILDING.toUpperCase(), rm = r.ROOM.toUpperCase();
-    if (!b || !rm || b==='N/A'||rm==='N/A'||b==='ONLINE') return false;
-    const m = r.Time.match(/(\d+):(\d+)\s*(AM|PM)/); if (!m) return false;
-    const h = (parseInt(m[1])%12) + (m[3]==='PM'?12:0);
-    return h>=6 && h<=22;
-  }).map(r => [r.key, r.BUILDING, r.ROOM, r.DAYS, r.Time]);
+  const rows = heatData.filter(r=>{
+    if(sel.length && !sel.includes(r.key)) return false;
+    const b=r.BUILDING.toUpperCase(), rm=r.ROOM.toUpperCase();
+    if(!b||!rm||b==='N/A'||rm==='N/A'||b==='ONLINE') return false;
+    const m=r.Time.match(/(\d+):(\d+)\s*(AM|PM)/); if(!m)return false;
+    const h=(parseInt(m[1])%12)+(m[3]==='PM'?12:0);
+    return h>=6&&h<=22;
+  }).map(r=>[r.key,r.BUILDING,r.ROOM,r.DAYS,r.Time]);
   dtInstance.clear().rows.add(rows).draw();
 }
 
 function updateHeatmap() {
   const fil = dtInstance.rows({search:'applied'}).data().toArray();
-  const cnts = {}; days.forEach(d=>cnts[d]=hrs.map(()=>0));
-  fil.forEach(([course,bld,rm,daysStr,timeStr]) => {
+  const cnts={}; days.forEach(d=>cnts[d]=hrs.map(()=>0));
+  fil.forEach(([course,bld,rm,daysStr,timeStr])=>{
     const dcs = daysStr.split('');
-    const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/); if (!m) return;
-    const h = (parseInt(m[1])%12) + (m[3]==='PM'?12:0);
-    dcs.forEach(dc => { const dn = dayMap[dc]; const idx = hrs.indexOf(h); if (dn && idx>=0) cnts[dn][idx]++; });
+    const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/); if(!m)return;
+    const h = (parseInt(m[1])%12)+(m[3]==='PM'?12:0);
+    dcs.forEach(dc => {
+      const dn = dayMap[dc];
+      const idx = hrs.indexOf(h);
+      if(dn&&idx>=0) cnts[dn][idx]++;
+    });
   });
   const maxv = Math.max(...Object.values(cnts).flat());
   let html = `<table class="heatmap"><thead><tr><th>Day/Time</th>`;
-  hrs.forEach(h => { const ap = h<12?'AM':'PM'; const hh = h%12===0?12:h%12; html += `<th>${hh} ${ap}</th>`; });
-  html += `</tr></thead><tbody>`;
-  days.forEach(d => { html += `<tr><th>${d}</th>`; cnts[d].forEach(c => { const op = maxv?c/maxv:0; html += `<td style="background: rgba(0,100,200,${op});">${c}</td>`; }); html += `</tr>`; });
-  html += `</tbody></table>`;
+  hrs.forEach(h=>{const ap=h<12?'AM':'PM'; const hh = h%12===0?12:h%12; html += `<th>${hh} ${ap}</th>`});
+  html += '</tr></thead><tbody>';
+  days.forEach(d=>{ html+= `<tr><th>${d}</th>`; cnts[d].forEach(c=>{const op=maxv?c/maxv:0;html+=`<td style="background: rgba(0,100,200,${op});">${c}</td>`}); html+='</tr>'; });
+  html+='</tbody></table>';
   document.getElementById('heatmapContainer').innerHTML = html;
 }
 
 // Conflict Detection
 function generateConflictReport(rows) {
   const confs = [];
-  for (let i=0; i<rows.length; i++) {
-    for (let j=i+1; j<rows.length; j++) {
+  for(let i=0;i<rows.length;i++){
+    for(let j=i+1;j<rows.length;j++){
       const r1=rows[i], r2=rows[j];
-      if (r1.ROOM !== r2.ROOM) continue;
+      if(r1.ROOM!==r2.ROOM) continue;
       const [s1,e1] = [new Date(r1.Start_Date), new Date(r1.End_Date)];
       const [s2,e2] = [new Date(r2.Start_Date), new Date(r2.End_Date)];
-      if (s1 > e2 || s2 > e1) continue;
-      const cd = r1.DAYS.filter(d => r2.DAYS.includes(d));
-      if (cd.length===0) continue;
-      const [st1,en1] = [timeToMins(r1.Start_Time), timeToMins(r1.End_Time)];
-      const [st2,en2] = [timeToMins(r2.Start_Time), timeToMins(r2.End_Time)];
-      if (st1 < en2 && st2 < en1) confs.push({r1,r2,cd});
+      if(s1>e2||s2>e1) continue;
+      const cd = r1.DAYS.filter(d=>r2.DAYS.includes(d));
+      if(cd.length===0) continue;
+      const [st1,en1]=[timeToMins(r1.Start_Time),timeToMins(r1.End_Time)];
+      const [st2,en2]=[timeToMins(r2.Start_Time),timeToMins(r2.End_Time)];
+      if(st1<en2&&st2<en1) confs.push({r1,r2,cd});
     }
   }
   const cont = document.getElementById('conflictResults');
-  cont.innerHTML = '';
-  if (confs.length===0) { cont.textContent = 'No conflicts detected.'; return; }
-  confs.forEach(conf => {
-    const p = document.createElement('p');
-    p.innerHTML = `<strong>Room ${conf.r1.ROOM}</strong> conflict on ${conf.cd.join(', ')}:<br>
-      • ${conf.r1.Subject_Course} (${conf.r1.Start_Time}-${conf.r1.End_Time}, ${conf.r1.Start_Date} to ${conf.r1.End_Date})<br>
-      • ${conf.r2.Subject_Course} (${conf.r2.Start_Time}-${conf.r2.End_Time}, ${conf.r2.Start_Date} to ${conf.r2.End_Date})`;
-    cont.appendChild(p);
-  });
+  cont.innerHTML='';
+  if(confs.length===0){cont.textContent='No conflicts detected.';return;}
+  confs.forEach(conf=>{const p=document.createElement('p'); p.innerHTML=`<strong>Room ${conf.r1.ROOM}</strong> conflict on ${conf.cd.join(', ')}:<br> • ${conf.r1.Subject_Course} (${conf.r1.Start_Time}-${conf.r1.End_Time}, ${conf.r1.Start_Date} to ${conf.r1.End_Date})<br> • ${conf.r2.Subject_Course} (${conf.r2.Start_Time}-${conf.r2.End_Time}, ${conf.r2.Start_Date} to ${conf.r2.End_Date})`; cont.appendChild(p);});
 }
 
 function timeToMins(t) {
   const [time, mod] = t.split(' ');
   let [h, m] = time.split(':').map(Number);
-  if (mod === 'PM' && h < 12) h += 12;
-  if (mod === 'AM' && h === 12) h = 0;
-  return h * 60 + m;
+  if(mod==='PM'&&h<12)h+=12;
+  if(mod==='AM'&&h===12)h=0;
+  return h*60+m;
 }

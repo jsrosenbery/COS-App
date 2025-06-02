@@ -19,6 +19,12 @@
   color: white;
 }
 
+/* Room filter */
+#room-filter select {
+  padding: 5px;
+  font-size: 1em;
+}
+
 /* View buttons */
 .view-btn {
   padding: 8px 16px;
