@@ -1,351 +1,339 @@
-// app.js
-const { parse, format, addDays, startOfWeek, addWeeks, subWeeks } = dateFns;
-
-let currentTerm = '';
-let parsedRowsPerTerm = {};
-let allEvents = [];
-let currentSunday = null;
-
 document.addEventListener('DOMContentLoaded', () => {
-  initTermTabs();
-  initViewButtons();
-  initAvailability();
-  initHeatmapTool();
-  setupUploadListener();
-  setupRoomFilterListener();
-  const firstTerm = Object.keys(window.termDefinitions)[0];
-  if (firstTerm) selectTerm(firstTerm);
-});
+  const terms = [
+    'Summer 2025','Fall 2025','Spring 2026',
+    'Summer 2026','Fall 2026','Spring 2027',
+    'Summer 2027','Fall 2027','Spring 2028'
+  ];
+  const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  let currentData = [];
+  let currentTerm = '';
 
-// Term Tabs
-function initTermTabs() {
-  const tabs = document.getElementById('term-tabs');
-  tabs.innerHTML = '';
-  Object.keys(window.termDefinitions || {}).forEach(term => {
-    const btn = document.createElement('button');
-    btn.textContent = readableTermName(term);
-    btn.dataset.term = term;
-    btn.addEventListener('click', () => selectTerm(term));
-    tabs.appendChild(btn);
+  // Cache DOM refs
+  const tabs         = document.getElementById('term-tabs');
+  const uploadDiv    = document.getElementById('upload-container');
+  const tsDiv        = document.getElementById('upload-timestamp');
+  const roomDiv      = document.getElementById('room-filter');
+  const startInput   = document.getElementById('avail-start');
+  const endInput     = document.getElementById('avail-end');
+  const checkBtn     = document.getElementById('avail-check-btn');
+  const clearBtn     = document.getElementById('avail-clear-btn');
+  const resultsDiv   = document.getElementById('avail-results');
+  const table        = document.getElementById('schedule-table');
+  const container    = document.getElementById('schedule-container');
+
+  // Build semester tabs
+  terms.forEach((term, i) => {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (i === 2 ? ' active' : '');
+    tab.textContent = term;
+    tab.onclick = () => selectTerm(term, tab);
+    tabs.appendChild(tab);
   });
-}
+  // Default select
+  selectTerm(terms[2], tabs.children[2]);
 
-function readableTermName(key) {
-  const season = key.slice(0, 2);
-  const year = '20' + key.slice(2);
-  if (season === 'SU') return 'Summer ' + year;
-  if (season === 'FA') return 'Fall ' + year;
-  if (season === 'SP') return 'Spring ' + year;
-  return key;
-}
+  // Wire availability buttons
+  checkBtn.onclick = handleAvailability;
+  clearBtn.onclick = () => {
+    // clear selections
+    document.querySelectorAll('#availability-ui .days input').forEach(cb => cb.checked = false);
+    startInput.value = '';
+    endInput.value   = '';
+    resultsDiv.textContent = '';
+  };
 
-function selectTerm(term) {
-  currentTerm = term;
-  document.querySelectorAll('#term-tabs button').forEach(b => {
-    b.classList.toggle('active', b.dataset.term === term);
-  });
-  populateRoomFilter(term);
-  if (parsedRowsPerTerm[term]) {
-    allEvents = buildEvents(parsedRowsPerTerm[term], term);
-    currentSunday = getTermSunday(term);
-    renderWeeklyGrid();
-    feedHeatmapTool(parsedRowsPerTerm[term]);
-    generateConflictReport(parsedRowsPerTerm[term]);
-  } else {
-    document.getElementById('schedule-table').innerHTML = '';
-    document.getElementById('currentWeekLabel').textContent = '';
-    document.getElementById('conflictResults').innerHTML = '';
-    document.getElementById('heatmapContainer').innerHTML = '';
-    allEvents = [];
-  }
-}
+  // ───── Scheduler Functions ─────────────────────────
 
-function getTermSunday(term) {
-  const ts = parse(window.termDefinitions[term].start, 'yyyy-MM-dd', new Date());
-  return startOfWeek(ts, { weekStartsOn: 0 });
-}
+  function selectTerm(term, tabElem) {
+    currentTerm = term;
+    tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tabElem.classList.add('active');
 
-// Build Events
-function buildEvents(rows, term) {
-  const tdef = window.termDefinitions[term];
-  const termStart = parse(tdef.start, 'yyyy-MM-dd', new Date());
-  const termEnd = parse(tdef.end, 'yyyy-MM-dd', new Date());
-  const holidays = tdef.holidays.map(d => parse(d, 'yyyy-MM-dd', new Date()));
-  return rows.flatMap(r => {
-    const rs = parse(r.Start_Date, 'MM/dd/yyyy', new Date());
-    const re = parse(r.End_Date, 'MM/dd/yyyy', new Date());
-    const startDate = rs > termStart ? rs : termStart;
-    const endDate = re < termEnd ? re : termEnd;
-    const evs = [];
-    let dayCursor = startDate;
-    while (dayCursor <= endDate) {
-      const dow = format(dayCursor, 'EEEE');
-      const isHoliday = holidays.some(h => format(h, 'yyyy-MM-dd') === format(dayCursor, 'yyyy-MM-dd'));
-      if (r.DAYS.includes(dow) && !isHoliday) {
-        evs.push({
-          date: format(dayCursor, 'yyyy-MM-dd'),
-          dayName: dow,
-          startTime: r.Start_Time,
-          endTime: r.End_Time,
-          course: r.Subject_Course,
-          building: r.BUILDING,
-          room: r.ROOM,
-          instructor: r.Instructor
-        });
-      }
-      dayCursor = addDays(dayCursor, 1);
-    }
-    return evs;
-  });
-}
+    clearSchedule();
+    setupUpload();
 
-// Render Calendar Grid
-function renderWeeklyGrid() {
-  const table = document.getElementById('schedule-table');
-  table.innerHTML = '';
-  const thead = table.createTHead();
-  const headerRow = thead.insertRow();
-  headerRow.insertCell().textContent = '';
-  for (let i = 0; i < 7; i++) {
-    const dt = addDays(currentSunday, i);
-    const cell = headerRow.insertCell();
-    const label = format(dt, 'EEE MM/dd');
-    if (window.termDefinitions[currentTerm].holidays.includes(format(dt, 'yyyy-MM-dd'))) {
-      cell.classList.add('holiday-header');
-    }
-    cell.textContent = label;
-  }
-  const tbody = table.createTBody();
-  for (let hour = 6; hour <= 22; hour++) {
-    const row = tbody.insertRow();
-    const labelCell = row.insertCell();
-    const ampm = hour < 12 ? 'AM' : 'PM';
-    const dispHour = hour % 12 === 0 ? 12 : hour % 12;
-    labelCell.textContent = `${dispHour} ${ampm}`;
-    for (let d = 0; d < 7; d++) {
-      const cell = row.insertCell();
-      const dateStr = format(addDays(currentSunday, d), 'yyyy-MM-dd');
-      cell.dataset.date = dateStr;
-      cell.dataset.hour = hour;
-      cell.classList.add('time-cell');
-      if (window.termDefinitions[currentTerm].holidays.includes(dateStr)) {
-        cell.classList.add('holiday-cell');
-      }
+    const key = 'cos_schedule_' + term;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      const { data, timestamp } = JSON.parse(saved);
+      currentData = data;
+      tsDiv.textContent = timestamp;
+      buildRoomDropdown();
+      renderSchedule();
+        feedHeatmapTool(currentData);
+    } else {
+      currentData = [];
+      tsDiv.textContent = '';
+      roomDiv.innerHTML = '';
     }
   }
-  const selectedRoom = document.getElementById('roomSelect').value;
-  allEvents.forEach(ev => {
-    if (selectedRoom !== 'All' && ev.room !== selectedRoom) return;
-    const eventDate = parse(ev.date, 'yyyy-MM-dd', new Date());
-    const dow = eventDate.getDay();
-    const [st] = ev.startTime.split(' ');
-    let sh = (parseInt(st.split(':')[0]) % 12) + (ev.startTime.includes('PM') && !st.startsWith('12') ? 12 : 0);
-    const rowIndex = sh - 6;
-    const cell = document.querySelector(`#schedule-table tbody tr:nth-child(${rowIndex + 1}) td:nth-child(${dow + 2})`);
-    if (cell && !cell.classList.contains('holiday-cell')) {
-      const block = document.createElement('div');
-      block.classList.add('event-block');
-      block.textContent = ev.course;
-      block.title = `${ev.course} | ${ev.building} ${ev.room} | ${ev.startTime}-${ev.endTime}`;
-      cell.appendChild(block);
+
+  function setupUpload() {
+    roomDiv.innerHTML = '';
+    uploadDiv.innerHTML = `<label>Upload CSV for ${currentTerm}: <input type="file" id="file-input" accept=".csv"></label>`;
+    document.getElementById('file-input').onchange = e => {
+      parseCSVFile(e.target.files[0], data => {
+        currentData = data;
+        tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
+        buildRoomDropdown();
+        renderSchedule();
+            feedHeatmapTool(currentData);
+        // Save per-term
+        localStorage.setItem(
+          'cos_schedule_' + currentTerm,
+          JSON.stringify({ data: currentData, timestamp: tsDiv.textContent })
+        );
+      });
+    };
+  }
+
+  function buildRoomDropdown() {
+    const combos = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))].sort();
+    roomDiv.innerHTML = `
+      <label>Filter Bldg-Room:
+        <select id="room-select">
+          <option>All</option>
+          ${combos.map(r => `<option>${r}</option>`).join('')}
+        </select>
+      </label>`;
+    document.getElementById('room-select').onchange = renderSchedule;
+  }
+
+  function clearSchedule() {
+    table.innerHTML = '';
+    container.querySelectorAll('.class-block').forEach(e => e.remove());
+    // Header row
+    const header = table.insertRow();
+    header.insertCell().outerHTML = '<th>Time</th>';
+    daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
+    // Time slots
+    for (let t = 360; t <= 22*60; t += 30) {
+      const row = table.insertRow();
+      const hh = Math.floor(t/60), mm = t%60;
+      const h12 = ((hh+11)%12)+1, ap = hh<12?'AM':'PM';
+      row.insertCell().outerHTML = `<th>${h12}:${('0'+mm).slice(-2)}${ap}</th>`;
+      daysOfWeek.forEach(() => row.insertCell());
     }
-  });
-  document.getElementById('currentWeekLabel').textContent = `Week of ${format(currentSunday, 'MM/dd/yyyy')}`;
-  document.getElementById('prevWeek').onclick = () => { currentSunday = subWeeks(currentSunday, 1); renderWeeklyGrid(); };
-  document.getElementById('nextWeek').onclick = () => { currentSunday = addWeeks(currentSunday, 1); renderWeeklyGrid(); };
-}
+  }
 
-// View Buttons
-function initViewButtons() {
-  document.getElementById('btnCalendar').addEventListener('click', () => {
-    document.getElementById('calendar-view').style.display = 'block';
-    document.getElementById('heatmap-tool').style.display = 'none';
-    document.getElementById('conflict-report').style.display = 'none';
-    toggleActive('btnCalendar');
-  });
-  document.getElementById('btnHeatmap').addEventListener('click', () => {
-    document.getElementById('calendar-view').style.display = 'none';
-    document.getElementById('heatmap-tool').style.display = 'block';
-    document.getElementById('conflict-report').style.display = 'none';
-    toggleActive('btnHeatmap');
-  });
-  document.getElementById('btnConflicts').addEventListener('click', () => {
-    document.getElementById('calendar-view').style.display = 'none';
-    document.getElementById('heatmap-tool').style.display = 'none';
-    document.getElementById('conflict-report').style.display = 'block';
-    toggleActive('btnConflicts');
-  });
-}
+  function renderSchedule() {
+    clearSchedule();
+    const filt = document.getElementById('room-select')?.value || 'All';
+    const data = filt === 'All'
+      ? currentData
+      : currentData.filter(i => `${i.Building}-${i.Room}` === filt);
+    const rect = container.getBoundingClientRect();
 
-function toggleActive(activeId) {
-  document.querySelectorAll('.view-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.id === activeId);
-  });
-}
+    daysOfWeek.forEach((day, dIdx) => {
+      // collect & sort events
+      const evs = data
+        .filter(i => i.Days.includes(day))
+        .map(i => ({
+          ...i,
+          startMin: parseTime(i.Start_Time),
+          endMin:   parseTime(i.End_Time)
+        }))
+        .sort((a,b) => a.startMin - b.startMin);
 
-// CSV Upload Listener
-function setupUploadListener() {
-  document.getElementById('csvInput').addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file || !currentTerm) return;
-    parseCSVFile(file, parsed => {
-      parsedRowsPerTerm[currentTerm] = parsed;
-      allEvents = buildEvents(parsed, currentTerm);
-      currentSunday = getTermSunday(currentTerm);
-      renderWeeklyGrid();
-      feedHeatmapTool(parsed);
-      generateConflictReport(parsed);
-      document.getElementById('upload-timestamp').textContent = 'Last uploaded: ' + new Date().toLocaleString();
-    });
-  });
-}
-
-// Room Filter
-function setupRoomFilterListener() {
-  populateRoomFilter(currentTerm);
-}
-
-function populateRoomFilter(term) {
-  const container = document.getElementById('room-filter');
-  container.innerHTML = '<label for="roomSelect">Room: </label><select id="roomSelect"><option>All</option></select>';
-  if (!parsedRowsPerTerm[term]) return;
-  const rooms = Array.from(new Set(parsedRowsPerTerm[term].map(r => r.ROOM))).sort();
-  const select = document.getElementById('roomSelect');
-  rooms.forEach(rm => {
-    const opt = document.createElement('option');
-    opt.value = rm;
-    opt.textContent = rm;
-    select.appendChild(opt);
-  });
-  select.addEventListener('change', () => renderWeeklyGrid());
-}
-
-// Availability
-function initAvailability() {
-  document.getElementById('avail-check-btn').addEventListener('click', () => {
-    const daysChecked = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked')).map(cb => cb.value);
-    const startTime = document.getElementById('avail-start').value;
-    const endTime = document.getElementById('avail-end').value;
-    const occupied = new Set();
-    if (currentTerm && parsedRowsPerTerm[currentTerm]) {
-      parsedRowsPerTerm[currentTerm].forEach(ev => {
-        if (ev.DAYS.some(d => daysChecked.includes(d)) && ev.Start_Time < endTime && ev.End_Time > startTime) {
-          occupied.add(ev.ROOM);
+      // overlap columns
+      const cols = [];
+      evs.forEach(ev => {
+        let placed = false;
+        for (let c=0; c<cols.length; c++) {
+          if (cols[c][cols[c].length-1].endMin <= ev.startMin) {
+            cols[c].push(ev); ev.col = c; placed = true; break;
+          }
+        }
+        if (!placed) {
+          ev.col = cols.length; cols.push([ev]);
         }
       });
-    }
-    const allRooms = currentTerm && parsedRowsPerTerm[currentTerm] ? Array.from(new Set(parsedRowsPerTerm[currentTerm].map(r => r.ROOM))) : [];
-    const available = allRooms.filter(rm => !occupied.has(rm)).sort();
-    const resDiv = document.getElementById('avail-results');
-    resDiv.innerHTML = '';
-    if (available.length === 0) {
-      resDiv.textContent = 'No rooms available.';
-    } else {
-      const ul = document.createElement('ul');
-      available.forEach(rm => {
-        const li = document.createElement('li');
-        li.textContent = rm;
-        ul.appendChild(li);
+      const colCount = cols.length || 1;
+
+      // render
+      cols.flat().forEach(ev => {
+        const offset = ev.startMin - 360;
+        const rowIndex = Math.floor(offset/30) + 1;
+        const rem = offset % 30;
+        // guard out-of-bounds
+        if (rowIndex < 1 || rowIndex >= table.rows.length) return;
+
+        const cell = table.rows[rowIndex].cells[dIdx+1];
+        const cr   = cell.getBoundingClientRect();
+        const topPx    = cr.top - rect.top + (rem/30)*cr.height;
+        const leftPx   = cr.left - rect.left + ev.col*(cr.width/colCount);
+        const widthPx  = cr.width/colCount;
+        const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
+
+        const b = document.createElement('div');
+        b.className = 'class-block';
+        b.style.top    = `${topPx}px`;
+        b.style.left   = `${leftPx}px`;
+        b.style.width  = `${widthPx}px`;
+        b.style.height = `${heightPx}px`;
+        b.innerHTML = `
+          <span>${ev.Subject_Course}</span><br>
+          <span>${ev.CRN}</span><br>
+          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>`;
+        container.appendChild(b);
       });
-      resDiv.appendChild(ul);
-    }
-  });
-  document.getElementById('avail-clear-btn').addEventListener('click', () => {
-    document.querySelectorAll('#availability-ui input[type="checkbox"]').forEach(cb => cb.checked = false);
-    document.getElementById('avail-start').value = '';
-    document.getElementById('avail-end').value = '';
-    document.getElementById('avail-results').innerHTML = '';
-  });
-}
-
-// Heatmap & Table
-const dayMap = {'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday'};
-const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const hrs = Array.from({length:17},(_,i)=>i+6);
-let heatData = [];
-let dtInstance;
-let choiceInst;
-
-function initHeatmapTool() {
-  choiceInst = new Choices('#courseSelect', { removeItemButton:true, searchEnabled:true, placeholderValue:'Filter by discipline/course' });
-  dtInstance = $('#dataTable').DataTable({ data:[], columns:[{title:'Course'},{title:'Building'},{title:'Room'},{title:'Days'},{title:'Time'}], destroy:true, searching:true });
-  dtInstance.on('search.dt', updateHeatmap);
-}
-
-function feedHeatmapTool(rows) {
-  heatData = rows.map(r => {
-    const parts = r.Subject_Course.trim().split(/\s+/);
-    const key = parts.length>=2?parts[0]+' '+parts[1]:r.Subject_Course.trim();
-    return { key, BUILDING: r.BUILDING.trim(), ROOM: r.ROOM.trim(), DAYS: r.DAYS.map(d=>d.charAt(0)).join(''), Time:`${r.Start_Time} - ${r.End_Time}` };
-  });
-  const keys = Array.from(new Set(heatData.map(d=>d.key))).sort();
-  const choices = keys.map(k=>({value:k,label:k}));
-  choiceInst.setChoices(choices,'value','label',true);
-  updateAllHeatmapViews();
-}
-
-function updateAllHeatmapViews() {
-  const sel = choiceInst.getValue(true);
-  const rows = heatData.filter(r=>{
-    if(sel.length && !sel.includes(r.key)) return false;
-    const b=r.BUILDING.toUpperCase(), rm=r.ROOM.toUpperCase();
-    if(!b||!rm||b==='N/A'||rm==='N/A'||b==='ONLINE') return false;
-    const m=r.Time.match(/(\d+):(\d+)\s*(AM|PM)/); if(!m)return false;
-    const h=(parseInt(m[1])%12)+(m[3]==='PM'?12:0);
-    return h>=6&&h<=22;
-  }).map(r=>[r.key,r.BUILDING,r.ROOM,r.DAYS,r.Time]);
-  dtInstance.clear().rows.add(rows).draw();
-}
-
-function updateHeatmap() {
-  const fil = dtInstance.rows({search:'applied'}).data().toArray();
-  const cnts={}; days.forEach(d=>cnts[d]=hrs.map(()=>0));
-  fil.forEach(([course,bld,rm,daysStr,timeStr])=>{
-    const dcs = daysStr.split('');
-    const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/); if(!m)return;
-    const h = (parseInt(m[1])%12)+(m[3]==='PM'?12:0);
-    dcs.forEach(dc => {
-      const dn = dayMap[dc];
-      const idx = hrs.indexOf(h);
-      if(dn&&idx>=0) cnts[dn][idx]++;
     });
-  });
-  const maxv = Math.max(...Object.values(cnts).flat());
-  let html = `<table class="heatmap"><thead><tr><th>Day/Time</th>`;
-  hrs.forEach(h=>{const ap=h<12?'AM':'PM'; const hh = h%12===0?12:h%12; html += `<th>${hh} ${ap}</th>`});
-  html += '</tr></thead><tbody>';
-  days.forEach(d=>{ html+= `<tr><th>${d}</th>`; cnts[d].forEach(c=>{const op=maxv?c/maxv:0;html+=`<td style="background: rgba(0,100,200,${op});">${c}</td>`}); html+='</tr>'; });
-  html+='</tbody></table>';
-  document.getElementById('heatmapContainer').innerHTML = html;
-}
+  }
 
-// Conflict Detection
-function generateConflictReport(rows) {
-  const confs = [];
-  for(let i=0;i<rows.length;i++){
-    for(let j=i+1;j<rows.length;j++){
-      const r1=rows[i], r2=rows[j];
-      if(r1.ROOM!==r2.ROOM) continue;
-      const [s1,e1] = [new Date(r1.Start_Date), new Date(r1.End_Date)];
-      const [s2,e2] = [new Date(r2.Start_Date), new Date(r2.End_Date)];
-      if(s1>e2||s2>e1) continue;
-      const cd = r1.DAYS.filter(d=>r2.DAYS.includes(d));
-      if(cd.length===0) continue;
-      const [st1,en1]=[timeToMins(r1.Start_Time),timeToMins(r1.End_Time)];
-      const [st2,en2]=[timeToMins(r2.Start_Time),timeToMins(r2.End_Time)];
-      if(st1<en2&&st2<en1) confs.push({r1,r2,cd});
+  // ───── Availability Handler ───────────────────────
+  function handleAvailability() {
+    resultsDiv.textContent = '';
+    const days = Array.from(
+      document.querySelectorAll('#availability-ui .days input:checked')
+    ).map(cb => cb.value);
+    const start = startInput.value, end = endInput.value;
+    if (!days.length || !start || !end) {
+      resultsDiv.textContent = 'Please select at least one day and both start/end times.';
+      return;
+    }
+    const toMin = t => {
+      const [h,m] = t.split(':').map(Number);
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
+    const occ   = new Set();
+    currentData.forEach(i => {
+      if (i.Days.some(d => days.includes(d))) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) {
+          occ.add(`${i.Building}-${i.Room}`);
+        }
+      }
+    });
+    const avail = rooms.filter(r => !occ.has(r));
+    if (avail.length) {
+      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
+    } else {
+      resultsDiv.textContent = 'No rooms available.';
     }
   }
-  const cont = document.getElementById('conflictResults');
-  cont.innerHTML='';
-  if(confs.length===0){cont.textContent='No conflicts detected.';return;}
-  confs.forEach(conf=>{const p=document.createElement('p'); p.innerHTML=`<strong>Room ${conf.r1.ROOM}</strong> conflict on ${conf.cd.join(', ')}:<br> • ${conf.r1.Subject_Course} (${conf.r1.Start_Time}-${conf.r1.End_Time}, ${conf.r1.Start_Date} to ${conf.r1.End_Date})<br> • ${conf.r2.Subject_Course} (${conf.r2.Start_Time}-${conf.r2.End_Time}, ${conf.r2.Start_Date} to ${conf.r2.End_Date})`; cont.appendChild(p);});
-}
 
-function timeToMins(t) {
-  const [time, mod] = t.split(' ');
-  let [h, m] = time.split(':').map(Number);
-  if(mod==='PM'&&h<12)h+=12;
-  if(mod==='AM'&&h===12)h=0;
-  return h*60+m;
-}
+  // ───── Helpers ────────────────────────────────────
+  function parseTime(t) {
+    const [h,m] = t.split(':').map(Number);
+    return h*60 + m;
+  }
+  function format12(t) {
+    let [h,m] = t.split(':').map(Number);
+    const ap = h<12 ? 'AM':'PM';
+    h = ((h+11)%12)+1;
+    return `${h}:${('0'+m).slice(-2)}${ap}`;
+  }
+
+  // ───── Heatmap & Table Logic ─────
+  const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
+  const hmDayMap = {'Sunday':'Sunday','Monday':'Monday','Tuesday':'Tuesday','Wednesday':'Wednesday','Thursday':'Thursday','Friday':'Friday','Saturday':'Saturday'};
+  let hmRaw = [];
+  let hmTable;
+  let hmChoices;
+
+  function initHeatmap() {
+    hmChoices = new Choices('#courseSelect', {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholderValue: 'Filter by discipline/course',
+    });
+    hmTable = $('#dataTable').DataTable({
+      data: [],
+      columns: [
+        { title: 'Course' },
+        { title: 'Building' },
+        { title: 'Room' },
+        { title: 'Days' },
+        { title: 'Time' }
+      ],
+      destroy: true,
+      searching: true
+    });
+    hmTable.on('search.dt', updateHeatmap);
+  }
+
+  function feedHeatmapTool(dataArray) {
+    hmRaw = dataArray.map(r => {
+      const parts = (r.Subject_Course || '').trim().split(/\s+/);
+      const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
+      return {
+        key,
+        Building: r.Building || '',
+        Room: r.Room || '',
+        Days: r.Days || [],
+        Start_Time: r.Start_Time || '',
+        End_Time: r.End_Time || ''
+      };
+    });
+    const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
+    const items = uniqueKeys.map(k => ({ value: k, label: k }));
+    hmChoices.setChoices(items, 'value', 'label', true);
+    updateAllHeatmap();
+  }
+
+  function updateAllHeatmap() {
+    const selected = hmChoices.getValue(true);
+    const rows = hmRaw.filter(r => {
+      if(selected.length && !selected.includes(r.key)) return false;
+      if(!r.Building || !r.Room) return false;
+      const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
+      if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
+      return true;
+    }).map(r => [r.key, r.Building, r.Room, r.Days.join(','), r.Start_Time + '-' + r.End_Time]);
+    hmTable.clear().rows.add(rows).draw();
+  }
+
+  function updateHeatmap() {
+    const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
+    const counts = {};
+    hmDays.forEach(d => counts[d] = hmHours.map(() => 0));
+    filtered.forEach(row => {
+      const [ course, bld, room, daysStr, timeStr ] = row;
+      const dayList = daysStr.split(',');
+      const timeParts = timeStr.split('-');
+      const st = timeParts[0].trim();
+      const m = st.match(/(\d{2}):(\d{2})/);
+      if(!m) return;
+      const hr = parseInt(m[1],10);
+      dayList.forEach(d => {
+        const hIndex = hmHours.indexOf(hr);
+        if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
+      });
+    });
+    const maxC = Math.max(...Object.values(counts).flat());
+    let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
+    html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
+    hmHours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
+    html+='</tr></thead><tbody>';
+    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
+    html+='</tbody></table>';
+    document.getElementById('heatmapContainer').innerHTML = html;
+  }
+
+  document.getElementById('viewSelect').addEventListener('change', function(){
+    if(this.value==='heatmap'){
+      document.getElementById('schedule-container').style.display='none';
+      document.getElementById('availability-ui').style.display='none';
+      document.getElementById('room-filter').style.display='none';
+      document.getElementById('upload-container').style.display='none';
+      document.getElementById('upload-timestamp').style.display='none';
+      document.getElementById('heatmap-tool').style.display='block';
+    } else {
+      document.getElementById('heatmap-tool').style.display='none';
+      document.getElementById('schedule-container').style.display='';
+      document.getElementById('availability-ui').style.display='';
+      document.getElementById('room-filter').style.display='';
+      document.getElementById('upload-container').style.display='';
+      document.getElementById('upload-timestamp').style.display='';
+    }
+  });
+
+  // Initialize heatmap when page loads
+  initHeatmap();
+  // Feed heatmap whenever schedule loads
+  // After renderSchedule or data loading, call feedHeatmapTool(currentData)
+
+});

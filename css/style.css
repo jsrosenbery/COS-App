@@ -1,112 +1,20 @@
-/* style.css */
-/* Logo half size */
-.logo.half-size {
-  width: 150px;
-  height: auto;
-}
-
-/* Term tab styling */
-.term-tabs {
-  margin-top: 20px;
-}
-.term-tabs button {
-  margin-right: 8px;
-  padding: 8px 16px;
-  border: none;
-  background: #e2e3e5;
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 1rem;
-}
-.term-tabs button.active {
-  background: #3a86ff;
-  color: white;
-}
-
-/* Room filter styling */
-#room-filter select {
-  padding: 5px;
-  font-size: 1em;
-}
-
-/* View buttons styling */
-.view-btn {
-  padding: 8px 16px;
-  margin-right: 8px;
-  border: none;
-  background: #e2e3e5;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.view-btn.active {
-  background: #3a86ff;
-  color: white;
-}
-
-/* Calendar styling */
-.time-cell {
-  border: 1px solid #ccc;
-  height: 40px;
-  vertical-align: top;
-  padding: 0;
-}
-.holiday-header {
-  background-color: #f0f0f0;
-  color: #888;
-}
-.holiday-cell {
-  background-color: #f9f9f9;
-}
-
-/* Event block */
-.event-block {
-  background-color: #3a86ff;
-  color: white;
-  margin: 1px;
-  padding: 2px;
-  font-size: 0.8em;
-  border-radius: 2px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* Heatmap styling */
-.heatmap {
-  border-collapse: collapse;
-  width: 100%;
-  margin-top: 20px;
-}
-.heatmap th, .heatmap td {
-  border: 1px solid #ccc;
-  text-align: center;
-  padding: 4px;
-}
-.heatmap th {
-  background: #eee;
-}
-
-/* Conflict report styling */
-#conflictResults p {
-  background: #f8d7da;
-  color: #721c24;
-  padding: 8px;
-  border: 1px solid #f5c6cb;
-  border-radius: 4px;
-  margin-bottom: 8px;
-}
-
-/* Availability UI */
-.availability-ui {
-  margin-bottom: 20px;
-}
-ul {
-  list-style: none;
-  padding-left: 0;
-}
-ul li {
-  background: #e2e3e5;
-  margin: 2px 0;
-  padding: 4px;
-  border-radius: 2px;
-}
+body { font-family: Arial,sans-serif; margin:0; padding:0; }
+header { display:flex; align-items:center; background:#003366; color:#fff; padding:1rem; }
+.logo { height:120px; margin-right:1rem; }
+h1 { margin:0; font-size:1.5rem; }
+#term-tabs { display:flex; background:#f4f4f4; padding:0.5rem; }
+.tab { margin-right:0.5rem; padding:0.5rem 1rem; cursor:pointer; }
+.tab.active { background:#003366; color:#fff; }
+#upload-container, .upload-timestamp, #room-filter, .availability-ui { padding:0.5rem 1rem; }
+#schedule-container { position:relative; margin:1rem; border:1px solid #ccc; overflow-y:auto; max-height:80vh; }
+#schedule-table { border-collapse:collapse; width:100%; table-layout:fixed; }
+#schedule-table th, #schedule-table td { border:1px solid #ccc; text-align:center; padding:0; height:30px; }
+#schedule-table th { background:#e0e0e0; font-size:0.85rem; }
+.class-block { position:absolute; background:#FFA500; border:2px solid #003366; box-sizing:border-box; padding:2px; font-size:0.75rem; text-align:center; overflow:hidden; }
+.upload-timestamp { font-size:0.85rem; color:#555; }
+.availability-ui { background:#f9f9f9; border:1px solid #ccc; border-radius:4px; }
+.availability-ui h3 { margin-top:0; }
+.availability-controls { display:flex; flex-wrap:wrap; gap:1rem; align-items:center; }
+.availability-controls .days label { margin-right:0.5rem; }
+.availability-controls .times label { margin-right:1rem; }
+.avail-results { margin-top:0.5rem; font-size:0.9rem; }
