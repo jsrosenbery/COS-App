@@ -1,10 +1,10 @@
 // app.js
-const { parse, format, addDays, startOfWeek } = window.dateFns;
 
 let parsedRows = [];
 let weekStartDate = null;
 
 document.addEventListener('DOMContentLoaded', () => {
+  const { parse, format, addDays, startOfWeek } = window.dateFns;
   document.getElementById('csvInput').addEventListener('change', handleFileUpload);
 });
 
