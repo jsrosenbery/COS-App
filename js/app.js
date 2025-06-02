@@ -3,27 +3,29 @@
 
 let parsedRows = []; // parsed CSV rows
 
-// Initialize UI on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
-  initViewToggle();
+  initViewButtons();
   initCSVUpload();
   initAvailability();
   initHeatmapTool();
 });
 
-// View Toggle (Heatmap ↔ Conflict Report)
-function initViewToggle() {
-  document.getElementById('viewSelect').addEventListener('change', e => {
-    const v = e.target.value;
-    const heat = document.getElementById('heatmap-tool');
-    const conf = document.getElementById('conflict-report');
-    if (v === 'heatmap') {
-      heat.style.display = 'block';
-      conf.style.display = 'none';
-    } else {
-      heat.style.display = 'none';
-      conf.style.display = 'block';
-    }
+function initViewButtons() {
+  document.getElementById('btnHeatmap').addEventListener('click', () => {
+    document.getElementById('heatmap-tool').style.display = 'block';
+    document.getElementById('conflict-report').style.display = 'none';
+    toggleActive('btnHeatmap');
+  });
+  document.getElementById('btnConflicts').addEventListener('click', () => {
+    document.getElementById('heatmap-tool').style.display = 'none';
+    document.getElementById('conflict-report').style.display = 'block';
+    toggleActive('btnConflicts');
+  });
+}
+
+function toggleActive(activeId) {
+  document.querySelectorAll('.view-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.id === activeId);
   });
 }
 
@@ -54,8 +56,8 @@ function initAvailability() {
     const occupiedRooms = new Set();
     parsedRows.forEach(ev => {
       if (
-        selectedDays.includes(ev.DAYS.find(d => d)) && 
-        ev.Start_Time < endTime && 
+        ev.DAYS.some(d => selectedDays.includes(d)) &&
+        ev.Start_Time < endTime &&
         ev.End_Time > startTime
       ) {
         occupiedRooms.add(ev.ROOM);
@@ -192,15 +194,12 @@ function generateConflictReport(rows) {
     for (let j = i + 1; j < rows.length; j++) {
       const r1 = rows[i], r2 = rows[j];
       if (r1.ROOM !== r2.ROOM) continue;
-      // Date span overlap
       const [s1, e1] = [new Date(r1.Start_Date), new Date(r1.End_Date)];
       const [s2, e2] = [new Date(r2.Start_Date), new Date(r2.End_Date)];
       if (s1 > e2 || s2 > e1) continue;
-      // Day overlap
       const days1 = r1.DAYS, days2 = r2.DAYS;
       const commonDays = days1.filter(d => days2.includes(d));
       if (commonDays.length === 0) continue;
-      // Time overlap (convert to minutes)
       const [st1, en1] = [timeToMins(r1.Start_Time), timeToMins(r1.End_Time)];
       const [st2, en2] = [timeToMins(r2.Start_Time), timeToMins(r2.End_Time)];
       if (st1 < en2 && st2 < en1) {
@@ -208,7 +207,6 @@ function generateConflictReport(rows) {
       }
     }
   }
-  // Render report
   const container = document.getElementById('conflictResults');
   container.innerHTML = '';
   if (conflicts.length === 0) {

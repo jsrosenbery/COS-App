@@ -28,20 +28,17 @@
     <h1>COS Course Scheduler</h1>
   </header>
 
-  <!-- View selection dropdown -->
-  <div id="view-container" style="margin: 10px 0;">
-    <label for="viewSelect">View: </label>
-    <select id="viewSelect">
-      <option value="heatmap">Heatmap</option>
-      <option value="conflicts">Room Conflict Report</option>
-    </select>
+  <!-- View buttons -->
+  <div id="view-buttons" style="margin:10px 0;">
+    <button id="btnHeatmap" class="view-btn active">Heatmap</button>
+    <button id="btnConflicts" class="view-btn">Room Conflict Report</button>
   </div>
 
   <!-- Upload container -->
   <div id="upload-container"></div>
   <div id="upload-timestamp" class="upload-timestamp"></div>
 
-  <!-- Availability UI (unchanged) -->
+  <!-- Availability UI -->
   <div id="availability-ui" class="availability-ui">
     <h3>Check Room Availability</h3>
     <div class="days">
@@ -96,7 +93,7 @@
   ></script>
   <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
 
-  <!-- CSV parser (unchanged) -->
+  <!-- CSV parser -->
   <script src="js/parser.js"></script>
   <!-- Main app script -->
   <script src="js/app.js"></script>
