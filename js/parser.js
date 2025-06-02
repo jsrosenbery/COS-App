@@ -1,6 +1,4 @@
 // parser.js
-// Unchanged CSV parser for course schedule
-
 function parseCSVFile(file, callback) {
   Papa.parse(file, {
     header: true,
