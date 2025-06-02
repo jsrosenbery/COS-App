@@ -18,22 +18,3 @@ h1 { margin:0; font-size:1.5rem; }
 .availability-controls .days label { margin-right:0.5rem; }
 .availability-controls .times label { margin-right:1rem; }
 .avail-results { margin-top:0.5rem; font-size:0.9rem; }
-
-
-/* Heatmap styles */
-.heatmap { border-collapse: collapse; margin-top: 20px; width: 100%; }
-.heatmap th, .heatmap td {
-  border: 1px solid #ccc;
-  padding: 4px;
-  text-align: center;
-}
-.heatmap th {
-  background: #eee;
-}
-#controls {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: center;
-  margin-bottom: 15px;
-}
