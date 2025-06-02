@@ -21,16 +21,16 @@ document.addEventListener('DOMContentLoaded', () => {
 function initTermTabs() {
   const tabs = document.getElementById('term-tabs');
   tabs.innerHTML = '';
-  Object.keys(window.termDefinitions).forEach(term => {
+  Object.keys(window.termDefinitions || {}).forEach(term => {
     const btn = document.createElement('button');
-    btn.textContent = readableName(term);
+    btn.textContent = readableTermName(term);
     btn.dataset.term = term;
     btn.addEventListener('click', () => selectTerm(term));
     tabs.appendChild(btn);
   });
 }
 
-function readableName(key) {
+function readableTermName(key) {
   const season = key.slice(0, 2);
   const year = '20' + key.slice(2);
   if (season === 'SU') return 'Summer ' + year;
@@ -67,24 +67,24 @@ function getTermSunday(term) {
 
 // Build Events
 function buildEvents(rows, term) {
-  const t = window.termDefinitions[term];
-  const termStart = parse(t.start, 'yyyy-MM-dd', new Date());
-  const termEnd = parse(t.end, 'yyyy-MM-dd', new Date());
-  const holidays = t.holidays.map(d => parse(d, 'yyyy-MM-dd', new Date()));
+  const tdef = window.termDefinitions[term];
+  const termStart = parse(tdef.start, 'yyyy-MM-dd', new Date());
+  const termEnd = parse(tdef.end, 'yyyy-MM-dd', new Date());
+  const holidays = tdef.holidays.map(d => parse(d, 'yyyy-MM-dd', new Date()));
   return rows.flatMap(r => {
     const rs = parse(r.Start_Date, 'MM/dd/yyyy', new Date());
     const re = parse(r.End_Date, 'MM/dd/yyyy', new Date());
-    const start = rs > termStart ? rs : termStart;
-    const end = re < termEnd ? re : termEnd;
+    const startDate = rs > termStart ? rs : termStart;
+    const endDate = re < termEnd ? re : termEnd;
     const evs = [];
-    let cur = start;
-    while (cur <= end) {
-      const dn = format(cur, 'EEEE');
-      const isHol = holidays.some(h => format(h, 'yyyy-MM-dd') === format(cur, 'yyyy-MM-dd'));
-      if (r.DAYS.includes(dn) && !isHol) {
+    let dayCursor = startDate;
+    while (dayCursor <= endDate) {
+      const dow = format(dayCursor, 'EEEE');
+      const isHoliday = holidays.some(h => format(h, 'yyyy-MM-dd') === format(dayCursor, 'yyyy-MM-dd'));
+      if (r.DAYS.includes(dow) && !isHoliday) {
         evs.push({
-          date: format(cur, 'yyyy-MM-dd'),
-          dayName: dn,
+          date: format(dayCursor, 'yyyy-MM-dd'),
+          dayName: dow,
           startTime: r.Start_Time,
           endTime: r.End_Time,
           course: r.Subject_Course,
@@ -93,57 +93,61 @@ function buildEvents(rows, term) {
           instructor: r.Instructor
         });
       }
-      cur = addDays(cur, 1);
+      dayCursor = addDays(dayCursor, 1);
     }
     return evs;
   });
 }
 
-// Calendar Rendering
+// Render Calendar Grid
 function renderWeeklyGrid() {
   const table = document.getElementById('schedule-table');
   table.innerHTML = '';
   const thead = table.createTHead();
-  const hr = thead.insertRow();
-  hr.insertCell().textContent = '';
+  const headerRow = thead.insertRow();
+  headerRow.insertCell().textContent = '';
   for (let i = 0; i < 7; i++) {
     const dt = addDays(currentSunday, i);
-    const cell = hr.insertCell();
-    const ds = format(dt, 'EEE MM/dd');
-    if (window.termDefinitions[currentTerm].holidays.includes(format(dt, 'yyyy-MM-dd'))) cell.classList.add('holiday-header');
-    cell.textContent = ds;
+    const cell = headerRow.insertCell();
+    const label = format(dt, 'EEE MM/dd');
+    if (window.termDefinitions[currentTerm].holidays.includes(format(dt, 'yyyy-MM-dd'))) {
+      cell.classList.add('holiday-header');
+    }
+    cell.textContent = label;
   }
   const tbody = table.createTBody();
-  for (let h = 6; h <= 22; h++) {
+  for (let hour = 6; hour <= 22; hour++) {
     const row = tbody.insertRow();
-    const label = row.insertCell();
-    const ap = h < 12 ? 'AM' : 'PM';
-    const hh = h % 12 === 0 ? 12 : h % 12;
-    label.textContent = `${hh} ${ap}`;
+    const labelCell = row.insertCell();
+    const ampm = hour < 12 ? 'AM' : 'PM';
+    const dispHour = hour % 12 === 0 ? 12 : hour % 12;
+    labelCell.textContent = `${dispHour} ${ampm}`;
     for (let d = 0; d < 7; d++) {
       const cell = row.insertCell();
       const dateStr = format(addDays(currentSunday, d), 'yyyy-MM-dd');
       cell.dataset.date = dateStr;
-      cell.dataset.hour = h;
+      cell.dataset.hour = hour;
       cell.classList.add('time-cell');
-      if (window.termDefinitions[currentTerm].holidays.includes(dateStr)) cell.classList.add('holiday-cell');
+      if (window.termDefinitions[currentTerm].holidays.includes(dateStr)) {
+        cell.classList.add('holiday-cell');
+      }
     }
   }
   const selectedRoom = document.getElementById('roomSelect').value;
   allEvents.forEach(ev => {
     if (selectedRoom !== 'All' && ev.room !== selectedRoom) return;
-    const ed = parse(ev.date, 'yyyy-MM-dd', new Date());
-    const di = ed.getDay();
+    const eventDate = parse(ev.date, 'yyyy-MM-dd', new Date());
+    const dow = eventDate.getDay();
     const [st] = ev.startTime.split(' ');
-    const sh = (parseInt(st.split(':')[0]) % 12) + (ev.startTime.includes('PM') && !st.startsWith('12') ? 12 : 0);
-    const ri = sh - 6;
-    const cell = document.querySelector(`#schedule-table tbody tr:nth-child(${ri+1}) td:nth-child(${di+2})`);
+    let sh = (parseInt(st.split(':')[0]) % 12) + (ev.startTime.includes('PM') && !st.startsWith('12') ? 12 : 0);
+    const rowIndex = sh - 6;
+    const cell = document.querySelector(`#schedule-table tbody tr:nth-child(${rowIndex + 1}) td:nth-child(${dow + 2})`);
     if (cell && !cell.classList.contains('holiday-cell')) {
-      const div = document.createElement('div');
-      div.classList.add('event-block');
-      div.textContent = ev.course;
-      div.title = `${ev.course} | ${ev.building} ${ev.room} | ${ev.startTime}-${ev.endTime}`;
-      cell.appendChild(div);
+      const block = document.createElement('div');
+      block.classList.add('event-block');
+      block.textContent = ev.course;
+      block.title = `${ev.course} | ${ev.building} ${ev.room} | ${ev.startTime}-${ev.endTime}`;
+      cell.appendChild(block);
     }
   });
   document.getElementById('currentWeekLabel').textContent = `Week of ${format(currentSunday, 'MM/dd/yyyy')}`;
@@ -173,9 +177,9 @@ function initViewButtons() {
   });
 }
 
-function toggleActive(id) {
-  document.querySelectorAll('.view-btn').forEach(b => {
-    b.classList.toggle('active', b.id === id);
+function toggleActive(activeId) {
+  document.querySelectorAll('.view-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.id === activeId);
   });
 }
 
@@ -198,13 +202,12 @@ function setupUploadListener() {
 
 // Room Filter
 function setupRoomFilterListener() {
-  // initially populate for first term
   populateRoomFilter(currentTerm);
 }
 
 function populateRoomFilter(term) {
-  const rf = document.getElementById('room-filter');
-  rf.innerHTML = '<label for="roomSelect">Room: </label><select id="roomSelect"><option>All</option></select>';
+  const container = document.getElementById('room-filter');
+  container.innerHTML = '<label for="roomSelect">Room: </label><select id="roomSelect"><option>All</option></select>';
   if (!parsedRowsPerTerm[term]) return;
   const rooms = Array.from(new Set(parsedRowsPerTerm[term].map(r => r.ROOM))).sort();
   const select = document.getElementById('roomSelect');
@@ -220,31 +223,31 @@ function populateRoomFilter(term) {
 // Availability
 function initAvailability() {
   document.getElementById('avail-check-btn').addEventListener('click', () => {
-    const sDays = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked')).map(cb => cb.value);
-    const sTime = document.getElementById('avail-start').value;
-    const eTime = document.getElementById('avail-end').value;
-    const occ = new Set();
+    const daysChecked = Array.from(document.querySelectorAll('#availability-ui input[type="checkbox"]:checked')).map(cb => cb.value);
+    const startTime = document.getElementById('avail-start').value;
+    const endTime = document.getElementById('avail-end').value;
+    const occupied = new Set();
     if (currentTerm && parsedRowsPerTerm[currentTerm]) {
       parsedRowsPerTerm[currentTerm].forEach(ev => {
-        if (ev.DAYS.some(d => sDays.includes(d)) && ev.Start_Time < eTime && ev.End_Time > sTime) {
-          occ.add(ev.ROOM);
+        if (ev.DAYS.some(d => daysChecked.includes(d)) && ev.Start_Time < endTime && ev.End_Time > startTime) {
+          occupied.add(ev.ROOM);
         }
       });
     }
     const allRooms = currentTerm && parsedRowsPerTerm[currentTerm] ? Array.from(new Set(parsedRowsPerTerm[currentTerm].map(r => r.ROOM))) : [];
-    const avail = allRooms.filter(rm => !occ.has(rm)).sort();
-    const res = document.getElementById('avail-results');
-    res.innerHTML = '';
-    if (avail.length === 0) {
-      res.textContent = 'No rooms available.';
+    const available = allRooms.filter(rm => !occupied.has(rm)).sort();
+    const resDiv = document.getElementById('avail-results');
+    resDiv.innerHTML = '';
+    if (available.length === 0) {
+      resDiv.textContent = 'No rooms available.';
     } else {
       const ul = document.createElement('ul');
-      avail.forEach(rm => {
+      available.forEach(rm => {
         const li = document.createElement('li');
         li.textContent = rm;
         ul.appendChild(li);
       });
-      res.appendChild(ul);
+      resDiv.appendChild(ul);
     }
   });
   document.getElementById('avail-clear-btn').addEventListener('click', () => {

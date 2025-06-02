@@ -6,26 +6,30 @@
 }
 
 /* Term tab styling */
+.term-tabs {
+  margin-top: 20px;
+}
 .term-tabs button {
+  margin-right: 8px;
   padding: 8px 16px;
-  margin-right: 4px;
   border: none;
   background: #e2e3e5;
   cursor: pointer;
   border-radius: 4px;
+  font-size: 1rem;
 }
 .term-tabs button.active {
   background: #3a86ff;
   color: white;
 }
 
-/* Room filter */
+/* Room filter styling */
 #room-filter select {
   padding: 5px;
   font-size: 1em;
 }
 
-/* View buttons */
+/* View buttons styling */
 .view-btn {
   padding: 8px 16px;
   margin-right: 8px;
@@ -54,7 +58,7 @@
   background-color: #f9f9f9;
 }
 
-/* Event block styling */
+/* Event block */
 .event-block {
   background-color: #3a86ff;
   color: white;
