@@ -5,7 +5,63 @@
   height: auto;
 }
 
-/* Heatmap table styling */
+/* Term tab styling */
+.term-tabs button {
+  padding: 8px 16px;
+  margin-right: 4px;
+  border: none;
+  background: #e2e3e5;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.term-tabs button.active {
+  background: #3a86ff;
+  color: white;
+}
+
+/* View buttons */
+.view-btn {
+  padding: 8px 16px;
+  margin-right: 8px;
+  border: none;
+  background: #e2e3e5;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.view-btn.active {
+  background: #3a86ff;
+  color: white;
+}
+
+/* Calendar styling */
+.time-cell {
+  border: 1px solid #ccc;
+  height: 40px;
+  vertical-align: top;
+  padding: 0;
+}
+.holiday-header {
+  background-color: #f0f0f0;
+  color: #888;
+}
+.holiday-cell {
+  background-color: #f9f9f9;
+}
+
+/* Event block styling */
+.event-block {
+  background-color: #3a86ff;
+  color: white;
+  margin: 1px;
+  padding: 2px;
+  font-size: 0.8em;
+  border-radius: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Heatmap styling */
 .heatmap {
   border-collapse: collapse;
   width: 100%;
@@ -30,12 +86,10 @@
   margin-bottom: 8px;
 }
 
-/* Availability UI styling */
+/* Availability UI */
 .availability-ui {
   margin-bottom: 20px;
 }
-
-/* Simple UL styling */
 ul {
   list-style: none;
   padding-left: 0;
@@ -45,18 +99,4 @@ ul li {
   margin: 2px 0;
   padding: 4px;
   border-radius: 2px;
-}
-
-/* View button styling */
-.view-btn {
-  padding: 8px 16px;
-  margin-right: 8px;
-  border: none;
-  background: #e2e3e5;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.view-btn.active {
-  background: #3a86ff;
-  color: white;
 }
