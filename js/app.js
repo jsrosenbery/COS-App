@@ -1,5 +1,4 @@
 // app.js
-import { termDefinitions } from './termDefinitions.js';
 const { parse, format, addDays, startOfWeek, addWeeks, subWeeks } = dateFns;
 
 let currentTerm = '';
@@ -14,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeatmapTool();
   setupUploadListener();
   setupRoomFilterListener();
-  const firstTerm = Object.keys(termDefinitions)[0];
+  const firstTerm = Object.keys(window.termDefinitions)[0];
   if (firstTerm) selectTerm(firstTerm);
 });
 
@@ -22,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function initTermTabs() {
   const tabs = document.getElementById('term-tabs');
   tabs.innerHTML = '';
-  Object.keys(termDefinitions).forEach(term => {
+  Object.keys(window.termDefinitions).forEach(term => {
     const btn = document.createElement('button');
     btn.textContent = readableName(term);
     btn.dataset.term = term;
@@ -62,13 +61,13 @@ function selectTerm(term) {
 }
 
 function getTermSunday(term) {
-  const ts = parse(termDefinitions[term].start, 'yyyy-MM-dd', new Date());
+  const ts = parse(window.termDefinitions[term].start, 'yyyy-MM-dd', new Date());
   return startOfWeek(ts, { weekStartsOn: 0 });
 }
 
 // Build Events
 function buildEvents(rows, term) {
-  const t = termDefinitions[term];
+  const t = window.termDefinitions[term];
   const termStart = parse(t.start, 'yyyy-MM-dd', new Date());
   const termEnd = parse(t.end, 'yyyy-MM-dd', new Date());
   const holidays = t.holidays.map(d => parse(d, 'yyyy-MM-dd', new Date()));
@@ -111,7 +110,7 @@ function renderWeeklyGrid() {
     const dt = addDays(currentSunday, i);
     const cell = hr.insertCell();
     const ds = format(dt, 'EEE MM/dd');
-    if (termDefinitions[currentTerm].holidays.includes(format(dt, 'yyyy-MM-dd'))) cell.classList.add('holiday-header');
+    if (window.termDefinitions[currentTerm].holidays.includes(format(dt, 'yyyy-MM-dd'))) cell.classList.add('holiday-header');
     cell.textContent = ds;
   }
   const tbody = table.createTBody();
@@ -127,7 +126,7 @@ function renderWeeklyGrid() {
       cell.dataset.date = dateStr;
       cell.dataset.hour = h;
       cell.classList.add('time-cell');
-      if (termDefinitions[currentTerm].holidays.includes(dateStr)) cell.classList.add('holiday-cell');
+      if (window.termDefinitions[currentTerm].holidays.includes(dateStr)) cell.classList.add('holiday-cell');
     }
   }
   const selectedRoom = document.getElementById('roomSelect').value;
@@ -197,7 +196,12 @@ function setupUploadListener() {
   });
 }
 
-// Room Filter population and listener
+// Room Filter
+function setupRoomFilterListener() {
+  // initially populate for first term
+  populateRoomFilter(currentTerm);
+}
+
 function populateRoomFilter(term) {
   const rf = document.getElementById('room-filter');
   rf.innerHTML = '<label for="roomSelect">Room: </label><select id="roomSelect"><option>All</option></select>';
