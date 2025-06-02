@@ -222,61 +222,57 @@ function initAvailability() {
 
 // Heatmap & Table
 const dayMap = {'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday'};
-const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const hrs = Array.from({length:17},(_,i)=>i+6);
-let heatData = [];
-let dtInstance;
+const daysArr = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const hrsArr = Array.from({length:17},(_,i)=>i+6);
+let heatArr = [];
+let tableInst;
 let choiceInst;
 
 function initHeatmapTool() {
-  choiceInst = new Choices('#courseSelect', { removeItemButton:true, searchEnabled:true, placeholderValue:'Filter by discipline/course' });
-  dtInstance = $('#dataTable').DataTable({ data:[], columns:[{title:'Course'},{title:'Building'},{title:'Room'},{title:'Days'},{title:'Time'}], destroy:true, searching:true });
-  dtInstance.on('search.dt', updateHeatmap);
+  choiceInst = new Choices('#courseSelect',{ removeItemButton:true,searchEnabled:true,placeholderValue:'Filter by discipline/course' });
+  tableInst = $('#dataTable').DataTable({ data:[], columns:[{title:'Course'},{title:'Building'},{title:'Room'},{title:'Days'},{title:'Time'}], destroy:true, searching:true });
+  tableInst.on('search.dt', updateHeatmap);
 }
 
 function feedHeatmapTool(rows) {
-  heatData = rows.map(r => {
+  heatArr = rows.map(r => {
     const parts = r.Subject_Course.trim().split(/\s+/);
     const key = parts.length>=2?parts[0]+' '+parts[1]:r.Subject_Course.trim();
     return { key, BUILDING: r.BUILDING.trim(), ROOM: r.ROOM.trim(), DAYS: r.DAYS.map(d=>d.charAt(0)).join(''), Time:`${r.Start_Time} - ${r.End_Time}` };
   });
-  const keys = Array.from(new Set(heatData.map(d=>d.key))).sort();
-  const choices = keys.map(k=>({value:k,label:k}));
-  choiceInst.setChoices(choices,'value','label',true);
+  const keysArr = Array.from(new Set(heatArr.map(d=>d.key))).sort();
+  const choicesSet = keysArr.map(k=>({value:k,label:k}));
+  choiceInst.setChoices(choicesSet,'value','label',true);
   updateAllHeatmapViews();
 }
 
 function updateAllHeatmapViews() {
   const sel = choiceInst.getValue(true);
-  const rows = heatData.filter(r=>{
+  const rows = heatArr.filter(r => {
     if(sel.length && !sel.includes(r.key)) return false;
     const b=r.BUILDING.toUpperCase(), rm=r.ROOM.toUpperCase();
     if(!b||!rm||b==='N/A'||rm==='N/A'||b==='ONLINE') return false;
-    const m=r.Time.match(/(\d+):(\d+)\s*(AM|PM)/); if(!m)return false;
-    const h=(parseInt(m[1])%12)+(m[3]==='PM'?12:0);
+    const m = r.Time.match(/(\d+):(\d+)\s*(AM|PM)/); if(!m) return false;
+    const h = (parseInt(m[1])%12)+(m[3]==='PM'?12:0);
     return h>=6&&h<=22;
   }).map(r=>[r.key,r.BUILDING,r.ROOM,r.DAYS,r.Time]);
-  dtInstance.clear().rows.add(rows).draw();
+  tableInst.clear().rows.add(rows).draw();
 }
 
 function updateHeatmap() {
-  const fil = dtInstance.rows({search:'applied'}).data().toArray();
-  const cnts={}; days.forEach(d=>cnts[d]=hrs.map(()=>0));
+  const fil = tableInst.rows({search:'applied'}).data().toArray();
+  const cnts = {}; daysArr.forEach(d=>cnts[d]=hrsArr.map(()=>0));
   fil.forEach(([course,bld,rm,daysStr,timeStr])=>{
-    const dcs = daysStr.split('');
+    const dcArr = daysStr.split('');
     const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/); if(!m)return;
     const h = (parseInt(m[1])%12)+(m[3]==='PM'?12:0);
-    dcs.forEach(dc => {
-      const dn = dayMap[dc];
-      const idx = hrs.indexOf(h);
-      if(dn&&idx>=0) cnts[dn][idx]++;
-    });
+    dcArr.forEach(dc=>{ const dn = dayMap[dc]; const idx = hrsArr.indexOf(h); if(dn&&idx>=0) cnts[dn][idx]++; });
   });
   const maxv = Math.max(...Object.values(cnts).flat());
   let html = `<table class="heatmap"><thead><tr><th>Day/Time</th>`;
-  hrs.forEach(h=>{const ap=h<12?'AM':'PM'; const hh = h%12===0?12:h%12; html += `<th>${hh} ${ap}</th>`});
-  html += '</tr></thead><tbody>';
-  days.forEach(d=>{ html+= `<tr><th>${d}</th>`; cnts[d].forEach(c=>{const op=maxv?c/maxv:0;html+=`<td style="background: rgba(0,100,200,${op});">${c}</td>`}); html+='</tr>'; });
+  hrsArr.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12===0?12:h%12; html+=`<th>${hh} ${ap}</th>`; });
+  html+='</tr></thead><tbody>';
+  daysArr.forEach(d=>{ html+=`<tr><th>${d}</th>`; cnts[d].forEach(c=>{ const op=maxv?c/maxv:0; html+=`<td style="background: rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
   html+='</tbody></table>';
   document.getElementById('heatmapContainer').innerHTML = html;
 }
@@ -299,15 +295,15 @@ function generateConflictReport(rows) {
     }
   }
   const cont = document.getElementById('conflictResults');
-  cont.innerHTML='';
-  if(confs.length===0){cont.textContent='No conflicts detected.';return;}
-  confs.forEach(conf=>{const p=document.createElement('p'); p.innerHTML=`<strong>Room ${conf.r1.ROOM}</strong> conflict on ${conf.cd.join(', ')}:<br> • ${conf.r1.Subject_Course} (${conf.r1.Start_Time}-${conf.r1.End_Time}, ${conf.r1.Start_Date} to ${conf.r1.End_Date})<br> • ${conf.r2.Subject_Course} (${conf.r2.Start_Time}-${conf.r2.End_Time}, ${conf.r2.Start_Date} to ${conf.r2.End_Date})`; cont.appendChild(p);});
+  cont.innerHTML = '';
+  if(confs.length===0){ cont.textContent='No conflicts detected.'; return; }
+  confs.forEach(conf=>{ const p=document.createElement('p'); p.innerHTML=`<strong>Room ${conf.r1.ROOM}</strong> conflict on ${conf.cd.join(', ')}:<br> • ${conf.r1.Subject_Course} (${conf.r1.Start_Time}-${conf.r1.End_Time}, ${conf.r1.Start_Date} to ${conf.r1.End_Date})<br> • ${conf.r2.Subject_Course} (${conf.r2.Start_Time}-${conf.r2.End_Time}, ${conf.r2.Start_Date} to ${conf.r2.End_Date})`; cont.appendChild(p); });
 }
 
 function timeToMins(t) {
   const [time, mod] = t.split(' ');
   let [h, m] = time.split(':').map(Number);
-  if(mod==='PM'&&h<12)h+=12;
-  if(mod==='AM'&&h===12)h=0;
+  if(mod==='PM'&&h<12) h+=12;
+  if(mod==='AM'&&h===12) h=0;
   return h*60+m;
 }
