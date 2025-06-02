@@ -1,5 +1,5 @@
 // app.js
-const { parse, format, addDays, startOfWeek } = dateFns;
+const { parse, format, addDays, startOfWeek } = window.dateFns;
 
 let parsedRows = [];
 let weekStartDate = null;
