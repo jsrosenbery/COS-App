@@ -11,7 +11,7 @@
   <!-- Main stylesheet -->
   <link rel="stylesheet" href="css/style.css" />
 
-  <!-- Choices.js for multi-select -->
+  <!-- Choices.js for heatmap multi-select -->
   <link
     rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"
@@ -24,28 +24,24 @@
 </head>
 <body>
   <header>
-    <img src="images/logo.png" alt="COS Logo" class="logo" />
+    <img src="images/logo.png" alt="COS Logo" class="logo half-size" />
     <h1>COS Course Scheduler</h1>
   </header>
-
-  <!-- Semester tabs container -->
-  <nav id="term-tabs"></nav>
 
   <!-- View selection dropdown -->
   <div id="view-container" style="margin: 10px 0;">
     <label for="viewSelect">View: </label>
     <select id="viewSelect">
-      <option value="calendar">Calendar</option>
       <option value="heatmap">Heatmap</option>
+      <option value="conflicts">Room Conflict Report</option>
     </select>
   </div>
 
-  <!-- Upload and timestamp -->
+  <!-- Upload container -->
   <div id="upload-container"></div>
   <div id="upload-timestamp" class="upload-timestamp"></div>
-  <div id="room-filter"></div>
 
-  <!-- Availability UI -->
+  <!-- Availability UI (unchanged) -->
   <div id="availability-ui" class="availability-ui">
     <h3>Check Room Availability</h3>
     <div class="days">
@@ -66,18 +62,8 @@
     <div id="avail-results" class="avail-results"></div>
   </div>
 
-  <!-- Calendar container -->
-  <div id="schedule-container">
-    <div id="week-nav" style="margin-bottom: 10px;">
-      <button id="prevWeek">&lt;&lt; Prev Week</button>
-      <span id="currentWeekLabel"></span>
-      <button id="nextWeek">Next Week &gt;&gt;</button>
-    </div>
-    <table id="schedule-table"></table>
-  </div>
-
-  <!-- Heatmap UI (hidden by default) -->
-  <div id="heatmap-tool" style="display: none;">
+  <!-- Heatmap UI -->
+  <div id="heatmap-tool">
     <h2>Course Offerings Heatmap & Table</h2>
     <div
       id="controls"
@@ -96,17 +82,20 @@
     <table id="dataTable" class="display" style="width: 100%; margin-top: 20px;"></table>
   </div>
 
+  <!-- Conflict Report UI -->
+  <div id="conflict-report" style="display:none;">
+    <h2>Room Conflict Report</h2>
+    <div id="conflictResults"></div>
+  </div>
+
   <!-- Scripts -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/dist/date-fns.min.js"></script>
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script
     src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"
   ></script>
   <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
 
-  <!-- Term definitions -->
-  <script type="module" src="js/termDefinitions.js"></script>
   <!-- CSV parser (unchanged) -->
   <script src="js/parser.js"></script>
   <!-- Main app script -->

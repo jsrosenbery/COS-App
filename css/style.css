@@ -1,34 +1,52 @@
 /* style.css */
-/* Existing styles ... */
-
-/* Holiday header styling */
-.holiday-header {
-  background-color: #f0f0f0;
-  color: #888;
+/* Logo half size */
+.logo.half-size {
+  width: 50%;
 }
 
-/* Holiday cell styling */
-.holiday-cell {
-  background-color: #f9f9f9;
+/* Heatmap table styling */
+.heatmap {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 20px;
 }
-
-/* Event block styling */
-.event-block {
-  background-color: #3a86ff;
-  color: white;
-  margin: 1px;
-  padding: 2px;
-  font-size: 0.8em;
-  border-radius: 2px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* Time cell basic styling */
-.time-cell {
+.heatmap th, .heatmap td {
   border: 1px solid #ccc;
-  height: 40px;
-  vertical-align: top;
-  padding: 0;
+  text-align: center;
+  padding: 4px;
+}
+.heatmap th {
+  background: #eee;
+}
+
+/* Choices.js container adjustments, if any */
+.choices__inner {
+  min-width: 200px;
+}
+
+/* Conflict report styling */
+#conflictResults p {
+  background: #f8d7da;
+  color: #721c24;
+  padding: 8px;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+/* Availability UI styling (unchanged) */
+.availability-ui {
+  margin-bottom: 20px;
+}
+
+/* Simple UL styling */
+ul {
+  list-style: none;
+  padding-left: 0;
+}
+ul li {
+  background: #e2e3e5;
+  margin: 2px 0;
+  padding: 4px;
+  border-radius: 2px;
 }
