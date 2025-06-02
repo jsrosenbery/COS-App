@@ -60,6 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
       tsDiv.textContent = timestamp;
       buildRoomDropdown();
       renderSchedule();
+        feedHeatmapTool(currentData);
     } else {
       currentData = [];
       tsDiv.textContent = '';
@@ -76,6 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
+            feedHeatmapTool(currentData);
         // Save per-term
         localStorage.setItem(
           'cos_schedule_' + currentTerm,
