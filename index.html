@@ -24,16 +24,18 @@
   <!-- Semester tabs -->
   <nav id="term-tabs" class="term-tabs"></nav>
 
+  <!-- Upload -->
+  <div id="upload-container" style="margin:10px 0;">
+    <input type="file" id="csvInput" accept=".csv" />
+    <span id="upload-timestamp" class="upload-timestamp"></span>
+  </div>
+
   <!-- View Buttons -->
   <div id="view-buttons" style="margin:10px 0;">
     <button id="btnCalendar" class="view-btn active">Calendar</button>
     <button id="btnHeatmap" class="view-btn">Heatmap</button>
     <button id="btnConflicts" class="view-btn">Room Conflict Report</button>
   </div>
-
-  <!-- Upload and timestamp -->
-  <div id="upload-container"></div>
-  <div id="upload-timestamp" class="upload-timestamp"></div>
 
   <!-- Availability UI -->
   <div id="availability-ui" class="availability-ui">
