@@ -1,339 +1,387 @@
+// app.js
+// Main application logic: calendar rendering, availability checks, and heatmap integration
+
+import { termDefinitions } from './termDefinitions.js';
+
+// Utility functions for date parsing (using date-fns)
+const { parse, format, addDays, startOfWeek, addWeeks, subWeeks } = dateFns;
+
+let currentTerm = '';
+let parsedRowsPerTerm = {}; // { termKey: [parsedRow, ...] }
+let allEvents = [];         // expanded daily events for current term
+let currentSunday = null;
+
+// Initialize UI on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
-  const terms = [
-    'Summer 2025','Fall 2025','Spring 2026',
-    'Summer 2026','Fall 2026','Spring 2027',
-    'Summer 2027','Fall 2027','Spring 2028'
-  ];
-  const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  let currentData = [];
-  let currentTerm = '';
+  initTermTabs();
+  initViewToggle();
+  initAvailability();
+  initHeatmapTool();
+  // Default to first term
+  const firstTerm = Object.keys(termDefinitions)[0];
+  if (firstTerm) {
+    selectTerm(firstTerm);
+  }
+});
 
-  // Cache DOM refs
-  const tabs         = document.getElementById('term-tabs');
-  const uploadDiv    = document.getElementById('upload-container');
-  const tsDiv        = document.getElementById('upload-timestamp');
-  const roomDiv      = document.getElementById('room-filter');
-  const startInput   = document.getElementById('avail-start');
-  const endInput     = document.getElementById('avail-end');
-  const checkBtn     = document.getElementById('avail-check-btn');
-  const clearBtn     = document.getElementById('avail-clear-btn');
-  const resultsDiv   = document.getElementById('avail-results');
-  const table        = document.getElementById('schedule-table');
-  const container    = document.getElementById('schedule-container');
-
-  // Build semester tabs
-  terms.forEach((term, i) => {
-    const tab = document.createElement('div');
-    tab.className = 'tab' + (i === 2 ? ' active' : '');
-    tab.textContent = term;
-    tab.onclick = () => selectTerm(term, tab);
-    tabs.appendChild(tab);
+/** 1. Term Tabs Setup **/
+function initTermTabs() {
+  const tabsContainer = document.getElementById('term-tabs');
+  tabsContainer.innerHTML = '';
+  Object.keys(termDefinitions).forEach(termKey => {
+    const btn = document.createElement('button');
+    btn.textContent = readableTermName(termKey);
+    btn.dataset.term = termKey;
+    btn.addEventListener('click', () => selectTerm(termKey));
+    tabsContainer.appendChild(btn);
   });
-  // Default select
-  selectTerm(terms[2], tabs.children[2]);
+}
 
-  // Wire availability buttons
-  checkBtn.onclick = handleAvailability;
-  clearBtn.onclick = () => {
-    // clear selections
-    document.querySelectorAll('#availability-ui .days input').forEach(cb => cb.checked = false);
-    startInput.value = '';
-    endInput.value   = '';
-    resultsDiv.textContent = '';
+function readableTermName(key) {
+  // Convert 'SU25' → 'Summer 2025', etc.
+  const season = key.slice(0, 2);
+  const year = '20' + key.slice(2);
+  let name = '';
+  switch (season) {
+    case 'SU': name = 'Summer ' + year; break;
+    case 'FA': name = 'Fall ' + year; break;
+    case 'SP': name = 'Spring ' + year; break;
+    default: name = key;
+  }
+  return name;
+}
+
+// User selects a term tab
+function selectTerm(termKey) {
+  currentTerm = termKey;
+  // Highlight active tab
+  document.querySelectorAll('#term-tabs button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.term === termKey);
+  });
+
+  // Load data for term (if previously parsed) or prompt upload
+  if (parsedRowsPerTerm[termKey]) {
+    allEvents = buildEvents(parsedRowsPerTerm[termKey], termKey);
+    currentSunday = getTermStartSunday(termKey);
+    renderWeeklyGrid();
+    feedHeatmapTool(parsedRowsPerTerm[termKey]);
+  } else {
+    // Clear calendar and show message to upload
+    document.getElementById('schedule-table').innerHTML = '';
+    document.getElementById('currentWeekLabel').textContent = '';
+    allEvents = [];
+  }
+}
+
+/** 2. Helper: Compute term start Sunday **/
+function getTermStartSunday(termKey) {
+  const termObj = termDefinitions[termKey];
+  const termStartDate = parse(termObj.start, 'yyyy-MM-dd', new Date());
+  return startOfWeek(termStartDate, { weekStartsOn: 0 });
+}
+
+/** 3. Expand parsed rows into daily events **/
+function buildEvents(rows, termKey) {
+  const termObj = termDefinitions[termKey];
+  const termStart = parse(termObj.start, 'yyyy-MM-dd', new Date());
+  const termEnd = parse(termObj.end, 'yyyy-MM-dd', new Date());
+  const holidays = termObj.holidays.map(d => parse(d, 'yyyy-MM-dd', new Date()));
+
+  return rows.flatMap(row => {
+    const rowStart = parse(row.Start_Date, 'MM/dd/yyyy', new Date());
+    const rowEnd = parse(row.End_Date, 'MM/dd/yyyy', new Date());
+    const activeStart = rowStart > termStart ? rowStart : termStart;
+    const activeEnd = rowEnd < termEnd ? rowEnd : termEnd;
+    const events = [];
+    let cursor = activeStart;
+    while (cursor <= activeEnd) {
+      const dayName = format(cursor, 'EEEE');
+      const isHoliday = holidays.some(h => format(h, 'yyyy-MM-dd') === format(cursor, 'yyyy-MM-dd'));
+      if (row.DAYS.includes(dayName) && !isHoliday) {
+        events.push({
+          date: format(cursor, 'yyyy-MM-dd'),
+          dayName,
+          startTime: row.Start_Time,
+          endTime: row.End_Time,
+          course: row.Subject_Course,
+          building: row.BUILDING,
+          room: row.ROOM,
+          instructor: row.Instructor
+        });
+      }
+      cursor = addDays(cursor, 1);
+    }
+    return events;
+  });
+}
+
+/** 4. Render Weekly Calendar Grid **/
+function renderWeeklyGrid() {
+  const table = document.getElementById('schedule-table');
+  table.innerHTML = ''; // clear previous
+
+  // Build header row with dates Sun → Sat
+  const header = table.createTHead();
+  const headerRow = header.insertRow();
+  headerRow.insertCell().textContent = ''; // empty top-left
+  for (let i = 0; i < 7; i++) {
+    const date = addDays(currentSunday, i);
+    const cell = headerRow.insertCell();
+    const dateStr = format(date, 'EEE MM/dd');
+    const isHoliday =
+      termDefinitions[currentTerm].holidays.includes(format(date, 'yyyy-MM-dd'));
+    cell.textContent = dateStr;
+    if (isHoliday) cell.classList.add('holiday-header');
+  }
+
+  // Build body timeslots (6 AM → 10 PM)
+  const tbody = table.createTBody();
+  for (let hour = 6; hour <= 22; hour++) {
+    const row = tbody.insertRow();
+    // Time label cell
+    const labelCell = row.insertCell();
+    const ampm = hour < 12 ? 'AM' : 'PM';
+    const hh = hour % 12 === 0 ? 12 : hour % 12;
+    labelCell.textContent = `${hh} ${ampm}`;
+    // One cell per day
+    for (let d = 0; d < 7; d++) {
+      const cell = row.insertCell();
+      cell.dataset.date = format(addDays(currentSunday, d), 'yyyy-MM-dd');
+      cell.dataset.hour = hour;
+      cell.classList.add('time-cell');
+      if (termDefinitions[currentTerm].holidays.includes(cell.dataset.date)) {
+        cell.classList.add('holiday-cell');
+      }
+    }
+  }
+
+  // Place events
+  allEvents.forEach(ev => {
+    // Compute which column (0–6) and row (hour index)
+    const eventDate = parse(ev.date, 'yyyy-MM-dd', new Date());
+    const dayIdx = eventDate.getDay(); // 0=Sunday, …,6=Saturday
+    const [startH] = ev.startTime.split(' ');
+    const startHour = parseInt(startH.split(':')[0], 10) + (ev.startTime.includes('PM') && !startH.startsWith('12') ? 12 : 0);
+    const rowIndex = startHour - 6; // because row 0 is 6 AM
+
+    // Get the specific cell
+    const cell = document.querySelector(
+      `#schedule-table tbody tr:nth-child(${rowIndex + 1}) td:nth-child(${dayIdx + 2})`
+    );
+    if (!cell || cell.classList.contains('holiday-cell')) return; // skip if holiday
+
+    // Create event block
+    const div = document.createElement('div');
+    div.classList.add('event-block');
+    div.textContent = ev.course;
+    div.title = \`\${ev.course} | \${ev.building} \${ev.room} | \${ev.startTime}–\${ev.endTime}\`;
+    cell.appendChild(div);
+  });
+
+  // Update current week label
+  document.getElementById('currentWeekLabel').textContent = \`Week of \${format(currentSunday, 'MM/dd/yyyy')}\`;
+
+  // Bind Prev/Next
+  document.getElementById('prevWeek').onclick = () => {
+    currentSunday = subWeeks(currentSunday, 1);
+    renderWeeklyGrid();
   };
+  document.getElementById('nextWeek').onclick = () => {
+    currentSunday = addWeeks(currentSunday, 1);
+    renderWeeklyGrid();
+  };
+}
 
-  // ───── Scheduler Functions ─────────────────────────
-
-  function selectTerm(term, tabElem) {
-    currentTerm = term;
-    tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    tabElem.classList.add('active');
-
-    clearSchedule();
-    setupUpload();
-
-    const key = 'cos_schedule_' + term;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      const { data, timestamp } = JSON.parse(saved);
-      currentData = data;
-      tsDiv.textContent = timestamp;
-      buildRoomDropdown();
-      renderSchedule();
-        feedHeatmapTool(currentData);
+/** 5. View Toggle (Calendar ↔ Heatmap) **/
+function initViewToggle() {
+  document.getElementById('viewSelect').addEventListener('change', e => {
+    const v = e.target.value;
+    const cal = document.getElementById('schedule-container');
+    const avail = document.getElementById('availability-ui');
+    const heat = document.getElementById('heatmap-tool');
+    if (v === 'heatmap') {
+      cal.style.display = 'none';
+      avail.style.display = 'none';
+      document.getElementById('upload-container').style.display = 'none';
+      document.getElementById('upload-timestamp').style.display = 'none';
+      document.getElementById('room-filter').style.display = 'none';
+      heat.style.display = 'block';
     } else {
-      currentData = [];
-      tsDiv.textContent = '';
-      roomDiv.innerHTML = '';
+      heat.style.display = 'none';
+      cal.style.display = 'block';
+      avail.style.display = 'block';
+      document.getElementById('upload-container').style.display = 'block';
+      document.getElementById('upload-timestamp').style.display = 'block';
+      document.getElementById('room-filter').style.display = 'block';
     }
-  }
+  });
+}
 
-  function setupUpload() {
-    roomDiv.innerHTML = '';
-    uploadDiv.innerHTML = `<label>Upload CSV for ${currentTerm}: <input type="file" id="file-input" accept=".csv"></label>`;
-    document.getElementById('file-input').onchange = e => {
-      parseCSVFile(e.target.files[0], data => {
-        currentData = data;
-        tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
-        buildRoomDropdown();
-        renderSchedule();
-            feedHeatmapTool(currentData);
-        // Save per-term
-        localStorage.setItem(
-          'cos_schedule_' + currentTerm,
-          JSON.stringify({ data: currentData, timestamp: tsDiv.textContent })
-        );
-      });
-    };
-  }
-
-  function buildRoomDropdown() {
-    const combos = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))].sort();
-    roomDiv.innerHTML = `
-      <label>Filter Bldg-Room:
-        <select id="room-select">
-          <option>All</option>
-          ${combos.map(r => `<option>${r}</option>`).join('')}
-        </select>
-      </label>`;
-    document.getElementById('room-select').onchange = renderSchedule;
-  }
-
-  function clearSchedule() {
-    table.innerHTML = '';
-    container.querySelectorAll('.class-block').forEach(e => e.remove());
-    // Header row
-    const header = table.insertRow();
-    header.insertCell().outerHTML = '<th>Time</th>';
-    daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
-    // Time slots
-    for (let t = 360; t <= 22*60; t += 30) {
-      const row = table.insertRow();
-      const hh = Math.floor(t/60), mm = t%60;
-      const h12 = ((hh+11)%12)+1, ap = hh<12?'AM':'PM';
-      row.insertCell().outerHTML = `<th>${h12}:${('0'+mm).slice(-2)}${ap}</th>`;
-      daysOfWeek.forEach(() => row.insertCell());
-    }
-  }
-
-  function renderSchedule() {
-    clearSchedule();
-    const filt = document.getElementById('room-select')?.value || 'All';
-    const data = filt === 'All'
-      ? currentData
-      : currentData.filter(i => `${i.Building}-${i.Room}` === filt);
-    const rect = container.getBoundingClientRect();
-
-    daysOfWeek.forEach((day, dIdx) => {
-      // collect & sort events
-      const evs = data
-        .filter(i => i.Days.includes(day))
-        .map(i => ({
-          ...i,
-          startMin: parseTime(i.Start_Time),
-          endMin:   parseTime(i.End_Time)
-        }))
-        .sort((a,b) => a.startMin - b.startMin);
-
-      // overlap columns
-      const cols = [];
-      evs.forEach(ev => {
-        let placed = false;
-        for (let c=0; c<cols.length; c++) {
-          if (cols[c][cols[c].length-1].endMin <= ev.startMin) {
-            cols[c].push(ev); ev.col = c; placed = true; break;
-          }
-        }
-        if (!placed) {
-          ev.col = cols.length; cols.push([ev]);
-        }
-      });
-      const colCount = cols.length || 1;
-
-      // render
-      cols.flat().forEach(ev => {
-        const offset = ev.startMin - 360;
-        const rowIndex = Math.floor(offset/30) + 1;
-        const rem = offset % 30;
-        // guard out-of-bounds
-        if (rowIndex < 1 || rowIndex >= table.rows.length) return;
-
-        const cell = table.rows[rowIndex].cells[dIdx+1];
-        const cr   = cell.getBoundingClientRect();
-        const topPx    = cr.top - rect.top + (rem/30)*cr.height;
-        const leftPx   = cr.left - rect.left + ev.col*(cr.width/colCount);
-        const widthPx  = cr.width/colCount;
-        const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
-
-        const b = document.createElement('div');
-        b.className = 'class-block';
-        b.style.top    = `${topPx}px`;
-        b.style.left   = `${leftPx}px`;
-        b.style.width  = `${widthPx}px`;
-        b.style.height = `${heightPx}px`;
-        b.innerHTML = `
-          <span>${ev.Subject_Course}</span><br>
-          <span>${ev.CRN}</span><br>
-          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>`;
-        container.appendChild(b);
-      });
-    });
-  }
-
-  // ───── Availability Handler ───────────────────────
-  function handleAvailability() {
-    resultsDiv.textContent = '';
-    const days = Array.from(
-      document.querySelectorAll('#availability-ui .days input:checked')
+/** 6. Availability Check (unchanged aside from alphabetical sort) **/
+function initAvailability() {
+  document.getElementById('avail-check-btn').addEventListener('click', () => {
+    const selectedDays = Array.from(
+      document.querySelectorAll('#availability-ui input[type="checkbox"]:checked')
     ).map(cb => cb.value);
-    const start = startInput.value, end = endInput.value;
-    if (!days.length || !start || !end) {
-      resultsDiv.textContent = 'Please select at least one day and both start/end times.';
-      return;
-    }
-    const toMin = t => {
-      const [h,m] = t.split(':').map(Number);
-      return h*60 + m;
-    };
-    const sMin = toMin(start), eMin = toMin(end);
-    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
-    const occ   = new Set();
-    currentData.forEach(i => {
-      if (i.Days.some(d => days.includes(d))) {
-        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) {
-          occ.add(`${i.Building}-${i.Room}`);
-        }
+    const startTime = document.getElementById('avail-start').value;
+    const endTime = document.getElementById('avail-end').value;
+    // Filter allEvents by selectedDays/time
+    const rooms = new Set();
+    allEvents.forEach(ev => {
+      if (
+        selectedDays.includes(ev.dayName) &&
+        ev.startTime <= endTime &&
+        ev.endTime >= startTime
+      ) {
+        rooms.add(ev.room);
       }
     });
-    const avail = rooms.filter(r => !occ.has(r));
-    if (avail.length) {
-      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
+    // Now get all rooms used in term to find free ones
+    const allRooms = new Set(parsedRowsPerTerm[currentTerm].map(r => r.ROOM));
+    const available = Array.from([...allRooms].filter(r => !rooms.has(r))).sort();
+    // Display
+    const resDiv = document.getElementById('avail-results');
+    resDiv.innerHTML = '';
+    if (available.length === 0) {
+      resDiv.textContent = 'No rooms available for that time.';
     } else {
-      resultsDiv.textContent = 'No rooms available.';
-    }
-  }
-
-  // ───── Helpers ────────────────────────────────────
-  function parseTime(t) {
-    const [h,m] = t.split(':').map(Number);
-    return h*60 + m;
-  }
-  function format12(t) {
-    let [h,m] = t.split(':').map(Number);
-    const ap = h<12 ? 'AM':'PM';
-    h = ((h+11)%12)+1;
-    return `${h}:${('0'+m).slice(-2)}${ap}`;
-  }
-
-  // ───── Heatmap & Table Logic ─────
-  const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
-  const hmDayMap = {'Sunday':'Sunday','Monday':'Monday','Tuesday':'Tuesday','Wednesday':'Wednesday','Thursday':'Thursday','Friday':'Friday','Saturday':'Saturday'};
-  let hmRaw = [];
-  let hmTable;
-  let hmChoices;
-
-  function initHeatmap() {
-    hmChoices = new Choices('#courseSelect', {
-      removeItemButton: true,
-      searchEnabled: true,
-      placeholderValue: 'Filter by discipline/course',
-    });
-    hmTable = $('#dataTable').DataTable({
-      data: [],
-      columns: [
-        { title: 'Course' },
-        { title: 'Building' },
-        { title: 'Room' },
-        { title: 'Days' },
-        { title: 'Time' }
-      ],
-      destroy: true,
-      searching: true
-    });
-    hmTable.on('search.dt', updateHeatmap);
-  }
-
-  function feedHeatmapTool(dataArray) {
-    hmRaw = dataArray.map(r => {
-      const parts = (r.Subject_Course || '').trim().split(/\s+/);
-      const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
-      return {
-        key,
-        Building: r.Building || '',
-        Room: r.Room || '',
-        Days: r.Days || [],
-        Start_Time: r.Start_Time || '',
-        End_Time: r.End_Time || ''
-      };
-    });
-    const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
-    const items = uniqueKeys.map(k => ({ value: k, label: k }));
-    hmChoices.setChoices(items, 'value', 'label', true);
-    updateAllHeatmap();
-  }
-
-  function updateAllHeatmap() {
-    const selected = hmChoices.getValue(true);
-    const rows = hmRaw.filter(r => {
-      if(selected.length && !selected.includes(r.key)) return false;
-      if(!r.Building || !r.Room) return false;
-      const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
-      if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
-      return true;
-    }).map(r => [r.key, r.Building, r.Room, r.Days.join(','), r.Start_Time + '-' + r.End_Time]);
-    hmTable.clear().rows.add(rows).draw();
-  }
-
-  function updateHeatmap() {
-    const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
-    const counts = {};
-    hmDays.forEach(d => counts[d] = hmHours.map(() => 0));
-    filtered.forEach(row => {
-      const [ course, bld, room, daysStr, timeStr ] = row;
-      const dayList = daysStr.split(',');
-      const timeParts = timeStr.split('-');
-      const st = timeParts[0].trim();
-      const m = st.match(/(\d{2}):(\d{2})/);
-      if(!m) return;
-      const hr = parseInt(m[1],10);
-      dayList.forEach(d => {
-        const hIndex = hmHours.indexOf(hr);
-        if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
+      const ul = document.createElement('ul');
+      available.forEach(rm => {
+        const li = document.createElement('li');
+        li.textContent = rm;
+        ul.appendChild(li);
       });
-    });
-    const maxC = Math.max(...Object.values(counts).flat());
-    let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
-    html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
-    hmHours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
-    html+='</tr></thead><tbody>';
-    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
-    html+='</tbody></table>';
-    document.getElementById('heatmapContainer').innerHTML = html;
-  }
-
-  document.getElementById('viewSelect').addEventListener('change', function(){
-    if(this.value==='heatmap'){
-      document.getElementById('schedule-container').style.display='none';
-      document.getElementById('availability-ui').style.display='none';
-      document.getElementById('room-filter').style.display='none';
-      document.getElementById('upload-container').style.display='none';
-      document.getElementById('upload-timestamp').style.display='none';
-      document.getElementById('heatmap-tool').style.display='block';
-    } else {
-      document.getElementById('heatmap-tool').style.display='none';
-      document.getElementById('schedule-container').style.display='';
-      document.getElementById('availability-ui').style.display='';
-      document.getElementById('room-filter').style.display='';
-      document.getElementById('upload-container').style.display='';
-      document.getElementById('upload-timestamp').style.display='';
+      resDiv.appendChild(ul);
     }
   });
 
-  // Initialize heatmap when page loads
-  initHeatmap();
-  // Feed heatmap whenever schedule loads
-  // After renderSchedule or data loading, call feedHeatmapTool(currentData)
+  document.getElementById('avail-clear-btn').addEventListener('click', () => {
+    document.querySelectorAll('#availability-ui input[type="checkbox"]').forEach(cb => (cb.checked = false));
+    document.getElementById('avail-start').value = '';
+    document.getElementById('avail-end').value = '';
+    document.getElementById('avail-results').innerHTML = '';
+  });
+}
 
-});
+/** 7. Heatmap & Table Integration **/
+const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const hours = Array.from({ length: 17 }, (_, i) => i + 6); // 6 AM–10 PM
+let heatmapData = [];
+let dataTableInstance;
+let choiceInstance;
+
+function initHeatmapTool() {
+  // Initialize Choices.js multi-select
+  choiceInstance = new Choices('#courseSelect', {
+    removeItemButton: true,
+    searchEnabled: true,
+    placeholderValue: 'Filter by discipline/course'
+  });
+  // Initialize DataTable
+  dataTableInstance = $('#dataTable').DataTable({
+    data: [],
+    columns: [
+      { title: 'Course' },
+      { title: 'Building' },
+      { title: 'Room' },
+      { title: 'Days' },
+      { title: 'Time' }
+    ],
+    destroy: true,
+    searching: true
+  });
+  dataTableInstance.on('search.dt', updateHeatmap);
+}
+
+function feedHeatmapTool(rows) {
+  // Build heatmapData from parsed rows
+  heatmapData = rows.map(r => {
+    const parts = r.Subject_Course.trim().split(/\s+/);
+    const key = parts.length >= 2 ? parts[0] + ' ' + parts[1] : r.Subject_Course.trim();
+    return {
+      key,
+      BUILDING: r.BUILDING.trim(),
+      ROOM:     r.ROOM.trim(),
+      DAYS:     r.DAYS.join(''),
+      Time:     \`\${r.Start_Time} - \${r.End_Time}\`
+    };
+  });
+  // Populate multi-select choices
+  const uniqueKeys = Array.from(new Set(heatmapData.map(d => d.key))).sort();
+  const choiceItems = uniqueKeys.map(k => ({ value: k, label: k }));
+  choiceInstance.setChoices(choiceItems, 'value', 'label', true);
+  updateAllHeatmapViews();
+}
+
+function updateAllHeatmapViews() {
+  const selected = choiceInstance.getValue(true);
+  const tableRows = heatmapData
+    .filter(r => {
+      if (selected.length && !selected.includes(r.key)) return false;
+      const bld = r.BUILDING.toUpperCase();
+      const rm = r.ROOM.toUpperCase();
+      if (!bld || !rm || bld === 'N/A' || rm === 'N/A' || bld === 'ONLINE') return false;
+      const m = r.Time.match(/(\d+):(\d+)\s*(AM|PM)/);
+      if (!m) return false;
+      const hr = (parseInt(m[1]) % 12) + (m[3] === 'PM' ? 12 : 0);
+      return hr >= 6 && hr <= 22;
+    })
+    .map(r => [r.key, r.BUILDING, r.ROOM, r.DAYS, r.Time]);
+  dataTableInstance.clear().rows.add(tableRows).draw();
+}
+
+function updateHeatmap() {
+  const filtered = dataTableInstance.rows({ search: 'applied' }).data().toArray();
+  // Count matrix
+  const counts = {};
+  daysOfWeek.forEach(d => (counts[d] = hours.map(() => 0)));
+  filtered.forEach(([course, bld, rm, daysStr, timeStr]) => {
+    const dayCodes = daysStr.split('');
+    const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/);
+    if (!m) return;
+    const hr = (parseInt(m[1]) % 12) + (m[3] === 'PM' ? 12 : 0);
+    dayCodes.forEach(dc => {
+      const dayMap = {'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday'};
+      const dayName = dayMap[dc];
+      const idx = hours.indexOf(hr);
+      if (dayName && idx >= 0) counts[dayName][idx]++;
+    });
+  });
+  const maxVal = Math.max(...Object.values(counts).flat());
+  let html = \`<table class="heatmap"><thead><tr><th>Day/Time</th>\`;
+  hours.forEach(h => {
+    const ap = h < 12 ? 'AM' : 'PM';
+    const hh = h % 12 === 0 ? 12 : h % 12;
+    html += \`<th>\${hh} \${ap}</th>\`;
+  });
+  html += '</tr></thead><tbody>';
+  daysOfWeek.forEach(d => {
+    html += \`<tr><th>\${d}</th>\`;
+    counts[d].forEach(c => {
+      const opacity = maxVal ? c / maxVal : 0;
+      html += \`<td style="background: rgba(0,100,200,\${opacity});">\${c}</td>\`;
+    });
+    html += '</tr>\`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('heatmapContainer').innerHTML = html;
+}
+
+/** 8. CSV Upload Handling **/
+function initCSVUpload() {
+  // Using a simple <input type="file"> in upload-container for each term
+  const uploadDiv = document.getElementById('upload-container');
+  uploadDiv.innerHTML = '<input type="file" id="csvInput" accept=".csv" />';
+  document.getElementById('csvInput').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    parseCSVFile(file, parsed => {
+      parsedRowsPerTerm[currentTerm] = parsed;
+      allEvents = buildEvents(parsed, currentTerm);
+      currentSunday = getTermStartSunday(currentTerm);
+      renderWeeklyGrid();
+      feedHeatmapTool(parsed);
+      document.getElementById('upload-timestamp').textContent = 'Last uploaded: ' + new Date().toLocaleString();
+    });
+  });
+}
