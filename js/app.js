@@ -1,12 +1,15 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // Only include days that are present in your data sample
-  const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  // All 7 days of week in grid order
+  const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  // Map daysOfWeek to single-letter code in your CSV
   const dayLetter = {
+    "Sunday": "U",
     "Monday": "M",
     "Tuesday": "T",
     "Wednesday": "W",
     "Thursday": "R",
-    "Friday": "F"
+    "Friday": "F",
+    "Saturday": "S"
   };
   let currentData = [];
   let currentTerm = '';
@@ -24,14 +27,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
-  // --- Days parser tailored for your data ---
+  // --- Days parser for single-letter codes, ignore XX, X, or blanks
   function parseDays(daysField) {
     if (!daysField) return [];
     if (Array.isArray(daysField)) daysField = daysField.join('');
-    return String(daysField).toUpperCase().replace(/\s/g, '').split('');
+    return String(daysField)
+      .toUpperCase()
+      .replace(/\s/g, '')
+      .split('')
+      .filter(d => "MTWRFSU".includes(d));
   }
 
-  // ---- Date utilities ----
+  // Date utilities
   function getDateField(ev, keys) {
     for (const k of keys) {
       if (ev[k] && String(ev[k]).trim()) return String(ev[k]).trim();
@@ -56,7 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return dateStr;
   }
 
-  // ---- Scheduler Functions ----
+  // Scheduler Functions
   function selectTerm(term, tabElem) {
     currentTerm = term;
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -218,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const widthPx  = cr.width/colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
 
-        // Try all possible field names for date span
+        // Start/end dates for the block
         const startRaw = getDateField(ev, [
           "Start_Date", "start_date", "StartDate", "startdate", "Start Date", "Ptrm Start", "Ptrm_Start", "Ptrm Start Date"
         ]);
@@ -271,7 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ---- Helpers ----
+  // Helpers
   function parseTime(t) {
     if (!t) return 0;
     t = t.replace(/\s/g,'');
