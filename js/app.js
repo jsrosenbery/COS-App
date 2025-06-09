@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentData = [];
   let currentTerm = '';
 
-  // Cache DOM refs
+  // DOM refs
   const tabs         = document.getElementById('term-tabs');
   const uploadDiv    = document.getElementById('upload-container');
   const tsDiv        = document.getElementById('upload-timestamp');
@@ -21,14 +21,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
-  // Heatmap variables: Declare before any function that uses them!
-  const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  // Heatmap variables
+  const hmDays = daysOfWeek.slice();
   const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
   let hmRaw = [];
   let hmTable;
   let hmChoices;
 
-  // Map days-of-week to single-letter codes used in your CSV
+  // Map days-of-week to your CSV codes
   const dayLetter = {
     "Sunday": "U",
     "Monday": "M",
@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     "Saturday": "S"
   };
 
-  // ---- Heatmap initialization FIRST ----
+  // Init heatmap
   initHeatmap();
 
   // Build semester tabs
@@ -50,27 +50,21 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.onclick = () => selectTerm(term, tab);
     tabs.appendChild(tab);
   });
-  // Default select
   selectTerm(terms[2], tabs.children[2]);
 
-  // Wire availability buttons
   checkBtn.onclick = handleAvailability;
   clearBtn.onclick = () => {
-    // clear selections
     document.querySelectorAll('#availability-ui .days input').forEach(cb => cb.checked = false);
     startInput.value = '';
     endInput.value   = '';
     resultsDiv.textContent = '';
   };
 
-  // ───── Date utilities ─────
-
+  // ---- Date utilities ----
   function getDateField(ev, keys) {
-    // Try all casing/underscore variants
     for (const k of keys) {
       if (ev[k] && String(ev[k]).trim()) return String(ev[k]).trim();
     }
-    // Try case-insensitive scanning of keys
     const lowerKeys = Object.keys(ev).reduce((acc, key) => { acc[key.toLowerCase()] = key; return acc; }, {});
     for (const k of keys) {
       if (lowerKeys[k.toLowerCase()] && ev[lowerKeys[k.toLowerCase()]] && String(ev[lowerKeys[k.toLowerCase()]]).trim()) {
@@ -81,21 +75,17 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   function toMMDD(dateStr) {
     if (!dateStr) return '';
-    // Accepts 1/12/2026, 01/12/2026, 2026-01-12, 2026/01/12
     const parts = dateStr.split(/[-\/]/);
     if (parts.length === 3 && parts[0].length === 4) {
-      // YYYY-MM-DD or YYYY/MM/DD
       return `${parseInt(parts[1],10)}/${parseInt(parts[2],10)}`;
     }
     if (parts.length === 3) {
-      // MM/DD/YYYY or M/D/YYYY
       return `${parseInt(parts[0],10)}/${parseInt(parts[1],10)}`;
     }
     return dateStr;
   }
 
-  // ───── Scheduler Functions ─────────────────────────
-
+  // ---- Scheduler Functions ----
   function selectTerm(term, tabElem) {
     currentTerm = term;
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -130,7 +120,6 @@ document.addEventListener('DOMContentLoaded', () => {
         buildRoomDropdown();
         renderSchedule();
         feedHeatmapTool(currentData);
-        // Save per-term
         localStorage.setItem(
           'cos_schedule_' + currentTerm,
           JSON.stringify({ data: currentData, timestamp: tsDiv.textContent })
@@ -154,11 +143,9 @@ document.addEventListener('DOMContentLoaded', () => {
   function clearSchedule() {
     table.innerHTML = '';
     container.querySelectorAll('.class-block').forEach(e => e.remove());
-    // Header row
     const header = table.insertRow();
     header.insertCell().outerHTML = '<th>Time</th>';
     daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
-    // Time slots
     for (let t = 360; t <= 22*60; t += 30) {
       const row = table.insertRow();
       const hh = Math.floor(t/60), mm = t%60;
@@ -198,7 +185,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
       let evs = data
         .filter(i => {
-          const daysField = (i.DAYS || i.Days || '').toUpperCase();
+          let daysField = i.DAYS || i.Days || '';
+          if (Array.isArray(daysField)) {
+            daysField = daysField.join('');
+          }
+          daysField = String(daysField).toUpperCase();
           return daysField.includes(code);
         })
         .map(i => {
@@ -221,7 +212,6 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .sort((a,b) => a.startMin - b.startMin);
 
-      // Deduplication as before
       const seen = new Set();
       evs = evs.filter(ev => {
         const key = [
@@ -236,7 +226,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
       });
 
-      // Column overlap logic as before
       const cols = [];
       evs.forEach(ev => {
         let placed = false;
@@ -264,7 +253,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const widthPx  = cr.width/colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
 
-        // Robust date extraction:
         const startRaw = getDateField(ev, ["Start_Date", "start_date", "StartDate", "Ptrm Start", "Ptrm_Start"]);
         const endRaw   = getDateField(ev, ["End_Date", "end_date", "EndDate", "Ptrm End", "Ptrm_End"]);
         const startMMDD = toMMDD(startRaw);
@@ -313,7 +301,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ───── Availability Handler ───────────────────────
   function handleAvailability() {
     resultsDiv.textContent = '';
     const days = Array.from(
@@ -332,8 +319,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const rooms = [...new Set(currentData.map(i => `${i.BUILDING || i.Building}-${i.ROOM || i.Room}`))];
     const occ   = new Set();
     currentData.forEach(i => {
-      const daysStr = i.DAYS || i.Days || '';
-      if ([...daysStr].some(d => days.includes(d))) {
+      let daysField = i.DAYS || i.Days || '';
+      if (Array.isArray(daysField)) daysField = daysField.join('');
+      daysField = String(daysField).toUpperCase();
+      if ([...daysField].some(d => days.includes(d))) {
         const si = parseTime(i.Time ? i.Time.split('-')[0].trim() : i.Start_Time);
         const ei = parseTime(i.Time ? i.Time.split('-')[1].trim() : i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
@@ -349,11 +338,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ───── Helpers ────────────────────────────────────
+  // ---- Helpers ----
   function parseTime(t) {
     if (!t) return 0;
     t = t.replace(/\s/g,'');
-    // Handles 8:45AM, 10:00AM, etc.
     const m = t.match(/^(\d{1,2}):(\d{2})(AM|PM)?$/i);
     if (!m) return 0;
     let h = parseInt(m[1],10), mnts = parseInt(m[2],10);
@@ -373,27 +361,30 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${h12}:${('0'+mnts).slice(-2)}${ap}`;
   }
 
-  // ───── Heatmap & Table Logic ─────
-
+  // ---- Heatmap & Table Logic ----
   function initHeatmap() {
-    hmChoices = new Choices('#courseSelect', {
-      removeItemButton: true,
-      searchEnabled: true,
-      placeholderValue: 'Filter by discipline/course',
-    });
-    hmTable = $('#dataTable').DataTable({
-      data: [],
-      columns: [
-        { title: 'Course' },
-        { title: 'Building' },
-        { title: 'Room' },
-        { title: 'Days' },
-        { title: 'Time' }
-      ],
-      destroy: true,
-      searching: true
-    });
-    hmTable.on('search.dt', updateHeatmap);
+    if (window.Choices) {
+      hmChoices = new Choices('#courseSelect', {
+        removeItemButton: true,
+        searchEnabled: true,
+        placeholderValue: 'Filter by discipline/course',
+      });
+    }
+    if (window.jQuery && window.jQuery.fn.DataTable) {
+      hmTable = $('#dataTable').DataTable({
+        data: [],
+        columns: [
+          { title: 'Course' },
+          { title: 'Building' },
+          { title: 'Room' },
+          { title: 'Days' },
+          { title: 'Time' }
+        ],
+        destroy: true,
+        searching: true
+      });
+      hmTable.on('search.dt', updateHeatmap);
+    }
   }
 
   function feedHeatmapTool(dataArray) {
@@ -418,6 +409,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateAllHeatmap() {
+    if (!hmChoices || !hmTable) return;
     const selected = hmChoices.getValue(true);
     const rows = hmRaw.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
@@ -430,6 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateHeatmap() {
+    if (!hmTable) return;
     const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
     const counts = {};
     hmDays.forEach(d => counts[d] = hmHours.map(() => 0));
@@ -456,7 +449,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('heatmapContainer').innerHTML = html;
   }
 
-  // --- Heatmap view select logic
   document.getElementById('viewSelect').addEventListener('change', function(){
     if(this.value==='heatmap'){
       document.getElementById('schedule-container').style.display='none';
@@ -474,7 +466,4 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('upload-timestamp').style.display='';
     }
   });
-
-  // Feed heatmap whenever schedule loads
-  // After renderSchedule or data loading, call feedHeatmapTool(currentData)
 });
