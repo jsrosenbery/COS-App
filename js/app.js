@@ -21,12 +21,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
-  // Heatmap variables
+  // Heatmap variables: Declare before any function that uses them!
   const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
   let hmRaw = [];
   let hmTable;
   let hmChoices;
+
+  // Map days-of-week to single-letter codes used in your CSV
+  const dayLetter = {
+    "Sunday": "U",
+    "Monday": "M",
+    "Tuesday": "T",
+    "Wednesday": "W",
+    "Thursday": "R",
+    "Friday": "F",
+    "Saturday": "S"
+  };
 
   // ---- Heatmap initialization FIRST ----
   initHeatmap();
@@ -157,7 +168,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ----- SCHEDULE/GRID DEDUPLICATION & POPUP LOGIC -----
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
@@ -166,7 +176,6 @@ document.addEventListener('DOMContentLoaded', () => {
       : currentData.filter(i => `${i.BUILDING || i.Building}-${i.ROOM || i.Room}` === filt);
     const rect = container.getBoundingClientRect();
 
-    // Tooltip div
     if (!document.getElementById('course-tooltip')) {
       const tooltip = document.createElement('div');
       tooltip.id = 'course-tooltip';
@@ -185,22 +194,40 @@ document.addEventListener('DOMContentLoaded', () => {
     const tooltip = document.getElementById('course-tooltip');
 
     daysOfWeek.forEach((day, dIdx) => {
+      const code = dayLetter[day];
+
       let evs = data
-        .filter(i => (i.DAYS || i.Days || '').includes(day[0])) // match first letter to "MW", "TR", etc.
-        .map(i => ({
-          ...i,
-          startMin: parseTime(i.Time ? i.Time.split('-')[0].trim() : i.Start_Time),
-          endMin:   parseTime(i.Time ? i.Time.split('-')[1].trim() : i.End_Time)
-        }))
+        .filter(i => {
+          const daysField = (i.DAYS || i.Days || '').toUpperCase();
+          return daysField.includes(code);
+        })
+        .map(i => {
+          let start = "", end = "";
+          if (i.Time) {
+            const spl = i.Time.split('-');
+            start = spl[0].trim();
+            end = spl[1].trim();
+          } else {
+            start = i.Start_Time;
+            end = i.End_Time;
+          }
+          return {
+            ...i,
+            startMin: parseTime(start),
+            endMin:   parseTime(end),
+            _parsedStart: start,
+            _parsedEnd: end
+          }
+        })
         .sort((a,b) => a.startMin - b.startMin);
 
-      // Deduplicate by: CRN, Start_Time, End_Time, Days (as string), Building, Room
+      // Deduplication as before
       const seen = new Set();
       evs = evs.filter(ev => {
         const key = [
           ev.CRN,
-          ev.Time || `${ev.Start_Time}-${ev.End_Time}`,
-          Array.isArray(ev.DAYS) ? ev.DAYS.join(',') : ev.DAYS || ev.Days || '',
+          ev.Time || `${ev._parsedStart}-${ev._parsedEnd}`,
+          ev.DAYS || ev.Days || '',
           ev.BUILDING || ev.Building,
           ev.ROOM || ev.Room
         ].join('|');
@@ -209,6 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
       });
 
+      // Column overlap logic as before
       const cols = [];
       evs.forEach(ev => {
         let placed = false;
@@ -253,7 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
         b.innerHTML = `
           <span>${ev.Subject_Course || ev['Subject_Course']}</span><br>
           <span>${ev.CRN}</span><br>
-          <span>${ev.Time || (format12(ev.Start_Time) + ' - ' + format12(ev.End_Time))}</span><br>
+          <span>${format12(ev._parsedStart)} - ${format12(ev._parsedEnd)}</span><br>
           <span style="font-size:11px;color:#224;">
             ${dateSpan}
           </span>
@@ -267,7 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <b>Instructor:</b> ${ev.Instructor || ev.Professor || ''}<br>
             <b>Building/Room:</b> ${(ev.BUILDING || ev.Building || '')} / ${(ev.ROOM || ev.Room || '')}<br>
             <b>Days:</b> ${ev.DAYS || ev.Days || ''}<br>
-            <b>Time:</b> ${ev.Time || (format12(ev.Start_Time) + ' - ' + format12(ev.End_Time))}<br>
+            <b>Time:</b> ${format12(ev._parsedStart)} - ${format12(ev._parsedEnd)}<br>
             <b>Date Span:</b> ${dateSpan}<br>
             ${ev.Notes ? `<b>Notes:</b> ${ev.Notes}<br>` : ''}
           `;
