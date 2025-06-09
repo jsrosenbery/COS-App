@@ -21,6 +21,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
+  // === FIX: Declare heatmap variables BEFORE any function uses them ===
+  const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
+  const hmDayMap = {'Sunday':'Sunday','Monday':'Monday','Tuesday':'Tuesday','Wednesday':'Wednesday','Thursday':'Thursday','Friday':'Friday','Saturday':'Saturday'};
+  let hmRaw = [];
+  let hmTable;
+  let hmChoices;
+
   // Build semester tabs
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
@@ -60,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
       tsDiv.textContent = timestamp;
       buildRoomDropdown();
       renderSchedule();
-        feedHeatmapTool(currentData);
+      feedHeatmapTool(currentData);
     } else {
       currentData = [];
       tsDiv.textContent = '';
@@ -77,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-            feedHeatmapTool(currentData);
+        feedHeatmapTool(currentData);
         // Save per-term
         localStorage.setItem(
           'cos_schedule_' + currentTerm,
@@ -227,12 +235,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ───── Heatmap & Table Logic ─────
-  const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
-  const hmDayMap = {'Sunday':'Sunday','Monday':'Monday','Tuesday':'Tuesday','Wednesday':'Wednesday','Thursday':'Thursday','Friday':'Friday','Saturday':'Saturday'};
-  let hmRaw = [];
-  let hmTable;
-  let hmChoices;
 
   function initHeatmap() {
     hmChoices = new Choices('#courseSelect', {
@@ -313,6 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('heatmapContainer').innerHTML = html;
   }
 
+  // --- Heatmap view select logic
   document.getElementById('viewSelect').addEventListener('change', function(){
     if(this.value==='heatmap'){
       document.getElementById('schedule-container').style.display='none';
@@ -335,5 +338,4 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeatmap();
   // Feed heatmap whenever schedule loads
   // After renderSchedule or data loading, call feedHeatmapTool(currentData)
-
 });
