@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     "Saturday": "S"
   };
 
-  // Init heatmap
+  // ---- Heatmap initialization ----
   initHeatmap();
 
   // Build semester tabs
@@ -253,8 +253,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const widthPx  = cr.width/colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
 
-        const startRaw = getDateField(ev, ["Start_Date", "start_date", "StartDate", "Ptrm Start", "Ptrm_Start"]);
-        const endRaw   = getDateField(ev, ["End_Date", "end_date", "EndDate", "Ptrm End", "Ptrm_End"]);
+        const startRaw = getDateField(ev, ["Start_Date", "start_date", "StartDate", "startdate"]);
+        const endRaw   = getDateField(ev, ["End_Date", "end_date", "EndDate", "enddate"]);
         const startMMDD = toMMDD(startRaw);
         const endMMDD   = toMMDD(endRaw);
         const dateSpan = (startMMDD && endMMDD) ? `${startMMDD} - ${endMMDD}` : '';
@@ -449,7 +449,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('heatmapContainer').innerHTML = html;
   }
 
-  document.getElementById('viewSelect').addEventListener('change', function(){
+  document.getElementById('viewSelect')?.addEventListener('change', function(){
     if(this.value==='heatmap'){
       document.getElementById('schedule-container').style.display='none';
       document.getElementById('availability-ui').style.display='none';
