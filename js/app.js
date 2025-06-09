@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ----- DEDUPLICATION LOGIC ADDED HERE -----
+  // ----- SCHEDULE/GRID DEDUPLICATION & POPUP LOGIC -----
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
@@ -135,6 +135,24 @@ document.addEventListener('DOMContentLoaded', () => {
       ? currentData
       : currentData.filter(i => `${i.Building}-${i.Room}` === filt);
     const rect = container.getBoundingClientRect();
+
+    // Tooltip div
+    if (!document.getElementById('course-tooltip')) {
+      const tooltip = document.createElement('div');
+      tooltip.id = 'course-tooltip';
+      tooltip.style.position = 'fixed';
+      tooltip.style.zIndex = '9999';
+      tooltip.style.pointerEvents = 'none';
+      tooltip.style.display = 'none';
+      tooltip.style.background = 'rgba(255,255,240,0.98)';
+      tooltip.style.border = '1px solid #aaa';
+      tooltip.style.padding = '10px';
+      tooltip.style.borderRadius = '5px';
+      tooltip.style.boxShadow = '2px 2px 6px rgba(0,0,0,0.15)';
+      tooltip.style.fontSize = '13px';
+      document.body.appendChild(tooltip);
+    }
+    const tooltip = document.getElementById('course-tooltip');
 
     daysOfWeek.forEach((day, dIdx) => {
       // collect & sort events
@@ -199,10 +217,42 @@ document.addEventListener('DOMContentLoaded', () => {
         b.style.left   = `${leftPx}px`;
         b.style.width  = `${widthPx}px`;
         b.style.height = `${heightPx}px`;
+
+        // Show Subject_Course, CRN, Times, and overall date span on the tile
         b.innerHTML = `
           <span>${ev.Subject_Course}</span><br>
           <span>${ev.CRN}</span><br>
-          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>`;
+          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
+          <span style="font-size:11px;color:#224;">
+            ${ev.Meeting_Start || ev.MeetingStart || ev.Meeting_Date || ev.Start_Date || ev.StartDate || ''} 
+            – 
+            ${ev.Meeting_End || ev.MeetingEnd || ev.End_Date || ev.EndDate || ''}
+          </span>
+        `;
+
+        // On hover, show all the info in a tooltip
+        b.onmouseenter = function(e) {
+          tooltip.style.display = 'block';
+          tooltip.innerHTML = `
+            <strong>${ev.Subject_Course || ''}</strong><br>
+            <b>CRN:</b> ${ev.CRN || ''}<br>
+            <b>Instructor:</b> ${ev.Instructor || ev.Professor || ''}<br>
+            <b>Building/Room:</b> ${ev.Building || ''} / ${ev.Room || ''}<br>
+            <b>Days:</b> ${Array.isArray(ev.Days) ? ev.Days.join(', ') : ev.Days || ''}<br>
+            <b>Time:</b> ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}<br>
+            <b>Date Span:</b> ${(ev.Meeting_Start || ev.MeetingStart || ev.Meeting_Date || ev.Start_Date || ev.StartDate || '')} – ${(ev.Meeting_End || ev.MeetingEnd || ev.End_Date || ev.EndDate || '')}<br>
+            ${ev.Notes ? `<b>Notes:</b> ${ev.Notes}<br>` : ''}
+          `;
+        };
+        b.onmousemove = function(e) {
+          // Offset the tooltip a bit so it doesn't block the cursor
+          tooltip.style.left = (e.clientX + 16) + 'px';
+          tooltip.style.top = (e.clientY + 8) + 'px';
+        };
+        b.onmouseleave = function() {
+          tooltip.style.display = 'none';
+        };
+
         container.appendChild(b);
       });
     });
