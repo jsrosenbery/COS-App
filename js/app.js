@@ -127,6 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // ----- DEDUPLICATION LOGIC ADDED HERE -----
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
@@ -137,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     daysOfWeek.forEach((day, dIdx) => {
       // collect & sort events
-      const evs = data
+      let evs = data
         .filter(i => i.Days.includes(day))
         .map(i => ({
           ...i,
@@ -145,6 +146,22 @@ document.addEventListener('DOMContentLoaded', () => {
           endMin:   parseTime(i.End_Time)
         }))
         .sort((a,b) => a.startMin - b.startMin);
+
+      // Deduplicate by: CRN, Start_Time, End_Time, Days (as string), Building, Room
+      const seen = new Set();
+      evs = evs.filter(ev => {
+        const key = [
+          ev.CRN,
+          ev.Start_Time,
+          ev.End_Time,
+          Array.isArray(ev.Days) ? ev.Days.join(',') : ev.Days,
+          ev.Building,
+          ev.Room
+        ].join('|');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
 
       // overlap columns
       const cols = [];
