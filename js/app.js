@@ -21,13 +21,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
-  // === FIX: Declare heatmap variables BEFORE any function uses them ===
+  // Heatmap variables: Declare before any function that uses them!
   const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
   const hmDayMap = {'Sunday':'Sunday','Monday':'Monday','Tuesday':'Tuesday','Wednesday':'Wednesday','Thursday':'Thursday','Friday':'Friday','Saturday':'Saturday'};
   let hmRaw = [];
   let hmTable;
   let hmChoices;
+
+  // ---- Heatmap initialization FIRST ----
+  initHeatmap();
 
   // Build semester tabs
   terms.forEach((term, i) => {
@@ -272,7 +275,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
     const items = uniqueKeys.map(k => ({ value: k, label: k }));
-    hmChoices.setChoices(items, 'value', 'label', true);
+    if (hmChoices) {
+      hmChoices.setChoices(items, 'value', 'label', true);
+    }
     updateAllHeatmap();
   }
 
@@ -334,8 +339,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Initialize heatmap when page loads
-  initHeatmap();
   // Feed heatmap whenever schedule loads
   // After renderSchedule or data loading, call feedHeatmapTool(currentData)
 });
