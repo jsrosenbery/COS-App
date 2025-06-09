@@ -24,7 +24,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Heatmap variables: Declare before any function that uses them!
   const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
-  const hmDayMap = {'Sunday':'Sunday','Monday':'Monday','Tuesday':'Tuesday','Wednesday':'Wednesday','Thursday':'Thursday','Friday':'Friday','Saturday':'Saturday'};
   let hmRaw = [];
   let hmTable;
   let hmChoices;
@@ -154,6 +153,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const tooltip = document.getElementById('course-tooltip');
 
+    // Helper to format YYYY-MM-DD or YYYY/MM/DD as MM/DD
+    function toMMDD(dateStr) {
+      if (!dateStr) return '';
+      const parts = dateStr.split(/[-\/]/);
+      if (parts.length < 3) return dateStr;
+      return `${parts[1]}/${parts[2]}`;
+    }
+
     daysOfWeek.forEach((day, dIdx) => {
       // collect & sort events
       let evs = data
@@ -211,6 +218,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const widthPx  = cr.width/colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
 
+        // Format Start_Date and End_Date as MM/DD
+        const dateSpan = (toMMDD(ev.Start_Date) && toMMDD(ev.End_Date))
+          ? `${toMMDD(ev.Start_Date)} - ${toMMDD(ev.End_Date)}`
+          : '';
+
         const b = document.createElement('div');
         b.className = 'class-block';
         b.style.top    = `${topPx}px`;
@@ -218,15 +230,12 @@ document.addEventListener('DOMContentLoaded', () => {
         b.style.width  = `${widthPx}px`;
         b.style.height = `${heightPx}px`;
 
-        // Show Subject_Course, CRN, Times, and overall date span on the tile
         b.innerHTML = `
           <span>${ev.Subject_Course}</span><br>
           <span>${ev.CRN}</span><br>
           <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
           <span style="font-size:11px;color:#224;">
-            ${ev.Meeting_Start || ev.MeetingStart || ev.Meeting_Date || ev.Start_Date || ev.StartDate || ''} 
-            – 
-            ${ev.Meeting_End || ev.MeetingEnd || ev.End_Date || ev.EndDate || ''}
+            ${dateSpan}
           </span>
         `;
 
@@ -240,12 +249,11 @@ document.addEventListener('DOMContentLoaded', () => {
             <b>Building/Room:</b> ${ev.Building || ''} / ${ev.Room || ''}<br>
             <b>Days:</b> ${Array.isArray(ev.Days) ? ev.Days.join(', ') : ev.Days || ''}<br>
             <b>Time:</b> ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}<br>
-            <b>Date Span:</b> ${(ev.Meeting_Start || ev.MeetingStart || ev.Meeting_Date || ev.Start_Date || ev.StartDate || '')} – ${(ev.Meeting_End || ev.MeetingEnd || ev.End_Date || ev.EndDate || '')}<br>
+            <b>Date Span:</b> ${dateSpan}<br>
             ${ev.Notes ? `<b>Notes:</b> ${ev.Notes}<br>` : ''}
           `;
         };
         b.onmousemove = function(e) {
-          // Offset the tooltip a bit so it doesn't block the cursor
           tooltip.style.left = (e.clientX + 16) + 'px';
           tooltip.style.top = (e.clientY + 8) + 'px';
         };
