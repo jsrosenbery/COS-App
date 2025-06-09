@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
-  // Heatmap variables: Declare before any function that uses them!
+  // Heatmap variables
   const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
   let hmRaw = [];
@@ -51,6 +51,37 @@ document.addEventListener('DOMContentLoaded', () => {
     endInput.value   = '';
     resultsDiv.textContent = '';
   };
+
+  // ───── Date utilities ─────
+
+  function getDateField(ev, keys) {
+    // Try all casing/underscore variants
+    for (const k of keys) {
+      if (ev[k] && String(ev[k]).trim()) return String(ev[k]).trim();
+    }
+    // Try case-insensitive scanning of keys
+    const lowerKeys = Object.keys(ev).reduce((acc, key) => { acc[key.toLowerCase()] = key; return acc; }, {});
+    for (const k of keys) {
+      if (lowerKeys[k.toLowerCase()] && ev[lowerKeys[k.toLowerCase()]] && String(ev[lowerKeys[k.toLowerCase()]]).trim()) {
+        return String(ev[lowerKeys[k.toLowerCase()]]).trim();
+      }
+    }
+    return '';
+  }
+  function toMMDD(dateStr) {
+    if (!dateStr) return '';
+    // Accepts 1/12/2026, 01/12/2026, 2026-01-12, 2026/01/12
+    const parts = dateStr.split(/[-\/]/);
+    if (parts.length === 3 && parts[0].length === 4) {
+      // YYYY-MM-DD or YYYY/MM/DD
+      return `${parseInt(parts[1],10)}/${parseInt(parts[2],10)}`;
+    }
+    if (parts.length === 3) {
+      // MM/DD/YYYY or M/D/YYYY
+      return `${parseInt(parts[0],10)}/${parseInt(parts[1],10)}`;
+    }
+    return dateStr;
+  }
 
   // ───── Scheduler Functions ─────────────────────────
 
@@ -98,7 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function buildRoomDropdown() {
-    const combos = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))].sort();
+    const combos = [...new Set(currentData.map(i => `${i.BUILDING || i.Building}-${i.ROOM || i.Room}`))].sort();
     roomDiv.innerHTML = `
       <label>Filter Bldg-Room:
         <select id="room-select">
@@ -132,7 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const filt = document.getElementById('room-select')?.value || 'All';
     const data = filt === 'All'
       ? currentData
-      : currentData.filter(i => `${i.Building}-${i.Room}` === filt);
+      : currentData.filter(i => `${i.BUILDING || i.Building}-${i.ROOM || i.Room}` === filt);
     const rect = container.getBoundingClientRect();
 
     // Tooltip div
@@ -153,22 +184,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const tooltip = document.getElementById('course-tooltip');
 
-    // Helper to format YYYY-MM-DD or YYYY/MM/DD as MM/DD
-    function toMMDD(dateStr) {
-      if (!dateStr) return '';
-      const parts = dateStr.split(/[-\/]/);
-      if (parts.length < 3) return dateStr;
-      return `${parts[1]}/${parts[2]}`;
-    }
-
     daysOfWeek.forEach((day, dIdx) => {
-      // collect & sort events
       let evs = data
-        .filter(i => i.Days.includes(day))
+        .filter(i => (i.DAYS || i.Days || '').includes(day[0])) // match first letter to "MW", "TR", etc.
         .map(i => ({
           ...i,
-          startMin: parseTime(i.Start_Time),
-          endMin:   parseTime(i.End_Time)
+          startMin: parseTime(i.Time ? i.Time.split('-')[0].trim() : i.Start_Time),
+          endMin:   parseTime(i.Time ? i.Time.split('-')[1].trim() : i.End_Time)
         }))
         .sort((a,b) => a.startMin - b.startMin);
 
@@ -177,18 +199,16 @@ document.addEventListener('DOMContentLoaded', () => {
       evs = evs.filter(ev => {
         const key = [
           ev.CRN,
-          ev.Start_Time,
-          ev.End_Time,
-          Array.isArray(ev.Days) ? ev.Days.join(',') : ev.Days,
-          ev.Building,
-          ev.Room
+          ev.Time || `${ev.Start_Time}-${ev.End_Time}`,
+          Array.isArray(ev.DAYS) ? ev.DAYS.join(',') : ev.DAYS || ev.Days || '',
+          ev.BUILDING || ev.Building,
+          ev.ROOM || ev.Room
         ].join('|');
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
 
-      // overlap columns
       const cols = [];
       evs.forEach(ev => {
         let placed = false;
@@ -203,12 +223,10 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const colCount = cols.length || 1;
 
-      // render
       cols.flat().forEach(ev => {
         const offset = ev.startMin - 360;
         const rowIndex = Math.floor(offset/30) + 1;
         const rem = offset % 30;
-        // guard out-of-bounds
         if (rowIndex < 1 || rowIndex >= table.rows.length) return;
 
         const cell = table.rows[rowIndex].cells[dIdx+1];
@@ -218,10 +236,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const widthPx  = cr.width/colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
 
-        // Format Start_Date and End_Date as MM/DD
-        const dateSpan = (toMMDD(ev.Start_Date) && toMMDD(ev.End_Date))
-          ? `${toMMDD(ev.Start_Date)} - ${toMMDD(ev.End_Date)}`
-          : '';
+        // Robust date extraction:
+        const startRaw = getDateField(ev, ["Start_Date", "start_date", "StartDate", "Ptrm Start", "Ptrm_Start"]);
+        const endRaw   = getDateField(ev, ["End_Date", "end_date", "EndDate", "Ptrm End", "Ptrm_End"]);
+        const startMMDD = toMMDD(startRaw);
+        const endMMDD   = toMMDD(endRaw);
+        const dateSpan = (startMMDD && endMMDD) ? `${startMMDD} - ${endMMDD}` : '';
 
         const b = document.createElement('div');
         b.className = 'class-block';
@@ -231,24 +251,23 @@ document.addEventListener('DOMContentLoaded', () => {
         b.style.height = `${heightPx}px`;
 
         b.innerHTML = `
-          <span>${ev.Subject_Course}</span><br>
+          <span>${ev.Subject_Course || ev['Subject_Course']}</span><br>
           <span>${ev.CRN}</span><br>
-          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
+          <span>${ev.Time || (format12(ev.Start_Time) + ' - ' + format12(ev.End_Time))}</span><br>
           <span style="font-size:11px;color:#224;">
             ${dateSpan}
           </span>
         `;
 
-        // On hover, show all the info in a tooltip
         b.onmouseenter = function(e) {
           tooltip.style.display = 'block';
           tooltip.innerHTML = `
             <strong>${ev.Subject_Course || ''}</strong><br>
             <b>CRN:</b> ${ev.CRN || ''}<br>
             <b>Instructor:</b> ${ev.Instructor || ev.Professor || ''}<br>
-            <b>Building/Room:</b> ${ev.Building || ''} / ${ev.Room || ''}<br>
-            <b>Days:</b> ${Array.isArray(ev.Days) ? ev.Days.join(', ') : ev.Days || ''}<br>
-            <b>Time:</b> ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}<br>
+            <b>Building/Room:</b> ${(ev.BUILDING || ev.Building || '')} / ${(ev.ROOM || ev.Room || '')}<br>
+            <b>Days:</b> ${ev.DAYS || ev.Days || ''}<br>
+            <b>Time:</b> ${ev.Time || (format12(ev.Start_Time) + ' - ' + format12(ev.End_Time))}<br>
             <b>Date Span:</b> ${dateSpan}<br>
             ${ev.Notes ? `<b>Notes:</b> ${ev.Notes}<br>` : ''}
           `;
@@ -282,13 +301,15 @@ document.addEventListener('DOMContentLoaded', () => {
       return h*60 + m;
     };
     const sMin = toMin(start), eMin = toMin(end);
-    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
+    const rooms = [...new Set(currentData.map(i => `${i.BUILDING || i.Building}-${i.ROOM || i.Room}`))];
     const occ   = new Set();
     currentData.forEach(i => {
-      if (i.Days.some(d => days.includes(d))) {
-        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+      const daysStr = i.DAYS || i.Days || '';
+      if ([...daysStr].some(d => days.includes(d))) {
+        const si = parseTime(i.Time ? i.Time.split('-')[0].trim() : i.Start_Time);
+        const ei = parseTime(i.Time ? i.Time.split('-')[1].trim() : i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
-          occ.add(`${i.Building}-${i.Room}`);
+          occ.add(`${i.BUILDING || i.Building}-${i.ROOM || i.Room}`);
         }
       }
     });
@@ -302,14 +323,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ───── Helpers ────────────────────────────────────
   function parseTime(t) {
-    const [h,m] = t.split(':').map(Number);
-    return h*60 + m;
+    if (!t) return 0;
+    t = t.replace(/\s/g,'');
+    // Handles 8:45AM, 10:00AM, etc.
+    const m = t.match(/^(\d{1,2}):(\d{2})(AM|PM)?$/i);
+    if (!m) return 0;
+    let h = parseInt(m[1],10), mnts = parseInt(m[2],10);
+    let ap = (m[3]||'AM').toUpperCase();
+    if (ap === 'PM' && h !== 12) h += 12;
+    if (ap === 'AM' && h === 12) h = 0;
+    return h*60 + mnts;
   }
   function format12(t) {
-    let [h,m] = t.split(':').map(Number);
-    const ap = h<12 ? 'AM':'PM';
-    h = ((h+11)%12)+1;
-    return `${h}:${('0'+m).slice(-2)}${ap}`;
+    if (!t) return '';
+    t = t.replace(/\s/g,'');
+    const m = t.match(/^(\d{1,2}):(\d{2})(AM|PM)?$/i);
+    if (!m) return t;
+    let h = parseInt(m[1],10), mnts = parseInt(m[2],10);
+    let ap = m[3] ? m[3].toUpperCase() : (h < 12 ? 'AM':'PM');
+    let h12 = ((h+11)%12)+1;
+    return `${h12}:${('0'+mnts).slice(-2)}${ap}`;
   }
 
   // ───── Heatmap & Table Logic ─────
@@ -341,9 +374,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
       return {
         key,
-        Building: r.Building || '',
-        Room: r.Room || '',
-        Days: r.Days || [],
+        Building: r.BUILDING || r.Building || '',
+        Room: r.ROOM || r.Room || '',
+        Days: r.DAYS || r.Days || [],
         Start_Time: r.Start_Time || '',
         End_Time: r.End_Time || ''
       };
