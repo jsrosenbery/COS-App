@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let hmTable;
   let hmChoices;
 
-  // Map days-of-week to your CSV codes
+  // Map days-of-week to your CSV codes (standard: S=Saturday, U=Sunday)
   const dayLetter = {
     "Sunday": "U",
     "Monday": "M",
@@ -83,6 +83,26 @@ document.addEventListener('DOMContentLoaded', () => {
       return `${parseInt(parts[0],10)}/${parseInt(parts[1],10)}`;
     }
     return dateStr;
+  }
+
+  // ---- Robust Days Parser ----
+  function parseDays(daysField) {
+    if (Array.isArray(daysField)) daysField = daysField.join('');
+    daysField = String(daysField).toUpperCase().replace(/\s/g, '');
+    const result = [];
+    for (let i = 0; i < daysField.length; i++) {
+      // Handle 'TH' or 'TU' if your data uses those; adapt as needed
+      if (daysField[i] === "T" && daysField[i+1] === "H") {
+        result.push("R"); // Thursday
+        i++;
+      } else if (daysField[i] === "T" && daysField[i+1] === "U") {
+        result.push("U"); // Sunday (if your data uses TU for Sunday; else adjust/remove)
+        i++;
+      } else {
+        result.push(daysField[i]);
+      }
+    }
+    return result;
   }
 
   // ---- Scheduler Functions ----
@@ -185,12 +205,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       let evs = data
         .filter(i => {
-          let daysField = i.DAYS || i.Days || '';
-          if (Array.isArray(daysField)) {
-            daysField = daysField.join('');
-          }
-          daysField = String(daysField).toUpperCase();
-          return daysField.includes(code);
+          const days = parseDays(i.DAYS || i.Days || '');
+          return days.includes(code);
         })
         .map(i => {
           let start = "", end = "";
@@ -253,8 +269,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const widthPx  = cr.width/colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
 
-        const startRaw = getDateField(ev, ["Start_Date", "start_date", "StartDate", "startdate"]);
-        const endRaw   = getDateField(ev, ["End_Date", "end_date", "EndDate", "enddate"]);
+        // Try all possible field names for date span
+        const startRaw = getDateField(ev, [
+          "Start_Date", "start_date", "StartDate", "startdate", "Start Date", "Ptrm Start", "Ptrm_Start", "Ptrm Start Date"
+        ]);
+        const endRaw   = getDateField(ev, [
+          "End_Date", "end_date", "EndDate", "enddate", "End Date", "Ptrm End", "Ptrm_End", "Ptrm End Date"
+        ]);
         const startMMDD = toMMDD(startRaw);
         const endMMDD   = toMMDD(endRaw);
         const dateSpan = (startMMDD && endMMDD) ? `${startMMDD} - ${endMMDD}` : '';
@@ -319,10 +340,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const rooms = [...new Set(currentData.map(i => `${i.BUILDING || i.Building}-${i.ROOM || i.Room}`))];
     const occ   = new Set();
     currentData.forEach(i => {
-      let daysField = i.DAYS || i.Days || '';
-      if (Array.isArray(daysField)) daysField = daysField.join('');
-      daysField = String(daysField).toUpperCase();
-      if ([...daysField].some(d => days.includes(d))) {
+      const daysField = parseDays(i.DAYS || i.Days || '');
+      if (days.some(d => daysField.includes(d))) {
         const si = parseTime(i.Time ? i.Time.split('-')[0].trim() : i.Start_Time);
         const ei = parseTime(i.Time ? i.Time.split('-')[1].trim() : i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
@@ -428,7 +447,7 @@ document.addEventListener('DOMContentLoaded', () => {
     hmDays.forEach(d => counts[d] = hmHours.map(() => 0));
     filtered.forEach(row => {
       const [ course, bld, room, daysStr, timeStr ] = row;
-      const dayList = daysStr.split(',');
+      const dayList = parseDays(daysStr);
       const timeParts = timeStr.split('-');
       const st = timeParts[0].trim();
       const m = st.match(/(\d{2}):(\d{2})/);
