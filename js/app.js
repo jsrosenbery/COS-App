@@ -24,9 +24,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---- Modern Heatmap & Chart Variables ----
   let rawData = [], dataTable, chartInstance;
 
-  // ---- Heatmap initialization ----
-  // (No legacy heatmap Choices/DataTables here -- replaced by new logic)
-
   // Build semester tabs
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
@@ -41,7 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Wire availability buttons
   checkBtn.onclick = handleAvailability;
   clearBtn.onclick = () => {
-    // clear selections
     document.querySelectorAll('#availability-ui .days input').forEach(cb => cb.checked = false);
     startInput.value = '';
     endInput.value   = '';
@@ -66,13 +62,11 @@ document.addEventListener('DOMContentLoaded', () => {
       tsDiv.textContent = timestamp;
       buildRoomDropdown();
       renderSchedule();
-      // FEED MODERN HEATMAP
       feedModernHeatmap(currentData);
     } else {
       currentData = [];
       tsDiv.textContent = '';
       roomDiv.innerHTML = '';
-      // FEED MODERN HEATMAP
       feedModernHeatmap([]);
     }
   }
@@ -86,9 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-        // FEED MODERN HEATMAP
         feedModernHeatmap(currentData);
-        // Save per-term
         localStorage.setItem(
           'cos_schedule_' + currentTerm,
           JSON.stringify({ data: currentData, timestamp: tsDiv.textContent })
@@ -116,7 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const header = table.insertRow();
     header.insertCell().outerHTML = '<th>Time</th>';
     daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
-    // Time slots
     for (let t = 360; t <= 22*60; t += 30) {
       const row = table.insertRow();
       const hh = Math.floor(t/60), mm = t%60;
@@ -126,7 +117,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ----- DEDUPLICATION LOGIC ADDED HERE -----
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
@@ -136,7 +126,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const rect = container.getBoundingClientRect();
 
     daysOfWeek.forEach((day, dIdx) => {
-      // collect & sort events
       let evs = data
         .filter(i => i.Days.includes(day))
         .map(i => ({
@@ -146,7 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }))
         .sort((a,b) => a.startMin - b.startMin);
 
-      // Deduplicate by: CRN, Start_Time, End_Time, Days (as string), Building, Room
       const seen = new Set();
       evs = evs.filter(ev => {
         const key = [
@@ -162,7 +150,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
       });
 
-      // overlap columns
       const cols = [];
       evs.forEach(ev => {
         let placed = false;
@@ -177,12 +164,10 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const colCount = cols.length || 1;
 
-      // render
       cols.flat().forEach(ev => {
         const offset = ev.startMin - 360;
         const rowIndex = Math.floor(offset/30) + 1;
         const rem = offset % 30;
-        // guard out-of-bounds
         if (rowIndex < 1 || rowIndex >= table.rows.length) return;
 
         const cell = table.rows[rowIndex].cells[dIdx+1];
@@ -207,7 +192,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ───── Availability Handler ───────────────────────
   function handleAvailability() {
     resultsDiv.textContent = '';
     const days = Array.from(
@@ -241,7 +225,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ───── Helpers ────────────────────────────────────
   function parseTime(t) {
     const [h,m] = t.split(':').map(Number);
     return h*60 + m;
@@ -253,42 +236,9 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
 
-  // ───── MODERN HEATMAP & OCCUPANCY CHART LOGIC ─────
+  // --------- MODERN HEATMAP & CHART LOGIC ----------
 
-  function initModernHeatmapUI() {
-    initTable();
-    $('#courseSelect').multipleSelect({ filter: true, placeholder: 'Filter by course', width: '250px' }).on('change', updateTable);
-    $('#campusSelect').multipleSelect({ filter: true, placeholder: 'Filter by campus', width: '200px' }).on('change', updateTable);
-    $('#fileInput').on('change', e => loadFile(e.target.files[0]));
-    $('#textSearch').on('input', updateTable);
-  }
-
-  function initTable() {
-    dataTable = $('#dataTable').DataTable({
-      data: [],
-      columns: [
-        { title: 'Course', data: 0 },
-        { title: 'Building', data: 1 },
-        { title: 'Room', data: 2 },
-        { title: 'Campus', data: 3 },
-        { title: 'Days', data: 4 },
-        { title: 'Time', data: 5 }
-      ],
-      destroy: true,
-      searching: true
-    });
-    dataTable.on('draw', () => {
-      const count = dataTable.rows({ filter: 'applied' }).data().length;
-      $('#message').text(`Displaying ${count} rows.`);
-      renderHeatmap();
-      renderChart();
-    });
-  }
-
-  // Feeds the modern heatmap from scheduler data
   function feedModernHeatmap(dataArray) {
-    // Convert scheduler-style data to heatmap rawData format
-    // Accepts array of objects with Building, Room, Campus, Days, Start_Time, End_Time, etc.
     rawData = dataArray.map(r => {
       const [Disc, Crs] = (r.Subject_Course||'').trim().split(/\s+/);
       return {
@@ -331,18 +281,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const courses = [...new Set(rawData.map(r => r.key).filter(k => k))].sort();
     const $course = $('#courseSelect').empty();
     courses.forEach(c => $course.append(`<option value="${c}">${c}</option>`));
-    $('#courseSelect').multipleSelect('refresh');
+    if ($course.length && typeof $course.multipleSelect === 'function') {
+      $('#courseSelect').multipleSelect('refresh');
+    }
 
     const campuses = [...new Set(rawData.map(r => r.Campus || r.CAMPUS).filter(c => c))].sort();
     const $campus = $('#campusSelect').empty();
     campuses.forEach(c => $campus.append(`<option value="${c}">${c}</option>`));
-    $('#campusSelect').multipleSelect('refresh');
+    if ($campus.length && typeof $campus.multipleSelect === 'function') {
+      $('#campusSelect').multipleSelect('refresh');
+    }
   }
 
   function updateTable() {
-    const selectedCourses = $('#courseSelect').multipleSelect('getSelects');
-    const selectedCampuses = $('#campusSelect').multipleSelect('getSelects');
-    const filterText = $('#textSearch').val().toLowerCase();
+    const selectedCourses = $('#courseSelect').multipleSelect ? $('#courseSelect').multipleSelect('getSelects') : [];
+    const selectedCampuses = $('#campusSelect').multipleSelect ? $('#campusSelect').multipleSelect('getSelects') : [];
+    const filterText = $('#textSearch').val() ? $('#textSearch').val().toLowerCase() : "";
 
     const rows = rawData.filter(r => {
       if (selectedCourses.length && !selectedCourses.includes(r.key)) return false;
@@ -402,7 +356,8 @@ document.addEventListener('DOMContentLoaded', () => {
       html += '</tr>';
     });
     html += '</table>';
-    document.getElementById('heatmapContainer').innerHTML = html;
+    const container = document.getElementById('heatmapContainer');
+    if (container) container.innerHTML = html;
   }
 
   function renderChart() {
@@ -431,7 +386,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       });
     });
-    const ctx = document.getElementById('occupancyChart').getContext('2d');
+    const ctx = document.getElementById('occupancyChart')?.getContext('2d');
+    if (!ctx) return;
     const labels = hours.map(h => `${h%12===0?12:h%12} ${(h<12?'AM':'PM')}`);
     const datasets = daysOfWeek.map((day, idx) => ({
       label: day,
@@ -458,8 +414,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function initTable() {
+    dataTable = $('#dataTable').DataTable({
+      data: [],
+      columns: [
+        { title: 'Course', data: 0 },
+        { title: 'Building', data: 1 },
+        { title: 'Room', data: 2 },
+        { title: 'Campus', data: 3 },
+        { title: 'Days', data: 4 },
+        { title: 'Time', data: 5 }
+      ],
+      destroy: true,
+      searching: true
+    });
+    dataTable.on('draw', () => {
+      const count = dataTable.rows({ filter: 'applied' }).data().length;
+      $('#message').text(`Displaying ${count} rows.`);
+      renderHeatmap();
+      renderChart();
+    });
+  }
+
   // ---- Initialize modern heatmap UI if controls exist
   if (document.getElementById('courseSelect')) {
-    initModernHeatmapUI();
+    initTable();
+    $('#courseSelect').multipleSelect({ filter: true, placeholder: 'Filter by course', width: '250px' }).on('change', updateTable);
+    $('#campusSelect').multipleSelect({ filter: true, placeholder: 'Filter by campus', width: '200px' }).on('change', updateTable);
+    $('#fileInput').on('change', e => loadFile(e.target.files[0]));
+    $('#textSearch').on('input', updateTable);
   }
 });
