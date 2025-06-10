@@ -1,6 +1,4 @@
-// js/app.js
 document.addEventListener('DOMContentLoaded', () => {
-  // ───── Configuration & State ────────────────────
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
     'Summer 2026','Fall 2026','Spring 2027',
@@ -10,66 +8,58 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentData = [];
   let currentTerm = '';
 
-  // ───── DOM References ───────────────────────────
-  const tabs       = document.getElementById('term-tabs');
-  const uploadDiv  = document.getElementById('upload-container');
-  const tsDiv      = document.getElementById('upload-timestamp');
-  const roomDiv    = document.getElementById('room-filter');
-  const startInput = document.getElementById('avail-start');
-  const endInput   = document.getElementById('avail-end');
-  const checkBtn   = document.getElementById('avail-check-btn');
-  const clearBtn   = document.getElementById('avail-clear-btn');
-  const resultsDiv = document.getElementById('avail-results');
-  const container  = document.getElementById('schedule-container');
-  const table      = document.getElementById('schedule-table');
+  // Cache DOM refs
+  const tabs         = document.getElementById('term-tabs');
+  const uploadDiv    = document.getElementById('upload-container');
+  const tsDiv        = document.getElementById('upload-timestamp');
+  const roomDiv      = document.getElementById('room-filter');
+  const startInput   = document.getElementById('avail-start');
+  const endInput     = document.getElementById('avail-end');
+  const checkBtn     = document.getElementById('avail-check-btn');
+  const clearBtn     = document.getElementById('avail-clear-btn');
+  const resultsDiv   = document.getElementById('avail-results');
+  const table        = document.getElementById('schedule-table');
+  const container    = document.getElementById('schedule-container');
 
-  // ───── Heatmap State ────────────────────────────
-  const hmDays   = [...daysOfWeek];
-  const hmHours  = Array.from({length:17}, (_,i) => i + 6); // 6–22
-  let hmRaw      = [];
-  let hmTable, hmChoices, chartInstance = null;
+  // Heatmap variables: Declare before any function that uses them!
+  const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
+  const hmDayMap = {'Sunday':'Sunday','Monday':'Monday','Tuesday':'Tuesday','Wednesday':'Wednesday','Thursday':'Thursday','Friday':'Friday','Saturday':'Saturday'};
+  let hmRaw = [];
+  let hmTable;
+  let hmChoices;
 
+  // ---- Heatmap initialization FIRST ----
   initHeatmap();
 
-  // ───── Build Semester Tabs ──────────────────────
+  // Build semester tabs
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
-    tab.className = 'tab' + (i===2 ? ' active' : '');
+    tab.className = 'tab' + (i === 2 ? ' active' : '');
     tab.textContent = term;
     tab.onclick = () => selectTerm(term, tab);
     tabs.appendChild(tab);
   });
-  selectTerm(terms[2], tabs.children[2]); // default Spring 2026
+  // Default select
+  selectTerm(terms[2], tabs.children[2]);
 
-  // ───── Availability Controls ────────────────────
+  // Wire availability buttons
   checkBtn.onclick = handleAvailability;
   clearBtn.onclick = () => {
+    // clear selections
     document.querySelectorAll('#availability-ui .days input').forEach(cb => cb.checked = false);
     startInput.value = '';
     endInput.value   = '';
     resultsDiv.textContent = '';
   };
 
-  // ───── View Switcher ────────────────────────────
-  document.getElementById('viewSelect').addEventListener('change', e => {
-    const view = e.target.value;
-    container.style.display       = view==='calendar' ? 'block' : 'none';
-    document.getElementById('availability-ui').style.display = view==='calendar' ? 'block' : 'none';
-    roomDiv.style.display         = view==='calendar' ? 'block' : 'none';
-    uploadDiv.style.display       = view==='calendar' ? 'block' : 'none';
-    tsDiv.style.display           = view==='calendar' ? 'block' : 'none';
-    document.getElementById('heatmap-tool').style.display = view==='heatmap'? 'block':'none';
-    if (view==='heatmap') updateAllHeatmap();
-  });
-
-  setupUpload();
-
-  // ─────── Functions ──────────────────────────────
+  // ───── Scheduler Functions ─────────────────────────
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
+
     clearSchedule();
     setupUpload();
 
@@ -86,26 +76,20 @@ document.addEventListener('DOMContentLoaded', () => {
       currentData = [];
       tsDiv.textContent = '';
       roomDiv.innerHTML = '';
-      clearSchedule();
-      feedHeatmapTool([]);
     }
   }
 
   function setupUpload() {
-    uploadDiv.innerHTML = `
-      <label>
-        Upload CSV for ${currentTerm}:
-        <input type="file" id="file-input" accept=".csv">
-      </label>
-    `;
+    roomDiv.innerHTML = '';
+    uploadDiv.innerHTML = `<label>Upload CSV for ${currentTerm}: <input type="file" id="file-input" accept=".csv"></label>`;
     document.getElementById('file-input').onchange = e => {
       parseCSVFile(e.target.files[0], data => {
         currentData = data;
-        const ts = new Date().toLocaleString();
-        tsDiv.textContent = `Last upload: ${ts}`;
+        tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
         feedHeatmapTool(currentData);
+        // Save per-term
         localStorage.setItem(
           'cos_schedule_' + currentTerm,
           JSON.stringify({ data: currentData, timestamp: tsDiv.textContent })
@@ -115,29 +99,45 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function buildRoomDropdown() {
-    const combos = Array.from(new Set(currentData.map(i => `${i.Building}-${i.Room}`))).sort();
+    const combos = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))].sort();
     roomDiv.innerHTML = `
-      <label>
-        Filter Bldg-Room:
+      <label>Filter Bldg-Room:
         <select id="room-select">
           <option>All</option>
-          ${combos.map(r=>`<option>${r}</option>`).join('')}
+          ${combos.map(r => `<option>${r}</option>`).join('')}
         </select>
-      </label>
-    `;
-    document.getElementById('room-select').onchange = () => renderSchedule();
+      </label>`;
+    document.getElementById('room-select').onchange = renderSchedule;
   }
 
+  function clearSchedule() {
+    table.innerHTML = '';
+    container.querySelectorAll('.class-block').forEach(e => e.remove());
+    // Header row
+    const header = table.insertRow();
+    header.insertCell().outerHTML = '<th>Time</th>';
+    daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
+    // Time slots
+    for (let t = 360; t <= 22*60; t += 30) {
+      const row = table.insertRow();
+      const hh = Math.floor(t/60), mm = t%60;
+      const h12 = ((hh+11)%12)+1, ap = hh<12?'AM':'PM';
+      row.insertCell().outerHTML = `<th>${h12}:${('0'+mm).slice(-2)}${ap}</th>`;
+      daysOfWeek.forEach(() => row.insertCell());
+    }
+  }
+
+  // ----- DEDUPLICATION LOGIC ADDED HERE -----
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
-    const data = filt==='All'
+    const data = filt === 'All'
       ? currentData
       : currentData.filter(i => `${i.Building}-${i.Room}` === filt);
-
     const rect = container.getBoundingClientRect();
 
     daysOfWeek.forEach((day, dIdx) => {
+      // collect & sort events
       let evs = data
         .filter(i => i.Days.includes(day))
         .map(i => ({
@@ -147,227 +147,215 @@ document.addEventListener('DOMContentLoaded', () => {
         }))
         .sort((a,b) => a.startMin - b.startMin);
 
+      // Deduplicate by: CRN, Start_Time, End_Time, Days (as string), Building, Room
+      const seen = new Set();
+      evs = evs.filter(ev => {
+        const key = [
+          ev.CRN,
+          ev.Start_Time,
+          ev.End_Time,
+          Array.isArray(ev.Days) ? ev.Days.join(',') : ev.Days,
+          ev.Building,
+          ev.Room
+        ].join('|');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      // overlap columns
       const cols = [];
       evs.forEach(ev => {
         let placed = false;
-        for (const col of cols) {
-          if (!col.some(e => !(e.endMin <= ev.startMin || e.startMin >= ev.endMin))) {
-            col.push(ev);
-            placed = true;
-            break;
+        for (let c=0; c<cols.length; c++) {
+          if (cols[c][cols[c].length-1].endMin <= ev.startMin) {
+            cols[c].push(ev); ev.col = c; placed = true; break;
           }
         }
-        if (!placed) cols.push([ev]);
+        if (!placed) {
+          ev.col = cols.length; cols.push([ev]);
+        }
       });
+      const colCount = cols.length || 1;
 
-      evs.forEach(ev => {
-        const colIndex = cols.findIndex(c => c.includes(ev));
-        const rowIdx   = Math.floor((ev.startMin - 360)/30) + 1;
-        const cell     = table.rows[rowIdx]?.cells[dIdx+1];
-        if (!cell) return;
-        const cr    = cell.getBoundingClientRect();
-        const topPx = cr.top - rect.top + ((ev.startMin - 360) % 30)/30 * cr.height;
-        const leftPx   = cr.left - rect.left + colIndex*(cr.width/cols.length);
-        const widthPx  = cr.width/cols.length;
-        const heightPx = ((ev.endMin - ev.startMin)/30)*cr.height;
+      // render
+      cols.flat().forEach(ev => {
+        const offset = ev.startMin - 360;
+        const rowIndex = Math.floor(offset/30) + 1;
+        const rem = offset % 30;
+        // guard out-of-bounds
+        if (rowIndex < 1 || rowIndex >= table.rows.length) return;
 
-        const block = document.createElement('div');
-        block.className = 'class-block';
-        block.style.top    = `${topPx}px`;
-        block.style.left   = `${leftPx}px`;
-        block.style.width  = `${widthPx}px`;
-        block.style.height = `${heightPx}px`;
-        block.textContent  = ev.Subject_Course;
-        container.appendChild(block);
+        const cell = table.rows[rowIndex].cells[dIdx+1];
+        const cr   = cell.getBoundingClientRect();
+        const topPx    = cr.top - rect.top + (rem/30)*cr.height;
+        const leftPx   = cr.left - rect.left + ev.col*(cr.width/colCount);
+        const widthPx  = cr.width/colCount;
+        const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
+
+        const b = document.createElement('div');
+        b.className = 'class-block';
+        b.style.top    = `${topPx}px`;
+        b.style.left   = `${leftPx}px`;
+        b.style.width  = `${widthPx}px`;
+        b.style.height = `${heightPx}px`;
+        b.innerHTML = `
+          <span>${ev.Subject_Course}</span><br>
+          <span>${ev.CRN}</span><br>
+          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>`;
+        container.appendChild(b);
       });
     });
   }
 
-  function clearSchedule() {
-    document.querySelectorAll('.class-block').forEach(el => el.remove());
-  }
-
+  // ───── Availability Handler ───────────────────────
   function handleAvailability() {
-    const days = Array.from(document.querySelectorAll('#availability-ui .days input:checked'))
-      .map(cb => cb.value);
-    if (!startInput.value || !endInput.value || !days.length) {
-      alert('Select days and both start/end times.');
+    resultsDiv.textContent = '';
+    const days = Array.from(
+      document.querySelectorAll('#availability-ui .days input:checked')
+    ).map(cb => cb.value);
+    const start = startInput.value, end = endInput.value;
+    if (!days.length || !start || !end) {
+      resultsDiv.textContent = 'Please select at least one day and both start/end times.';
       return;
     }
-    const sMin = parseTime(startInput.value), eMin = parseTime(endInput.value);
-    const occ  = new Set();
+    const toMin = t => {
+      const [h,m] = t.split(':').map(Number);
+      return h*60 + m;
+    };
+    const sMin = toMin(start), eMin = toMin(end);
+    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
+    const occ   = new Set();
     currentData.forEach(i => {
       if (i.Days.some(d => days.includes(d))) {
-        const st = parseTime(i.Start_Time), et = parseTime(i.End_Time);
-        if (!(et <= sMin || st >= eMin)) {
+        const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
+        if (!(ei <= sMin || si >= eMin)) {
           occ.add(`${i.Building}-${i.Room}`);
         }
       }
     });
-    const allRooms = Array.from(new Set(currentData.map(i=>`${i.Building}-${i.Room}`)));
-    const avail    = allRooms.filter(r=>!occ.has(r));
-    resultsDiv.innerHTML = avail.length
-      ? '<ul>' + avail.map(r=>`<li>${r}</li>`).join('') + '</ul>'
-      : 'No rooms available.';
+    const avail = rooms.filter(r => !occ.has(r));
+    if (avail.length) {
+      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
+    } else {
+      resultsDiv.textContent = 'No rooms available.';
+    }
   }
 
+  // ───── Helpers ────────────────────────────────────
   function parseTime(t) {
     const [h,m] = t.split(':').map(Number);
     return h*60 + m;
   }
+  function format12(t) {
+    let [h,m] = t.split(':').map(Number);
+    const ap = h<12 ? 'AM':'PM';
+    h = ((h+11)%12)+1;
+    return `${h}:${('0'+m).slice(-2)}${ap}`;
+  }
 
-  // ───── Heatmap & Chart.js Integration ───────────
+  // ───── Heatmap & Table Logic ─────
 
   function initHeatmap() {
     hmChoices = new Choices('#courseSelect', {
       removeItemButton: true,
       searchEnabled: true,
-      placeholderValue: 'Filter by discipline/course'
+      placeholderValue: 'Filter by discipline/course',
     });
     hmTable = $('#dataTable').DataTable({
       data: [],
       columns: [
-        {title:'Course'}, {title:'Building'},
-        {title:'Room'},   {title:'Days'},
-        {title:'Time'}
+        { title: 'Course' },
+        { title: 'Building' },
+        { title: 'Room' },
+        { title: 'Days' },
+        { title: 'Time' }
       ],
       destroy: true,
       searching: true
     });
-    hmTable.on('search.dt', () => {
-      updateHeatmap();
-      renderChart();
-    });
+    hmTable.on('search.dt', updateHeatmap);
   }
 
   function feedHeatmapTool(dataArray) {
     hmRaw = dataArray.map(r => {
-      const parts = (r.Subject_Course||'').trim().split(/\s+/);
-      const key   = parts.length>=2
-        ? parts[0]+' '+parts[1]
-        : (r.Subject_Course||'').trim();
+      const parts = (r.Subject_Course || '').trim().split(/\s+/);
+      const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
       return {
         key,
-        Building:   r.Building||'',
-        Room:       r.Room||'',
-        Days:       r.Days||[],
-        Start_Time: r.Start_Time||'',
-        End_Time:   r.End_Time||''
+        Building: r.Building || '',
+        Room: r.Room || '',
+        Days: r.Days || [],
+        Start_Time: r.Start_Time || '',
+        End_Time: r.End_Time || ''
       };
     });
-    const uniq = Array.from(new Set(hmRaw.map(r=>r.key))).sort();
-    hmChoices.setChoices(uniq.map(k=>({value:k,label:k})), 'value','label', true);
+    const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
+    const items = uniqueKeys.map(k => ({ value: k, label: k }));
+    if (hmChoices) {
+      hmChoices.setChoices(items, 'value', 'label', true);
+    }
     updateAllHeatmap();
   }
 
   function updateAllHeatmap() {
-    const sel = hmChoices.getValue(true);
-    const rows = hmRaw
-      .filter(r => {
-        if (sel.length && !sel.includes(r.key)) return false;
-        const B = (r.Building||'').toUpperCase();
-        const R = (r.Room||'').toUpperCase();
-        if (!r.Building||!r.Room||B==='N/A'||R==='N/A'||B==='ONLINE') return false;
-        return true;
-      })
-      .map(r => [
-        r.key,
-        r.Building,
-        r.Room,
-        r.Days.join(','),
-        r.Start_Time+'-'+r.End_Time
-      ]);
+    const selected = hmChoices.getValue(true);
+    const rows = hmRaw.filter(r => {
+      if(selected.length && !selected.includes(r.key)) return false;
+      if(!r.Building || !r.Room) return false;
+      const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
+      if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
+      return true;
+    }).map(r => [r.key, r.Building, r.Room, r.Days.join(','), r.Start_Time + '-' + r.End_Time]);
     hmTable.clear().rows.add(rows).draw();
-    updateHeatmap();
-    renderChart();
   }
 
   function updateHeatmap() {
-    const data = hmTable.rows({ search:'applied' }).data().toArray();
+    const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
     const counts = {};
     hmDays.forEach(d => counts[d] = hmHours.map(() => 0));
-    data.forEach(row => {
-      const [ , , , daysStr, timeStr ] = row;
-      const [st] = timeStr.split('-').map(t=>t.trim());
-      const m = st.match(/(\d{2}):/);
-      if (!m) return;
-      const h0 = parseInt(m[1],10);
-      daysStr.split(',').forEach(d => {
-        const idx = hmHours.indexOf(h0);
-        if (idx>=0) counts[d][idx]++;
+    filtered.forEach(row => {
+      const [ course, bld, room, daysStr, timeStr ] = row;
+      const dayList = daysStr.split(',');
+      const timeParts = timeStr.split('-');
+      const st = timeParts[0].trim();
+      const m = st.match(/(\d{2}):(\d{2})/);
+      if(!m) return;
+      const hr = parseInt(m[1],10);
+      dayList.forEach(d => {
+        const hIndex = hmHours.indexOf(hr);
+        if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
       });
     });
     const maxC = Math.max(...Object.values(counts).flat());
-    let html = '<table class="heatmap" style="border-collapse:collapse;margin-top:20px;width:100%;">';
+    let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
     html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
-    hmHours.forEach(h=>{
-      const ap = h<12?'AM':'PM', hh = h%12||12;
-      html += `<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`;
-    });
-    html += '</tr></thead><tbody>';
-    hmDays.forEach(d=>{
-      html += `<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`;
-      counts[d].forEach(c => {
-        const op = maxC? (c/maxC).toFixed(2) : 0;
-        html += `<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`;
-      });
-      html += '</tr>';
-    });
-    html += '</tbody></table>';
+    hmHours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
+    html+='</tr></thead><tbody>';
+    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
+    html+='</tbody></table>';
     document.getElementById('heatmapContainer').innerHTML = html;
   }
 
-  function renderChart() {
-    // tally filtered rows
-    const data = hmTable.rows({ search:'applied' }).data().toArray();
-    const counts = {};
-    hmDays.forEach(d=>counts[d]=hmHours.map(()=>0));
-    data.forEach(row=>{
-      const [ , , , daysStr, timeStr ] = row;
-      const [start, end] = timeStr.split('-').map(t=>t.trim());
-      const m = start.match(/(\d{2}):/);
-      if (!m) return;
-      const h0 = parseInt(m[1],10);
-      daysStr.split(',').forEach(d=>{
-        const idx = hmHours.indexOf(h0);
-        if (idx>=0) counts[d][idx]++;
-      });
-    });
-
-    const ctx    = document.getElementById('occupancyChart').getContext('2d');
-    const labels = hmHours.map(h=>`${h%12||12} ${h<12?'AM':'PM'}`);
-    const datasets = hmDays.map(day=>({
-      label: day,
-      data: counts[day],
-      fill: false,
-      tension: 0.3
-    }));
-
-    const chartOptions = {
-      scales: {
-        x: { title: { display: true, text: 'Time of Day' } },
-        y: {
-          title: { display: true, text: 'Concurrent Courses' },
-          beginAtZero: true,
-          ticks: {
-            maxTicksLimit: 6    // ← limit number of tick labels
-          }
-        }
-      },
-      plugins: { legend: { position: 'bottom' } }
-    };
-
-    if (chartInstance) {
-      chartInstance.data.labels   = labels;
-      chartInstance.data.datasets = datasets;
-      chartInstance.options       = chartOptions;
-      chartInstance.update();
+  // --- Heatmap view select logic
+  document.getElementById('viewSelect').addEventListener('change', function(){
+    if(this.value==='heatmap'){
+      document.getElementById('schedule-container').style.display='none';
+      document.getElementById('availability-ui').style.display='none';
+      document.getElementById('room-filter').style.display='none';
+      document.getElementById('upload-container').style.display='none';
+      document.getElementById('upload-timestamp').style.display='none';
+      document.getElementById('heatmap-tool').style.display='block';
     } else {
-      chartInstance = new Chart(ctx, {
-        type: 'line',
-        data: { labels, datasets },
-        options: chartOptions
-      });
+      document.getElementById('heatmap-tool').style.display='none';
+      document.getElementById('schedule-container').style.display='';
+      document.getElementById('availability-ui').style.display='';
+      document.getElementById('room-filter').style.display='';
+      document.getElementById('upload-container').style.display='';
+      document.getElementById('upload-timestamp').style.display='';
     }
-  }
+  });
+
+  // Feed heatmap whenever schedule loads
+  // After renderSchedule or data loading, call feedHeatmapTool(currentData)
 });
