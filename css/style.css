@@ -57,16 +57,16 @@ h1 {
   max-height: 80vh;
 }
 
-/* Grid lines and fixed row height */
+/* Core grid styling */
 #schedule-table {
-  border-collapse: collapse;
   width: 100%;
+  border-collapse: collapse;
   table-layout: fixed;
 }
 
 #schedule-table th,
 #schedule-table td {
-  border: 1px solid #ccc;
+  border: 1px solid #ccc !important;
   text-align: center;
   padding: 0;
   height: 30px; /* half-hour slot height */
@@ -106,22 +106,27 @@ h1 {
   margin-top: 0;
 }
 
-.availability-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: center;
-}
-
-.availability-controls .days label {
+.availability-ui .days label {
   margin-right: 0.5rem;
 }
 
-.availability-controls .times label {
+.availability-ui .times label {
   margin-right: 1rem;
 }
 
 .avail-results {
   margin-top: 0.5rem;
   font-size: 0.9rem;
+}
+
+/* Heatmap container styling (optional) */
+#heatmapContainer {
+  margin-bottom: 1rem;
+}
+
+/* Force schedule grid visibility */
+#schedule-container table#schedule-table,
+#schedule-container table#schedule-table th,
+#schedule-container table#schedule-table td {
+  border: 1px solid #ccc !important;
 }
