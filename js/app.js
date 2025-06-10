@@ -24,6 +24,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---- Modern Heatmap & Chart Variables ----
   let rawData = [], dataTable, chartInstance;
 
+  // Initialize DataTable immediately before any calls to updateTable/feedModernHeatmap
+  initTable();
+
   // Build semester tabs
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
@@ -316,11 +319,13 @@ document.addEventListener('DOMContentLoaded', () => {
       r.Time || r.TIME || ''
     ]);
 
-    dataTable.clear().rows.add(rows).draw();
+    if (dataTable) {
+      dataTable.clear().rows.add(rows).draw();
+    }
   }
 
   function renderHeatmap() {
-    const data = dataTable.rows({ filter: 'applied' }).data().toArray();
+    const data = dataTable ? dataTable.rows({ filter: 'applied' }).data().toArray() : [];
     const daysMap = {'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday'};
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const hours = Array.from({length:17}, (_,i)=>i+6);
@@ -361,7 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderChart() {
-    const data = dataTable.rows({ filter: 'applied' }).data().toArray();
+    const data = dataTable ? dataTable.rows({ filter: 'applied' }).data().toArray() : [];
     const daysMap = {'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday'};
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const hours = Array.from({length:17}, (_,i)=>i+6);
@@ -438,7 +443,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---- Initialize modern heatmap UI if controls exist
   if (document.getElementById('courseSelect')) {
-    initTable();
     $('#courseSelect').multipleSelect({ filter: true, placeholder: 'Filter by course', width: '250px' }).on('change', updateTable);
     $('#campusSelect').multipleSelect({ filter: true, placeholder: 'Filter by campus', width: '200px' }).on('change', updateTable);
     $('#fileInput').on('change', e => loadFile(e.target.files[0]));
