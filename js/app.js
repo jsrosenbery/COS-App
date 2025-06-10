@@ -21,16 +21,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
-  // Heatmap variables: Declare before any function that uses them!
-  const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
-  const hmDayMap = {'Sunday':'Sunday','Monday':'Monday','Tuesday':'Tuesday','Wednesday':'Wednesday','Thursday':'Thursday','Friday':'Friday','Saturday':'Saturday'};
-  let hmRaw = [];
-  let hmTable;
-  let hmChoices;
+  // ---- Modern Heatmap & Chart Variables ----
+  let rawData = [], dataTable, chartInstance;
 
-  // ---- Heatmap initialization FIRST ----
-  initHeatmap();
+  // ---- Heatmap initialization ----
+  // (No legacy heatmap Choices/DataTables here -- replaced by new logic)
 
   // Build semester tabs
   terms.forEach((term, i) => {
@@ -71,11 +66,14 @@ document.addEventListener('DOMContentLoaded', () => {
       tsDiv.textContent = timestamp;
       buildRoomDropdown();
       renderSchedule();
-      feedHeatmapTool(currentData);
+      // FEED MODERN HEATMAP
+      feedModernHeatmap(currentData);
     } else {
       currentData = [];
       tsDiv.textContent = '';
       roomDiv.innerHTML = '';
+      // FEED MODERN HEATMAP
+      feedModernHeatmap([]);
     }
   }
 
@@ -88,7 +86,8 @@ document.addEventListener('DOMContentLoaded', () => {
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
         buildRoomDropdown();
         renderSchedule();
-        feedHeatmapTool(currentData);
+        // FEED MODERN HEATMAP
+        feedModernHeatmap(currentData);
         // Save per-term
         localStorage.setItem(
           'cos_schedule_' + currentTerm,
@@ -254,108 +253,213 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
 
-  // ───── Heatmap & Table Logic ─────
+  // ───── MODERN HEATMAP & OCCUPANCY CHART LOGIC ─────
 
-  function initHeatmap() {
-    hmChoices = new Choices('#courseSelect', {
-      removeItemButton: true,
-      searchEnabled: true,
-      placeholderValue: 'Filter by discipline/course',
-    });
-    hmTable = $('#dataTable').DataTable({
+  function initModernHeatmapUI() {
+    initTable();
+    $('#courseSelect').multipleSelect({ filter: true, placeholder: 'Filter by course', width: '250px' }).on('change', updateTable);
+    $('#campusSelect').multipleSelect({ filter: true, placeholder: 'Filter by campus', width: '200px' }).on('change', updateTable);
+    $('#fileInput').on('change', e => loadFile(e.target.files[0]));
+    $('#textSearch').on('input', updateTable);
+  }
+
+  function initTable() {
+    dataTable = $('#dataTable').DataTable({
       data: [],
       columns: [
-        { title: 'Course' },
-        { title: 'Building' },
-        { title: 'Room' },
-        { title: 'Days' },
-        { title: 'Time' }
+        { title: 'Course', data: 0 },
+        { title: 'Building', data: 1 },
+        { title: 'Room', data: 2 },
+        { title: 'Campus', data: 3 },
+        { title: 'Days', data: 4 },
+        { title: 'Time', data: 5 }
       ],
       destroy: true,
       searching: true
     });
-    hmTable.on('search.dt', updateHeatmap);
+    dataTable.on('draw', () => {
+      const count = dataTable.rows({ filter: 'applied' }).data().length;
+      $('#message').text(`Displaying ${count} rows.`);
+      renderHeatmap();
+      renderChart();
+    });
   }
 
-  function feedHeatmapTool(dataArray) {
-    hmRaw = dataArray.map(r => {
-      const parts = (r.Subject_Course || '').trim().split(/\s+/);
-      const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
+  // Feeds the modern heatmap from scheduler data
+  function feedModernHeatmap(dataArray) {
+    // Convert scheduler-style data to heatmap rawData format
+    // Accepts array of objects with Building, Room, Campus, Days, Start_Time, End_Time, etc.
+    rawData = dataArray.map(r => {
+      const [Disc, Crs] = (r.Subject_Course||'').trim().split(/\s+/);
       return {
-        key,
-        Building: r.Building || '',
-        Room: r.Room || '',
-        Days: r.Days || [],
-        Start_Time: r.Start_Time || '',
-        End_Time: r.End_Time || ''
+        ...r,
+        key: `${Disc} ${Crs}`.trim(),
+        BUILDING: r.Building || r.BUILDING || '',
+        ROOM: r.Room || r.ROOM || '',
+        Campus: r.Campus || r.CAMPUS || '',
+        DAYS: Array.isArray(r.Days) ? r.Days.map(d => d[0]).join('') : (r.Days || r.DAYS || ''),
+        Time: (r.Start_Time && r.End_Time) ? `${r.Start_Time}-${r.End_Time}` : (r.Time || r.TIME || '')
       };
     });
-    const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
-    const items = uniqueKeys.map(k => ({ value: k, label: k }));
-    if (hmChoices) {
-      hmChoices.setChoices(items, 'value', 'label', true);
-    }
-    updateAllHeatmap();
+    populateFilters();
+    updateTable();
   }
 
-  function updateAllHeatmap() {
-    const selected = hmChoices.getValue(true);
-    const rows = hmRaw.filter(r => {
-      if(selected.length && !selected.includes(r.key)) return false;
-      if(!r.Building || !r.Room) return false;
-      const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
-      if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
+  function parseCSVFile(file, cb) {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: results => cb(results.data)
+    });
+  }
+
+  function loadFile(file) {
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: results => {
+        rawData = results.data.map(r => {
+          const [Disc, Crs] = (r.Subject_Course||'').trim().split(/\s+/);
+          return { ...r, key: `${Disc} ${Crs}`.trim() };
+        });
+        populateFilters();
+        updateTable();
+      }
+    });
+  }
+
+  function populateFilters() {
+    const courses = [...new Set(rawData.map(r => r.key).filter(k => k))].sort();
+    const $course = $('#courseSelect').empty();
+    courses.forEach(c => $course.append(`<option value="${c}">${c}</option>`));
+    $('#courseSelect').multipleSelect('refresh');
+
+    const campuses = [...new Set(rawData.map(r => r.Campus || r.CAMPUS).filter(c => c))].sort();
+    const $campus = $('#campusSelect').empty();
+    campuses.forEach(c => $campus.append(`<option value="${c}">${c}</option>`));
+    $('#campusSelect').multipleSelect('refresh');
+  }
+
+  function updateTable() {
+    const selectedCourses = $('#courseSelect').multipleSelect('getSelects');
+    const selectedCampuses = $('#campusSelect').multipleSelect('getSelects');
+    const filterText = $('#textSearch').val().toLowerCase();
+
+    const rows = rawData.filter(r => {
+      if (selectedCourses.length && !selectedCourses.includes(r.key)) return false;
+      const campusVal = r.Campus || r.CAMPUS;
+      if (selectedCampuses.length && !selectedCampuses.includes(campusVal)) return false;
+      if (filterText && !((r.Subject_Course||'') + ' ' + (r.COURSE_TITLE||'')).toLowerCase().includes(filterText)) return false;
+      const b = (r.BUILDING||r.Building||'').trim().toUpperCase();
+      const rm = (r.ROOM||r.Room||'').trim().toUpperCase();
+      if (!b || !rm || b==='N/A' || rm==='N/A' || b==='ONLINE') return false;
       return true;
-    }).map(r => [r.key, r.Building, r.Room, r.Days.join(','), r.Start_Time + '-' + r.End_Time]);
-    hmTable.clear().rows.add(rows).draw();
+    }).map(r => [
+      r.key,
+      r.BUILDING || r.Building || '',
+      r.ROOM || r.Room || '',
+      r.Campus || r.CAMPUS || '',
+      r.DAYS || r.Days || '',
+      r.Time || r.TIME || ''
+    ]);
+
+    dataTable.clear().rows.add(rows).draw();
   }
 
-  function updateHeatmap() {
-    const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
-    const counts = {};
-    hmDays.forEach(d => counts[d] = hmHours.map(() => 0));
-    filtered.forEach(row => {
-      const [ course, bld, room, daysStr, timeStr ] = row;
-      const dayList = daysStr.split(',');
-      const timeParts = timeStr.split('-');
-      const st = timeParts[0].trim();
-      const m = st.match(/(\d{2}):(\d{2})/);
-      if(!m) return;
-      const hr = parseInt(m[1],10);
-      dayList.forEach(d => {
-        const hIndex = hmHours.indexOf(hr);
-        if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
+  function renderHeatmap() {
+    const data = dataTable.rows({ filter: 'applied' }).data().toArray();
+    const daysMap = {'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday'};
+    const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const hours = Array.from({length:17}, (_,i)=>i+6);
+    let counts = {}, maxCount = 0;
+    data.forEach(row => {
+      const daysStr = row[4];
+      const timeStr = row[5];
+      daysStr.split('').forEach(ch => {
+        const day = daysMap[ch];
+        if (!day) return;
+        const m = timeStr.split('-')[0].trim().match(/(\d+):(\d+)\s*(AM|PM)/);
+        if (m) {
+          let h = parseInt(m[1]) % 12 + (m[3] === 'PM' ? 12 : 0);
+          if (h >= 6 && h <= 22) {
+            const key = day + '-' + h;
+            counts[key] = (counts[key] || 0) + 1;
+            maxCount = Math.max(maxCount, counts[key]);
+          }
+        }
       });
     });
-    const maxC = Math.max(...Object.values(counts).flat());
-    let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
-    html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
-    hmHours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
-    html+='</tr></thead><tbody>';
-    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
-    html+='</tbody></table>';
+
+    let html = '<table class="heatmap"><tr><th>Day/Hour</th>';
+    hours.forEach(h => html += `<th>${h % 12 === 0 ? 12 : h % 12} ${(h<12?'AM':'PM')}</th>`);
+    html += '</tr>';
+    daysOfWeek.forEach(day => {
+      html += `<tr><th>${day}</th>`;
+      hours.forEach(h => {
+        const c = counts[day + '-' + h] || 0;
+        const alpha = maxCount > 0 ? (c / maxCount) * 0.8 + 0.2 : 0;
+        html += `<td style="background-color:rgba(255,165,0,${alpha});">${c>0?c:''}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</table>';
     document.getElementById('heatmapContainer').innerHTML = html;
   }
 
-  // --- Heatmap view select logic
-  document.getElementById('viewSelect').addEventListener('change', function(){
-    if(this.value==='heatmap'){
-      document.getElementById('schedule-container').style.display='none';
-      document.getElementById('availability-ui').style.display='none';
-      document.getElementById('room-filter').style.display='none';
-      document.getElementById('upload-container').style.display='none';
-      document.getElementById('upload-timestamp').style.display='none';
-      document.getElementById('heatmap-tool').style.display='block';
+  function renderChart() {
+    const data = dataTable.rows({ filter: 'applied' }).data().toArray();
+    const daysMap = {'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday'};
+    const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const hours = Array.from({length:17}, (_,i)=>i+6);
+    let counts = {};
+    daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
+    data.forEach(row => {
+      const daysStr = row[4];
+      const timeRange = row[5].split('-').map(t => t.trim());
+      const parseHour = t => {
+        const m = t.match(/(\d+):(\d+)\s*(AM|PM)/);
+        if (!m) return null;
+        let h = parseInt(m[1]) % 12 + (m[3]==='PM'?12:0);
+        return h;
+      };
+      const start = parseHour(timeRange[0]);
+      const end = parseHour(timeRange[1]);
+      daysStr.split('').forEach(ch => {
+        const day = daysMap[ch];
+        if (!day || start===null || end===null) return;
+        hours.forEach(h => {
+          if (h >= start && h < end) counts[day+'-'+h] += 1;
+        });
+      });
+    });
+    const ctx = document.getElementById('occupancyChart').getContext('2d');
+    const labels = hours.map(h => `${h%12===0?12:h%12} ${(h<12?'AM':'PM')}`);
+    const datasets = daysOfWeek.map((day, idx) => ({
+      label: day,
+      data: hours.map(h => counts[day+'-'+h]),
+      fill: false,
+      tension: 0.3
+    }));
+    if (chartInstance) {
+      chartInstance.data.labels = labels;
+      chartInstance.data.datasets = datasets;
+      chartInstance.update();
     } else {
-      document.getElementById('heatmap-tool').style.display='none';
-      document.getElementById('schedule-container').style.display='';
-      document.getElementById('availability-ui').style.display='';
-      document.getElementById('room-filter').style.display='';
-      document.getElementById('upload-container').style.display='';
-      document.getElementById('upload-timestamp').style.display='';
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          scales: {
+            x: { title: { display: true, text: 'Time of Day' } },
+            y: { title: { display: true, text: 'Concurrent Courses' }, beginAtZero: true }
+          },
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
     }
-  });
+  }
 
-  // Feed heatmap whenever schedule loads
-  // After renderSchedule or data loading, call feedHeatmapTool(currentData)
+  // ---- Initialize modern heatmap UI if controls exist
+  if (document.getElementById('courseSelect')) {
+    initModernHeatmapUI();
+  }
 });
