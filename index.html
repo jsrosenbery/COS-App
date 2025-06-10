@@ -1,3 +1,4 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,14 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>COS Scheduling App</title>
 
-  <!-- favicon: your mustachio’d avatar -->
+  <!-- favicon -->
   <link rel="icon" href="images/favicon.png" type="image/png">
 
   <link rel="stylesheet" href="css/style.css">
-
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/datatables.net-dt/css/jquery.dataTables.min.css"/>
-
 </head>
 <body>
   <header>
@@ -21,7 +20,8 @@
   </header>
 
   <nav id="term-tabs"></nav>
-  <!-- View selection dropdown -->
+
+  <!-- View selector -->
   <div id="view-container" style="margin:10px 0;">
     <label for="viewSelect">View: </label>
     <select id="viewSelect">
@@ -30,14 +30,14 @@
     </select>
   </div>
 
-
+  <!-- Upload controls -->
   <div id="upload-container"></div>
   <div id="upload-timestamp" class="upload-timestamp"></div>
   <div id="room-filter"></div>
 
+  <!-- Availability search UI -->
   <div id="availability-ui" class="availability-ui">
     <h3>Check Room Availability</h3>
-    <!-- Day checkboxes -->
     <div class="days">
       <label><input type="checkbox" value="Sunday"> Sun</label>
       <label><input type="checkbox" value="Monday"> Mon</label>
@@ -47,31 +47,21 @@
       <label><input type="checkbox" value="Friday"> Fri</label>
       <label><input type="checkbox" value="Saturday"> Sat</label>
     </div>
-    <!-- Time inputs + buttons -->
     <div class="times">
       <label>Start: <input type="time" id="avail-start" step="300"></label>
       <label>End:   <input type="time" id="avail-end"   step="300"></label>
       <button id="avail-check-btn">Check</button>
       <button id="avail-clear-btn">Clear</button>
     </div>
-    <!-- Results -->
     <div id="avail-results" class="avail-results"></div>
   </div>
 
+  <!-- Calendar view -->
   <div id="schedule-container">
     <table id="schedule-table"></table>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-  
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
-
-  <script src="js/parser.js"></script>
-  <script src="js/app.js"></script>
-
-  <!-- Heatmap UI (hidden by default) -->
+  <!-- Heatmap view (hidden by default) -->
   <div id="heatmap-tool" style="display:none;">
     <h2>Course Offerings Heatmap & Table</h2>
     <div id="controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
@@ -79,8 +69,20 @@
       <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
     </div>
     <div id="heatmapContainer"></div>
+    <!-- Occupancy chart below the heatmap -->
+    <canvas id="occupancyChart" style="max-width:100%; height:300px; margin-top:20px;"></canvas>
     <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
   </div>
 
+  <!-- External libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Your application code -->
+  <script src="js/parser.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
