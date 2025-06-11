@@ -1,5 +1,3 @@
-// COS-App js/app.js
-
 let hmRaw = [];
 let hmTable;
 let hmChoices;
@@ -39,21 +37,13 @@ function getTimeRangeFromData(data) {
   return [min, max];
 }
 
-// NEW: Format date as MM/DD
+// Format date as MM/DD - MM/DD for M/D/YYYY or MM/DD/YYYY input
 function formatDateRange(start, end) {
   function getMMDD(dateStr) {
     if (!dateStr) return '';
-    let m, d;
-    // Handle YYYY-MM-DD or YYYY/MM/DD
-    if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(dateStr)) {
-      [ , m, d ] = dateStr.match(/^\d{4}[-/](\d{1,2})[-/](\d{1,2})$/) || [];
-    }
-    // Handle MM/DD/YYYY or M/D/YYYY
-    else if (/^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}$/.test(dateStr)) {
-      [ , m, d ] = dateStr.match(/^(\d{1,2})[-/](\d{1,2})[-/]\d{2,4}$/) || [];
-    }
-    if (m && d) {
-      return `${m.padStart(2, '0')}/${d.padStart(2, '0')}`;
+    const m = dateStr.match(/^(\d{1,2})[\/-](\d{1,2})[\/-]\d{2,4}$/);
+    if (m) {
+      return `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}`;
     }
     return dateStr; // fallback
   }
