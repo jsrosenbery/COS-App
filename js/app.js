@@ -228,7 +228,9 @@ document.addEventListener('DOMContentLoaded', () => {
         b.innerHTML = `
           <span>${ev.Subject_Course}</span><br>
           <span>${ev.CRN}</span><br>
-          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>`;
+          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
+          <span style="font-size:0.9em; color:#555;">${ev.Start_Date} – ${ev.End_Date}</span>
+        `;
         container.appendChild(b);
       });
     });
@@ -392,7 +394,9 @@ document.addEventListener('DOMContentLoaded', () => {
         Days: daysVal || [],
         Start_Time: r.Start_Time || '',
         End_Time: r.End_Time || '',
-        CAMPUS: r.CAMPUS || ''
+        CAMPUS: r.CAMPUS || '',
+        Start_Date: r.Start_Date || '',
+        End_Date: r.End_Date || ''
       };
     }).filter(r => {
       let dayField = r.Days;
