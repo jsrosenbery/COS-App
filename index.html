@@ -1,94 +1,211 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>COS Scheduling App</title>
+// At the top, after hmChoices, add:
+let campusChoices;
+let lineCourseChoices, lineCampusChoices;
+let lineChartInstance;
 
-  <!-- favicon: your mustachio’d avatar -->
-  <link rel="icon" href="images/favicon.png" type="image/png">
+const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
 
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/datatables.net-dt/css/jquery.dataTables.min.css"/>
+// After your initHeatmap function, add:
+function initCampusChoices() {
+  campusChoices = new Choices('#campusSelect', {
+    removeItemButton: true,
+    searchEnabled: true,
+    placeholderValue: 'Filter by campus',
+  });
+}
 
-  <!-- Add Chart.js for line chart -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-  <header>
-    <img src="images/logo.png" alt="COS Logo" class="logo">
-    <h1>COS Course Scheduler</h1>
-  </header>
+// For the line chart controls:
+function initLineChartChoices() {
+  lineCourseChoices = new Choices('#lineCourseSelect', {
+    removeItemButton: true,
+    searchEnabled: true,
+    placeholderValue: 'Filter by discipline/course',
+  });
+  lineCampusChoices = new Choices('#lineCampusSelect', {
+    removeItemButton: true,
+    searchEnabled: true,
+    placeholderValue: 'Filter by campus',
+  });
+}
 
-  <nav id="term-tabs"></nav>
-  <!-- View selection dropdown -->
-  <div id="view-container" style="margin:10px 0;">
-    <label for="viewSelect">View: </label>
-    <select id="viewSelect">
-      <option value="calendar">Calendar</option>
-      <option value="heatmap">Heatmap</option>
-      <option value="linechart">Line Chart (Course Durations)</option>
-    </select>
-  </div>
+// Update feedHeatmapTool to also populate campus choices:
+function feedHeatmapTool(dataArray) {
+  hmRaw = dataArray.map(r => {
+    const parts = (r.Subject_Course || '').trim().split(/\s+/);
+    const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
+    return {
+      key,
+      Building: r.Building || '',
+      Room: r.Room || '',
+      Days: r.Days || [],
+      Start_Time: r.Start_Time || '',
+      End_Time: r.End_Time || '',
+      Campus: r.Campus || '', // Add campus
+    };
+  });
+  const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
+  const items = uniqueKeys.map(k => ({ value: k, label: k }));
+  if (hmChoices) {
+    hmChoices.setChoices(items, 'value', 'label', true);
+  }
+  // Populate campus multi-select
+  const campuses = Array.from(new Set(hmRaw.map(r => r.Campus).filter(Boolean))).sort();
+  const campusItems = campuses.map(c => ({ value: c, label: c }));
+  if (campusChoices) {
+    campusChoices.setChoices(campusItems, 'value', 'label', true);
+  }
+  // Also initialize line chart choices
+  if (lineCourseChoices) {
+    lineCourseChoices.setChoices(items, 'value', 'label', true);
+  }
+  if (lineCampusChoices) {
+    lineCampusChoices.setChoices(campusItems, 'value', 'label', true);
+  }
+  updateAllHeatmap();
+  renderLineChart(); // New: render line chart on data feed
+}
 
-  <div id="upload-container"></div>
-  <div id="upload-timestamp" class="upload-timestamp"></div>
-  <div id="room-filter"></div>
+// UpdateAllHeatmap: add campus filtering
+function updateAllHeatmap() {
+  const selected = hmChoices.getValue(true);
+  const selectedCampuses = campusChoices ? campusChoices.getValue(true) : [];
+  const rows = hmRaw.filter(r => {
+    if(selected.length && !selected.includes(r.key)) return false;
+    if(selectedCampuses.length && !selectedCampuses.includes(r.Campus)) return false;
+    if(!r.Building || !r.Room) return false;
+    const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
+    if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
+    return true;
+  }).map(r => [r.key, r.Building, r.Room, r.Days.join(','), r.Start_Time + '-' + r.End_Time]);
+  hmTable.clear().rows.add(rows).draw();
+}
 
-  <div id="availability-ui" class="availability-ui">
-    <h3>Check Room Availability</h3>
-    <!-- Day checkboxes -->
-    <div class="days">
-      <label><input type="checkbox" value="Sunday"> Sun</label>
-      <label><input type="checkbox" value="Monday"> Mon</label>
-      <label><input type="checkbox" value="Tuesday"> Tue</label>
-      <label><input type="checkbox" value="Wednesday"> Wed</label>
-      <label><input type="checkbox" value="Thursday"> Thu</label>
-      <label><input type="checkbox" value="Friday"> Fri</label>
-      <label><input type="checkbox" value="Saturday"> Sat</label>
-    </div>
-    <!-- Time inputs + buttons -->
-    <div class="times">
-      <label>Start: <input type="time" id="avail-start" step="300"></label>
-      <label>End:   <input type="time" id="avail-end"   step="300"></label>
-      <button id="avail-check-btn">Check</button>
-      <button id="avail-clear-btn">Clear</button>
-    </div>
-    <!-- Results -->
-    <div id="avail-results" class="avail-results"></div>
-  </div>
+// Add renderLineChart function
+function renderLineChart() {
+  // Get selected filters
+  const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
+  const selectedCampuses = lineCampusChoices ? lineCampusChoices.getValue(true) : [];
 
-  <div id="schedule-container">
-    <table id="schedule-table"></table>
-  </div>
+  // Filter data
+  const filtered = hmRaw.filter(r => {
+    if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
+    if(selectedCampuses.length && !selectedCampuses.includes(r.Campus)) return false;
+    if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
+    return true;
+  });
 
-  <div id="heatmap-tool" style="display:none;">
-    <h2>Course Offerings Heatmap & Table</h2>
-    <div id="controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <select id="courseSelect" multiple placeholder="Filter by discipline/course"></select>
-      <select id="campusSelect" multiple placeholder="Filter by campus"></select>
-      <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
-    </div>
-    <div id="heatmapContainer"></div>
-    <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
-  </div>
+  // Prepare datasets: plot each course instance as a horizontal "line" for its duration on each day
+  const datasets = [];
+  const colorMap = {};
+  let colorIdx = 0;
+  const getColor = (key) => {
+    if (!colorMap[key]) {
+      // Generate unique pastel color
+      colorMap[key] = `hsl(${(colorIdx*41)%360},70%,60%)`;
+      colorIdx++;
+    }
+    return colorMap[key];
+  };
 
-  <!-- Line chart tool (hidden by default, shown when selected) -->
-  <div id="linechart-tool" style="display:none;">
-    <h2>Course Duration Line Chart</h2>
-    <div id="linechart-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
-      <select id="lineCampusSelect" multiple placeholder="Filter by campus"></select>
-    </div>
-    <canvas id="lineChartCanvas" height="400"></canvas>
-  </div>
+  hmDays.forEach((day, i) => {
+    filtered.forEach(rec => {
+      if (rec.Days.includes(day)) {
+        const startParts = rec.Start_Time.split(':').map(Number);
+        const endParts = rec.End_Time.split(':').map(Number);
+        // Chart.js expects times as floats, e.g., 9.5 for 9:30
+        const startFloat = startParts[0]+(startParts[1]/60);
+        const endFloat = endParts[0]+(endParts[1]/60);
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
-  <script src="js/parser.js"></script>
-  <script src="js/app.js"></script>
-</body>
-</html>
+        datasets.push({
+          label: `${rec.key} — ${rec.Campus} (${day})`,
+          data: [
+            { x: startFloat, y: day },
+            { x: endFloat, y: day }
+          ],
+          borderColor: getColor(rec.key + rec.Campus),
+          backgroundColor: getColor(rec.key + rec.Campus),
+          fill: false,
+          showLine: true,
+          pointRadius: 0,
+          borderWidth: 6,
+        });
+      }
+    });
+  });
+
+  // Draw chart
+  const ctx = document.getElementById('lineChartCanvas').getContext('2d');
+  // Destroy previous chart if any
+  if (lineChartInstance) {
+    lineChartInstance.destroy();
+  }
+  lineChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          type: 'linear',
+          min: 6,
+          max: 22,
+          title: { display: true, text: 'Hour of Day' },
+          ticks: {
+            callback: function(val) {
+              // Format as 12hr time
+              const h = Math.floor(val);
+              const m = Math.round((val-Math.floor(val))*60);
+              const ap = h < 12 ? 'AM':'PM';
+              const hr = ((h+11)%12)+1;
+              return (m ? `${hr}:${('0'+m).slice(-2)}` : `${hr}`) + ap;
+            },
+            stepSize: 1
+          }
+        },
+        y: {
+          type: 'category',
+          labels: hmDays,
+          title: { display: true, text: 'Day' }
+        }
+      },
+      elements: {
+        line: { borderCapStyle: 'round' }
+      },
+      interaction: { mode: 'nearest', axis: 'xy', intersect: false },
+      animation: false,
+      maintainAspectRatio: false,
+    }
+  });
+}
+
+// Show/hide the new chart tool and wire up controls
+document.addEventListener('DOMContentLoaded', () => {
+  // ... existing DOMContentLoaded code ...
+
+  initCampusChoices();
+  initLineChartChoices();
+
+  // When view changes, toggle visibility
+  document.getElementById('viewSelect').addEventListener('change', function(){
+    document.getElementById('heatmap-tool').style.display = (this.value === 'heatmap') ? 'block' : 'none';
+    document.getElementById('schedule-container').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('availability-ui').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('room-filter').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('upload-container').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('upload-timestamp').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('linechart-tool').style.display = (this.value === 'linechart') ? 'block' : 'none';
+    if (this.value === 'linechart') {
+      renderLineChart();
+    }
+  });
+
+  // Filter events for line chart controls
+  document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
+  document.getElementById('lineCampusSelect').addEventListener('change', renderLineChart);
+});
+
+// On data load, feedHeatmapTool also calls renderLineChart
+
+// (rest of your code stays the same)
