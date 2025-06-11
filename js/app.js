@@ -528,15 +528,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Draw or update the chart with condensed y-axis (fixed height)
     const chartDiv = document.getElementById('lineChartCanvas');
-    chartDiv.height = 40; // Condensed height, adjust as needed
+    chartDiv.height = 140; // Condensed height, adjust as needed
 
     if (lineChartInstance) {
       lineChartInstance.data.labels = labels;
       lineChartInstance.data.datasets = datasets;
       // Shrink y axis spacing and font size
       lineChartInstance.options.scales.y.ticks = {
-        padding: 2,
-        font: { size: 9 }
+        padding: 1,
+        font: { size: 12 }
       };
       lineChartInstance.options.maintainAspectRatio = false;
       lineChartInstance.update();
@@ -554,8 +554,8 @@ document.addEventListener('DOMContentLoaded', () => {
               title: { display: true, text: 'Concurrent Courses' },
               beginAtZero: true,
               ticks: {
-                padding: 2,
-                font: { size: 9 }
+                padding: 1,
+                font: { size: 12 }
               }
             }
           }
