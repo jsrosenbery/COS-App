@@ -37,8 +37,8 @@ function parseCSVFile(file, callback) {
             Start_Time: start24,
             End_Time: end24,
             CAMPUS: r['CAMPUS'] || r['Campus'] || r['campus'] || '',
-            Start_Date: r['Start_Date'] || r['START_DATE'] || r['Start'] || '',
-            End_Date: r['End_Date'] || r['END_DATE'] || r['End'] || ''
+            Start_Date: r['Start_Date'] || '',
+            End_Date: r['End_Date'] || ''
           };
         });
       callback(data);
