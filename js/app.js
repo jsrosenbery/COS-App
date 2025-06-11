@@ -62,7 +62,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const container    = document.getElementById('schedule-container');
 
   initHeatmap();
-  //initCampusChoices(); // now handled in initHeatmap with checkboxes
   initLineChartChoices();
 
   terms.forEach((term, i) => {
@@ -393,7 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
         Days: daysVal || [],
         Start_Time: r.Start_Time || '',
         End_Time: r.End_Time || '',
-        Campus: r.CAMPUS || ''
+        CAMPUS: r.CAMPUS || ''
       };
     }).filter(r => {
       let dayField = r.Days;
@@ -418,10 +417,9 @@ document.addEventListener('DOMContentLoaded', () => {
       lineCourseChoices.setChoices(items, 'value', 'label', true);
     }
     // --- Campus options ---
-    // Aggregate all CAMPUS values present in data
     const campuses = Array.from(new Set(
       dataArray
-        .map(r => (typeof r.CAMPUS === 'string' ? r.CAMPUS.trim() : ''))
+        .map(r => (r.CAMPUS || '').trim())
         .filter(c => c && c.toLowerCase() !== 'n/a' && c.toLowerCase() !== 'online')
     )).sort();
     const campusItems = campuses.map(c => ({ value: c, label: c }));
@@ -440,7 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedCampuses = campusChoices ? campusChoices.getValue(true) : [];
     const rows = hmRaw.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
-      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus || '')) return false;
+      if(selectedCampuses.length && !selectedCampuses.includes(r.CAMPUS || '')) return false;
       if(!r.Building || !r.Room) return false;
       const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
       if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
@@ -494,7 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedCampuses = lineCampusChoices ? lineCampusChoices.getValue(true) : [];
     const filtered = hmRaw.filter(r => {
       if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
-      const campusVal = r.Campus || '';
+      const campusVal = r.CAMPUS || '';
       if(selectedCampuses.length && !selectedCampuses.includes(campusVal)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
