@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const container    = document.getElementById('schedule-container');
 
   initHeatmap();
-  initCampusChoices();
+  //initCampusChoices(); // now handled in initHeatmap with checkboxes
   initLineChartChoices();
 
   terms.forEach((term, i) => {
@@ -283,7 +283,42 @@ document.addEventListener('DOMContentLoaded', () => {
     hmChoices = new Choices('#courseSelect', {
       removeItemButton: true,
       searchEnabled: true,
-      placeholderValue: 'Filter by discipline/course'
+      placeholderValue: 'Filter by discipline/course',
+      callbackOnCreateTemplates: function(template) {
+        return {
+          choice: (classNames, data) => {
+            return template(`
+              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
+                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
+                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+                role="option">
+                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
+                <span>${data.label}</span>
+              </div>
+            `);
+          }
+        }
+      }
+    });
+    campusChoices = new Choices('#campusSelect', {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholderValue: 'Filter by campus',
+      callbackOnCreateTemplates: function(template) {
+        return {
+          choice: (classNames, data) => {
+            return template(`
+              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
+                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
+                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+                role="option">
+                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
+                <span>${data.label}</span>
+              </div>
+            `);
+          }
+        }
+      }
     });
     hmTable = $('#dataTable').DataTable({
       data: [],
@@ -300,16 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
     hmTable.on('search.dt', updateHeatmap);
   }
 
-  function initCampusChoices() {
-    campusChoices = new Choices('#campusSelect', {
-      removeItemButton: true,
-      searchEnabled: true,
-      placeholderValue: 'Filter by campus'
-    });
-  }
-
   function initLineChartChoices() {
-    // Checkbox-style dropdown for courses
     lineCourseChoices = new Choices('#lineCourseSelect', {
       removeItemButton: true,
       searchEnabled: true,
@@ -333,7 +359,22 @@ document.addEventListener('DOMContentLoaded', () => {
     lineCampusChoices = new Choices('#lineCampusSelect', {
       removeItemButton: true,
       searchEnabled: true,
-      placeholderValue: 'Filter by campus'
+      placeholderValue: 'Filter by campus',
+      callbackOnCreateTemplates: function(template) {
+        return {
+          choice: (classNames, data) => {
+            return template(`
+              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
+                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
+                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+                role="option">
+                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
+                <span>${data.label}</span>
+              </div>
+            `);
+          }
+        }
+      }
     });
   }
 
@@ -373,17 +414,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hmChoices) {
       hmChoices.setChoices(items, 'value', 'label', true);
     }
+    if (lineCourseChoices) {
+      lineCourseChoices.setChoices(items, 'value', 'label', true);
+    }
+    // --- Campus options ---
+    // Aggregate all CAMPUS values present in data
     const campuses = Array.from(new Set(
       dataArray
         .map(r => (typeof r.CAMPUS === 'string' ? r.CAMPUS.trim() : ''))
-        .filter(Boolean)
+        .filter(c => c && c.toLowerCase() !== 'n/a' && c.toLowerCase() !== 'online')
     )).sort();
     const campusItems = campuses.map(c => ({ value: c, label: c }));
     if (campusChoices) {
       campusChoices.setChoices(campusItems, 'value', 'label', true);
-    }
-    if (lineCourseChoices) {
-      lineCourseChoices.setChoices(items, 'value', 'label', true);
     }
     if (lineCampusChoices) {
       lineCampusChoices.setChoices(campusItems, 'value', 'label', true);
