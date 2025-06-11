@@ -39,6 +39,32 @@ function getTimeRangeFromData(data) {
   return [min, max];
 }
 
+// NEW: Format date as MM/DD
+function formatDateRange(start, end) {
+  function getMMDD(dateStr) {
+    if (!dateStr) return '';
+    let m, d;
+    // Handle YYYY-MM-DD or YYYY/MM/DD
+    if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(dateStr)) {
+      [ , m, d ] = dateStr.match(/^\d{4}[-/](\d{1,2})[-/](\d{1,2})$/) || [];
+    }
+    // Handle MM/DD/YYYY or M/D/YYYY
+    else if (/^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}$/.test(dateStr)) {
+      [ , m, d ] = dateStr.match(/^(\d{1,2})[-/](\d{1,2})[-/]\d{2,4}$/) || [];
+    }
+    if (m && d) {
+      return `${m.padStart(2, '0')}/${d.padStart(2, '0')}`;
+    }
+    return dateStr; // fallback
+  }
+  const s = getMMDD(start);
+  const e = getMMDD(end);
+  if (s && e) return `${s} - ${e}`;
+  if (s) return s;
+  if (e) return e;
+  return '';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -229,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span>${ev.Subject_Course}</span><br>
           <span>${ev.CRN}</span><br>
           <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
-          <span style="font-size:0.9em; color:#555;">${ev.Start_Date} – ${ev.End_Date}</span>
+          <span style="font-size:0.9em; color:#555;">${formatDateRange(ev.Start_Date, ev.End_Date)}</span>
         `;
         container.appendChild(b);
       });
