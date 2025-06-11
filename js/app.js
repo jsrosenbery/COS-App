@@ -9,7 +9,37 @@ let lineCourseChoices, lineCampusChoices;
 let lineChartInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
+
+// Utility: Robust time parsing for AM/PM and 24-hr
+function parseHour(t) {
+  if (!t) return null;
+  t = t.trim();
+  let m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!m) return null;
+  let h = parseInt(m[1],10);
+  const min = parseInt(m[2],10);
+  const ampm = m[3] ? m[3].toUpperCase() : null;
+  if (ampm === "AM") {
+    if (h === 12) h = 0;
+  } else if (ampm === "PM") {
+    if (h !== 12) h += 12;
+  }
+  // If no AM/PM, trust as 24-hour
+  return h + min/60;
+}
+
+// Utility: Get dynamic hour range from data
+function getTimeRangeFromData(data) {
+  let min = 24, max = 0;
+  data.forEach(r => {
+    const s = parseHour(r.Start_Time);
+    const e = parseHour(r.End_Time);
+    if (typeof s === "number" && s < min) min = Math.floor(s);
+    if (typeof e === "number" && e > max) max = Math.ceil(e);
+  });
+  if (min >= max) { min = 6; max = 22; }
+  return [min, max];
+}
 
 // --- DOMContentLoaded Main ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -341,7 +371,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // Populate campus multi-select (use both Campus and CAMPUS)
     const campuses = Array.from(new Set(
-      hmRaw.map(r => r.Campus || r.CAMPUS).filter(Boolean)
+      hmRaw.map(r => (r.Campus || r.CAMPUS || '')).filter(Boolean)
     )).sort();
     const campusItems = campuses.map(c => ({ value: c, label: c }));
     if (campusChoices) {
@@ -374,25 +404,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateHeatmap() {
     const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
+    // dynamic range!
+    const [minHour, maxHour] = getTimeRangeFromData(filtered.map(row => ({
+      Start_Time: row[4]?.split('-')[0],
+      End_Time: row[4]?.split('-')[1]
+    })));
+    const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
+
     const counts = {};
-    hmDays.forEach(d => counts[d] = hmHours.map(() => 0));
+    hmDays.forEach(d => counts[d] = hours.map(() => 0));
     filtered.forEach(row => {
       const [ course, bld, room, daysStr, timeStr ] = row;
       const dayList = daysStr.split(',');
       const timeParts = timeStr.split('-');
-      const st = timeParts[0].trim();
-      const m = st.match(/(\d{2}):(\d{2})/);
+      const st = timeParts[0]?.trim();
+      const m = st?.match(/(\d{2}):(\d{2})/);
       if(!m) return;
       const hr = parseInt(m[1],10);
       dayList.forEach(d => {
-        const hIndex = hmHours.indexOf(hr);
+        const hIndex = hours.indexOf(hr);
         if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
       });
     });
     const maxC = Math.max(...Object.values(counts).flat());
     let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
     html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
-    hmHours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
+    hours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
     html+='</tr></thead><tbody>';
     hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
     html+='</tbody></table>';
@@ -414,29 +451,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return true;
     });
 
-    // Chart axes and occupancy buckets
+    // Chart axes and occupancy buckets with dynamic range
+    const [minHour, maxHour] = getTimeRangeFromData(filtered);
+    const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    const hours = Array.from({length:17}, (_,i)=>i+6); // 6–22
     let counts = {};
     daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
-
-    // Robust time parsing for AM/PM and 24-hr
-    function parseHour(t) {
-      if (!t) return null;
-      t = t.trim();
-      let m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-      if (!m) return null;
-      let h = parseInt(m[1],10);
-      const min = parseInt(m[2],10);
-      const ampm = m[3] ? m[3].toUpperCase() : null;
-      if (ampm === "AM") {
-        if (h === 12) h = 0;
-      } else if (ampm === "PM") {
-        if (h !== 12) h += 12;
-      }
-      // If no AM/PM, trust as 24-hour
-      return h + min/60;
-    }
 
     // Fill occupancy counts per hour per day
     filtered.forEach(rec => {
