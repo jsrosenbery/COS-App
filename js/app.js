@@ -28,7 +28,7 @@ function parseHour(t) {
   return h + min/60;
 }
 
-// Utility: Get dynamic hour range from data
+// Utility: Get dynamic hour range from data, but always extend to 22 (10pm)
 function getTimeRangeFromData(data) {
   let min = 24, max = 0;
   data.forEach(r => {
@@ -37,7 +37,10 @@ function getTimeRangeFromData(data) {
     if (typeof s === "number" && s < min) min = Math.floor(s);
     if (typeof e === "number" && e > max) max = Math.ceil(e);
   });
+  // Always end at or before 22 (10pm)
   if (min >= max) { min = 6; max = 22; }
+  if (max < 22) max = 22;
+  if (min > 6) min = 6;
   return [min, max];
 }
 
@@ -194,6 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // collect & sort events
       let evs = data
         .filter(i => i.Days.includes(day))
+        .filter(i => parseHour(i.Start_Time) !== parseHour(i.End_Time)) // Omit if start == end
         .map(i => ({
           ...i,
           startMin: parseTime(i.Start_Time),
@@ -366,8 +370,8 @@ document.addEventListener('DOMContentLoaded', () => {
         Days: daysVal || [],
         Start_Time: r.Start_Time || '',
         End_Time: r.End_Time || '',
-        // Robustly find campus field
-        Campus: r.Campus || r.CAMPUS || r.campus || r.camp || ''
+        // CAMPUS is the field for campus
+        Campus: r.CAMPUS || ''
       };
     })
     // Filter out entries where Days are X, XX, or X,X
@@ -378,6 +382,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const cleaned = dayField.replace(/\s/g, '');
       if (cleaned === 'X' || cleaned === 'XX') return false;
       if (/^(X,)+X$/.test(cleaned)) return false;
+      // Omit classes where start and end are the same
+      if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
     });
 
@@ -386,11 +392,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hmChoices) {
       hmChoices.setChoices(items, 'value', 'label', true);
     }
-    // Populate campus multi-select (case-insensitive, all possible campus field names)
+    // Populate campus multi-select (CAMPUS column only)
     const campuses = Array.from(new Set(
       dataArray
-        .map(r => r.Campus || r.CAMPUS || r.campus || r.camp || '')
-        .map(c => (typeof c === 'string' ? c.trim() : c))
+        .map(r => typeof r.CAMPUS === 'string' ? r.CAMPUS.trim() : '')
         .filter(Boolean)
     )).sort();
     const campusItems = campuses.map(c => ({ value: c, label: c }));
@@ -413,7 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedCampuses = campusChoices ? campusChoices.getValue(true) : [];
     const rows = hmRaw.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
-      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus || r.CAMPUS || r.campus || r.camp || '')) return false;
+      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus || '')) return false;
       if(!r.Building || !r.Room) return false;
       const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
       if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
@@ -424,7 +429,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateHeatmap() {
     const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
-    // dynamic range!
     const [minHour, maxHour] = getTimeRangeFromData(filtered.map(row => ({
       Start_Time: row[4]?.split('-')[0],
       End_Time: row[4]?.split('-')[1]
@@ -438,7 +442,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const dayList = daysStr.split(',');
       const timeParts = timeStr.split('-');
       const st = timeParts[0]?.trim();
-      const m = st?.match(/(\d{2}):(\d{2})/);
+      const en = timeParts[1]?.trim();
+      if (!st || !en) return;
+      // Omit if start == end
+      if (parseHour(st) === parseHour(en)) return;
+      const m = st.match(/(\d{2}):(\d{2})/);
       if(!m) return;
       const hr = parseInt(m[1],10);
       dayList.forEach(d => {
@@ -468,10 +476,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const campusVal = r.Campus || '';
       if(selectedCampuses.length && !selectedCampuses.includes(campusVal)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
+      // Omit if start == end
+      if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
     });
 
-    // Chart axes and occupancy buckets with dynamic range
+    // Chart axes and occupancy buckets with dynamic range, always to 10pm
     const [minHour, maxHour] = getTimeRangeFromData(filtered);
     const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -488,6 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const startHour = parseHour(rec.Start_Time);
       const endHour = parseHour(rec.End_Time);
       if (startHour == null || endHour == null) return;
+      if (startHour === endHour) return; // Omit if start == end
       recDays.forEach(day => {
         if (!day || !daysOfWeek.includes(day)) return;
         hours.forEach(h => {
@@ -515,15 +526,19 @@ document.addEventListener('DOMContentLoaded', () => {
       borderWidth: 2
     }));
 
-    // Draw or update the chart with reduced y-axis tick padding
+    // Draw or update the chart with condensed y-axis (fixed height)
+    const chartDiv = document.getElementById('lineChartCanvas');
+    chartDiv.height = 340; // Condensed height, adjust as needed
+
     if (lineChartInstance) {
       lineChartInstance.data.labels = labels;
       lineChartInstance.data.datasets = datasets;
-      // Shrink y axis spacing
+      // Shrink y axis spacing and font size
       lineChartInstance.options.scales.y.ticks = {
         padding: 2,
-        font: { size: 10 }
+        font: { size: 9 }
       };
+      lineChartInstance.options.maintainAspectRatio = false;
       lineChartInstance.update();
     } else {
       lineChartInstance = new Chart(ctx, {
@@ -531,6 +546,7 @@ document.addEventListener('DOMContentLoaded', () => {
         data: { labels, datasets },
         options: {
           responsive: true,
+          maintainAspectRatio: false,
           plugins: { legend: { position: 'bottom' } },
           scales: {
             x: { title: { display: true, text: 'Time of Day' } },
@@ -539,7 +555,7 @@ document.addEventListener('DOMContentLoaded', () => {
               beginAtZero: true,
               ticks: {
                 padding: 2,
-                font: { size: 10 }
+                font: { size: 9 }
               }
             }
           }
