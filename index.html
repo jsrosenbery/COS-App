@@ -10,13 +10,21 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/datatables.net-dt/css/jquery.dataTables.min.css"/>
   <style>
-    /* Style for Choices.js checkboxes in dropdown */
     .choices__item--selectable input[type="checkbox"] {
       margin-right: 6px;
     }
     .choices__item--selectable {
       display: flex;
       align-items: center;
+    }
+    #heatmapContainer {
+      min-height: 600px;
+    }
+    #chart-container {
+      width: 100%;
+      max-width: 800px;
+      height: 600px;
+      margin: auto;
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -76,14 +84,13 @@
     <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
   </div>
 
-  <!-- Line chart tool in a fixed-height box (twice as large: 600px) -->
   <div id="linechart-tool" style="display:none;">
     <h2>Course Duration Line Chart</h2>
     <div id="linechart-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
       <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
       <select id="lineCampusSelect" multiple placeholder="Filter by campus"></select>
     </div>
-    <div id="chart-container" style="width:100%; max-width:800px; height:600px; margin:auto;">
+    <div id="chart-container">
       <canvas id="lineChartCanvas" style="width:100%; height:100%;"></canvas>
     </div>
   </div>
