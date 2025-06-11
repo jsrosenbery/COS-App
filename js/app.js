@@ -466,7 +466,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- LINE CHART LOGIC: OCCUPANCY PER HOUR, PER DAY ---
   function renderLineChart() {
-    // DO NOT set chartDiv.height here! Only set it in HTML.
+    const chartDiv = document.getElementById('lineChartCanvas');
+
+    // Only destroy and reset height if the chart instance exists
+    if (lineChartInstance) {
+      lineChartInstance.destroy();
+      chartDiv.height = 100; // <- The only place height is set in JS!
+      lineChartInstance = null;
+    }
 
     // Get selected filters
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
@@ -512,7 +519,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Chart.js datasets: each day is a line, X is hour, Y is occupancy
-    const ctx = document.getElementById('lineChartCanvas').getContext('2d');
+    const ctx = chartDiv.getContext('2d');
     const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
     const colorList = [
       "#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2"
@@ -528,11 +535,9 @@ document.addEventListener('DOMContentLoaded', () => {
       borderWidth: 2
     }));
 
-    // Calculate a good y-axis max for your data
     let maxY = 0;
     datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
 
-    // Compute ideal tick settings
     let tickCount = Math.max(3, Math.min(6, maxY));
     let stepSize = 1;
     let yMax = 1;
@@ -548,60 +553,38 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // Chart.js with tooltips enabled for point values
-    if (lineChartInstance) {
-      lineChartInstance.data.labels = labels;
-      lineChartInstance.data.datasets = datasets;
-      lineChartInstance.options.scales.y.max = yMax;
-      lineChartInstance.options.scales.y.ticks = {
-        stepSize: stepSize,
-        maxTicksLimit: tickCount,
-        min: 0,
-        padding: 2,
-        font: { size: 10 }
-      };
-      lineChartInstance.options.maintainAspectRatio = false;
-      lineChartInstance.options.plugins.tooltip = {
-        enabled: true,
-        callbacks: {
-          label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
-        }
-      };
-      lineChartInstance.update();
-    } else {
-      lineChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: { labels, datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'bottom' },
-            tooltip: {
-              enabled: true,
-              callbacks: {
-                label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
-              }
+    lineChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            enabled: true,
+            callbacks: {
+              label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
             }
-          },
-          layout: { padding: 0 },
-          scales: {
-            x: { title: { display: true, text: 'Time of Day' }, ticks: { font: { size: 10 } } },
-            y: {
-              min: 0,
-              max: yMax,
-              title: { display: true, text: 'Concurrent Courses' },
-              beginAtZero: true,
-              ticks: {
-                stepSize: stepSize,
-                maxTicksLimit: tickCount,
-                padding: 2,
-                font: { size: 10 }
-              }
+          }
+        },
+        layout: { padding: 0 },
+        scales: {
+          x: { title: { display: true, text: 'Time of Day' }, ticks: { font: { size: 10 } } },
+          y: {
+            min: 0,
+            max: yMax,
+            title: { display: true, text: 'Concurrent Courses' },
+            beginAtZero: true,
+            ticks: {
+              stepSize: stepSize,
+              maxTicksLimit: tickCount,
+              padding: 2,
+              font: { size: 10 }
             }
           }
         }
-      });
-    }
+      }
+    });
   }
 });
