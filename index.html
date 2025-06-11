@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/datatables.net-dt/css/jquery.dataTables.min.css"/>
 
-  <!-- Add Chart.js for line chart -->
+  <!-- Chart.js for line chart -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -82,7 +82,8 @@
       <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
       <select id="lineCampusSelect" multiple placeholder="Filter by campus"></select>
     </div>
-    <canvas id="lineChartCanvas" height="200"></canvas>
+    <!-- Make sure height is set ONLY in HTML, not JS -->
+    <canvas id="lineChartCanvas" height="100" style="width:100%"></canvas>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
