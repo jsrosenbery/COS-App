@@ -1,10 +1,24 @@
+// COS-App js/app.js
+
+// ---- Global Heatmap & Chart Variables ----
+let hmRaw = [];
+let hmTable;
+let hmChoices;
+let campusChoices;
+let lineCourseChoices, lineCampusChoices;
+let lineChartInstance;
+
+const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
+
+// --- DOMContentLoaded Main ---
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
     'Summer 2026','Fall 2026','Spring 2027',
     'Summer 2027','Fall 2027','Spring 2028'
   ];
-  const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const daysOfWeek = [...hmDays];
   let currentData = [];
   let currentTerm = '';
 
@@ -21,16 +35,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
-  // Heatmap variables: Declare before any function that uses them!
-  const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const hmHours = Array.from({length:17}, (_, i) => i + 6); // 6–22
-  const hmDayMap = {'Sunday':'Sunday','Monday':'Monday','Tuesday':'Tuesday','Wednesday':'Wednesday','Thursday':'Thursday','Friday':'Friday','Saturday':'Saturday'};
-  let hmRaw = [];
-  let hmTable;
-  let hmChoices;
-
   // ---- Heatmap initialization FIRST ----
   initHeatmap();
+  initCampusChoices();
+  initLineChartChoices();
 
   // Build semester tabs
   terms.forEach((term, i) => {
@@ -46,14 +54,31 @@ document.addEventListener('DOMContentLoaded', () => {
   // Wire availability buttons
   checkBtn.onclick = handleAvailability;
   clearBtn.onclick = () => {
-    // clear selections
     document.querySelectorAll('#availability-ui .days input').forEach(cb => cb.checked = false);
     startInput.value = '';
     endInput.value   = '';
     resultsDiv.textContent = '';
   };
 
-  // ───── Scheduler Functions ─────────────────────────
+  // ---- View Switching (heatmap/calendar/linechart) ----
+  document.getElementById('viewSelect').addEventListener('change', function(){
+    document.getElementById('heatmap-tool').style.display = (this.value === 'heatmap') ? 'block' : 'none';
+    document.getElementById('schedule-container').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('availability-ui').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('room-filter').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('upload-container').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('upload-timestamp').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('linechart-tool').style.display = (this.value === 'linechart') ? 'block' : 'none';
+    if (this.value === 'linechart') {
+      renderLineChart();
+    }
+  });
+
+  // ---- Line Chart Filter Events ----
+  document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
+  document.getElementById('lineCampusSelect').addEventListener('change', renderLineChart);
+
+  // --- Helpers and App Logic Below ---
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
@@ -127,7 +152,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ----- DEDUPLICATION LOGIC ADDED HERE -----
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
@@ -242,7 +266,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ───── Helpers ────────────────────────────────────
   function parseTime(t) {
     const [h,m] = t.split(':').map(Number);
     return h*60 + m;
@@ -255,7 +278,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ───── Heatmap & Table Logic ─────
-
   function initHeatmap() {
     hmChoices = new Choices('#courseSelect', {
       removeItemButton: true,
@@ -277,6 +299,27 @@ document.addEventListener('DOMContentLoaded', () => {
     hmTable.on('search.dt', updateHeatmap);
   }
 
+  function initCampusChoices() {
+    campusChoices = new Choices('#campusSelect', {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholderValue: 'Filter by campus',
+    });
+  }
+
+  function initLineChartChoices() {
+    lineCourseChoices = new Choices('#lineCourseSelect', {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholderValue: 'Filter by discipline/course',
+    });
+    lineCampusChoices = new Choices('#lineCampusSelect', {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholderValue: 'Filter by campus',
+    });
+  }
+
   function feedHeatmapTool(dataArray) {
     hmRaw = dataArray.map(r => {
       const parts = (r.Subject_Course || '').trim().split(/\s+/);
@@ -287,7 +330,8 @@ document.addEventListener('DOMContentLoaded', () => {
         Room: r.Room || '',
         Days: r.Days || [],
         Start_Time: r.Start_Time || '',
-        End_Time: r.End_Time || ''
+        End_Time: r.End_Time || '',
+        Campus: r.Campus || '',
       };
     });
     const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
@@ -295,13 +339,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hmChoices) {
       hmChoices.setChoices(items, 'value', 'label', true);
     }
+    // Populate campus multi-select
+    const campuses = Array.from(new Set(hmRaw.map(r => r.Campus).filter(Boolean))).sort();
+    const campusItems = campuses.map(c => ({ value: c, label: c }));
+    if (campusChoices) {
+      campusChoices.setChoices(campusItems, 'value', 'label', true);
+    }
+    // Also initialize line chart choices
+    if (lineCourseChoices) {
+      lineCourseChoices.setChoices(items, 'value', 'label', true);
+    }
+    if (lineCampusChoices) {
+      lineCampusChoices.setChoices(campusItems, 'value', 'label', true);
+    }
     updateAllHeatmap();
+    renderLineChart(); // New: render line chart on data feed
   }
 
   function updateAllHeatmap() {
     const selected = hmChoices.getValue(true);
+    const selectedCampuses = campusChoices ? campusChoices.getValue(true) : [];
     const rows = hmRaw.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
+      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus)) return false;
       if(!r.Building || !r.Room) return false;
       const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
       if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
@@ -337,25 +397,102 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('heatmapContainer').innerHTML = html;
   }
 
-  // --- Heatmap view select logic
-  document.getElementById('viewSelect').addEventListener('change', function(){
-    if(this.value==='heatmap'){
-      document.getElementById('schedule-container').style.display='none';
-      document.getElementById('availability-ui').style.display='none';
-      document.getElementById('room-filter').style.display='none';
-      document.getElementById('upload-container').style.display='none';
-      document.getElementById('upload-timestamp').style.display='none';
-      document.getElementById('heatmap-tool').style.display='block';
-    } else {
-      document.getElementById('heatmap-tool').style.display='none';
-      document.getElementById('schedule-container').style.display='';
-      document.getElementById('availability-ui').style.display='';
-      document.getElementById('room-filter').style.display='';
-      document.getElementById('upload-container').style.display='';
-      document.getElementById('upload-timestamp').style.display='';
-    }
-  });
+  // --- LINE CHART LOGIC ---
+  function renderLineChart() {
+    // Get selected filters
+    const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
+    const selectedCampuses = lineCampusChoices ? lineCampusChoices.getValue(true) : [];
 
-  // Feed heatmap whenever schedule loads
-  // After renderSchedule or data loading, call feedHeatmapTool(currentData)
+    // Filter data
+    const filtered = hmRaw.filter(r => {
+      if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
+      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus)) return false;
+      if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
+      return true;
+    });
+
+    // Prepare datasets: plot each course instance as a horizontal "line" for its duration on each day
+    const datasets = [];
+    const colorMap = {};
+    let colorIdx = 0;
+    const getColor = (key) => {
+      if (!colorMap[key]) {
+        // Generate unique pastel color
+        colorMap[key] = `hsl(${(colorIdx*41)%360},70%,60%)`;
+        colorIdx++;
+      }
+      return colorMap[key];
+    };
+
+    hmDays.forEach((day, i) => {
+      filtered.forEach(rec => {
+        if (rec.Days.includes(day)) {
+          const startParts = rec.Start_Time.split(':').map(Number);
+          const endParts = rec.End_Time.split(':').map(Number);
+          // Chart.js expects times as floats, e.g., 9.5 for 9:30
+          const startFloat = startParts[0]+(startParts[1]/60);
+          const endFloat = endParts[0]+(endParts[1]/60);
+
+          datasets.push({
+            label: `${rec.key} — ${rec.Campus} (${day})`,
+            data: [
+              { x: startFloat, y: day },
+              { x: endFloat, y: day }
+            ],
+            borderColor: getColor(rec.key + rec.Campus),
+            backgroundColor: getColor(rec.key + rec.Campus),
+            fill: false,
+            showLine: true,
+            pointRadius: 0,
+            borderWidth: 6,
+          });
+        }
+      });
+    });
+
+    // Draw chart
+    const ctx = document.getElementById('lineChartCanvas').getContext('2d');
+    // Destroy previous chart if any
+    if (lineChartInstance) {
+      lineChartInstance.destroy();
+    }
+    lineChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: {
+            type: 'linear',
+            min: 6,
+            max: 22,
+            title: { display: true, text: 'Hour of Day' },
+            ticks: {
+              callback: function(val) {
+                // Format as 12hr time
+                const h = Math.floor(val);
+                const m = Math.round((val-Math.floor(val))*60);
+                const ap = h < 12 ? 'AM':'PM';
+                const hr = ((h+11)%12)+1;
+                return (m ? `${hr}:${('0'+m).slice(-2)}` : `${hr}`) + ap;
+              },
+              stepSize: 1
+            }
+          },
+          y: {
+            type: 'category',
+            labels: hmDays,
+            title: { display: true, text: 'Day' }
+          }
+        },
+        elements: {
+          line: { borderCapStyle: 'round' }
+        },
+        interaction: { mode: 'nearest', axis: 'xy', intersect: false },
+        animation: false,
+        maintainAspectRatio: false,
+      }
+    });
+  }
 });
