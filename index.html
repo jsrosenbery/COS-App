@@ -9,10 +9,11 @@
   <link rel="icon" href="images/favicon.png" type="image/png">
 
   <link rel="stylesheet" href="css/style.css">
-
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/datatables.net-dt/css/jquery.dataTables.min.css"/>
 
+  <!-- Add Chart.js for line chart -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <header>
@@ -27,9 +28,9 @@
     <select id="viewSelect">
       <option value="calendar">Calendar</option>
       <option value="heatmap">Heatmap</option>
+      <option value="linechart">Line Chart (Course Durations)</option>
     </select>
   </div>
-
 
   <div id="upload-container"></div>
   <div id="upload-timestamp" class="upload-timestamp"></div>
@@ -62,25 +63,32 @@
     <table id="schedule-table"></table>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-  
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
-
-  <script src="js/parser.js"></script>
-  <script src="js/app.js"></script>
-
-  <!-- Heatmap UI (hidden by default) -->
   <div id="heatmap-tool" style="display:none;">
     <h2>Course Offerings Heatmap & Table</h2>
     <div id="controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
       <select id="courseSelect" multiple placeholder="Filter by discipline/course"></select>
+      <select id="campusSelect" multiple placeholder="Filter by campus"></select>
       <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
     </div>
     <div id="heatmapContainer"></div>
     <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
   </div>
 
+  <!-- Line chart tool (hidden by default, shown when selected) -->
+  <div id="linechart-tool" style="display:none;">
+    <h2>Course Duration Line Chart</h2>
+    <div id="linechart-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
+      <select id="lineCampusSelect" multiple placeholder="Filter by campus"></select>
+    </div>
+    <canvas id="lineChartCanvas" height="400"></canvas>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
