@@ -397,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('heatmapContainer').innerHTML = html;
   }
 
-  // --- LINE CHART LOGIC ---
+  // --- LINE CHART LOGIC: OCCUPANCY PER HOUR, PER DAY ---
   function renderLineChart() {
     // Get selected filters
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
@@ -411,88 +411,81 @@ document.addEventListener('DOMContentLoaded', () => {
       return true;
     });
 
-    // Prepare datasets: plot each course instance as a horizontal "line" for its duration on each day
-    const datasets = [];
-    const colorMap = {};
-    let colorIdx = 0;
-    const getColor = (key) => {
-      if (!colorMap[key]) {
-        // Generate unique pastel color
-        colorMap[key] = `hsl(${(colorIdx*41)%360},70%,60%)`;
-        colorIdx++;
+    // Chart axes and occupancy buckets
+    const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const hours = Array.from({length:17}, (_,i)=>i+6); // 6–22
+    let counts = {};
+    daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
+
+    // Fill occupancy counts per hour per day
+    filtered.forEach(rec => {
+      // Accept both array and string days
+      let recDays = Array.isArray(rec.Days) ? rec.Days : (typeof rec.Days === "string" ? rec.Days.split(',') : []);
+      // Also allow abbreviation string (e.g. "MWF")
+      if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !daysOfWeek.includes(recDays[0])) {
+        // Probably "MWF" style
+        const abbrevDayMap = { 'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday' };
+        recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
       }
-      return colorMap[key];
-    };
-
-    hmDays.forEach((day, i) => {
-      filtered.forEach(rec => {
-        if (rec.Days.includes(day)) {
-          const startParts = rec.Start_Time.split(':').map(Number);
-          const endParts = rec.End_Time.split(':').map(Number);
-          // Chart.js expects times as floats, e.g., 9.5 for 9:30
-          const startFloat = startParts[0]+(startParts[1]/60);
-          const endFloat = endParts[0]+(endParts[1]/60);
-
-          datasets.push({
-            label: `${rec.key} — ${rec.Campus} (${day})`,
-            data: [
-              { x: startFloat, y: day },
-              { x: endFloat, y: day }
-            ],
-            borderColor: getColor(rec.key + rec.Campus),
-            backgroundColor: getColor(rec.key + rec.Campus),
-            fill: false,
-            showLine: true,
-            pointRadius: 0,
-            borderWidth: 6,
-          });
-        }
+      // Parse start/end hours
+      const parseHour = t => {
+        if (!t) return null;
+        let m = t.trim().match(/(\d+):(\d+)\s*(AM|PM)?/i);
+        if (!m) return null;
+        let hour = parseInt(m[1],10) % 12;
+        const min = parseInt(m[2],10);
+        if (m[3] && m[3].toUpperCase() === 'PM') hour += 12;
+        if (m[3] && m[3].toUpperCase() === 'AM' && hour === 12) hour = 0;
+        return hour + min/60;
+      };
+      const startHour = parseHour(rec.Start_Time);
+      const endHour = parseHour(rec.End_Time);
+      if (startHour == null || endHour == null) return;
+      recDays.forEach(day => {
+        if (!day || !daysOfWeek.includes(day)) return;
+        hours.forEach(h => {
+          if (h >= Math.floor(startHour) && h < endHour) {
+            counts[day+'-'+h] += 1;
+          }
+        });
       });
     });
 
-    // Draw chart
+    // Chart.js datasets: each day is a line, X is hour, Y is occupancy
     const ctx = document.getElementById('lineChartCanvas').getContext('2d');
-    // Destroy previous chart if any
+    const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
+    const colorList = [
+      "#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2"
+    ];
+    const datasets = daysOfWeek.map((day, idx) => ({
+      label: day,
+      data: hours.map(h => counts[day+'-'+h]),
+      fill: false,
+      borderColor: colorList[idx % colorList.length],
+      backgroundColor: colorList[idx % colorList.length],
+      tension: 0.3,
+      pointRadius: 0,
+      borderWidth: 2
+    }));
+
+    // Draw or update the chart
     if (lineChartInstance) {
-      lineChartInstance.destroy();
-    }
-    lineChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: { datasets },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: {
-            type: 'linear',
-            min: 6,
-            max: 22,
-            title: { display: true, text: 'Hour of Day' },
-            ticks: {
-              callback: function(val) {
-                // Format as 12hr time
-                const h = Math.floor(val);
-                const m = Math.round((val-Math.floor(val))*60);
-                const ap = h < 12 ? 'AM':'PM';
-                const hr = ((h+11)%12)+1;
-                return (m ? `${hr}:${('0'+m).slice(-2)}` : `${hr}`) + ap;
-              },
-              stepSize: 1
-            }
-          },
-          y: {
-            type: 'category',
-            labels: hmDays,
-            title: { display: true, text: 'Day' }
+      lineChartInstance.data.labels = labels;
+      lineChartInstance.data.datasets = datasets;
+      lineChartInstance.update();
+    } else {
+      lineChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } },
+          scales: {
+            x: { title: { display: true, text: 'Time of Day' } },
+            y: { title: { display: true, text: 'Concurrent Courses' }, beginAtZero: true }
           }
-        },
-        elements: {
-          line: { borderCapStyle: 'round' }
-        },
-        interaction: { mode: 'nearest', axis: 'xy', intersect: false },
-        animation: false,
-        maintainAspectRatio: false,
-      }
-    });
+        }
+      });
+    }
   }
 });
