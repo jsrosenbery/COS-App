@@ -147,7 +147,6 @@ document.addEventListener('DOMContentLoaded', () => {
         buildRoomDropdown();
         renderSchedule();
         feedHeatmapTool(currentData);
-        // Save per-term
         localStorage.setItem(
           'cos_schedule_' + currentTerm,
           JSON.stringify({ data: currentData, timestamp: tsDiv.textContent })
@@ -171,11 +170,9 @@ document.addEventListener('DOMContentLoaded', () => {
   function clearSchedule() {
     table.innerHTML = '';
     container.querySelectorAll('.class-block').forEach(e => e.remove());
-    // Header row
     const header = table.insertRow();
     header.insertCell().outerHTML = '<th>Time</th>';
     daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
-    // Time slots
     for (let t = 360; t <= 22*60; t += 30) {
       const row = table.insertRow();
       const hh = Math.floor(t/60), mm = t%60;
@@ -194,10 +191,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const rect = container.getBoundingClientRect();
 
     daysOfWeek.forEach((day, dIdx) => {
-      // collect & sort events
       let evs = data
         .filter(i => i.Days.includes(day))
-        .filter(i => parseHour(i.Start_Time) !== parseHour(i.End_Time)) // Omit if start == end
+        .filter(i => parseHour(i.Start_Time) !== parseHour(i.End_Time))
         .map(i => ({
           ...i,
           startMin: parseTime(i.Start_Time),
@@ -205,7 +201,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }))
         .sort((a,b) => a.startMin - b.startMin);
 
-      // Deduplicate by: CRN, Start_Time, End_Time, Days (as string), Building, Room
       const seen = new Set();
       evs = evs.filter(ev => {
         const key = [
@@ -221,7 +216,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
       });
 
-      // overlap columns
       const cols = [];
       evs.forEach(ev => {
         let placed = false;
@@ -236,12 +230,10 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const colCount = cols.length || 1;
 
-      // render
       cols.flat().forEach(ev => {
         const offset = ev.startMin - 360;
         const rowIndex = Math.floor(offset/30) + 1;
         const rem = offset % 30;
-        // guard out-of-bounds
         if (rowIndex < 1 || rowIndex >= table.rows.length) return;
 
         const cell = table.rows[rowIndex].cells[dIdx+1];
@@ -266,7 +258,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ───── Availability Handler ───────────────────────
   function handleAvailability() {
     resultsDiv.textContent = '';
     const days = Array.from(
@@ -311,7 +302,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
 
-  // ───── Heatmap & Table Logic ─────
   function initHeatmap() {
     hmChoices = new Choices('#courseSelect', {
       removeItemButton: true,
@@ -358,7 +348,6 @@ document.addEventListener('DOMContentLoaded', () => {
     hmRaw = dataArray.map(r => {
       const parts = (r.Subject_Course || '').trim().split(/\s+/);
       const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
-      // Normalize Days to array if needed
       let daysVal = r.Days;
       if (typeof daysVal === 'string') {
         daysVal = daysVal.split(',').map(s => s.trim());
@@ -370,11 +359,9 @@ document.addEventListener('DOMContentLoaded', () => {
         Days: daysVal || [],
         Start_Time: r.Start_Time || '',
         End_Time: r.End_Time || '',
-        // CAMPUS is the field for campus
         Campus: r.CAMPUS || ''
       };
     })
-    // Filter out entries where Days are X, XX, or X,X
     .filter(r => {
       let dayField = r.Days;
       if (Array.isArray(dayField)) dayField = dayField.join(',');
@@ -382,7 +369,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const cleaned = dayField.replace(/\s/g, '');
       if (cleaned === 'X' || cleaned === 'XX') return false;
       if (/^(X,)+X$/.test(cleaned)) return false;
-      // Omit classes where start and end are the same
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
     });
@@ -392,7 +378,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hmChoices) {
       hmChoices.setChoices(items, 'value', 'label', true);
     }
-    // Populate campus multi-select (CAMPUS column only)
     const campuses = Array.from(new Set(
       dataArray
         .map(r => typeof r.CAMPUS === 'string' ? r.CAMPUS.trim() : '')
@@ -402,7 +387,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (campusChoices) {
       campusChoices.setChoices(campusItems, 'value', 'label', true);
     }
-    // Also initialize line chart choices
     if (lineCourseChoices) {
       lineCourseChoices.setChoices(items, 'value', 'label', true);
     }
@@ -444,7 +428,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const st = timeParts[0]?.trim();
       const en = timeParts[1]?.trim();
       if (!st || !en) return;
-      // Omit if start == end
       if (parseHour(st) === parseHour(en)) return;
       const m = st.match(/(\d{2}):(\d{2})/);
       if(!m) return;
@@ -464,40 +447,31 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('heatmapContainer').innerHTML = html;
   }
 
-  // --- LINE CHART LOGIC: OCCUPANCY PER HOUR, PER DAY ---
   function renderLineChart() {
     const chartDiv = document.getElementById('lineChartCanvas');
-
-    // Only destroy and reset height if the chart instance exists
     if (lineChartInstance) {
       lineChartInstance.destroy();
-      chartDiv.height = 100; // <- The only place height is set in JS!
       lineChartInstance = null;
     }
 
-    // Get selected filters
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
     const selectedCampuses = lineCampusChoices ? lineCampusChoices.getValue(true) : [];
 
-    // Filter data
     const filtered = hmRaw.filter(r => {
       if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
       const campusVal = r.Campus || '';
       if(selectedCampuses.length && !selectedCampuses.includes(campusVal)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
-      // Omit if start == end
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
     });
 
-    // Chart axes and occupancy buckets with dynamic range, always to 10pm
     const [minHour, maxHour] = getTimeRangeFromData(filtered);
     const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     let counts = {};
     daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
 
-    // Fill occupancy counts per hour per day
     filtered.forEach(rec => {
       let recDays = Array.isArray(rec.Days) ? rec.Days : (typeof rec.Days === "string" ? rec.Days.split(',') : []);
       if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !daysOfWeek.includes(recDays[0])) {
@@ -507,7 +481,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const startHour = parseHour(rec.Start_Time);
       const endHour = parseHour(rec.End_Time);
       if (startHour == null || endHour == null) return;
-      if (startHour === endHour) return; // Omit if start == end
+      if (startHour === endHour) return;
       recDays.forEach(day => {
         if (!day || !daysOfWeek.includes(day)) return;
         hours.forEach(h => {
@@ -518,7 +492,6 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
-    // Chart.js datasets: each day is a line, X is hour, Y is occupancy
     const ctx = chartDiv.getContext('2d');
     const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
     const colorList = [
