@@ -1,6 +1,5 @@
 // COS-App js/app.js
 
-// ---- Global Heatmap & Chart Variables ----
 let hmRaw = [];
 let hmTable;
 let hmChoices;
@@ -10,7 +9,6 @@ let lineChartInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
-// Utility: Robust time parsing for AM/PM and 24-hr
 function parseHour(t) {
   if (!t) return null;
   t = t.trim();
@@ -24,11 +22,9 @@ function parseHour(t) {
   } else if (ampm === "PM") {
     if (h !== 12) h += 12;
   }
-  // If no AM/PM, trust as 24-hour
   return h + min/60;
 }
 
-// Utility: Get dynamic hour range from data, but always extend to 22 (10pm)
 function getTimeRangeFromData(data) {
   let min = 24, max = 0;
   data.forEach(r => {
@@ -37,14 +33,12 @@ function getTimeRangeFromData(data) {
     if (typeof s === "number" && s < min) min = Math.floor(s);
     if (typeof e === "number" && e > max) max = Math.ceil(e);
   });
-  // Always end at or before 22 (10pm)
   if (min >= max) { min = 6; max = 22; }
   if (max < 22) max = 22;
   if (min > 6) min = 6;
   return [min, max];
 }
 
-// --- DOMContentLoaded Main ---
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -55,7 +49,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentData = [];
   let currentTerm = '';
 
-  // Cache DOM refs
   const tabs         = document.getElementById('term-tabs');
   const uploadDiv    = document.getElementById('upload-container');
   const tsDiv        = document.getElementById('upload-timestamp');
@@ -68,12 +61,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
-  // ---- Heatmap initialization FIRST ----
   initHeatmap();
   initCampusChoices();
   initLineChartChoices();
 
-  // Build semester tabs
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
     tab.className = 'tab' + (i === 2 ? ' active' : '');
@@ -81,10 +72,8 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.onclick = () => selectTerm(term, tab);
     tabs.appendChild(tab);
   });
-  // Default select
   selectTerm(terms[2], tabs.children[2]);
 
-  // Wire availability buttons
   checkBtn.onclick = handleAvailability;
   clearBtn.onclick = () => {
     document.querySelectorAll('#availability-ui .days input').forEach(cb => cb.checked = false);
@@ -93,7 +82,6 @@ document.addEventListener('DOMContentLoaded', () => {
     resultsDiv.textContent = '';
   };
 
-  // ---- View Switching (heatmap/calendar/linechart) ----
   document.getElementById('viewSelect').addEventListener('change', function(){
     document.getElementById('heatmap-tool').style.display = (this.value === 'heatmap') ? 'block' : 'none';
     document.getElementById('schedule-container').style.display = (this.value === 'calendar') ? '' : 'none';
@@ -107,20 +95,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ---- Line Chart Filter Events ----
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
   document.getElementById('lineCampusSelect').addEventListener('change', renderLineChart);
-
-  // --- Helpers and App Logic Below ---
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
-
     clearSchedule();
     setupUpload();
-
     const key = 'cos_schedule_' + term;
     const saved = localStorage.getItem(key);
     if (saved) {
@@ -189,7 +172,6 @@ document.addEventListener('DOMContentLoaded', () => {
       ? currentData
       : currentData.filter(i => `${i.Building}-${i.Room}` === filt);
     const rect = container.getBoundingClientRect();
-
     daysOfWeek.forEach((day, dIdx) => {
       let evs = data
         .filter(i => i.Days.includes(day))
@@ -200,7 +182,6 @@ document.addEventListener('DOMContentLoaded', () => {
           endMin:   parseTime(i.End_Time)
         }))
         .sort((a,b) => a.startMin - b.startMin);
-
       const seen = new Set();
       evs = evs.filter(ev => {
         const key = [
@@ -215,7 +196,6 @@ document.addEventListener('DOMContentLoaded', () => {
         seen.add(key);
         return true;
       });
-
       const cols = [];
       evs.forEach(ev => {
         let placed = false;
@@ -229,20 +209,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
       const colCount = cols.length || 1;
-
       cols.flat().forEach(ev => {
         const offset = ev.startMin - 360;
         const rowIndex = Math.floor(offset/30) + 1;
         const rem = offset % 30;
         if (rowIndex < 1 || rowIndex >= table.rows.length) return;
-
         const cell = table.rows[rowIndex].cells[dIdx+1];
         const cr   = cell.getBoundingClientRect();
         const topPx    = cr.top - rect.top + (rem/30)*cr.height;
         const leftPx   = cr.left - rect.left + ev.col*(cr.width/colCount);
         const widthPx  = cr.width/colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
-
         const b = document.createElement('div');
         b.className = 'class-block';
         b.style.top    = `${topPx}px`;
@@ -306,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
     hmChoices = new Choices('#courseSelect', {
       removeItemButton: true,
       searchEnabled: true,
-      placeholderValue: 'Filter by discipline/course',
+      placeholderValue: 'Filter by discipline/course'
     });
     hmTable = $('#dataTable').DataTable({
       data: [],
@@ -327,20 +304,36 @@ document.addEventListener('DOMContentLoaded', () => {
     campusChoices = new Choices('#campusSelect', {
       removeItemButton: true,
       searchEnabled: true,
-      placeholderValue: 'Filter by campus',
+      placeholderValue: 'Filter by campus'
     });
   }
 
   function initLineChartChoices() {
+    // Checkbox-style dropdown for courses
     lineCourseChoices = new Choices('#lineCourseSelect', {
       removeItemButton: true,
       searchEnabled: true,
       placeholderValue: 'Filter by discipline/course',
+      callbackOnCreateTemplates: function(template) {
+        return {
+          choice: (classNames, data) => {
+            return template(`
+              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
+                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
+                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+                role="option">
+                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
+                <span>${data.label}</span>
+              </div>
+            `);
+          }
+        }
+      }
     });
     lineCampusChoices = new Choices('#lineCampusSelect', {
       removeItemButton: true,
       searchEnabled: true,
-      placeholderValue: 'Filter by campus',
+      placeholderValue: 'Filter by campus'
     });
   }
 
@@ -361,8 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
         End_Time: r.End_Time || '',
         Campus: r.CAMPUS || ''
       };
-    })
-    .filter(r => {
+    }).filter(r => {
       let dayField = r.Days;
       if (Array.isArray(dayField)) dayField = dayField.join(',');
       if (typeof dayField !== 'string') dayField = '';
@@ -374,13 +366,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
-    const items = uniqueKeys.map(k => ({ value: k, label: k }));
+    const items = uniqueKeys.map(k => ({
+      value: k,
+      label: k
+    }));
     if (hmChoices) {
       hmChoices.setChoices(items, 'value', 'label', true);
     }
     const campuses = Array.from(new Set(
       dataArray
-        .map(r => typeof r.CAMPUS === 'string' ? r.CAMPUS.trim() : '')
+        .map(r => (typeof r.CAMPUS === 'string' ? r.CAMPUS.trim() : ''))
         .filter(Boolean)
     )).sort();
     const campusItems = campuses.map(c => ({ value: c, label: c }));
@@ -418,7 +413,6 @@ document.addEventListener('DOMContentLoaded', () => {
       End_Time: row[4]?.split('-')[1]
     })));
     const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
-
     const counts = {};
     hmDays.forEach(d => counts[d] = hours.map(() => 0));
     filtered.forEach(row => {
@@ -453,10 +447,8 @@ document.addEventListener('DOMContentLoaded', () => {
       lineChartInstance.destroy();
       lineChartInstance = null;
     }
-
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
     const selectedCampuses = lineCampusChoices ? lineCampusChoices.getValue(true) : [];
-
     const filtered = hmRaw.filter(r => {
       if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
       const campusVal = r.Campus || '';
@@ -465,13 +457,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
     });
-
     const [minHour, maxHour] = getTimeRangeFromData(filtered);
     const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     let counts = {};
     daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
-
     filtered.forEach(rec => {
       let recDays = Array.isArray(rec.Days) ? rec.Days : (typeof rec.Days === "string" ? rec.Days.split(',') : []);
       if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !daysOfWeek.includes(recDays[0])) {
@@ -491,7 +481,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       });
     });
-
     const ctx = chartDiv.getContext('2d');
     const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
     const colorList = [
@@ -507,10 +496,8 @@ document.addEventListener('DOMContentLoaded', () => {
       pointRadius: 2,
       borderWidth: 2
     }));
-
     let maxY = 0;
     datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
-
     let tickCount = Math.max(3, Math.min(6, maxY));
     let stepSize = 1;
     let yMax = 1;
@@ -525,7 +512,6 @@ document.addEventListener('DOMContentLoaded', () => {
         yMax += stepSize;
       }
     }
-
     lineChartInstance = new Chart(ctx, {
       type: 'line',
       data: { labels, datasets },
