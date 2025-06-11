@@ -528,7 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Draw or update the chart with condensed y-axis (fixed height)
     const chartDiv = document.getElementById('lineChartCanvas');
-    chartDiv.height = 140; // Condensed height, adjust as needed
+    chartDiv.height = 40; // Condensed height, adjust as needed
 
     if (lineChartInstance) {
       lineChartInstance.data.labels = labels;
