@@ -467,10 +467,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- LINE CHART LOGIC: OCCUPANCY PER HOUR, PER DAY ---
   function renderLineChart() {
     const chartDiv = document.getElementById('lineChartCanvas');
-    // Only set the height once (to prevent exponential growth bug)
+    // Only set the height ONCE, before Chart.js draws for the first time
     if (!lineChartInstance && chartDiv.height !== 100) {
       chartDiv.height = 100;
     }
+    // On update, do NOT set chartDiv.height
 
     // Get selected filters
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
