@@ -354,24 +354,44 @@ document.addEventListener('DOMContentLoaded', () => {
     hmRaw = dataArray.map(r => {
       const parts = (r.Subject_Course || '').trim().split(/\s+/);
       const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
+      // Normalize Days to array if needed
+      let daysVal = r.Days;
+      if (typeof daysVal === 'string') {
+        daysVal = daysVal.split(',').map(s => s.trim());
+      }
       return {
         key,
         Building: r.Building || '',
         Room: r.Room || '',
-        Days: r.Days || [],
+        Days: daysVal || [],
         Start_Time: r.Start_Time || '',
         End_Time: r.End_Time || '',
-        Campus: r.Campus || r.CAMPUS || '',
+        // Robustly find campus field
+        Campus: r.Campus || r.CAMPUS || r.campus || r.camp || ''
       };
+    })
+    // Filter out entries where Days are X, XX, or X,X
+    .filter(r => {
+      let dayField = r.Days;
+      if (Array.isArray(dayField)) dayField = dayField.join(',');
+      if (typeof dayField !== 'string') dayField = '';
+      const cleaned = dayField.replace(/\s/g, '');
+      if (cleaned === 'X' || cleaned === 'XX') return false;
+      if (/^(X,)+X$/.test(cleaned)) return false;
+      return true;
     });
+
     const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
     const items = uniqueKeys.map(k => ({ value: k, label: k }));
     if (hmChoices) {
       hmChoices.setChoices(items, 'value', 'label', true);
     }
-    // Populate campus multi-select (use both Campus and CAMPUS)
+    // Populate campus multi-select (case-insensitive, all possible campus field names)
     const campuses = Array.from(new Set(
-      hmRaw.map(r => (r.Campus || r.CAMPUS || '')).filter(Boolean)
+      dataArray
+        .map(r => r.Campus || r.CAMPUS || r.campus || r.camp || '')
+        .map(c => (typeof c === 'string' ? c.trim() : c))
+        .filter(Boolean)
     )).sort();
     const campusItems = campuses.map(c => ({ value: c, label: c }));
     if (campusChoices) {
@@ -385,7 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
       lineCampusChoices.setChoices(campusItems, 'value', 'label', true);
     }
     updateAllHeatmap();
-    renderLineChart(); // New: render line chart on data feed
+    renderLineChart();
   }
 
   function updateAllHeatmap() {
@@ -393,7 +413,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedCampuses = campusChoices ? campusChoices.getValue(true) : [];
     const rows = hmRaw.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
-      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus || r.CAMPUS)) return false;
+      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus || r.CAMPUS || r.campus || r.camp || '')) return false;
       if(!r.Building || !r.Room) return false;
       const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
       if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
@@ -445,7 +465,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Filter data
     const filtered = hmRaw.filter(r => {
       if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
-      const campusVal = r.Campus || r.CAMPUS;
+      const campusVal = r.Campus || '';
       if(selectedCampuses.length && !selectedCampuses.includes(campusVal)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       return true;
@@ -495,10 +515,15 @@ document.addEventListener('DOMContentLoaded', () => {
       borderWidth: 2
     }));
 
-    // Draw or update the chart
+    // Draw or update the chart with reduced y-axis tick padding
     if (lineChartInstance) {
       lineChartInstance.data.labels = labels;
       lineChartInstance.data.datasets = datasets;
+      // Shrink y axis spacing
+      lineChartInstance.options.scales.y.ticks = {
+        padding: 2,
+        font: { size: 10 }
+      };
       lineChartInstance.update();
     } else {
       lineChartInstance = new Chart(ctx, {
@@ -509,7 +534,14 @@ document.addEventListener('DOMContentLoaded', () => {
           plugins: { legend: { position: 'bottom' } },
           scales: {
             x: { title: { display: true, text: 'Time of Day' } },
-            y: { title: { display: true, text: 'Concurrent Courses' }, beginAtZero: true }
+            y: {
+              title: { display: true, text: 'Concurrent Courses' },
+              beginAtZero: true,
+              ticks: {
+                padding: 2,
+                font: { size: 10 }
+              }
+            }
           }
         }
       });
