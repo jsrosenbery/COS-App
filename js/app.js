@@ -284,6 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const courses = [...new Set(rawData.map(r => r.key).filter(k => k))].sort();
     const $course = $('#courseSelect').empty();
     courses.forEach(c => $course.append(`<option value="${c}">${c}</option>`));
+    // Only call .multipleSelect if the plugin is loaded
     if ($course.length && typeof $course.multipleSelect === 'function') {
       $('#courseSelect').multipleSelect('refresh');
     }
@@ -297,8 +298,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateTable() {
-    const selectedCourses = $('#courseSelect').multipleSelect ? $('#courseSelect').multipleSelect('getSelects') : [];
-    const selectedCampuses = $('#campusSelect').multipleSelect ? $('#campusSelect').multipleSelect('getSelects') : [];
+    // Only call .multipleSelect if the plugin is loaded
+    const selectedCourses = (typeof $('#courseSelect').multipleSelect === 'function')
+      ? $('#courseSelect').multipleSelect('getSelects')
+      : [];
+    const selectedCampuses = (typeof $('#campusSelect').multipleSelect === 'function')
+      ? $('#campusSelect').multipleSelect('getSelects')
+      : [];
     const filterText = $('#textSearch').val() ? $('#textSearch').val().toLowerCase() : "";
 
     const rows = rawData.filter(r => {
@@ -441,8 +447,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ---- Initialize modern heatmap UI if controls exist
-  if (document.getElementById('courseSelect')) {
+  // ---- Initialize modern heatmap UI if controls exist and plugin is loaded
+  if (
+    document.getElementById('courseSelect') &&
+    typeof $('#courseSelect').multipleSelect === 'function' &&
+    typeof $('#campusSelect').multipleSelect === 'function'
+  ) {
     $('#courseSelect').multipleSelect({ filter: true, placeholder: 'Filter by course', width: '250px' }).on('change', updateTable);
     $('#campusSelect').multipleSelect({ filter: true, placeholder: 'Filter by campus', width: '200px' }).on('change', updateTable);
     $('#fileInput').on('change', e => loadFile(e.target.files[0]));
