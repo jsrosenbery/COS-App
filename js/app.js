@@ -522,33 +522,53 @@ document.addEventListener('DOMContentLoaded', () => {
       borderColor: colorList[idx % colorList.length],
       backgroundColor: colorList[idx % colorList.length],
       tension: 0.3,
-      pointRadius: 0,
+      pointRadius: 2,
       borderWidth: 2
     }));
 
-    // Draw or update the chart with condensed y-axis (fixed height)
+    // Chart Height: 100px
     const chartDiv = document.getElementById('lineChartCanvas');
-    chartDiv.height = 200; // 200px tall, as requested
+    chartDiv.height = 100;
 
-    // Calculate a good y-axis max for your data
+    // Find dataset max for visible lines
     let maxY = 0;
-    datasets.forEach(ds => {
-      ds.data.forEach(v => { if (v > maxY) maxY = v; });
-    });
-    // Set y-axis max to a round number above maxY
-    let yMax = Math.max(5, Math.ceil(maxY / 5) * 5);
+    datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
 
+    // Compute ideal tick settings
+    let tickCount = Math.max(3, Math.min(6, maxY));
+    let stepSize = 1;
+    let yMax = 1;
+    if (maxY <= 3) {
+      tickCount = 3;
+      yMax = 3;
+      stepSize = 1;
+    } else {
+      stepSize = Math.ceil(maxY / (tickCount - 1));
+      yMax = stepSize * (tickCount - 1);
+      if (yMax < maxY) {
+        yMax += stepSize;
+      }
+    }
+
+    // Chart.js with tooltips enabled for point values
     if (lineChartInstance) {
       lineChartInstance.data.labels = labels;
       lineChartInstance.data.datasets = datasets;
       lineChartInstance.options.scales.y.max = yMax;
       lineChartInstance.options.scales.y.ticks = {
-        stepSize: Math.ceil(yMax / 5),
-        maxTicksLimit: 5,
+        stepSize: stepSize,
+        maxTicksLimit: tickCount,
+        min: 0,
         padding: 2,
         font: { size: 10 }
       };
       lineChartInstance.options.maintainAspectRatio = false;
+      lineChartInstance.options.plugins.tooltip = {
+        enabled: true,
+        callbacks: {
+          label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
+        }
+      };
       lineChartInstance.update();
     } else {
       lineChartInstance = new Chart(ctx, {
@@ -557,7 +577,15 @@ document.addEventListener('DOMContentLoaded', () => {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: 'bottom' } },
+          plugins: {
+            legend: { position: 'bottom' },
+            tooltip: {
+              enabled: true,
+              callbacks: {
+                label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
+              }
+            }
+          },
           layout: { padding: 0 },
           scales: {
             x: { title: { display: true, text: 'Time of Day' }, ticks: { font: { size: 10 } } },
@@ -567,8 +595,8 @@ document.addEventListener('DOMContentLoaded', () => {
               title: { display: true, text: 'Concurrent Courses' },
               beginAtZero: true,
               ticks: {
-                stepSize: Math.ceil(yMax / 5),
-                maxTicksLimit: 5,
+                stepSize: stepSize,
+                maxTicksLimit: tickCount,
                 padding: 2,
                 font: { size: 10 }
               }
