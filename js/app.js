@@ -528,15 +528,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Draw or update the chart with condensed y-axis (fixed height)
     const chartDiv = document.getElementById('lineChartCanvas');
-    chartDiv.height = 340; // Condensed height, adjust as needed
+    chartDiv.height = 200; // 200px tall, as requested
+
+    // Calculate a good y-axis max for your data
+    let maxY = 0;
+    datasets.forEach(ds => {
+      ds.data.forEach(v => { if (v > maxY) maxY = v; });
+    });
+    // Set y-axis max to a round number above maxY
+    let yMax = Math.max(5, Math.ceil(maxY / 5) * 5);
 
     if (lineChartInstance) {
       lineChartInstance.data.labels = labels;
       lineChartInstance.data.datasets = datasets;
-      // Shrink y axis spacing and font size
+      lineChartInstance.options.scales.y.max = yMax;
       lineChartInstance.options.scales.y.ticks = {
+        stepSize: Math.ceil(yMax / 5),
+        maxTicksLimit: 5,
         padding: 2,
-        font: { size: 9 }
+        font: { size: 10 }
       };
       lineChartInstance.options.maintainAspectRatio = false;
       lineChartInstance.update();
@@ -548,14 +558,19 @@ document.addEventListener('DOMContentLoaded', () => {
           responsive: true,
           maintainAspectRatio: false,
           plugins: { legend: { position: 'bottom' } },
+          layout: { padding: 0 },
           scales: {
-            x: { title: { display: true, text: 'Time of Day' } },
+            x: { title: { display: true, text: 'Time of Day' }, ticks: { font: { size: 10 } } },
             y: {
+              min: 0,
+              max: yMax,
               title: { display: true, text: 'Concurrent Courses' },
               beginAtZero: true,
               ticks: {
+                stepSize: Math.ceil(yMax / 5),
+                maxTicksLimit: 5,
                 padding: 2,
-                font: { size: 9 }
+                font: { size: 10 }
               }
             }
           }
