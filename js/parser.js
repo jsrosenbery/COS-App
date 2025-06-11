@@ -35,7 +35,8 @@ function parseCSVFile(file, callback) {
             Room: r['ROOM'],
             Days: daysArr,
             Start_Time: start24,
-            End_Time: end24
+            End_Time: end24,
+            CAMPUS: r['CAMPUS'] || r['Campus'] || r['campus'] || ''
           };
         });
       callback(data);
