@@ -331,7 +331,7 @@ document.addEventListener('DOMContentLoaded', () => {
         Days: r.Days || [],
         Start_Time: r.Start_Time || '',
         End_Time: r.End_Time || '',
-        Campus: r.Campus || '',
+        Campus: r.Campus || r.CAMPUS || '',
       };
     });
     const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
@@ -339,8 +339,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hmChoices) {
       hmChoices.setChoices(items, 'value', 'label', true);
     }
-    // Populate campus multi-select
-    const campuses = Array.from(new Set(hmRaw.map(r => r.Campus).filter(Boolean))).sort();
+    // Populate campus multi-select (use both Campus and CAMPUS)
+    const campuses = Array.from(new Set(
+      hmRaw.map(r => r.Campus || r.CAMPUS).filter(Boolean)
+    )).sort();
     const campusItems = campuses.map(c => ({ value: c, label: c }));
     if (campusChoices) {
       campusChoices.setChoices(campusItems, 'value', 'label', true);
@@ -361,7 +363,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedCampuses = campusChoices ? campusChoices.getValue(true) : [];
     const rows = hmRaw.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
-      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus)) return false;
+      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus || r.CAMPUS)) return false;
       if(!r.Building || !r.Room) return false;
       const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
       if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
@@ -406,7 +408,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Filter data
     const filtered = hmRaw.filter(r => {
       if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
-      if(selectedCampuses.length && !selectedCampuses.includes(r.Campus)) return false;
+      const campusVal = r.Campus || r.CAMPUS;
+      if(selectedCampuses.length && !selectedCampuses.includes(campusVal)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       return true;
     });
@@ -417,27 +420,31 @@ document.addEventListener('DOMContentLoaded', () => {
     let counts = {};
     daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
 
+    // Robust time parsing for AM/PM and 24-hr
+    function parseHour(t) {
+      if (!t) return null;
+      t = t.trim();
+      let m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+      if (!m) return null;
+      let h = parseInt(m[1],10);
+      const min = parseInt(m[2],10);
+      const ampm = m[3] ? m[3].toUpperCase() : null;
+      if (ampm === "AM") {
+        if (h === 12) h = 0;
+      } else if (ampm === "PM") {
+        if (h !== 12) h += 12;
+      }
+      // If no AM/PM, trust as 24-hour
+      return h + min/60;
+    }
+
     // Fill occupancy counts per hour per day
     filtered.forEach(rec => {
-      // Accept both array and string days
       let recDays = Array.isArray(rec.Days) ? rec.Days : (typeof rec.Days === "string" ? rec.Days.split(',') : []);
-      // Also allow abbreviation string (e.g. "MWF")
       if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !daysOfWeek.includes(recDays[0])) {
-        // Probably "MWF" style
         const abbrevDayMap = { 'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday' };
         recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
       }
-      // Parse start/end hours
-      const parseHour = t => {
-        if (!t) return null;
-        let m = t.trim().match(/(\d+):(\d+)\s*(AM|PM)?/i);
-        if (!m) return null;
-        let hour = parseInt(m[1],10) % 12;
-        const min = parseInt(m[2],10);
-        if (m[3] && m[3].toUpperCase() === 'PM') hour += 12;
-        if (m[3] && m[3].toUpperCase() === 'AM' && hour === 12) hour = 0;
-        return hour + min/60;
-      };
       const startHour = parseHour(rec.Start_Time);
       const endHour = parseHour(rec.End_Time);
       if (startHour == null || endHour == null) return;
