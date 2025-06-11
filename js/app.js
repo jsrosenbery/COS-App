@@ -466,12 +466,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- LINE CHART LOGIC: OCCUPANCY PER HOUR, PER DAY ---
   function renderLineChart() {
-    const chartDiv = document.getElementById('lineChartCanvas');
-    // Only set the height ONCE, before Chart.js draws for the first time
-    if (!lineChartInstance && chartDiv.height !== 100) {
-      chartDiv.height = 100;
-    }
-    // On update, do NOT set chartDiv.height
+    // DO NOT set chartDiv.height here! Only set it in HTML.
 
     // Get selected filters
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
@@ -517,7 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Chart.js datasets: each day is a line, X is hour, Y is occupancy
-    const ctx = chartDiv.getContext('2d');
+    const ctx = document.getElementById('lineChartCanvas').getContext('2d');
     const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
     const colorList = [
       "#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2"
@@ -533,7 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
       borderWidth: 2
     }));
 
-    // Find dataset max for visible lines
+    // Calculate a good y-axis max for your data
     let maxY = 0;
     datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
 
