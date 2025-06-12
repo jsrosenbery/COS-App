@@ -7,93 +7,97 @@
 
   <link rel="icon" href="images/favicon.png" type="image/png">
   <link rel="stylesheet" href="css/style.css">
-  <!-- Remove Choices.js style for heatmap dropdowns if not using -->
-  <!-- <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/> -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/datatables.net-dt/css/jquery.dataTables.min.css"/>
   <style>
-    /* Excel-style filter dropdown */
-    .filter-dropdown {
-      position: relative;
-      display: inline-block;
-      font-family: sans-serif;
+    .choices__item--selectable input[type="checkbox"] {
+      margin-right: 6px;
     }
-    .filter-dropdown button {
-      padding: 6px 12px;
-      border: 1px solid #ccc;
-      background: #fff;
-      cursor: pointer;
-      width: 200px;
-      text-align: left;
+    .choices__item--selectable {
+      display: flex;
+      align-items: center;
     }
-    .filter-menu {
-      display: none;
-      position: absolute;
-      top: 100%;
-      left: 0;
-      border: 1px solid #ccc;
-      background: #fff;
-      max-height: 250px;
-      overflow: auto;
-      box-shadow: 0 2px 6px rgba(0,0,0,.2);
-      z-index: 10;
-      width: 200px;
+    #heatmapContainer {
+      min-height: 600px;
     }
-    .filter-menu.show { display: block; }
-    .filter-menu input[type="text"] {
-      box-sizing: border-box;
+    #chart-container {
       width: 100%;
-      padding: 6px;
-      border-bottom: 1px solid #ccc;
-    }
-    .filter-menu label {
-      display: block;
-      padding: 4px 8px;
-      cursor: pointer;
-    }
-    .filter-menu label:hover {
-      background: #f0f0f0;
+      max-width: 1600px;
+      height: 600px;
+      margin: auto;
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <!-- ... other parts of the page ... -->
+  <header>
+    <img src="images/logo.png" alt="COS Logo" class="logo">
+    <h1>COS Course Scheduler</h1>
+  </header>
+
+  <nav id="term-tabs"></nav>
+  <div id="view-container" style="margin:10px 0;">
+    <label for="viewSelect">View: </label>
+    <select id="viewSelect">
+      <option value="calendar">Calendar</option>
+      <option value="heatmap">Heatmap</option>
+      <option value="linechart">Line Chart (Course Durations)</option>
+    </select>
+  </div>
+
+  <div id="upload-container"></div>
+  <div id="upload-timestamp" class="upload-timestamp"></div>
+  <div id="room-filter"></div>
+
+  <div id="availability-ui" class="availability-ui">
+    <h3>Check Room Availability</h3>
+    <div class="days">
+      <label><input type="checkbox" value="Sunday"> Sun</label>
+      <label><input type="checkbox" value="Monday"> Mon</label>
+      <label><input type="checkbox" value="Tuesday"> Tue</label>
+      <label><input type="checkbox" value="Wednesday"> Wed</label>
+      <label><input type="checkbox" value="Thursday"> Thu</label>
+      <label><input type="checkbox" value="Friday"> Fri</label>
+      <label><input type="checkbox" value="Saturday"> Sat</label>
+    </div>
+    <div class="times">
+      <label>Start: <input type="time" id="avail-start" step="300"></label>
+      <label>End:   <input type="time" id="avail-end"   step="300"></label>
+      <button id="avail-check-btn">Check</button>
+      <button id="avail-clear-btn">Clear</button>
+    </div>
+    <div id="avail-results" class="avail-results"></div>
+  </div>
+
+  <div id="schedule-container">
+    <table id="schedule-table"></table>
+  </div>
 
   <div id="heatmap-tool" style="display:none;">
     <h2>Course Offerings Heatmap & Table</h2>
     <div id="controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <!-- Keep text search -->
+      <select id="courseSelect" multiple placeholder="Filter by discipline/course"></select>
+      <select id="campusSelect" multiple placeholder="Filter by campus"></select>
       <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
-
-      <!-- Campus filter: replaced original <select> -->
-      <div class="filter-dropdown" id="campusFilter">
-        <button id="campusFilterBtn">Campus ▾</button>
-        <div class="filter-menu" id="campusMenu">
-          <input type="text" placeholder="Search campuses…" id="campusSearch" />
-          <label><input type="checkbox" id="campusSelectAll" checked> Select All</label>
-          <!-- JS will inject one <label><input> per campus -->
-        </div>
-      </div>
-
-      <!-- Course filter: replaced original <select> -->
-      <div class="filter-dropdown" id="courseFilter">
-        <button id="courseFilterBtn">Course ▾</button>
-        <div class="filter-menu" id="courseMenu">
-          <input type="text" placeholder="Search courses…" id="courseSearch" />
-          <label><input type="checkbox" id="courseSelectAll" checked> Select All</label>
-          <!-- JS will inject one <label><input> per course key -->
-        </div>
-      </div>
     </div>
     <div id="heatmapContainer"></div>
     <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
   </div>
 
-  <!-- ... other tools ... -->
+  <div id="linechart-tool" style="display:none;">
+    <h2>Course Duration Line Chart</h2>
+    <div id="linechart-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
+      <select id="lineCampusSelect" multiple placeholder="Filter by campus"></select>
+    </div>
+    <div id="chart-container">
+      <canvas id="lineChartCanvas" style="width:100%; height:100%;"></canvas>
+    </div>
+  </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <!-- Remove Choices.js script if no longer using -->
-  <!-- <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script> -->
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
   <script src="js/parser.js"></script>
   <script src="js/app.js"></script>
