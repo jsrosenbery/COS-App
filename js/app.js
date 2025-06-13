@@ -64,6 +64,10 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeatmap();
   initLineChartChoices();
 
+  // Attach updateAllHeatmap to filter changes for robust updating
+  document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
+  document.getElementById('campusSelect').addEventListener('change', updateAllHeatmap);
+
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
     tab.className = 'tab' + (i === 2 ? ' active' : '');
@@ -319,6 +323,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     });
+    if(hmTable) {
+      hmTable.destroy();
+      $('#dataTable').empty();
+    }
     hmTable = $('#dataTable').DataTable({
       data: [],
       columns: [
