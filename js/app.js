@@ -79,10 +79,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeatmap();
   initLineChartChoices();
 
-  // Attach updateAllHeatmap to filter changes for robust updating
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
 
-  // --- Add Clear buttons for Heatmap and Line Chart ---
   document.getElementById('heatmap-clear-btn').onclick = () => {
     if (hmChoices) hmChoices.removeActiveItems();
     if (document.getElementById('textSearch')) {
@@ -195,6 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Overlap-aware tile sizing logic
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
@@ -226,20 +225,39 @@ document.addEventListener('DOMContentLoaded', () => {
         seen.add(key);
         return true;
       });
-      const cols = [];
+
+      // For each event, determine its overlap group
+      evs.forEach((ev, i) => {
+        ev.overlaps = evs.filter(other =>
+          !(other.endMin <= ev.startMin || other.startMin >= ev.endMin)
+        );
+        ev.overlaps.sort((a, b) => a.startMin - b.startMin);
+      });
+
+      // Assign a column index within each overlap group
       evs.forEach(ev => {
-        let placed = false;
-        for (let c=0; c<cols.length; c++) {
-          if (cols[c][cols[c].length-1].endMin <= ev.startMin) {
-            cols[c].push(ev); ev.col = c; placed = true; break;
+        let columns = [];
+        ev.overlaps.forEach(overlapEv => {
+          let placed = false;
+          for (let c = 0; c < columns.length; c++) {
+            if (columns[c][columns[c].length-1].endMin <= overlapEv.startMin) {
+              columns[c].push(overlapEv);
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) columns.push([overlapEv]);
+        });
+        for (let c = 0; c < columns.length; c++) {
+          if (columns[c].includes(ev)) {
+            ev.colIndex = c;
+            ev.colCount = columns.length;
+            break;
           }
         }
-        if (!placed) {
-          ev.col = cols.length; cols.push([ev]);
-        }
       });
-      const colCount = cols.length || 1;
-      cols.flat().forEach(ev => {
+
+      evs.forEach(ev => {
         const offset = ev.startMin - 360;
         const rowIndex = Math.floor(offset/30) + 1;
         const rem = offset % 30;
@@ -247,8 +265,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const cell = table.rows[rowIndex].cells[dIdx+1];
         const cr   = cell.getBoundingClientRect();
         const topPx    = cr.top - rect.top + (rem/30)*cr.height;
-        const leftPx   = cr.left - rect.left + (colCount === 1 ? 0 : ev.col*(cr.width/colCount));
-        const widthPx  = (colCount === 1) ? cr.width : cr.width / colCount;
+        const leftPx   = cr.left - rect.left + (ev.colCount === 1 ? 0 : ev.colIndex*(cr.width/ev.colCount));
+        const widthPx  = (ev.colCount === 1) ? cr.width : cr.width / ev.colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
         const b = document.createElement('div');
         b.className = 'class-block';
