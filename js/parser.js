@@ -4,7 +4,7 @@ function parseCSVFile(file, callback) {
     skipEmptyLines: true,
     complete: (results) => {
       const data = results.data
-        .filter(r => r['ROOM'] && !['', 'N/A', 'LIVE'].includes(r['ROOM'].toUpperCase()))
+        .filter(r => r['ROOM'] && !['', 'N/A', 'LIVE'].includes((r['ROOM'] || '').toUpperCase()))
         .filter(r => !(r['BUILDING'] && r['BUILDING'].toUpperCase() === 'ONLINE'))
         .map(r => {
           const daysMap = {'M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','U':'Sunday','S':'Saturday'};
@@ -28,19 +28,20 @@ function parseCSVFile(file, callback) {
             start24 = to24(parts[0]);
             end24 = to24(parts[1]);
           }
+          // --- MAIN FIX: Add all fields in the returned object ---
           return {
-            Subject_Course: r['Subject_Course'] || r['SUBJECT_COURSE'] || r['Title'] || r['TITLE'] || '',
-            Title: r['Title'] || r['TITLE'] || '',
-            CRN: r['CRN'],
-            Building: r['BUILDING'],
-            Room: r['ROOM'],
-            Days: daysArr,
+            Subject_Course: r['Subject_Course'] || '',
+            CRN: r['CRN'] || '',
+            Title: r['Title'] || '',
+            Building: r['BUILDING'] || '',
+            Room: r['ROOM'] || '',
+            Days: daysArr || [],
             Start_Time: start24,
             End_Time: end24,
-            Instructor: r['Instructor'] || r['INSTRUCTOR'] || '',
-            Start_Date: r['Start_Date'] || r['START_DATE'] || r['Start_Date'] || '',
-            End_Date: r['End_Date'] || r['END_DATE'] || r['End_Date'] || '',
-            CAMPUS: r['CAMPUS'] || r['Campus'] || r['campus'] || ''
+            Start_Date: r['Start_Date'] || '',
+            End_Date: r['End_Date'] || '',
+            Instructor: r['Instructor'] || '',
+            CAMPUS: r['CAMPUS'] || ''
           };
         });
       callback(data);
