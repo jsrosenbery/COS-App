@@ -38,6 +38,13 @@ function getTimeRangeFromData(data) {
   return [min, max];
 }
 
+function extractField(r, keys) {
+  for (const k of keys) {
+    if (r[k] && typeof r[k] === 'string' && r[k].trim()) return r[k].trim();
+  }
+  return '';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -242,10 +249,10 @@ document.addEventListener('DOMContentLoaded', () => {
         b.style.height = `${heightPx}px`;
 
         // Robust property extraction
-        const title = ev.Title || ev.Course_Title || ev['Course Title'] || '';
-        const instructor = ev.Instructor || ev['Instructor'] || ev.Instructor1 || ev['Instructor1'] || ev['Instructor(s)'] || ev.Faculty || '';
-        const startDate = ev.Start_Date || ev['Start_Date'] || ev.Start || ev['Start'] || ev['Start Date'] || ev['Start date'] || ev['StartDate'] || '';
-        const endDate = ev.End_Date || ev['End_Date'] || ev.End || ev['End'] || ev['End Date'] || ev['End date'] || ev['EndDate'] || '';
+        const title = extractField(ev, ['Title', 'Course_Title', 'Course Title']);
+        const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty']);
+        const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start']);
+        const endDate = extractField(ev, ['End_Date', 'End Date', 'End']);
 
         // Tile content
         b.innerHTML = `
@@ -405,42 +412,11 @@ Instructor: ${instructor || 'N/A'}
       let daysVal = r.Days;
       if (typeof daysVal === 'string') daysVal = daysVal.split(',').map(s => s.trim());
 
-      const instructor =
-        r.Instructor ||
-        r['Instructor'] ||
-        r.Instructor1 ||
-        r['Instructor1'] ||
-        r['Instructor(s)'] ||
-        r['Faculty'] ||
-        "";
-
-      const startDate =
-        r.Start_Date ||
-        r['Start_Date'] ||
-        r.Start ||
-        r['Start'] ||
-        r['Start Date'] ||
-        r['Start date'] ||
-        r['StartDate'] ||
-        "";
-      const endDate =
-        r.End_Date ||
-        r['End_Date'] ||
-        r.End ||
-        r['End'] ||
-        r['End Date'] ||
-        r['End date'] ||
-        r['EndDate'] ||
-        "";
-
-      const title =
-        r.Title ||
-        r['Title'] ||
-        r.Course_Title ||
-        r['Course_Title'] ||
-        r['Course Title'] ||
-        r['Course title'] ||
-        "";
+      // Use all relevant possible keys for each field:
+      const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty']);
+      const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start']);
+      const endDate = extractField(r, ['End_Date', 'End Date', 'End']);
+      const title = extractField(r, ['Title', 'Course_Title', 'Course Title']);
 
       // Building and Room robust extraction
       const building = r.Building || r.BUILDING || '';
