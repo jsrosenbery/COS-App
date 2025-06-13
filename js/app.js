@@ -54,6 +54,16 @@ function extractField(r, keys) {
   return '';
 }
 
+// Utility: get unique campuses from data
+function getUniqueCampuses(data) {
+  const campuses = new Set();
+  data.forEach(r => {
+    const campus = extractField(r, ['Campus', 'campus', 'CAMPUS']);
+    if (campus) campuses.add(campus);
+  });
+  return Array.from(campuses).sort();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -76,10 +86,35 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
+  // --- CAMPUS DROPDOWNS ---
+  // Add campus dropdowns to heatmap and linechart controls if not present
+  if (!document.getElementById('heatmap-campus-select')) {
+    const heatmapCampus = document.createElement('select');
+    heatmapCampus.id = 'heatmap-campus-select';
+    const heatmapLabel = document.createElement('label');
+    heatmapLabel.textContent = 'Campus: ';
+    heatmapLabel.appendChild(heatmapCampus);
+    // Insert before courseSelect
+    const heatmapControls = document.getElementById('courseSelect')?.parentElement;
+    if (heatmapControls) heatmapControls.insertBefore(heatmapLabel, document.getElementById('courseSelect'));
+  }
+  if (!document.getElementById('linechart-campus-select')) {
+    const linechartCampus = document.createElement('select');
+    linechartCampus.id = 'linechart-campus-select';
+    const linechartLabel = document.createElement('label');
+    linechartLabel.textContent = 'Campus: ';
+    linechartLabel.appendChild(linechartCampus);
+    // Insert before lineCourseSelect
+    const linechartControls = document.getElementById('lineCourseSelect')?.parentElement;
+    if (linechartControls) linechartControls.insertBefore(linechartLabel, document.getElementById('lineCourseSelect'));
+  }
+
   initHeatmap();
   initLineChartChoices();
 
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
+  document.getElementById('heatmap-campus-select').addEventListener('change', updateAllHeatmap);
+  document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
 
   document.getElementById('heatmap-clear-btn').onclick = () => {
     if (hmChoices) hmChoices.removeActiveItems();
@@ -471,7 +506,8 @@ Instructor: ${instructor || 'N/A'}
         Title: title,
         Start_Date: startDate,
         End_Date: endDate,
-        Instructor: instructor
+        Instructor: instructor,
+        Campus: extractField(r, ['Campus', 'campus', 'CAMPUS'])
       };
     }).filter(r => {
       let dayField = r.Days;
@@ -482,6 +518,16 @@ Instructor: ${instructor || 'N/A'}
       if (/^(X,)+X$/.test(cleaned)) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
+    });
+
+    // Populate campus dropdowns
+    const campuses = getUniqueCampuses(hmRaw);
+    const heatmapCampusSelect = document.getElementById('heatmap-campus-select');
+    const linechartCampusSelect = document.getElementById('linechart-campus-select');
+    [heatmapCampusSelect, linechartCampusSelect].forEach(sel => {
+      if (!sel) return;
+      sel.innerHTML = '<option value="">All</option>' +
+        campuses.map(c => `<option value="${c}">${c}</option>`).join('');
     });
 
     const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
@@ -500,8 +546,13 @@ Instructor: ${instructor || 'N/A'}
   }
 
   function updateAllHeatmap() {
+    const selectedCampus = document.getElementById('heatmap-campus-select')?.value || '';
+    let filteredCampus = selectedCampus
+      ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
+      : hmRaw;
+
     const selected = hmChoices.getValue(true);
-    const rows = hmRaw.filter(r => {
+    const rows = filteredCampus.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
       if(!r.Building || !r.Room) return false;
       const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
@@ -547,13 +598,18 @@ Instructor: ${instructor || 'N/A'}
   }
 
   function renderLineChart() {
+    const selectedCampus = document.getElementById('linechart-campus-select')?.value || '';
+    let filteredCampus = selectedCampus
+      ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
+      : hmRaw;
+
     const chartDiv = document.getElementById('lineChartCanvas');
     if (lineChartInstance) {
       lineChartInstance.destroy();
       lineChartInstance = null;
     }
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
-    const filtered = hmRaw.filter(r => {
+    const filtered = filteredCampus.filter(r => {
       if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
