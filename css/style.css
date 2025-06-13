@@ -24,3 +24,18 @@ h1 { margin:0; font-size:1.5rem; }
   max-height: 300px;
   overflow-y: auto;
 }
+
+/* Clear button for Heatmap and Line Chart filter bars */
+#heatmap-clear-btn, #linechart-clear-btn {
+  padding: 5px 16px;
+  font-size: 1rem;
+  border-radius: 4px;
+  border: 1px solid #bbb;
+  background: #f4f4f4;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-left: 10px;
+}
+#heatmap-clear-btn:hover, #linechart-clear-btn:hover {
+  background: #e0e0e0;
+}
