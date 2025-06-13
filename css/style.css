@@ -18,3 +18,9 @@ h1 { margin:0; font-size:1.5rem; }
 .availability-controls .days label { margin-right:0.5rem; }
 .availability-controls .times label { margin-right:1rem; }
 .avail-results { margin-top:0.5rem; font-size:0.9rem; }
+
+/* Scrollable dropdowns for Choices.js in the heatmap tool */
+#heatmap-tool .choices__list--dropdown {
+  max-height: 300px;
+  overflow-y: auto;
+}
