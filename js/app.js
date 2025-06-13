@@ -3,8 +3,7 @@
 let hmRaw = [];
 let hmTable;
 let hmChoices;
-let campusChoices;
-let lineCourseChoices, lineCampusChoices;
+let lineCourseChoices;
 let lineChartInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -66,12 +65,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Attach updateAllHeatmap to filter changes for robust updating
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
-  document.getElementById('campusSelect').addEventListener('change', updateAllHeatmap);
 
   // --- Add Clear buttons for Heatmap and Line Chart ---
   document.getElementById('heatmap-clear-btn').onclick = () => {
     if (hmChoices) hmChoices.removeActiveItems();
-    if (campusChoices) campusChoices.removeActiveItems();
     if (document.getElementById('textSearch')) {
       document.getElementById('textSearch').value = '';
       hmTable.search('').draw();
@@ -80,7 +77,6 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   document.getElementById('linechart-clear-btn').onclick = () => {
     if (lineCourseChoices) lineCourseChoices.removeActiveItems();
-    if (lineCampusChoices) lineCampusChoices.removeActiveItems();
     renderLineChart();
   };
 
@@ -115,7 +111,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
-  document.getElementById('lineCampusSelect').addEventListener('change', renderLineChart);
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
@@ -319,26 +314,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     });
-    campusChoices = new Choices('#campusSelect', {
-      removeItemButton: true,
-      searchEnabled: true,
-      placeholderValue: 'Filter by campus',
-      callbackOnCreateTemplates: function(template) {
-        return {
-          choice: (classNames, data) => {
-            return template(`
-              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
-                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
-                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
-                role="option">
-                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
-                <span>${data.label}</span>
-              </div>
-            `);
-          }
-        }
-      }
-    });
     if(hmTable) {
       hmTable.destroy();
       $('#dataTable').empty();
@@ -379,26 +354,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     });
-    lineCampusChoices = new Choices('#lineCampusSelect', {
-      removeItemButton: true,
-      searchEnabled: true,
-      placeholderValue: 'Filter by campus',
-      callbackOnCreateTemplates: function(template) {
-        return {
-          choice: (classNames, data) => {
-            return template(`
-              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
-                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
-                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
-                role="option">
-                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
-                <span>${data.label}</span>
-              </div>
-            `);
-          }
-        }
-      }
-    });
   }
 
   function feedHeatmapTool(dataArray) {
@@ -415,8 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
         Room: r.Room || '',
         Days: daysVal || [],
         Start_Time: r.Start_Time || '',
-        End_Time: r.End_Time || '',
-        CAMPUS: r.CAMPUS || ''
+        End_Time: r.End_Time || ''
       };
     }).filter(r => {
       let dayField = r.Days;
@@ -440,29 +394,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (lineCourseChoices) {
       lineCourseChoices.setChoices(items, 'value', 'label', true);
     }
-    // --- Campus options ---
-    const campuses = Array.from(new Set(
-      dataArray
-        .map(r => (r.CAMPUS || '').trim())
-        .filter(c => c && c.toLowerCase() !== 'n/a' && c.toLowerCase() !== 'online')
-    )).sort();
-    const campusItems = campuses.map(c => ({ value: c, label: c }));
-    if (campusChoices) {
-      campusChoices.setChoices(campusItems, 'value', 'label', true);
-    }
-    if (lineCampusChoices) {
-      lineCampusChoices.setChoices(campusItems, 'value', 'label', true);
-    }
     updateAllHeatmap();
     renderLineChart();
   }
 
   function updateAllHeatmap() {
     const selected = hmChoices.getValue(true);
-    const selectedCampuses = campusChoices ? campusChoices.getValue(true) : [];
     const rows = hmRaw.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
-      if(selectedCampuses.length && !selectedCampuses.includes(r.CAMPUS || '')) return false;
       if(!r.Building || !r.Room) return false;
       const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
       if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
@@ -513,11 +452,8 @@ document.addEventListener('DOMContentLoaded', () => {
       lineChartInstance = null;
     }
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
-    const selectedCampuses = lineCampusChoices ? lineCampusChoices.getValue(true) : [];
     const filtered = hmRaw.filter(r => {
       if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
-      const campusVal = r.CAMPUS || '';
-      if(selectedCampuses.length && !selectedCampuses.includes(campusVal)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
