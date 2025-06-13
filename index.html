@@ -110,8 +110,10 @@
   <div id="heatmap-tool" style="display:none;">
     <h2>Course Offerings Heatmap & Table</h2>
     <div id="controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <label>Campus:
+        <select id="heatmap-campus-select"></select>
+      </label>
       <select id="courseSelect" multiple placeholder="Filter by discipline/course"></select>
-      <!-- Campus filter removed -->
       <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
       <button id="heatmap-clear-btn" type="button">Clear</button>
     </div>
@@ -122,8 +124,10 @@
   <div id="linechart-tool" style="display:none;">
     <h2>Course Duration Line Chart</h2>
     <div id="linechart-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <label>Campus:
+        <select id="linechart-campus-select"></select>
+      </label>
       <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
-      <!-- Campus filter removed -->
       <button id="linechart-clear-btn" type="button">Clear</button>
     </div>
     <div id="chart-container">
