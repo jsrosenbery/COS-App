@@ -29,13 +29,17 @@ function parseCSVFile(file, callback) {
             end24 = to24(parts[1]);
           }
           return {
-            Subject_Course: r['Subject_Course'] || r['Title'] || '',
+            Subject_Course: r['Subject_Course'] || r['SUBJECT_COURSE'] || r['Title'] || r['TITLE'] || '',
+            Title: r['Title'] || r['TITLE'] || '',
             CRN: r['CRN'],
             Building: r['BUILDING'],
             Room: r['ROOM'],
             Days: daysArr,
             Start_Time: start24,
             End_Time: end24,
+            Instructor: r['Instructor'] || r['INSTRUCTOR'] || '',
+            Start_Date: r['Start_Date'] || r['START_DATE'] || r['Start_Date'] || '',
+            End_Date: r['End_Date'] || r['END_DATE'] || r['End_Date'] || '',
             CAMPUS: r['CAMPUS'] || r['Campus'] || r['campus'] || ''
           };
         });
