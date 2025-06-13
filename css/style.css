@@ -10,7 +10,11 @@ h1 { margin:0; font-size:1.5rem; }
 #schedule-table { border-collapse:collapse; width:100%; table-layout:fixed; }
 #schedule-table th, #schedule-table td { border:1px solid #ccc; text-align:center; padding:0; height:30px; }
 #schedule-table th { background:#e0e0e0; font-size:0.85rem; }
-.class-block { position:absolute; background:#FFA500; border:2px solid #003366; box-sizing:border-box; padding:2px; font-size:0.75rem; text-align:center; overflow:hidden; }
+/* --- UNIFORM TILE FONT SIZE --- */
+.class-block, .class-block * { 
+  font-size: 0.8rem !important; /* Set your desired uniform size here */
+}
+.class-block { position:absolute; background:#FFA500; border:2px solid #003366; box-sizing:border-box; padding:2px; text-align:center; overflow:hidden; }
 .upload-timestamp { font-size:0.85rem; color:#555; }
 .availability-ui { background:#f9f9f9; border:1px solid #ccc; border-radius:4px; }
 .availability-ui h3 { margin-top:0; }
