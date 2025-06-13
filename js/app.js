@@ -68,6 +68,22 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
   document.getElementById('campusSelect').addEventListener('change', updateAllHeatmap);
 
+  // --- Add Clear buttons for Heatmap and Line Chart ---
+  document.getElementById('heatmap-clear-btn').onclick = () => {
+    if (hmChoices) hmChoices.removeActiveItems();
+    if (campusChoices) campusChoices.removeActiveItems();
+    if (document.getElementById('textSearch')) {
+      document.getElementById('textSearch').value = '';
+      hmTable.search('').draw();
+    }
+    updateAllHeatmap();
+  };
+  document.getElementById('linechart-clear-btn').onclick = () => {
+    if (lineCourseChoices) lineCourseChoices.removeActiveItems();
+    if (lineCampusChoices) lineCampusChoices.removeActiveItems();
+    renderLineChart();
+  };
+
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
     tab.className = 'tab' + (i === 2 ? ' active' : '');
