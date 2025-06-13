@@ -247,8 +247,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const cell = table.rows[rowIndex].cells[dIdx+1];
         const cr   = cell.getBoundingClientRect();
         const topPx    = cr.top - rect.top + (rem/30)*cr.height;
-        const leftPx   = cr.left - rect.left + ev.col*(cr.width/colCount);
-        const widthPx  = cr.width/colCount;
+        const leftPx   = cr.left - rect.left + (colCount === 1 ? 0 : ev.col*(cr.width/colCount));
+        const widthPx  = (colCount === 1) ? cr.width : cr.width / colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
         const b = document.createElement('div');
         b.className = 'class-block';
