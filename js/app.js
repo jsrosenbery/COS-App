@@ -153,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function buildRoomDropdown() {
-    const combos = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))].sort();
+    const combos = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))].sort();
     roomDiv.innerHTML = `
       <label>Filter Bldg-Room:
         <select id="room-select">
@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const filt = document.getElementById('room-select')?.value || 'All';
     const data = filt === 'All'
       ? currentData
-      : currentData.filter(i => `${i.Building}-${i.Room}` === filt);
+      : currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
     const rect = container.getBoundingClientRect();
     daysOfWeek.forEach((day, dIdx) => {
       let evs = data
@@ -203,8 +203,8 @@ document.addEventListener('DOMContentLoaded', () => {
           ev.Start_Time,
           ev.End_Time,
           Array.isArray(ev.Days) ? ev.Days.join(',') : ev.Days,
-          ev.Building,
-          ev.Room
+          ev.Building || ev.BUILDING,
+          ev.Room || ev.ROOM
         ].join('|');
         if (seen.has(key)) return false;
         seen.add(key);
@@ -240,18 +240,31 @@ document.addEventListener('DOMContentLoaded', () => {
         b.style.left   = `${leftPx}px`;
         b.style.width  = `${widthPx}px`;
         b.style.height = `${heightPx}px`;
-        b.innerHTML = `
-          <span>${ev.Subject_Course}</span><br>
-          <span>${ev.CRN}</span><br>
-          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>`;
 
-        // Tooltip content: Show info on tile + date range + instructor
+        // Robust property extraction
+        const title = ev.Title || ev.Course_Title || ev['Course Title'] || '';
+        const instructor = ev.Instructor || ev['Instructor'] || ev.Instructor1 || ev['Instructor1'] || ev['Instructor(s)'] || ev.Faculty || '';
+        const startDate = ev.Start_Date || ev['Start_Date'] || ev.Start || ev['Start'] || ev['Start Date'] || ev['Start date'] || ev['StartDate'] || '';
+        const endDate = ev.End_Date || ev['End_Date'] || ev.End || ev['End'] || ev['End Date'] || ev['End date'] || ev['EndDate'] || '';
+
+        // Tile content
+        b.innerHTML = `
+          <span style="font-weight:bold;">${ev.Subject_Course || ''}</span><br>
+          <span>${title}</span><br>
+          <span>CRN: ${ev.CRN || ''}</span><br>
+          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
+          <span style="font-size:0.7em;">${startDate && endDate ? `${startDate} - ${endDate}` : ''}</span><br>
+          <span style="font-size:0.7em;">${instructor}</span>
+        `;
+
+        // Tooltip content
         const tooltipContent = `
 <b>${ev.Subject_Course || ''}</b><br>
+${title ? `<span>${title}</span><br>` : ''}
 CRN: ${ev.CRN || ''}<br>
 Time: ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}<br>
-Date Range: ${(ev.Start_Date || ev.Start || 'N/A')} - ${(ev.End_Date || ev.End || 'N/A')}<br>
-Instructor: ${ev.Instructor || ev.Instructor1 || ev['Instructor(s)'] || 'N/A'}
+Date Range: ${startDate || 'N/A'} - ${endDate || 'N/A'}<br>
+Instructor: ${instructor || 'N/A'}
         `.trim();
 
         b.addEventListener('mouseenter', function(e) {
@@ -293,13 +306,13 @@ Instructor: ${ev.Instructor || ev.Instructor1 || ev['Instructor(s)'] || 'N/A'}
       return h*60 + m;
     };
     const sMin = toMin(start), eMin = toMin(end);
-    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
+    const rooms = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))];
     const occ   = new Set();
     currentData.forEach(i => {
       if (i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
-          occ.add(`${i.Building}-${i.Room}`);
+          occ.add(`${i.Building || i.BUILDING}-${i.Room || i.ROOM}`);
         }
       }
     });
@@ -390,19 +403,74 @@ Instructor: ${ev.Instructor || ev.Instructor1 || ev['Instructor(s)'] || 'N/A'}
       const parts = (r.Subject_Course || '').trim().split(/\s+/);
       const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
       let daysVal = r.Days;
-      if (typeof daysVal === 'string') {
-        daysVal = daysVal.split(',').map(s => s.trim());
+      if (typeof daysVal === 'string') daysVal = daysVal.split(',').map(s => s.trim());
+
+      const instructor =
+        r.Instructor ||
+        r['Instructor'] ||
+        r.Instructor1 ||
+        r['Instructor1'] ||
+        r['Instructor(s)'] ||
+        r['Faculty'] ||
+        "";
+
+      const startDate =
+        r.Start_Date ||
+        r['Start_Date'] ||
+        r.Start ||
+        r['Start'] ||
+        r['Start Date'] ||
+        r['Start date'] ||
+        r['StartDate'] ||
+        "";
+      const endDate =
+        r.End_Date ||
+        r['End_Date'] ||
+        r.End ||
+        r['End'] ||
+        r['End Date'] ||
+        r['End date'] ||
+        r['EndDate'] ||
+        "";
+
+      const title =
+        r.Title ||
+        r['Title'] ||
+        r.Course_Title ||
+        r['Course_Title'] ||
+        r['Course Title'] ||
+        r['Course title'] ||
+        "";
+
+      // Building and Room robust extraction
+      const building = r.Building || r.BUILDING || '';
+      const room = r.Room || r.ROOM || '';
+
+      // Start/End time robust extraction
+      let startTime = r.Start_Time || '';
+      let endTime = r.End_Time || '';
+      // If not present, try parsing from 'Time' column
+      if ((!startTime || !endTime) && r.Time) {
+        let parts = r.Time.split('-');
+        if (parts.length === 2) {
+          startTime = startTime || parts[0].trim();
+          endTime = endTime || parts[1].trim();
+        }
       }
+
       return {
         key,
-        Building: r.Building || '',
-        Room: r.Room || '',
+        Subject_Course: r.Subject_Course || '',
+        CRN: r.CRN || '',
+        Building: building,
+        Room: room,
         Days: daysVal || [],
-        Start_Time: r.Start_Time || '',
-        End_Time: r.End_Time || '',
-        Start_Date: r.Start_Date || r.Start || '',
-        End_Date: r.End_Date || r.End || '',
-        Instructor: r.Instructor || r.Instructor1 || r['Instructor(s)'] || ''
+        Start_Time: startTime,
+        End_Time: endTime,
+        Title: title,
+        Start_Date: startDate,
+        End_Date: endDate,
+        Instructor: instructor
       };
     }).filter(r => {
       let dayField = r.Days;
