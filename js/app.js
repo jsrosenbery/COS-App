@@ -263,17 +263,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
         const endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
 
-        // Tile content
+        // Tile content: REMOVE title and dates from tile, keep on popup
         b.innerHTML = `
           <span style="font-weight:bold;">${ev.Subject_Course || ''}</span><br>
-          <span>${title}</span><br>
           <span>CRN: ${ev.CRN || ''}</span><br>
           <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
-          <span style="font-size:0.7em;">${startDate && endDate ? `${startDate} - ${endDate}` : ''}</span><br>
-          <span style="font-size:0.7em;">${instructor}</span>
+          <span>${instructor}</span>
         `;
 
-        // Tooltip content
+        // Tooltip content (unchanged: still shows title and dates)
         const tooltipContent = `
 <b>${ev.Subject_Course || ''}</b><br>
 ${title ? `<span>${title}</span><br>` : ''}
