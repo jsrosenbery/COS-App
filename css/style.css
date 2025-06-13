@@ -39,3 +39,19 @@ h1 { margin:0; font-size:1.5rem; }
 #heatmap-clear-btn:hover, #linechart-clear-btn:hover {
   background: #e0e0e0;
 }
+
+/* Tooltip for class blocks */
+.class-block-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 9999;
+  background: #222;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.95em;
+  pointer-events: none;
+  white-space: pre-line;
+  max-width: 350px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+}
