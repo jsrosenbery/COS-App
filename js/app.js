@@ -86,29 +86,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
 
-  // --- CAMPUS DROPDOWNS ---
-  // Add campus dropdowns to heatmap and linechart controls if not present
-  if (!document.getElementById('heatmap-campus-select')) {
-    const heatmapCampus = document.createElement('select');
-    heatmapCampus.id = 'heatmap-campus-select';
-    const heatmapLabel = document.createElement('label');
-    heatmapLabel.textContent = 'Campus: ';
-    heatmapLabel.appendChild(heatmapCampus);
-    // Insert before courseSelect
-    const heatmapControls = document.getElementById('courseSelect')?.parentElement;
-    if (heatmapControls) heatmapControls.insertBefore(heatmapLabel, document.getElementById('courseSelect'));
-  }
-  if (!document.getElementById('linechart-campus-select')) {
-    const linechartCampus = document.createElement('select');
-    linechartCampus.id = 'linechart-campus-select';
-    const linechartLabel = document.createElement('label');
-    linechartLabel.textContent = 'Campus: ';
-    linechartLabel.appendChild(linechartCampus);
-    // Insert before lineCourseSelect
-    const linechartControls = document.getElementById('lineCourseSelect')?.parentElement;
-    if (linechartControls) linechartControls.insertBefore(linechartLabel, document.getElementById('lineCourseSelect'));
-  }
-
   initHeatmap();
   initLineChartChoices();
 
