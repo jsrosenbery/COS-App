@@ -38,9 +38,18 @@ function getTimeRangeFromData(data) {
   return [min, max];
 }
 
+// Enhanced: Try all case/underscore variants for robust field extraction
 function extractField(r, keys) {
   for (const k of keys) {
     if (r[k] && typeof r[k] === 'string' && r[k].trim()) return r[k].trim();
+    // Try lower case
+    if (r[k.toLowerCase()] && typeof r[k.toLowerCase()] === 'string' && r[k.toLowerCase()].trim()) return r[k.toLowerCase()].trim();
+    // Try upper case
+    if (r[k.toUpperCase()] && typeof r[k.toUpperCase()] === 'string' && r[k.toUpperCase()].trim()) return r[k.toUpperCase()].trim();
+    // Try snake_case
+    if (r[k.replace(/\s+/g, '_')] && typeof r[k.replace(/\s+/g, '_')] === 'string' && r[k.replace(/\s+/g, '_')].trim()) return r[k.replace(/\s+/g, '_')].trim();
+    // Try lower_snake
+    if (r[k.replace(/\s+/g, '_').toLowerCase()] && typeof r[k.replace(/\s+/g, '_').toLowerCase()] === 'string' && r[k.replace(/\s+/g, '_').toLowerCase()].trim()) return r[k.replace(/\s+/g, '_').toLowerCase()].trim();
   }
   return '';
 }
@@ -248,11 +257,11 @@ document.addEventListener('DOMContentLoaded', () => {
         b.style.width  = `${widthPx}px`;
         b.style.height = `${heightPx}px`;
 
-        // Robust property extraction
-        const title = extractField(ev, ['Title', 'Course_Title', 'Course Title']);
-        const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty']);
-        const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start']);
-        const endDate = extractField(ev, ['End_Date', 'End Date', 'End']);
+        // Use robust field extraction for all possible case/snake variants
+        const title = extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
+        const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
+        const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+        const endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
 
         // Tile content
         b.innerHTML = `
@@ -413,10 +422,10 @@ Instructor: ${instructor || 'N/A'}
       if (typeof daysVal === 'string') daysVal = daysVal.split(',').map(s => s.trim());
 
       // Use all relevant possible keys for each field:
-      const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty']);
-      const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start']);
-      const endDate = extractField(r, ['End_Date', 'End Date', 'End']);
-      const title = extractField(r, ['Title', 'Course_Title', 'Course Title']);
+      const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
+      const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+      const endDate = extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+      const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
 
       // Building and Room robust extraction
       const building = r.Building || r.BUILDING || '';
