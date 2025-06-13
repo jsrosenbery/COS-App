@@ -244,6 +244,35 @@ document.addEventListener('DOMContentLoaded', () => {
           <span>${ev.Subject_Course}</span><br>
           <span>${ev.CRN}</span><br>
           <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>`;
+
+        // Tooltip content: Show info on tile + date range + instructor
+        const tooltipContent = `
+<b>${ev.Subject_Course || ''}</b><br>
+CRN: ${ev.CRN || ''}<br>
+Time: ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}<br>
+Date Range: ${(ev.Start_Date || ev.Start || 'N/A')} - ${(ev.End_Date || ev.End || 'N/A')}<br>
+Instructor: ${ev.Instructor || ev.Instructor1 || ev['Instructor(s)'] || 'N/A'}
+        `.trim();
+
+        b.addEventListener('mouseenter', function(e) {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.innerHTML = tooltipContent;
+          tooltip.style.display = 'block';
+          // Position tooltip
+          const rect = b.getBoundingClientRect();
+          tooltip.style.left = (rect.right + window.scrollX + 8) + 'px';
+          tooltip.style.top = (rect.top + window.scrollY - 10) + 'px';
+        });
+        b.addEventListener('mouseleave', function() {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.style.display = 'none';
+        });
+        b.addEventListener('mousemove', function(e) {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.style.left = (e.pageX + 12) + 'px';
+          tooltip.style.top = (e.pageY + 12) + 'px';
+        });
+
         container.appendChild(b);
       });
     });
@@ -370,7 +399,10 @@ document.addEventListener('DOMContentLoaded', () => {
         Room: r.Room || '',
         Days: daysVal || [],
         Start_Time: r.Start_Time || '',
-        End_Time: r.End_Time || ''
+        End_Time: r.End_Time || '',
+        Start_Date: r.Start_Date || r.Start || '',
+        End_Date: r.End_Date || r.End || '',
+        Instructor: r.Instructor || r.Instructor1 || r['Instructor(s)'] || ''
       };
     }).filter(r => {
       let dayField = r.Days;
