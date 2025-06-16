@@ -3,8 +3,7 @@
 let hmRaw = [];
 let hmTable;
 let hmChoices;
-let campusChoices;
-let lineCourseChoices, lineCampusChoices;
+let lineCourseChoices;
 let lineChartInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -39,127 +38,30 @@ function getTimeRangeFromData(data) {
   return [min, max];
 }
 
-// === Conflict Checker Logic ===
-function findScheduleConflicts(classes) {
-  const entries = classes.map((c, idx) => ({
-    idx,
-    id: c.id || idx,
-    course: c.key || c.Course || c.Subject_Course || "",
-    room: c.Room || "",
-    day: Array.isArray(c.Days) ? c.Days.join(",") : (c.Days || ""),
-    start: parseHour(c.Start_Time),
-    end: parseHour(c.End_Time),
-    raw: c
-  })).filter(e => e.room && e.day && typeof e.start === "number" && typeof e.end === "number");
-
-  // Split days for each entry and group by room & day
-  const byRoomDay = {};
-  entries.forEach(e => {
-    const days = e.day.split(/[,&/ ]/).map(d => d.trim()).filter(d => d);
-    days.forEach(day => {
-      const key = `${e.room}__${day}`;
-      if (!byRoomDay[key]) byRoomDay[key] = [];
-      byRoomDay[key].push({...e, day});
-    });
-  });
-
-  // Check for overlaps within each room+day
-  const conflicts = [];
-  Object.entries(byRoomDay).forEach(([key, group]) => {
-    group.sort((a, b) => a.start - b.start);
-    for (let i = 0; i < group.length; i++) {
-      for (let j = i+1; j < group.length; j++) {
-        if (group[i].end > group[j].start && group[j].end > group[i].start) {
-          conflicts.push({
-            room: group[i].room,
-            day: group[i].day,
-            class1: group[i],
-            class2: group[j]
-          });
-        }
-      }
-    }
-  });
-
-  // Remove duplicate conflicts (A,B) vs (B,A)
-  const uniqueConflicts = [];
-  const seen = new Set();
-  conflicts.forEach(conf => {
-    const key = [conf.class1.idx, conf.class2.idx].sort().join("-");
-    if (!seen.has(key)) {
-      uniqueConflicts.push(conf);
-      seen.add(key);
-    }
-  });
-
-  return uniqueConflicts;
+// Enhanced: Try all case/underscore variants for robust field extraction
+function extractField(r, keys) {
+  for (const k of keys) {
+    if (r[k] && typeof r[k] === 'string' && r[k].trim()) return r[k].trim();
+    // Try lower case
+    if (r[k.toLowerCase()] && typeof r[k.toLowerCase()] === 'string' && r[k.toLowerCase()].trim()) return r[k.toLowerCase()].trim();
+    // Try upper case
+    if (r[k.toUpperCase()] && typeof r[k.toUpperCase()] === 'string' && r[k.toUpperCase()].trim()) return r[k.toUpperCase()].trim();
+    // Try snake_case
+    if (r[k.replace(/\s+/g, '_')] && typeof r[k.replace(/\s+/g, '_')] === 'string' && r[k.replace(/\s+/g, '_')].trim()) return r[k.replace(/\s+/g, '_')].trim();
+    // Try lower_snake
+    if (r[k.replace(/\s+/g, '_').toLowerCase()] && typeof r[k.replace(/\s+/g, '_').toLowerCase()] === 'string' && r[k.replace(/\s+/g, '_').toLowerCase()].trim()) return r[k.replace(/\s+/g, '_').toLowerCase()].trim();
+  }
+  return '';
 }
 
-function formatTime(t) {
-  if (typeof t !== "number" || isNaN(t)) return "?";
-  const h = Math.floor(t);
-  const m = Math.round((t - h) * 60);
-  const ampm = h >= 12 ? "PM" : "AM";
-  let displayH = h % 12; if (displayH === 0) displayH = 12;
-  return `${displayH}:${m.toString().padStart(2, "0")} ${ampm}`;
-}
-
-function renderConflictResults(conflicts) {
-  const container = document.getElementById("conflict-results");
-  if (!container) return;
-
-  if (!conflicts.length) {
-    container.innerHTML = `<div style="color:green;font-weight:bold;font-size:1.15em">No conflicts found 🎉</div>`;
-    document.getElementById("export-conflicts-btn").style.display = "none";
-    return;
-  }
-
-  let html = `<table class="conflict-table"><thead>
-    <tr>
-      <th>Room</th>
-      <th>Day</th>
-      <th>Class 1</th>
-      <th>Time 1</th>
-      <th>Class 2</th>
-      <th>Time 2</th>
-    </tr>
-    </thead><tbody>`;
-
-  for (const c of conflicts) {
-    html += `<tr class="conflict-row">
-      <td>${c.room}</td>
-      <td>${c.day}</td>
-      <td>
-        <strong>${c.class1.course || "?"}</strong>
-      </td>
-      <td>${formatTime(c.class1.start)} - ${formatTime(c.class1.end)}</td>
-      <td>
-        <strong>${c.class2.course || "?"}</strong>
-      </td>
-      <td>${formatTime(c.class2.start)} - ${formatTime(c.class2.end)}</td>
-    </tr>`;
-  }
-  html += "</tbody></table>";
-  document.getElementById("export-conflicts-btn").style.display = "inline-block";
-  container.innerHTML = html;
-}
-
-function exportConflictsToCSV(conflicts) {
-  let csv = "Room,Day,Class 1,Time 1,Class 2,Time 2\n";
-  for (const c of conflicts) {
-    csv += `"${c.room}","${c.day}","${c.class1.course}","${formatTime(c.class1.start)} - ${formatTime(c.class1.end)}","${c.class2.course}","${formatTime(c.class2.start)} - ${formatTime(c.class2.end)}"\n`;
-  }
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "schedule_conflicts.csv";
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, 100);
+// Utility: get unique campuses from data
+function getUniqueCampuses(data) {
+  const campuses = new Set();
+  data.forEach(r => {
+    const campus = extractField(r, ['Campus', 'campus', 'CAMPUS']);
+    if (campus) campuses.add(campus);
+  });
+  return Array.from(campuses).sort();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -186,6 +88,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   initHeatmap();
   initLineChartChoices();
+
+  document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
+  document.getElementById('heatmap-campus-select').addEventListener('change', updateAllHeatmap);
+  document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
+
+  document.getElementById('heatmap-clear-btn').onclick = () => {
+    if (hmChoices) hmChoices.removeActiveItems();
+    if (document.getElementById('textSearch')) {
+      document.getElementById('textSearch').value = '';
+      hmTable.search('').draw();
+    }
+    updateAllHeatmap();
+  };
+  document.getElementById('linechart-clear-btn').onclick = () => {
+    if (lineCourseChoices) lineCourseChoices.removeActiveItems();
+    renderLineChart();
+  };
 
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
@@ -218,7 +137,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
-  document.getElementById('lineCampusSelect').addEventListener('change', renderLineChart);
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
@@ -261,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function buildRoomDropdown() {
-    const combos = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))].sort();
+    const combos = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))].sort();
     roomDiv.innerHTML = `
       <label>Filter Bldg-Room:
         <select id="room-select">
@@ -287,12 +205,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Overlap-aware tile sizing logic
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
     const data = filt === 'All'
       ? currentData
-      : currentData.filter(i => `${i.Building}-${i.Room}` === filt);
+      : currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
     const rect = container.getBoundingClientRect();
     daysOfWeek.forEach((day, dIdx) => {
       let evs = data
@@ -311,27 +230,46 @@ document.addEventListener('DOMContentLoaded', () => {
           ev.Start_Time,
           ev.End_Time,
           Array.isArray(ev.Days) ? ev.Days.join(',') : ev.Days,
-          ev.Building,
-          ev.Room
+          ev.Building || ev.BUILDING,
+          ev.Room || ev.ROOM
         ].join('|');
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
-      const cols = [];
+
+      // For each event, determine its overlap group
+      evs.forEach((ev, i) => {
+        ev.overlaps = evs.filter(other =>
+          !(other.endMin <= ev.startMin || other.startMin >= ev.endMin)
+        );
+        ev.overlaps.sort((a, b) => a.startMin - b.startMin);
+      });
+
+      // Assign a column index within each overlap group
       evs.forEach(ev => {
-        let placed = false;
-        for (let c=0; c<cols.length; c++) {
-          if (cols[c][cols[c].length-1].endMin <= ev.startMin) {
-            cols[c].push(ev); ev.col = c; placed = true; break;
+        let columns = [];
+        ev.overlaps.forEach(overlapEv => {
+          let placed = false;
+          for (let c = 0; c < columns.length; c++) {
+            if (columns[c][columns[c].length-1].endMin <= overlapEv.startMin) {
+              columns[c].push(overlapEv);
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) columns.push([overlapEv]);
+        });
+        for (let c = 0; c < columns.length; c++) {
+          if (columns[c].includes(ev)) {
+            ev.colIndex = c;
+            ev.colCount = columns.length;
+            break;
           }
         }
-        if (!placed) {
-          ev.col = cols.length; cols.push([ev]);
-        }
       });
-      const colCount = cols.length || 1;
-      cols.flat().forEach(ev => {
+
+      evs.forEach(ev => {
         const offset = ev.startMin - 360;
         const rowIndex = Math.floor(offset/30) + 1;
         const rem = offset % 30;
@@ -339,8 +277,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const cell = table.rows[rowIndex].cells[dIdx+1];
         const cr   = cell.getBoundingClientRect();
         const topPx    = cr.top - rect.top + (rem/30)*cr.height;
-        const leftPx   = cr.left - rect.left + ev.col*(cr.width/colCount);
-        const widthPx  = cr.width/colCount;
+        const leftPx   = cr.left - rect.left + (ev.colCount === 1 ? 0 : ev.colIndex*(cr.width/ev.colCount));
+        const widthPx  = (ev.colCount === 1) ? cr.width : cr.width / ev.colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
         const b = document.createElement('div');
         b.className = 'class-block';
@@ -348,10 +286,50 @@ document.addEventListener('DOMContentLoaded', () => {
         b.style.left   = `${leftPx}px`;
         b.style.width  = `${widthPx}px`;
         b.style.height = `${heightPx}px`;
+
+        // Use robust field extraction for all possible case/snake variants
+        const title = extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
+        const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
+        const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+        const endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+
+        // Tile content: REMOVE title and dates from tile, keep on popup
         b.innerHTML = `
-          <span>${ev.Subject_Course}</span><br>
-          <span>${ev.CRN}</span><br>
-          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span>`;
+          <span style="font-weight:bold;">${ev.Subject_Course || ''}</span><br>
+          <span>CRN: ${ev.CRN || ''}</span><br>
+          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
+          <span>${instructor}</span>
+        `;
+
+        // Tooltip content (unchanged: still shows title and dates)
+        const tooltipContent = `
+<b>${ev.Subject_Course || ''}</b><br>
+${title ? `<span>${title}</span><br>` : ''}
+CRN: ${ev.CRN || ''}<br>
+Time: ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}<br>
+Date Range: ${startDate || 'N/A'} - ${endDate || 'N/A'}<br>
+Instructor: ${instructor || 'N/A'}
+        `.trim();
+
+        b.addEventListener('mouseenter', function(e) {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.innerHTML = tooltipContent;
+          tooltip.style.display = 'block';
+          // Position tooltip
+          const rect = b.getBoundingClientRect();
+          tooltip.style.left = (rect.right + window.scrollX + 8) + 'px';
+          tooltip.style.top = (rect.top + window.scrollY - 10) + 'px';
+        });
+        b.addEventListener('mouseleave', function() {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.style.display = 'none';
+        });
+        b.addEventListener('mousemove', function(e) {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.style.left = (e.pageX + 12) + 'px';
+          tooltip.style.top = (e.pageY + 12) + 'px';
+        });
+
         container.appendChild(b);
       });
     });
@@ -372,13 +350,13 @@ document.addEventListener('DOMContentLoaded', () => {
       return h*60 + m;
     };
     const sMin = toMin(start), eMin = toMin(end);
-    const rooms = [...new Set(currentData.map(i => `${i.Building}-${i.Room}`))];
+    const rooms = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))];
     const occ   = new Set();
     currentData.forEach(i => {
       if (i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
-          occ.add(`${i.Building}-${i.Room}`);
+          occ.add(`${i.Building || i.BUILDING}-${i.Room || i.ROOM}`);
         }
       }
     });
@@ -422,26 +400,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     });
-    campusChoices = new Choices('#campusSelect', {
-      removeItemButton: true,
-      searchEnabled: true,
-      placeholderValue: 'Filter by campus',
-      callbackOnCreateTemplates: function(template) {
-        return {
-          choice: (classNames, data) => {
-            return template(`
-              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
-                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
-                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
-                role="option">
-                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
-                <span>${data.label}</span>
-              </div>
-            `);
-          }
-        }
-      }
-    });
+    if(hmTable) {
+      hmTable.destroy();
+      $('#dataTable').empty();
+    }
     hmTable = $('#dataTable').DataTable({
       data: [],
       columns: [
@@ -478,26 +440,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     });
-    lineCampusChoices = new Choices('#lineCampusSelect', {
-      removeItemButton: true,
-      searchEnabled: true,
-      placeholderValue: 'Filter by campus',
-      callbackOnCreateTemplates: function(template) {
-        return {
-          choice: (classNames, data) => {
-            return template(`
-              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
-                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
-                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
-                role="option">
-                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
-                <span>${data.label}</span>
-              </div>
-            `);
-          }
-        }
-      }
-    });
   }
 
   function feedHeatmapTool(dataArray) {
@@ -505,17 +447,44 @@ document.addEventListener('DOMContentLoaded', () => {
       const parts = (r.Subject_Course || '').trim().split(/\s+/);
       const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
       let daysVal = r.Days;
-      if (typeof daysVal === 'string') {
-        daysVal = daysVal.split(',').map(s => s.trim());
+      if (typeof daysVal === 'string') daysVal = daysVal.split(',').map(s => s.trim());
+
+      // Use all relevant possible keys for each field:
+      const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
+      const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+      const endDate = extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+      const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
+
+      // Building and Room robust extraction
+      const building = r.Building || r.BUILDING || '';
+      const room = r.Room || r.ROOM || '';
+
+      // Start/End time robust extraction
+      let startTime = r.Start_Time || '';
+      let endTime = r.End_Time || '';
+      // If not present, try parsing from 'Time' column
+      if ((!startTime || !endTime) && r.Time) {
+        let parts = r.Time.split('-');
+        if (parts.length === 2) {
+          startTime = startTime || parts[0].trim();
+          endTime = endTime || parts[1].trim();
+        }
       }
+
       return {
         key,
-        Building: r.Building || '',
-        Room: r.Room || '',
+        Subject_Course: r.Subject_Course || '',
+        CRN: r.CRN || '',
+        Building: building,
+        Room: room,
         Days: daysVal || [],
-        Start_Time: r.Start_Time || '',
-        End_Time: r.End_Time || '',
-        CAMPUS: r.CAMPUS || ''
+        Start_Time: startTime,
+        End_Time: endTime,
+        Title: title,
+        Start_Date: startDate,
+        End_Date: endDate,
+        Instructor: instructor,
+        Campus: extractField(r, ['Campus', 'campus', 'CAMPUS'])
       };
     }).filter(r => {
       let dayField = r.Days;
@@ -526,6 +495,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (/^(X,)+X$/.test(cleaned)) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
+    });
+
+    // Populate campus dropdowns
+    const campuses = getUniqueCampuses(hmRaw);
+    const heatmapCampusSelect = document.getElementById('heatmap-campus-select');
+    const linechartCampusSelect = document.getElementById('linechart-campus-select');
+    [heatmapCampusSelect, linechartCampusSelect].forEach(sel => {
+      if (!sel) return;
+      sel.innerHTML = '<option value="">All</option>' +
+        campuses.map(c => `<option value="${c}">${c}</option>`).join('');
     });
 
     const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
@@ -539,29 +518,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (lineCourseChoices) {
       lineCourseChoices.setChoices(items, 'value', 'label', true);
     }
-    // --- Campus options ---
-    const campuses = Array.from(new Set(
-      dataArray
-        .map(r => (r.CAMPUS || '').trim())
-        .filter(c => c && c.toLowerCase() !== 'n/a' && c.toLowerCase() !== 'online')
-    )).sort();
-    const campusItems = campuses.map(c => ({ value: c, label: c }));
-    if (campusChoices) {
-      campusChoices.setChoices(campusItems, 'value', 'label', true);
-    }
-    if (lineCampusChoices) {
-      lineCampusChoices.setChoices(campusItems, 'value', 'label', true);
-    }
     updateAllHeatmap();
     renderLineChart();
   }
 
   function updateAllHeatmap() {
+    const selectedCampus = document.getElementById('heatmap-campus-select')?.value || '';
+    let filteredCampus = selectedCampus
+      ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
+      : hmRaw;
+
     const selected = hmChoices.getValue(true);
-    const selectedCampuses = campusChoices ? campusChoices.getValue(true) : [];
-    const rows = hmRaw.filter(r => {
+    const rows = filteredCampus.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
-      if(selectedCampuses.length && !selectedCampuses.includes(r.CAMPUS || '')) return false;
       if(!r.Building || !r.Room) return false;
       const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
       if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
@@ -600,23 +569,25 @@ document.addEventListener('DOMContentLoaded', () => {
     html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
     hours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
     html+='</tr></thead><tbody>';
-    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1p[...]
+    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
     html+='</tbody></table>';
     document.getElementById('heatmapContainer').innerHTML = html;
   }
 
   function renderLineChart() {
+    const selectedCampus = document.getElementById('linechart-campus-select')?.value || '';
+    let filteredCampus = selectedCampus
+      ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
+      : hmRaw;
+
     const chartDiv = document.getElementById('lineChartCanvas');
     if (lineChartInstance) {
       lineChartInstance.destroy();
       lineChartInstance = null;
     }
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
-    const selectedCampuses = lineCampusChoices ? lineCampusChoices.getValue(true) : [];
-    const filtered = hmRaw.filter(r => {
+    const filtered = filteredCampus.filter(r => {
       if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
-      const campusVal = r.CAMPUS || '';
-      if(selectedCampuses.length && !selectedCampuses.includes(campusVal)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
@@ -710,42 +681,4 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
-
-  // === Conflict Checker Button Logic ===
-  const conflictBtn = document.getElementById("conflict-check-btn");
-  const conflictModal = document.getElementById("conflict-modal");
-  const closeConflictModal = document.getElementById("close-conflict-modal");
-  const exportBtn = document.getElementById("export-conflicts-btn");
-
-  let lastConflictResults = [];
-
-  if (conflictBtn) {
-    conflictBtn.addEventListener("click", () => {
-      const results = findScheduleConflicts(hmRaw);
-      lastConflictResults = results;
-      renderConflictResults(results);
-      if (conflictModal) conflictModal.style.display = "block";
-    });
-  }
-
-  if (closeConflictModal) {
-    closeConflictModal.addEventListener("click", () => {
-      if (conflictModal) conflictModal.style.display = "none";
-    });
-  }
-
-  window.onclick = function(event) {
-    if (event.target == conflictModal) {
-      conflictModal.style.display = "none";
-    }
-  };
-
-  if (exportBtn) {
-    exportBtn.addEventListener("click", () => {
-      if (lastConflictResults && lastConflictResults.length) {
-        exportConflictsToCSV(lastConflictResults);
-      }
-    });
-  }
-
 });

@@ -10,7 +10,11 @@ h1 { margin:0; font-size:1.5rem; }
 #schedule-table { border-collapse:collapse; width:100%; table-layout:fixed; }
 #schedule-table th, #schedule-table td { border:1px solid #ccc; text-align:center; padding:0; height:30px; }
 #schedule-table th { background:#e0e0e0; font-size:0.85rem; }
-.class-block { position:absolute; background:#FFA500; border:2px solid #003366; box-sizing:border-box; padding:2px; font-size:0.75rem; text-align:center; overflow:hidden; }
+/* --- UNIFORM TILE FONT SIZE --- */
+.class-block, .class-block * { 
+  font-size: 0.8rem !important; /* Set your desired uniform size here */
+}
+.class-block { position:absolute; background:#FFA500; border:2px solid #003366; box-sizing:border-box; padding:2px; text-align:center; overflow:hidden; }
 .upload-timestamp { font-size:0.85rem; color:#555; }
 .availability-ui { background:#f9f9f9; border:1px solid #ccc; border-radius:4px; }
 .availability-ui h3 { margin-top:0; }
@@ -19,86 +23,39 @@ h1 { margin:0; font-size:1.5rem; }
 .availability-controls .times label { margin-right:1rem; }
 .avail-results { margin-top:0.5rem; font-size:0.9rem; }
 
-/* Conflict Checker Modal Styles */
-#conflict-check-btn {
-  background: #db4437;
-  color: white;
-  border: none;
-  padding: 8px 20px;
-  border-radius: 5px;
-  font-size: 1.05em;
-  margin: 12px 0;
-  cursor: pointer;
-  transition: background 0.2s;
+/* Scrollable dropdowns for Choices.js in the heatmap tool */
+#heatmap-tool .choices__list--dropdown {
+  max-height: 300px;
+  overflow-y: auto;
 }
-#conflict-check-btn:hover {
-  background: #b9382c;
-}
-.modal {
-  display: none;
-  position: fixed;
-  z-index: 9999;
-  left: 0; top: 0;
-  width: 100%; height: 100%;
-  overflow: auto;
-  background: rgba(0,0,0,0.35);
-}
-.modal-content {
-  background: #f9f9f9;
-  margin: 5% auto;
-  padding: 28px 30px 20px 30px;
-  border-radius: 10px;
-  width: 98%;
-  max-width: 700px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.15);
-  position: relative;
-  animation: modalFadeIn 0.3s;
-}
-@keyframes modalFadeIn {
-  from {transform: translateY(50px); opacity: 0;}
-  to {transform: translateY(0); opacity: 1;}
-}
-.close-modal {
-  color: #888;
-  position: absolute;
-  top: 14px;
-  right: 22px;
-  font-size: 2em;
-  font-weight: bold;
-  cursor: pointer;
-  transition: color 0.2s;
-}
-.close-modal:hover {
-  color: #222;
-}
-.conflict-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 1.5em;
-}
-.conflict-table th, .conflict-table td {
-  border: 1px solid #ccc;
-  padding: 8px 11px;
-  text-align: left;
-}
-.conflict-table th {
-  background: #eee;
-}
-.conflict-row {
-  background: #ffe5e5;
-  transition: background 0.2s;
-}
-.export-btn {
-  background: #388e3c;
-  color: #fff;
-  border: none;
+
+/* Clear button for Heatmap and Line Chart filter bars */
+#heatmap-clear-btn, #linechart-clear-btn {
+  padding: 5px 16px;
+  font-size: 1rem;
   border-radius: 4px;
-  padding: 7px 16px;
-  font-size: 1em;
+  border: 1px solid #bbb;
+  background: #f4f4f4;
   cursor: pointer;
-  margin-bottom: 14px;
   transition: background 0.2s;
+  margin-left: 10px;
 }
-.export-btn:hover {
-  background: #246b27;
+#heatmap-clear-btn:hover, #linechart-clear-btn:hover {
+  background: #e0e0e0;
+}
+
+/* Tooltip for class blocks */
+.class-block-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 9999;
+  background: #222;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.95em;
+  pointer-events: none;
+  white-space: pre-line;
+  max-width: 350px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
 }

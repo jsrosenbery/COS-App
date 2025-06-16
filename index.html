@@ -26,88 +26,39 @@
       height: 600px;
       margin: auto;
     }
-    /* Modal styles for conflict checker */
-    #conflict-check-btn {
-      background: #db4437;
-      color: white;
-      border: none;
-      padding: 8px 20px;
-      border-radius: 5px;
-      font-size: 1.05em;
-      margin: 12px 0;
-      cursor: pointer;
-      transition: background 0.2s;
+    /* Scrollable dropdowns for heatmap filters */
+    #heatmap-tool .choices__list--dropdown {
+      max-height: 300px;
+      overflow-y: auto;
     }
-    #conflict-check-btn:hover {
-      background: #b9382c;
-    }
-    .modal {
-      display: none;
-      position: fixed;
-      z-index: 9999;
-      left: 0; top: 0;
-      width: 100%; height: 100%;
-      overflow: auto;
-      background: rgba(0,0,0,0.35);
-    }
-    .modal-content {
-      background: #f9f9f9;
-      margin: 5% auto;
-      padding: 28px 30px 20px 30px;
-      border-radius: 10px;
-      width: 98%;
-      max-width: 700px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.15);
-      position: relative;
-      animation: modalFadeIn 0.3s;
-    }
-    @keyframes modalFadeIn {
-      from {transform: translateY(50px); opacity: 0;}
-      to {transform: translateY(0); opacity: 1;}
-    }
-    .close-modal {
-      color: #888;
-      position: absolute;
-      top: 14px;
-      right: 22px;
-      font-size: 2em;
-      font-weight: bold;
-      cursor: pointer;
-      transition: color 0.2s;
-    }
-    .close-modal:hover {
-      color: #222;
-    }
-    .conflict-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 1.5em;
-    }
-    .conflict-table th, .conflict-table td {
-      border: 1px solid #ccc;
-      padding: 8px 11px;
-      text-align: left;
-    }
-    .conflict-table th {
-      background: #eee;
-    }
-    .conflict-row {
-      background: #ffe5e5;
-      transition: background 0.2s;
-    }
-    .export-btn {
-      background: #388e3c;
-      color: #fff;
-      border: none;
+    /* Clear button for Heatmap and Line Chart filter bars */
+    #heatmap-clear-btn, #linechart-clear-btn {
+      padding: 5px 16px;
+      font-size: 1rem;
       border-radius: 4px;
-      padding: 7px 16px;
-      font-size: 1em;
+      border: 1px solid #bbb;
+      background: #f4f4f4;
       cursor: pointer;
-      margin-bottom: 14px;
       transition: background 0.2s;
+      margin-left: 10px;
     }
-    .export-btn:hover {
-      background: #246b27;
+    #heatmap-clear-btn:hover, #linechart-clear-btn:hover {
+      background: #e0e0e0;
+    }
+    /* Tooltip for class blocks */
+    .class-block-tooltip {
+      display: none;
+      position: absolute;
+      z-index: 9999;
+      background: #222;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.95em;
+      pointer-events: none;
+      white-space: pre-line;
+      max-width: 350px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -156,23 +107,15 @@
     <table id="schedule-table"></table>
   </div>
 
-  <!-- Conflict Checker Button and Modal -->
-  <button id="conflict-check-btn">Check Conflicts</button>
-  <div id="conflict-modal" class="modal">
-    <div class="modal-content">
-      <span class="close-modal" id="close-conflict-modal">&times;</span>
-      <h2>Schedule Conflicts</h2>
-      <div id="conflict-results"></div>
-      <button class="export-btn" id="export-conflicts-btn" style="display:none;">Export to CSV</button>
-    </div>
-  </div>
-
   <div id="heatmap-tool" style="display:none;">
     <h2>Course Offerings Heatmap & Table</h2>
     <div id="controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <label>Campus:
+        <select id="heatmap-campus-select"></select>
+      </label>
       <select id="courseSelect" multiple placeholder="Filter by discipline/course"></select>
-      <select id="campusSelect" multiple placeholder="Filter by campus"></select>
       <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
+      <button id="heatmap-clear-btn" type="button">Clear</button>
     </div>
     <div id="heatmapContainer"></div>
     <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
@@ -181,19 +124,24 @@
   <div id="linechart-tool" style="display:none;">
     <h2>Course Duration Line Chart</h2>
     <div id="linechart-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <label>Campus:
+        <select id="linechart-campus-select"></select>
+      </label>
       <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
-      <select id="lineCampusSelect" multiple placeholder="Filter by campus"></select>
+      <button id="linechart-clear-btn" type="button">Clear</button>
     </div>
     <div id="chart-container">
       <canvas id="lineChartCanvas" style="width:100%; height:100%;"></canvas>
     </div>
   </div>
 
-  <!-- Correct script order: jQuery first, then DataTables, then Choices.js, then PapaParse, then custom scripts -->
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+  <!-- Tooltip for class blocks -->
+  <div id="class-block-tooltip" class="class-block-tooltip"></div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
   <script src="js/parser.js"></script>
   <script src="js/app.js"></script>
 </body>
