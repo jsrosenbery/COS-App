@@ -26,6 +26,7 @@
       height: 600px;
       margin: auto;
     }
+    /* Modal styles for conflict checker */
     #conflict-check-btn {
       background: #db4437;
       color: white;
@@ -40,7 +41,6 @@
     #conflict-check-btn:hover {
       background: #b9382c;
     }
-    /* Modal styles */
     .modal {
       display: none;
       position: fixed;
@@ -95,10 +95,6 @@
       background: #ffe5e5;
       transition: background 0.2s;
     }
-    .conflict-details {
-      font-size: 0.93em;
-      color: #555;
-    }
     .export-btn {
       background: #388e3c;
       color: #fff;
@@ -112,21 +108,6 @@
     }
     .export-btn:hover {
       background: #246b27;
-    }
-    /* Tooltip for class blocks */
-    .class-block-tooltip {
-      display: none;
-      position: absolute;
-      z-index: 9999;
-      background: #222;
-      color: #fff;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 0.95em;
-      pointer-events: none;
-      white-space: pre-line;
-      max-width: 350px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -155,22 +136,64 @@
     <h3>Check Room Availability</h3>
     <div class="days">
       <label><input type="checkbox" value="Sunday"> Sun</label>
-      <!-- ... rest of your days ... -->
+      <label><input type="checkbox" value="Monday"> Mon</label>
+      <label><input type="checkbox" value="Tuesday"> Tue</label>
+      <label><input type="checkbox" value="Wednesday"> Wed</label>
+      <label><input type="checkbox" value="Thursday"> Thu</label>
+      <label><input type="checkbox" value="Friday"> Fri</label>
+      <label><input type="checkbox" value="Saturday"> Sat</label>
     </div>
+    <div class="times">
+      <label>Start: <input type="time" id="avail-start" step="300"></label>
+      <label>End:   <input type="time" id="avail-end"   step="300"></label>
+      <button id="avail-check-btn">Check</button>
+      <button id="avail-clear-btn">Clear</button>
+    </div>
+    <div id="avail-results" class="avail-results"></div>
   </div>
-  
-  <button id="conflict-check-btn">Check Conflicts</button>
 
-  <!-- Conflict Modal -->
+  <div id="schedule-container">
+    <table id="schedule-table"></table>
+  </div>
+
+  <!-- Conflict Checker Button and Modal -->
+  <button id="conflict-check-btn">Check Conflicts</button>
   <div id="conflict-modal" class="modal">
     <div class="modal-content">
       <span class="close-modal" id="close-conflict-modal">&times;</span>
       <h2>Schedule Conflicts</h2>
       <div id="conflict-results"></div>
-      <button class="export-btn" id="export-conflicts-btn">Export to CSV</button>
+      <button class="export-btn" id="export-conflicts-btn" style="display:none;">Export to CSV</button>
     </div>
   </div>
 
+  <div id="heatmap-tool" style="display:none;">
+    <h2>Course Offerings Heatmap & Table</h2>
+    <div id="controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <select id="courseSelect" multiple placeholder="Filter by discipline/course"></select>
+      <select id="campusSelect" multiple placeholder="Filter by campus"></select>
+      <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
+    </div>
+    <div id="heatmapContainer"></div>
+    <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
+  </div>
+
+  <div id="linechart-tool" style="display:none;">
+    <h2>Course Duration Line Chart</h2>
+    <div id="linechart-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
+      <select id="lineCampusSelect" multiple placeholder="Filter by campus"></select>
+    </div>
+    <div id="chart-container">
+      <canvas id="lineChartCanvas" style="width:100%; height:100%;"></canvas>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
+  <script src="js/parser.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
