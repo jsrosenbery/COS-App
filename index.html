@@ -26,12 +26,10 @@
       height: 600px;
       margin: auto;
     }
-    /* Scrollable dropdowns for heatmap filters */
     #heatmap-tool .choices__list--dropdown {
       max-height: 300px;
       overflow-y: auto;
     }
-    /* Clear button for Heatmap and Line Chart filter bars */
     #heatmap-clear-btn, #linechart-clear-btn {
       padding: 5px 16px;
       font-size: 1rem;
@@ -45,7 +43,6 @@
     #heatmap-clear-btn:hover, #linechart-clear-btn:hover {
       background: #e0e0e0;
     }
-    /* Tooltip for class blocks */
     .class-block-tooltip {
       display: none;
       position: absolute;
@@ -59,6 +56,45 @@
       white-space: pre-line;
       max-width: 350px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    }
+    /* Week calendar styles */
+    .week-calendar-nav {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 10px;
+    }
+    .week-calendar-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+    }
+    .week-calendar-table th, .week-calendar-table td {
+      border: 1px solid #ccc;
+      text-align: center;
+      min-width: 100px;
+      height: 40px;
+      vertical-align: top;
+      position: relative;
+      background: #fff;
+    }
+    .week-calendar-table th {
+      background: #f0f0f0;
+      font-size: 1rem;
+    }
+    .week-event-block {
+      background: #ffa500;
+      color: #222;
+      border: 1px solid #003366;
+      border-radius: 4px;
+      padding: 2px 4px;
+      font-size: 0.9rem;
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      z-index: 1;
+      top: 2px;
+      margin-bottom: 2px;
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -74,6 +110,7 @@
     <label for="viewSelect">View: </label>
     <select id="viewSelect">
       <option value="calendar">Calendar</option>
+      <option value="week">Week</option>
       <option value="heatmap">Heatmap</option>
       <option value="linechart">Line Chart (Course Durations)</option>
     </select>
@@ -105,6 +142,17 @@
 
   <div id="schedule-container">
     <table id="schedule-table"></table>
+  </div>
+
+  <!-- WEEK VIEW CALENDAR -->
+  <div id="week-calendar-container" style="display:none;">
+    <div class="week-calendar-nav">
+      <button id="prev-week-btn">&lt; Previous Week</button>
+      <span id="week-label"></span>
+      <button id="today-week-btn">Today</button>
+      <button id="next-week-btn">Next Week &gt;</button>
+    </div>
+    <table id="week-calendar-table" class="week-calendar-table"></table>
   </div>
 
   <div id="heatmap-tool" style="display:none;">
