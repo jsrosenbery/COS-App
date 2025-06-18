@@ -1,5 +1,4 @@
 // COS-App js/app.js
-// --- Calendar, Week, Heatmap, Line Chart ---
 
 let hmRaw = [];
 let hmTable;
@@ -9,7 +8,6 @@ let lineChartInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
-// ----------------- HELPER FUNCTIONS -----------------
 function parseHour(t) {
   if (!t) return null;
   t = t.trim();
@@ -25,6 +23,7 @@ function parseHour(t) {
   }
   return h + min/60;
 }
+
 function getTimeRangeFromData(data) {
   let min = 24, max = 0;
   data.forEach(r => {
@@ -38,16 +37,24 @@ function getTimeRangeFromData(data) {
   if (min > 6) min = 6;
   return [min, max];
 }
+
+// Enhanced: Try all case/underscore variants for robust field extraction
 function extractField(r, keys) {
   for (const k of keys) {
     if (r[k] && typeof r[k] === 'string' && r[k].trim()) return r[k].trim();
+    // Try lower case
     if (r[k.toLowerCase()] && typeof r[k.toLowerCase()] === 'string' && r[k.toLowerCase()].trim()) return r[k.toLowerCase()].trim();
+    // Try upper case
     if (r[k.toUpperCase()] && typeof r[k.toUpperCase()] === 'string' && r[k.toUpperCase()].trim()) return r[k.toUpperCase()].trim();
+    // Try snake_case
     if (r[k.replace(/\s+/g, '_')] && typeof r[k.replace(/\s+/g, '_')] === 'string' && r[k.replace(/\s+/g, '_')].trim()) return r[k.replace(/\s+/g, '_')].trim();
+    // Try lower_snake
     if (r[k.replace(/\s+/g, '_').toLowerCase()] && typeof r[k.replace(/\s+/g, '_').toLowerCase()] === 'string' && r[k.replace(/\s+/g, '_').toLowerCase()].trim()) return r[k.replace(/\s+/g, '_').toLowerCase()].trim();
   }
   return '';
 }
+
+// Utility: get unique campuses from data
 function getUniqueCampuses(data) {
   const campuses = new Set();
   data.forEach(r => {
@@ -56,313 +63,7 @@ function getUniqueCampuses(data) {
   });
   return Array.from(campuses).sort();
 }
-function getStartOfWeek(date) {
-  const d = new Date(date);
-  d.setHours(0,0,0,0);
-  d.setDate(d.getDate() - d.getDay());
-  return d;
-}
-function parseTime(t) {
-  if (!t) return NaN;
-  const [h,m] = t.split(':').map(Number);
-  return h*60 + m;
-}
-function format12(t) {
-  if (!t) return '';
-  let [h,m] = t.split(':').map(Number);
-  const ap = h<12 ? 'AM':'PM';
-  h = ((h+11)%12)+1;
-  return `${h}:${('0'+m).slice(-2)}${ap}`;
-}
 
-// ----------------- HEATMAP & LINE CHART CORE -----------------
-function updateHeatmap() {
-  const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
-  const [minHour, maxHour] = getTimeRangeFromData(filtered.map(row => ({
-    Start_Time: row[4]?.split('-')[0],
-    End_Time: row[4]?.split('-')[1]
-  })));
-  const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
-  const counts = {};
-  hmDays.forEach(d => counts[d] = hours.map(() => 0));
-  filtered.forEach(row => {
-    const [ course, bld, room, daysStr, timeStr ] = row;
-    const dayList = daysStr.split(',');
-    const timeParts = timeStr.split('-');
-    const st = timeParts[0]?.trim();
-    const en = timeParts[1]?.trim();
-    if (!st || !en) return;
-    if (parseHour(st) === parseHour(en)) return;
-    const m = st.match(/(\d{2}):(\d{2})/);
-    if(!m) return;
-    const hr = parseInt(m[1],10);
-    dayList.forEach(d => {
-      const hIndex = hours.indexOf(hr);
-      if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
-    });
-  });
-  const maxC = Math.max(...Object.values(counts).flat());
-  let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
-  html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
-  hours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
-  html+='</tr></thead><tbody>';
-  hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
-  html+='</tbody></table>';
-  document.getElementById('heatmapContainer').innerHTML = html;
-}
-function initHeatmap() {
-  hmChoices = new Choices('#courseSelect', {
-    removeItemButton: true,
-    searchEnabled: true,
-    placeholderValue: 'Filter by discipline/course',
-    callbackOnCreateTemplates: function(template) {
-      return {
-        choice: (classNames, data) => {
-          return template(`
-            <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
-              ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
-              data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
-              role="option">
-              <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
-              <span>${data.label}</span>
-            </div>
-          `);
-        }
-      }
-    }
-  });
-  if(hmTable) {
-    hmTable.destroy();
-    $('#dataTable').empty();
-  }
-  hmTable = $('#dataTable').DataTable({
-    data: [],
-    columns: [
-      { title: 'Course' },
-      { title: 'Building' },
-      { title: 'Room' },
-      { title: 'Days' },
-      { title: 'Time' }
-    ],
-    destroy: true,
-    searching: true
-  });
-  hmTable.on('search.dt', updateHeatmap);
-}
-function initLineChartChoices() {
-  lineCourseChoices = new Choices('#lineCourseSelect', {
-    removeItemButton: true,
-    searchEnabled: true,
-    placeholderValue: 'Filter by discipline/course',
-    callbackOnCreateTemplates: function(template) {
-      return {
-        choice: (classNames, data) => {
-          return template(`
-            <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
-              ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
-              data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
-              role="option">
-              <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
-              <span>${data.label}</span>
-            </div>
-          `);
-        }
-      }
-    }
-  });
-}
-function updateAllHeatmap() {
-  const selectedCampus = document.getElementById('heatmap-campus-select')?.value || '';
-  let filteredCampus = selectedCampus
-    ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
-    : hmRaw;
-
-  const selected = hmChoices.getValue(true);
-  const rows = filteredCampus.filter(r => {
-    if(selected.length && !selected.includes(r.key)) return false;
-    if(!r.Building || !r.Room) return false;
-    const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
-    if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
-    return true;
-  }).map(r => [r.key, r.Building, r.Room, r.Days.join(','), r.Start_Time + '-' + r.End_Time]);
-  hmTable.clear().rows.add(rows).draw();
-}
-function feedHeatmapTool(dataArray) {
-  hmRaw = dataArray.map(r => {
-    const parts = (r.Subject_Course || '').trim().split(/\s+/);
-    const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
-    let daysVal = r.Days;
-    if (typeof daysVal === 'string') daysVal = daysVal.split(',').map(s => s.trim());
-    const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
-    const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
-    const endDate = extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
-    const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
-    const building = r.Building || r.BUILDING || '';
-    const room = r.Room || r.ROOM || '';
-    let startTime = r.Start_Time || '';
-    let endTime = r.End_Time || '';
-    if ((!startTime || !endTime) && r.Time) {
-      let parts = r.Time.split('-');
-      if (parts.length === 2) {
-        startTime = startTime || parts[0].trim();
-        endTime = endTime || parts[1].trim();
-      }
-    }
-    return {
-      key,
-      Subject_Course: r.Subject_Course || '',
-      CRN: r.CRN || '',
-      Building: building,
-      Room: room,
-      Days: daysVal || [],
-      Start_Time: startTime,
-      End_Time: endTime,
-      Title: title,
-      Start_Date: startDate,
-      End_Date: endDate,
-      Instructor: instructor,
-      Campus: extractField(r, ['Campus', 'campus', 'CAMPUS'])
-    };
-  }).filter(r => {
-    let dayField = r.Days;
-    if (Array.isArray(dayField)) dayField = dayField.join(',');
-    if (typeof dayField !== 'string') dayField = '';
-    const cleaned = dayField.replace(/\s/g, '');
-    if (cleaned === 'X' || cleaned === 'XX') return false;
-    if (/^(X,)+X$/.test(cleaned)) return false;
-    if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
-    return true;
-  });
-  const campuses = getUniqueCampuses(hmRaw);
-  const heatmapCampusSelect = document.getElementById('heatmap-campus-select');
-  const linechartCampusSelect = document.getElementById('linechart-campus-select');
-  [heatmapCampusSelect, linechartCampusSelect].forEach(sel => {
-    if (!sel) return;
-    sel.innerHTML = '<option value="">All</option>' +
-      campuses.map(c => `<option value="${c}">${c}</option>`).join('');
-  });
-  const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
-  const items = uniqueKeys.map(k => ({
-    value: k,
-    label: k
-  }));
-  if (hmChoices) {
-    hmChoices.setChoices(items, 'value', 'label', true);
-  }
-  if (lineCourseChoices) {
-    lineCourseChoices.setChoices(items, 'value', 'label', true);
-  }
-  updateAllHeatmap();
-  renderLineChart();
-}
-function renderLineChart() {
-  const selectedCampus = document.getElementById('linechart-campus-select')?.value || '';
-  let filteredCampus = selectedCampus
-    ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
-    : hmRaw;
-  const chartDiv = document.getElementById('lineChartCanvas');
-  if (lineChartInstance) {
-    lineChartInstance.destroy();
-    lineChartInstance = null;
-  }
-  const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
-  const filtered = filteredCampus.filter(r => {
-    if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
-    if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
-    if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
-    return true;
-  });
-  const [minHour, maxHour] = getTimeRangeFromData(filtered);
-  const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
-  const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  let counts = {};
-  daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
-  filtered.forEach(rec => {
-    let recDays = Array.isArray(rec.Days) ? rec.Days : (typeof rec.Days === "string" ? rec.Days.split(',') : []);
-    if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !daysOfWeek.includes(recDays[0])) {
-      const abbrevDayMap = { 'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday' };
-      recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
-    }
-    const startHour = parseHour(rec.Start_Time);
-    const endHour = parseHour(rec.End_Time);
-    if (startHour == null || endHour == null) return;
-    if (startHour === endHour) return;
-    recDays.forEach(day => {
-      if (!day || !daysOfWeek.includes(day)) return;
-      hours.forEach(h => {
-        if (h >= Math.floor(startHour) && h < endHour) {
-          counts[day+'-'+h] += 1;
-        }
-      });
-    });
-  });
-  const ctx = chartDiv.getContext('2d');
-  const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
-  const colorList = [
-    "#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2"
-  ];
-  const datasets = daysOfWeek.map((day, idx) => ({
-    label: day,
-    data: hours.map(h => counts[day+'-'+h]),
-    fill: false,
-    borderColor: colorList[idx % colorList.length],
-    backgroundColor: colorList[idx % colorList.length],
-    tension: 0.3,
-    pointRadius: 2,
-    borderWidth: 2
-  }));
-  let maxY = 0;
-  datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
-  let tickCount = Math.max(3, Math.min(6, maxY));
-  let stepSize = 1;
-  let yMax = 1;
-  if (maxY <= 3) {
-    tickCount = 3;
-    yMax = 3;
-    stepSize = 1;
-  } else {
-    stepSize = Math.ceil(maxY / (tickCount - 1));
-    yMax = stepSize * (tickCount - 1);
-    if (yMax < maxY) {
-      yMax += stepSize;
-    }
-  }
-  lineChartInstance = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom' },
-        tooltip: {
-          enabled: true,
-          callbacks: {
-            label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
-          }
-        }
-      },
-      layout: { padding: 0 },
-      scales: {
-        x: { title: { display: true, text: 'Time of Day' }, ticks: { font: { size: 10 } } },
-        y: {
-          min: 0,
-          max: yMax,
-          title: { display: true, text: 'Concurrent Courses' },
-          beginAtZero: true,
-          ticks: {
-            stepSize: stepSize,
-            maxTicksLimit: tickCount,
-            padding: 2,
-            font: { size: 10 }
-          }
-        }
-      }
-    }
-  });
-}
-
-// ----------------- MAIN APP -----------------
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -372,9 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const daysOfWeek = [...hmDays];
   let currentData = [];
   let currentTerm = '';
-  let selectedWeekStart = getStartOfWeek(new Date());
 
-  // DOM refs
   const tabs         = document.getElementById('term-tabs');
   const uploadDiv    = document.getElementById('upload-container');
   const tsDiv        = document.getElementById('upload-timestamp');
@@ -386,12 +85,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const resultsDiv   = document.getElementById('avail-results');
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
-  const weekContainer = document.getElementById('week-calendar-container');
-  const weekTable = document.getElementById('week-calendar-table');
-  const weekLabel = document.getElementById('week-label');
-  const prevWeekBtn = document.getElementById('prev-week-btn');
-  const nextWeekBtn = document.getElementById('next-week-btn');
-  const todayWeekBtn = document.getElementById('today-week-btn');
 
   initHeatmap();
   initLineChartChoices();
@@ -434,34 +127,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('heatmap-tool').style.display = (this.value === 'heatmap') ? 'block' : 'none';
     document.getElementById('schedule-container').style.display = (this.value === 'calendar') ? '' : 'none';
     document.getElementById('availability-ui').style.display = (this.value === 'calendar') ? '' : 'none';
-    document.getElementById('room-filter').style.display = (this.value === 'calendar' || this.value === 'week') ? '' : 'none';
-    document.getElementById('upload-container').style.display = (this.value === 'calendar' || this.value === 'week') ? '' : 'none';
-    document.getElementById('upload-timestamp').style.display = (this.value === 'calendar' || this.value === 'week') ? '' : 'none';
+    document.getElementById('room-filter').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('upload-container').style.display = (this.value === 'calendar') ? '' : 'none';
+    document.getElementById('upload-timestamp').style.display = (this.value === 'calendar') ? '' : 'none';
     document.getElementById('linechart-tool').style.display = (this.value === 'linechart') ? 'block' : 'none';
-    weekContainer.style.display = (this.value === 'week') ? '' : 'none';
-    if (this.value === 'linechart') renderLineChart();
-    if (this.value === 'week') renderWeekCalendar();
+    if (this.value === 'linechart') {
+      renderLineChart();
+    }
   });
 
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
-
-  // Apply room filter for both calendar and week view
-  function buildRoomDropdown() {
-    const combos = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))].sort();
-    roomDiv.innerHTML = `<label>Filter Bldg-Room:
-      <select id="room-select">
-        <option>All</option>
-        ${combos.map(r => `<option>${r}</option>`).join('')}
-      </select></label>`;
-    document.getElementById('room-select').onchange = function() {
-      renderSchedule();
-      renderWeekCalendar();
-    };
-  }
-
-  prevWeekBtn.onclick = () => { selectedWeekStart.setDate(selectedWeekStart.getDate() - 7); renderWeekCalendar(); };
-  nextWeekBtn.onclick = () => { selectedWeekStart.setDate(selectedWeekStart.getDate() + 7); renderWeekCalendar(); };
-  todayWeekBtn.onclick = () => { selectedWeekStart = getStartOfWeek(new Date()); renderWeekCalendar(); };
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
@@ -478,14 +153,13 @@ document.addEventListener('DOMContentLoaded', () => {
       buildRoomDropdown();
       renderSchedule();
       feedHeatmapTool(currentData);
-      renderWeekCalendar();
     } else {
       currentData = [];
       tsDiv.textContent = '';
       roomDiv.innerHTML = '';
-      renderWeekCalendar();
     }
   }
+
   function setupUpload() {
     roomDiv.innerHTML = '';
     uploadDiv.innerHTML = `<label>Upload CSV for ${currentTerm}: <input type="file" id="file-input" accept=".csv"></label>`;
@@ -496,7 +170,6 @@ document.addEventListener('DOMContentLoaded', () => {
         buildRoomDropdown();
         renderSchedule();
         feedHeatmapTool(currentData);
-        renderWeekCalendar();
         localStorage.setItem(
           'cos_schedule_' + currentTerm,
           JSON.stringify({ data: currentData, timestamp: tsDiv.textContent })
@@ -504,6 +177,19 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     };
   }
+
+  function buildRoomDropdown() {
+    const combos = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))].sort();
+    roomDiv.innerHTML = `
+      <label>Filter Bldg-Room:
+        <select id="room-select">
+          <option>All</option>
+          ${combos.map(r => `<option>${r}</option>`).join('')}
+        </select>
+      </label>`;
+    document.getElementById('room-select').onchange = renderSchedule;
+  }
+
   function clearSchedule() {
     table.innerHTML = '';
     container.querySelectorAll('.class-block').forEach(e => e.remove());
@@ -518,6 +204,8 @@ document.addEventListener('DOMContentLoaded', () => {
       daysOfWeek.forEach(() => row.insertCell());
     }
   }
+
+  // Overlap-aware tile sizing logic
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
@@ -549,12 +237,16 @@ document.addEventListener('DOMContentLoaded', () => {
         seen.add(key);
         return true;
       });
+
+      // For each event, determine its overlap group
       evs.forEach((ev, i) => {
         ev.overlaps = evs.filter(other =>
           !(other.endMin <= ev.startMin || other.startMin >= ev.endMin)
         );
         ev.overlaps.sort((a, b) => a.startMin - b.startMin);
       });
+
+      // Assign a column index within each overlap group
       evs.forEach(ev => {
         let columns = [];
         ev.overlaps.forEach(overlapEv => {
@@ -576,6 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
       });
+
       evs.forEach(ev => {
         const offset = ev.startMin - 360;
         const rowIndex = Math.floor(offset/30) + 1;
@@ -593,16 +286,22 @@ document.addEventListener('DOMContentLoaded', () => {
         b.style.left   = `${leftPx}px`;
         b.style.width  = `${widthPx}px`;
         b.style.height = `${heightPx}px`;
+
+        // Use robust field extraction for all possible case/snake variants
         const title = extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
         const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
         const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
         const endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+
+        // Tile content: REMOVE title and dates from tile, keep on popup
         b.innerHTML = `
           <span style="font-weight:bold;">${ev.Subject_Course || ''}</span><br>
           <span>CRN: ${ev.CRN || ''}</span><br>
           <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
           <span>${instructor}</span>
         `;
+
+        // Tooltip content (unchanged: still shows title and dates)
         const tooltipContent = `
 <b>${ev.Subject_Course || ''}</b><br>
 ${title ? `<span>${title}</span><br>` : ''}
@@ -611,10 +310,12 @@ Time: ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}<br>
 Date Range: ${startDate || 'N/A'} - ${endDate || 'N/A'}<br>
 Instructor: ${instructor || 'N/A'}
         `.trim();
+
         b.addEventListener('mouseenter', function(e) {
           const tooltip = document.getElementById('class-block-tooltip');
           tooltip.innerHTML = tooltipContent;
           tooltip.style.display = 'block';
+          // Position tooltip
           const rect = b.getBoundingClientRect();
           tooltip.style.left = (rect.right + window.scrollX + 8) + 'px';
           tooltip.style.top = (rect.top + window.scrollY - 10) + 'px';
@@ -628,104 +329,12 @@ Instructor: ${instructor || 'N/A'}
           tooltip.style.left = (e.pageX + 12) + 'px';
           tooltip.style.top = (e.pageY + 12) + 'px';
         });
+
         container.appendChild(b);
       });
     });
   }
-  function renderWeekCalendar() {
-    // --- Apply room filter just like classic calendar ---
-    const filt = document.getElementById('room-select')?.value || 'All';
-    const data = filt === 'All'
-      ? currentData
-      : currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
 
-    const startHour = 7, endHour = 22;
-    const intervals = (endHour - startHour) * 2;
-    weekTable.innerHTML = "";
-    const header = weekTable.insertRow();
-    header.insertCell().outerHTML = '<th></th>';
-    for (let d = 0; d < 7; ++d) {
-      const dayDate = new Date(selectedWeekStart);
-      dayDate.setDate(dayDate.getDate() + d);
-      header.insertCell().outerHTML = `<th>${daysOfWeek[d]}<br><span style="font-size:0.9em;color:#666;">${dayDate.getMonth()+1}/${dayDate.getDate()}</span></th>`;
-    }
-    for (let i = 0; i < intervals; ++i) {
-      const row = weekTable.insertRow();
-      const mins = startHour * 60 + i * 30;
-      const hh = Math.floor(mins / 60);
-      const mm = mins % 60;
-      const h12 = ((hh+11)%12)+1, ap = hh < 12 ? 'AM':'PM';
-      row.insertCell().outerHTML = `<th>${h12}:${('0'+mm).slice(-2)}${ap}</th>`;
-      for (let d = 0; d < 7; ++d) {
-        const cell = row.insertCell();
-        cell.style.position = "relative";
-      }
-    }
-    const weekEnd = new Date(selectedWeekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    weekLabel.textContent = `${selectedWeekStart.getMonth()+1}/${selectedWeekStart.getDate()}/${selectedWeekStart.getFullYear()} - ${weekEnd.getMonth()+1}/${weekEnd.getDate()}/${weekEnd.getFullYear()}`;
-
-    for (let i = 0; i < data.length; ++i) {
-      const ev = data[i];
-      let eventDays = ev.Days || [];
-      if (!Array.isArray(eventDays)) eventDays = String(eventDays).split(',').map(x => x.trim());
-      for (let d = 0; d < 7; ++d) {
-        const dow = daysOfWeek[d];
-        if (!eventDays.includes(dow)) continue;
-        let show = true;
-        if (ev.Start_Date && ev.End_Date) {
-          const startDate = new Date(ev.Start_Date);
-          const endDate = new Date(ev.End_Date);
-          const cellDate = new Date(selectedWeekStart);
-          cellDate.setDate(cellDate.getDate() + d);
-          show = cellDate >= startDate && cellDate <= endDate;
-        }
-        if (!show) continue;
-        const startMin = parseTime(ev.Start_Time);
-        const endMin = parseTime(ev.End_Time);
-        if (isNaN(startMin) || isNaN(endMin)) continue;
-        if (endMin <= startHour*60 || startMin >= endHour*60) continue;
-        // Shrink grid by 25%: 40px -> 30px
-        const s = Math.max(0, Math.floor((startMin - startHour*60)/30));
-        const e = Math.min(intervals, Math.ceil((endMin - startHour*60)/30));
-        for (let slotIdx = s; slotIdx < e; ++slotIdx) {
-          const cell = weekTable.rows[slotIdx+1]?.cells[d+1];
-          if (!cell) continue;
-          if (slotIdx === s) {
-            const block = document.createElement('div');
-            block.className = 'week-event-block';
-            block.style.height = ((e-s)*30-4) + "px"; // reduced from 40 to 30
-            block.innerHTML = `<span style="font-weight:bold;">${ev.Subject_Course || ''}</span><br>
-              <span style="font-size:0.93em;">${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
-              ${ev.Building || ev.BUILDING}-${ev.Room || ev.ROOM}<br>
-              <span style="font-size:0.93em;">${extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']) || ''}</span>`;
-            block.addEventListener('mouseenter', function(e) {
-              const tooltip = document.getElementById('class-block-tooltip');
-              tooltip.innerHTML = `<b>${ev.Subject_Course || ''}</b><br>
-                CRN: ${ev.CRN || ''}<br>
-                Time: ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}<br>
-                ${ev.Building || ev.BUILDING}-${ev.Room || ev.ROOM}<br>
-                Instructor: ${extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']) || 'N/A'}`;
-              tooltip.style.display = 'block';
-              const rect = block.getBoundingClientRect();
-              tooltip.style.left = (rect.right + window.scrollX + 8) + 'px';
-              tooltip.style.top = (rect.top + window.scrollY - 10) + 'px';
-            });
-            block.addEventListener('mouseleave', function() {
-              const tooltip = document.getElementById('class-block-tooltip');
-              tooltip.style.display = 'none';
-            });
-            block.addEventListener('mousemove', function(e) {
-              const tooltip = document.getElementById('class-block-tooltip');
-              tooltip.style.left = (e.pageX + 12) + 'px';
-              tooltip.style.top = (e.pageY + 12) + 'px';
-            });
-            cell.appendChild(block);
-          }
-        }
-      }
-    }
-  }
   function handleAvailability() {
     resultsDiv.textContent = '';
     const days = Array.from(
@@ -757,5 +366,319 @@ Instructor: ${instructor || 'N/A'}
     } else {
       resultsDiv.textContent = 'No rooms available.';
     }
+  }
+
+  function parseTime(t) {
+    const [h,m] = t.split(':').map(Number);
+    return h*60 + m;
+  }
+  function format12(t) {
+    let [h,m] = t.split(':').map(Number);
+    const ap = h<12 ? 'AM':'PM';
+    h = ((h+11)%12)+1;
+    return `${h}:${('0'+m).slice(-2)}${ap}`;
+  }
+
+  function initHeatmap() {
+    hmChoices = new Choices('#courseSelect', {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholderValue: 'Filter by discipline/course',
+      callbackOnCreateTemplates: function(template) {
+        return {
+          choice: (classNames, data) => {
+            return template(`
+              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
+                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
+                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+                role="option">
+                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
+                <span>${data.label}</span>
+              </div>
+            `);
+          }
+        }
+      }
+    });
+    if(hmTable) {
+      hmTable.destroy();
+      $('#dataTable').empty();
+    }
+    hmTable = $('#dataTable').DataTable({
+      data: [],
+      columns: [
+        { title: 'Course' },
+        { title: 'Building' },
+        { title: 'Room' },
+        { title: 'Days' },
+        { title: 'Time' }
+      ],
+      destroy: true,
+      searching: true
+    });
+    hmTable.on('search.dt', updateHeatmap);
+  }
+
+  function initLineChartChoices() {
+    lineCourseChoices = new Choices('#lineCourseSelect', {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholderValue: 'Filter by discipline/course',
+      callbackOnCreateTemplates: function(template) {
+        return {
+          choice: (classNames, data) => {
+            return template(`
+              <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
+                ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
+                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+                role="option">
+                <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
+                <span>${data.label}</span>
+              </div>
+            `);
+          }
+        }
+      }
+    });
+  }
+
+  function feedHeatmapTool(dataArray) {
+    hmRaw = dataArray.map(r => {
+      const parts = (r.Subject_Course || '').trim().split(/\s+/);
+      const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
+      let daysVal = r.Days;
+      if (typeof daysVal === 'string') daysVal = daysVal.split(',').map(s => s.trim());
+
+      // Use all relevant possible keys for each field:
+      const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
+      const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+      const endDate = extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+      const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
+
+      // Building and Room robust extraction
+      const building = r.Building || r.BUILDING || '';
+      const room = r.Room || r.ROOM || '';
+
+      // Start/End time robust extraction
+      let startTime = r.Start_Time || '';
+      let endTime = r.End_Time || '';
+      // If not present, try parsing from 'Time' column
+      if ((!startTime || !endTime) && r.Time) {
+        let parts = r.Time.split('-');
+        if (parts.length === 2) {
+          startTime = startTime || parts[0].trim();
+          endTime = endTime || parts[1].trim();
+        }
+      }
+
+      return {
+        key,
+        Subject_Course: r.Subject_Course || '',
+        CRN: r.CRN || '',
+        Building: building,
+        Room: room,
+        Days: daysVal || [],
+        Start_Time: startTime,
+        End_Time: endTime,
+        Title: title,
+        Start_Date: startDate,
+        End_Date: endDate,
+        Instructor: instructor,
+        Campus: extractField(r, ['Campus', 'campus', 'CAMPUS'])
+      };
+    }).filter(r => {
+      let dayField = r.Days;
+      if (Array.isArray(dayField)) dayField = dayField.join(',');
+      if (typeof dayField !== 'string') dayField = '';
+      const cleaned = dayField.replace(/\s/g, '');
+      if (cleaned === 'X' || cleaned === 'XX') return false;
+      if (/^(X,)+X$/.test(cleaned)) return false;
+      if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
+      return true;
+    });
+
+    // Populate campus dropdowns
+    const campuses = getUniqueCampuses(hmRaw);
+    const heatmapCampusSelect = document.getElementById('heatmap-campus-select');
+    const linechartCampusSelect = document.getElementById('linechart-campus-select');
+    [heatmapCampusSelect, linechartCampusSelect].forEach(sel => {
+      if (!sel) return;
+      sel.innerHTML = '<option value="">All</option>' +
+        campuses.map(c => `<option value="${c}">${c}</option>`).join('');
+    });
+
+    const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
+    const items = uniqueKeys.map(k => ({
+      value: k,
+      label: k
+    }));
+    if (hmChoices) {
+      hmChoices.setChoices(items, 'value', 'label', true);
+    }
+    if (lineCourseChoices) {
+      lineCourseChoices.setChoices(items, 'value', 'label', true);
+    }
+    updateAllHeatmap();
+    renderLineChart();
+  }
+
+  function updateAllHeatmap() {
+    const selectedCampus = document.getElementById('heatmap-campus-select')?.value || '';
+    let filteredCampus = selectedCampus
+      ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
+      : hmRaw;
+
+    const selected = hmChoices.getValue(true);
+    const rows = filteredCampus.filter(r => {
+      if(selected.length && !selected.includes(r.key)) return false;
+      if(!r.Building || !r.Room) return false;
+      const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
+      if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
+      return true;
+    }).map(r => [r.key, r.Building, r.Room, r.Days.join(','), r.Start_Time + '-' + r.End_Time]);
+    hmTable.clear().rows.add(rows).draw();
+  }
+
+  function updateHeatmap() {
+    const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
+    const [minHour, maxHour] = getTimeRangeFromData(filtered.map(row => ({
+      Start_Time: row[4]?.split('-')[0],
+      End_Time: row[4]?.split('-')[1]
+    })));
+    const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
+    const counts = {};
+    hmDays.forEach(d => counts[d] = hours.map(() => 0));
+    filtered.forEach(row => {
+      const [ course, bld, room, daysStr, timeStr ] = row;
+      const dayList = daysStr.split(',');
+      const timeParts = timeStr.split('-');
+      const st = timeParts[0]?.trim();
+      const en = timeParts[1]?.trim();
+      if (!st || !en) return;
+      if (parseHour(st) === parseHour(en)) return;
+      const m = st.match(/(\d{2}):(\d{2})/);
+      if(!m) return;
+      const hr = parseInt(m[1],10);
+      dayList.forEach(d => {
+        const hIndex = hours.indexOf(hr);
+        if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
+      });
+    });
+    const maxC = Math.max(...Object.values(counts).flat());
+    let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
+    html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
+    hours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
+    html+='</tr></thead><tbody>';
+    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
+    html+='</tbody></table>';
+    document.getElementById('heatmapContainer').innerHTML = html;
+  }
+
+  function renderLineChart() {
+    const selectedCampus = document.getElementById('linechart-campus-select')?.value || '';
+    let filteredCampus = selectedCampus
+      ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
+      : hmRaw;
+
+    const chartDiv = document.getElementById('lineChartCanvas');
+    if (lineChartInstance) {
+      lineChartInstance.destroy();
+      lineChartInstance = null;
+    }
+    const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
+    const filtered = filteredCampus.filter(r => {
+      if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
+      if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
+      if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
+      return true;
+    });
+    const [minHour, maxHour] = getTimeRangeFromData(filtered);
+    const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
+    const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    let counts = {};
+    daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
+    filtered.forEach(rec => {
+      let recDays = Array.isArray(rec.Days) ? rec.Days : (typeof rec.Days === "string" ? rec.Days.split(',') : []);
+      if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !daysOfWeek.includes(recDays[0])) {
+        const abbrevDayMap = { 'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday' };
+        recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
+      }
+      const startHour = parseHour(rec.Start_Time);
+      const endHour = parseHour(rec.End_Time);
+      if (startHour == null || endHour == null) return;
+      if (startHour === endHour) return;
+      recDays.forEach(day => {
+        if (!day || !daysOfWeek.includes(day)) return;
+        hours.forEach(h => {
+          if (h >= Math.floor(startHour) && h < endHour) {
+            counts[day+'-'+h] += 1;
+          }
+        });
+      });
+    });
+    const ctx = chartDiv.getContext('2d');
+    const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
+    const colorList = [
+      "#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2"
+    ];
+    const datasets = daysOfWeek.map((day, idx) => ({
+      label: day,
+      data: hours.map(h => counts[day+'-'+h]),
+      fill: false,
+      borderColor: colorList[idx % colorList.length],
+      backgroundColor: colorList[idx % colorList.length],
+      tension: 0.3,
+      pointRadius: 2,
+      borderWidth: 2
+    }));
+    let maxY = 0;
+    datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
+    let tickCount = Math.max(3, Math.min(6, maxY));
+    let stepSize = 1;
+    let yMax = 1;
+    if (maxY <= 3) {
+      tickCount = 3;
+      yMax = 3;
+      stepSize = 1;
+    } else {
+      stepSize = Math.ceil(maxY / (tickCount - 1));
+      yMax = stepSize * (tickCount - 1);
+      if (yMax < maxY) {
+        yMax += stepSize;
+      }
+    }
+    lineChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            enabled: true,
+            callbacks: {
+              label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
+            }
+          }
+        },
+        layout: { padding: 0 },
+        scales: {
+          x: { title: { display: true, text: 'Time of Day' }, ticks: { font: { size: 10 } } },
+          y: {
+            min: 0,
+            max: yMax,
+            title: { display: true, text: 'Concurrent Courses' },
+            beginAtZero: true,
+            ticks: {
+              stepSize: stepSize,
+              maxTicksLimit: tickCount,
+              padding: 2,
+              font: { size: 10 }
+            }
+          }
+        }
+      }
+    });
   }
 });
