@@ -9,7 +9,44 @@ let lineChartInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
-// --- MOVE THESE DEFINITIONS UP TO FIX REFERENCE ERRORS ---
+// --- HEATMAP/LISTENER UTILS ---
+// Ensure all helper functions are defined BEFORE they are used!
+
+function updateHeatmap() {
+  const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
+  const [minHour, maxHour] = getTimeRangeFromData(filtered.map(row => ({
+    Start_Time: row[4]?.split('-')[0],
+    End_Time: row[4]?.split('-')[1]
+  })));
+  const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
+  const counts = {};
+  hmDays.forEach(d => counts[d] = hours.map(() => 0));
+  filtered.forEach(row => {
+    const [ course, bld, room, daysStr, timeStr ] = row;
+    const dayList = daysStr.split(',');
+    const timeParts = timeStr.split('-');
+    const st = timeParts[0]?.trim();
+    const en = timeParts[1]?.trim();
+    if (!st || !en) return;
+    if (parseHour(st) === parseHour(en)) return;
+    const m = st.match(/(\d{2}):(\d{2})/);
+    if(!m) return;
+    const hr = parseInt(m[1],10);
+    dayList.forEach(d => {
+      const hIndex = hours.indexOf(hr);
+      if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
+    });
+  });
+  const maxC = Math.max(...Object.values(counts).flat());
+  let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
+  html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
+  hours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
+  html+='</tr></thead><tbody>';
+  hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
+  html+='</tbody></table>';
+  document.getElementById('heatmapContainer').innerHTML = html;
+}
+
 function initHeatmap() {
   hmChoices = new Choices('#courseSelect', {
     removeItemButton: true,
@@ -72,22 +109,22 @@ function initLineChartChoices() {
     }
   });
 }
-// --- END: MOVE DEFINITIONS UP ---
 
-function parseHour(t) {
-  if (!t) return null;
-  t = t.trim();
-  let m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-  if (!m) return null;
-  let h = parseInt(m[1],10);
-  const min = parseInt(m[2],10);
-  const ampm = m[3] ? m[3].toUpperCase() : null;
-  if (ampm === "AM") {
-    if (h === 12) h = 0;
-  } else if (ampm === "PM") {
-    if (h !== 12) h += 12;
-  }
-  return h + min/60;
+function updateAllHeatmap() {
+  const selectedCampus = document.getElementById('heatmap-campus-select')?.value || '';
+  let filteredCampus = selectedCampus
+    ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
+    : hmRaw;
+
+  const selected = hmChoices.getValue(true);
+  const rows = filteredCampus.filter(r => {
+    if(selected.length && !selected.includes(r.key)) return false;
+    if(!r.Building || !r.Room) return false;
+    const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
+    if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
+    return true;
+  }).map(r => [r.key, r.Building, r.Room, r.Days.join(','), r.Start_Time + '-' + r.End_Time]);
+  hmTable.clear().rows.add(rows).draw();
 }
 
 function getTimeRangeFromData(data) {
@@ -120,7 +157,6 @@ function extractField(r, keys) {
   return '';
 }
 
-// Utility: get unique campuses from data
 function getUniqueCampuses(data) {
   const campuses = new Set();
   data.forEach(r => {
@@ -148,6 +184,209 @@ function format12(t) {
   const ap = h<12 ? 'AM':'PM';
   h = ((h+11)%12)+1;
   return `${h}:${('0'+m).slice(-2)}${ap}`;
+}
+function parseHour(t) {
+  if (!t) return null;
+  t = t.trim();
+  let m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!m) return null;
+  let h = parseInt(m[1],10);
+  const min = parseInt(m[2],10);
+  const ampm = m[3] ? m[3].toUpperCase() : null;
+  if (ampm === "AM") {
+    if (h === 12) h = 0;
+  } else if (ampm === "PM") {
+    if (h !== 12) h += 12;
+  }
+  return h + min/60;
+}
+
+function feedHeatmapTool(dataArray) {
+  hmRaw = dataArray.map(r => {
+    const parts = (r.Subject_Course || '').trim().split(/\s+/);
+    const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
+    let daysVal = r.Days;
+    if (typeof daysVal === 'string') daysVal = daysVal.split(',').map(s => s.trim());
+
+    // Use all relevant possible keys for each field:
+    const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
+    const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+    const endDate = extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+    const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
+
+    // Building and Room robust extraction
+    const building = r.Building || r.BUILDING || '';
+    const room = r.Room || r.ROOM || '';
+
+    // Start/End time robust extraction
+    let startTime = r.Start_Time || '';
+    let endTime = r.End_Time || '';
+    // If not present, try parsing from 'Time' column
+    if ((!startTime || !endTime) && r.Time) {
+      let parts = r.Time.split('-');
+      if (parts.length === 2) {
+        startTime = startTime || parts[0].trim();
+        endTime = endTime || parts[1].trim();
+      }
+    }
+
+    return {
+      key,
+      Subject_Course: r.Subject_Course || '',
+      CRN: r.CRN || '',
+      Building: building,
+      Room: room,
+      Days: daysVal || [],
+      Start_Time: startTime,
+      End_Time: endTime,
+      Title: title,
+      Start_Date: startDate,
+      End_Date: endDate,
+      Instructor: instructor,
+      Campus: extractField(r, ['Campus', 'campus', 'CAMPUS'])
+    };
+  }).filter(r => {
+    let dayField = r.Days;
+    if (Array.isArray(dayField)) dayField = dayField.join(',');
+    if (typeof dayField !== 'string') dayField = '';
+    const cleaned = dayField.replace(/\s/g, '');
+    if (cleaned === 'X' || cleaned === 'XX') return false;
+    if (/^(X,)+X$/.test(cleaned)) return false;
+    if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
+    return true;
+  });
+
+  // Populate campus dropdowns
+  const campuses = getUniqueCampuses(hmRaw);
+  const heatmapCampusSelect = document.getElementById('heatmap-campus-select');
+  const linechartCampusSelect = document.getElementById('linechart-campus-select');
+  [heatmapCampusSelect, linechartCampusSelect].forEach(sel => {
+    if (!sel) return;
+    sel.innerHTML = '<option value="">All</option>' +
+      campuses.map(c => `<option value="${c}">${c}</option>`).join('');
+  });
+
+  const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
+  const items = uniqueKeys.map(k => ({
+    value: k,
+    label: k
+  }));
+  if (hmChoices) {
+    hmChoices.setChoices(items, 'value', 'label', true);
+  }
+  if (lineCourseChoices) {
+    lineCourseChoices.setChoices(items, 'value', 'label', true);
+  }
+  updateAllHeatmap();
+  renderLineChart();
+}
+
+function renderLineChart() {
+  const selectedCampus = document.getElementById('linechart-campus-select')?.value || '';
+  let filteredCampus = selectedCampus
+    ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
+    : hmRaw;
+
+  const chartDiv = document.getElementById('lineChartCanvas');
+  if (lineChartInstance) {
+    lineChartInstance.destroy();
+    lineChartInstance = null;
+  }
+  const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
+  const filtered = filteredCampus.filter(r => {
+    if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
+    if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
+    if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
+    return true;
+  });
+  const [minHour, maxHour] = getTimeRangeFromData(filtered);
+  const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
+  const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  let counts = {};
+  daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
+  filtered.forEach(rec => {
+    let recDays = Array.isArray(rec.Days) ? rec.Days : (typeof rec.Days === "string" ? rec.Days.split(',') : []);
+    if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !daysOfWeek.includes(recDays[0])) {
+      const abbrevDayMap = { 'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday' };
+      recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
+    }
+    const startHour = parseHour(rec.Start_Time);
+    const endHour = parseHour(rec.End_Time);
+    if (startHour == null || endHour == null) return;
+    if (startHour === endHour) return;
+    recDays.forEach(day => {
+      if (!day || !daysOfWeek.includes(day)) return;
+      hours.forEach(h => {
+        if (h >= Math.floor(startHour) && h < endHour) {
+          counts[day+'-'+h] += 1;
+        }
+      });
+    });
+  });
+  const ctx = chartDiv.getContext('2d');
+  const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
+  const colorList = [
+    "#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2"
+  ];
+  const datasets = daysOfWeek.map((day, idx) => ({
+    label: day,
+    data: hours.map(h => counts[day+'-'+h]),
+    fill: false,
+    borderColor: colorList[idx % colorList.length],
+    backgroundColor: colorList[idx % colorList.length],
+    tension: 0.3,
+    pointRadius: 2,
+    borderWidth: 2
+  }));
+  let maxY = 0;
+  datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
+  let tickCount = Math.max(3, Math.min(6, maxY));
+  let stepSize = 1;
+  let yMax = 1;
+  if (maxY <= 3) {
+    tickCount = 3;
+    yMax = 3;
+    stepSize = 1;
+  } else {
+    stepSize = Math.ceil(maxY / (tickCount - 1));
+    yMax = stepSize * (tickCount - 1);
+    if (yMax < maxY) {
+      yMax += stepSize;
+    }
+  }
+  lineChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          enabled: true,
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
+          }
+        }
+      },
+      layout: { padding: 0 },
+      scales: {
+        x: { title: { display: true, text: 'Time of Day' }, ticks: { font: { size: 10 } } },
+        y: {
+          min: 0,
+          max: yMax,
+          title: { display: true, text: 'Concurrent Courses' },
+          beginAtZero: true,
+          ticks: {
+            stepSize: stepSize,
+            maxTicksLimit: tickCount,
+            padding: 2,
+            font: { size: 10 }
+          }
+        }
+      }
+    }
+  });
 }
 
 // ---- MAIN APP ----
@@ -587,8 +826,5 @@ Instructor: ${instructor || 'N/A'}
       resultsDiv.textContent = 'No rooms available.';
     }
   }
-
-  // --- Heatmap and line chart code ---
-  // (from your original app.js, unchanged - paste here if not present)
 
 });
