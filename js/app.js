@@ -360,7 +360,7 @@ Instructor: ${instructor || 'N/A'}
         }
       }
     });
-    const avail = rooms.filter(r => !occ.has(r));
+    const avail = rooms.filter(r => !occ.has(r)).sort();
     if (avail.length) {
       resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
     } else {
