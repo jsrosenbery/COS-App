@@ -9,6 +9,71 @@ let lineChartInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
+// --- MOVE THESE DEFINITIONS UP TO FIX REFERENCE ERRORS ---
+function initHeatmap() {
+  hmChoices = new Choices('#courseSelect', {
+    removeItemButton: true,
+    searchEnabled: true,
+    placeholderValue: 'Filter by discipline/course',
+    callbackOnCreateTemplates: function(template) {
+      return {
+        choice: (classNames, data) => {
+          return template(`
+            <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
+              ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
+              data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+              role="option">
+              <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
+              <span>${data.label}</span>
+            </div>
+          `);
+        }
+      }
+    }
+  });
+  if(hmTable) {
+    hmTable.destroy();
+    $('#dataTable').empty();
+  }
+  hmTable = $('#dataTable').DataTable({
+    data: [],
+    columns: [
+      { title: 'Course' },
+      { title: 'Building' },
+      { title: 'Room' },
+      { title: 'Days' },
+      { title: 'Time' }
+    ],
+    destroy: true,
+    searching: true
+  });
+  hmTable.on('search.dt', updateHeatmap);
+}
+
+function initLineChartChoices() {
+  lineCourseChoices = new Choices('#lineCourseSelect', {
+    removeItemButton: true,
+    searchEnabled: true,
+    placeholderValue: 'Filter by discipline/course',
+    callbackOnCreateTemplates: function(template) {
+      return {
+        choice: (classNames, data) => {
+          return template(`
+            <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
+              ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
+              data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+              role="option">
+              <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
+              <span>${data.label}</span>
+            </div>
+          `);
+        }
+      }
+    }
+  });
+}
+// --- END: MOVE DEFINITIONS UP ---
+
 function parseHour(t) {
   if (!t) return null;
   t = t.trim();
@@ -523,8 +588,7 @@ Instructor: ${instructor || 'N/A'}
     }
   }
 
-  // ... HEATMAP & LINECHART (unchanged) ...
+  // --- Heatmap and line chart code ---
+  // (from your original app.js, unchanged - paste here if not present)
 
-  // [Heatmap and line chart functions unchanged from your original file]
-  // ... keep your feedHeatmapTool, updateAllHeatmap, updateHeatmap, renderLineChart, etc. as in your original code ...
 });
