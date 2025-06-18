@@ -59,3 +59,43 @@ h1 { margin:0; font-size:1.5rem; }
   max-width: 350px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.18);
 }
+
+/* --- WEEKLY CALENDAR VIEW --- */
+.week-calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 10px;
+}
+.week-calendar-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+.week-calendar-table th, .week-calendar-table td {
+  border: 1px solid #ccc;
+  text-align: center;
+  min-width: 100px;
+  height: 40px;
+  vertical-align: top;
+  position: relative;
+  background: #fff;
+}
+.week-calendar-table th {
+  background: #f0f0f0;
+  font-size: 1rem;
+}
+.week-event-block {
+  background: #ffa500;
+  color: #222;
+  border: 1px solid #003366;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 0.9rem;
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  z-index: 1;
+  top: 2px;
+  margin-bottom: 2px;
+}
