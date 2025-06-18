@@ -446,11 +446,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
 
   // Apply room filter for both calendar and week view
-  document.getElementById('room-filter').addEventListener('change', function(e) {
-    renderSchedule();
-    renderWeekCalendar();
-  });
-  // But if you are adding #room-select late, add listener after building dropdown
   function buildRoomDropdown() {
     const combos = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))].sort();
     roomDiv.innerHTML = `<label>Filter Bldg-Room:
@@ -690,6 +685,7 @@ Instructor: ${instructor || 'N/A'}
         const endMin = parseTime(ev.End_Time);
         if (isNaN(startMin) || isNaN(endMin)) continue;
         if (endMin <= startHour*60 || startMin >= endHour*60) continue;
+        // Shrink grid by 25%: 40px -> 30px
         const s = Math.max(0, Math.floor((startMin - startHour*60)/30));
         const e = Math.min(intervals, Math.ceil((endMin - startHour*60)/30));
         for (let slotIdx = s; slotIdx < e; ++slotIdx) {
@@ -698,7 +694,7 @@ Instructor: ${instructor || 'N/A'}
           if (slotIdx === s) {
             const block = document.createElement('div');
             block.className = 'week-event-block';
-            block.style.height = ((e-s)*40-4) + "px";
+            block.style.height = ((e-s)*30-4) + "px"; // reduced from 40 to 30
             block.innerHTML = `<span style="font-weight:bold;">${ev.Subject_Course || ''}</span><br>
               <span style="font-size:0.93em;">${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
               ${ev.Building || ev.BUILDING}-${ev.Room || ev.ROOM}<br>
