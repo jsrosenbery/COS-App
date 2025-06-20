@@ -784,15 +784,32 @@ Instructor: ${instructor || 'N/A'}
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
       // Make end exclusive for FullCalendar
       end.setDate(end.getDate() + 1);
-      // Compose event
+      // Compose event with extra info for popup
+      const title = extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
+      const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
+      const subject_course = ev.Subject_Course || '';
+      const crn = ev.CRN || '';
+      const bldg_room = `${ev.Building || ''}-${ev.Room || ''}`;
+      const displayTime = `${format12(ev.Start_Time)} - ${format12(ev.End_Time)}`;
+      const startDateDisplay = startDate || 'N/A';
+      const endDateDisplay = endDate || 'N/A';
+
       events.push({
-        title: `${ev.Subject_Course || ''} CRN: ${ev.CRN || ''}\n${ev.Building || ''}-${ev.Room || ''}`,
+        title: `${subject_course} CRN: ${crn}\n${bldg_room}`,
         startTime: ev.Start_Time,
         endTime: ev.End_Time,
         daysOfWeek: daysArr.map(d => daysMap[d]),
         startRecur: start.toISOString().slice(0,10),
         endRecur: end.toISOString().slice(0,10),
-        description: ev.Title || ''
+        extendedProps: {
+          subject_course,
+          crn,
+          bldg_room,
+          displayTime,
+          instructor,
+          title,
+          dateRange: `${startDateDisplay} - ${endDateDisplay}`
+        }
       });
     });
     // Snap to official term start date if available, else fallback to today
@@ -810,9 +827,31 @@ Instructor: ${instructor || 'N/A'}
       height: 700,
       initialDate: initialDate,
       eventDidMount: function(info) {
-        if (info.event.extendedProps.description) {
-          info.el.title = info.event.extendedProps.description;
-        }
+        // Show popup tile like snapshot grid
+        info.el.addEventListener('mouseenter', function(e) {
+          const props = info.event.extendedProps;
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.innerHTML = `
+<b>${props.subject_course || ''}</b><br>
+${props.title ? `<span>${props.title}</span><br>` : ''}
+CRN: ${props.crn || ''}<br>
+Time: ${props.displayTime}<br>
+Date Range: ${props.dateRange}<br>
+Instructor: ${props.instructor || 'N/A'}
+          `.trim();
+          tooltip.style.display = 'block';
+          tooltip.style.left = (e.pageX + 12) + 'px';
+          tooltip.style.top  = (e.pageY + 12) + 'px';
+        });
+        info.el.addEventListener('mouseleave', function() {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.style.display = 'none';
+        });
+        info.el.addEventListener('mousemove', function(e) {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.style.left = (e.pageX + 12) + 'px';
+          tooltip.style.top  = (e.pageY + 12) + 'px';
+        });
       }
     });
     fullCalendarInstance.render();
