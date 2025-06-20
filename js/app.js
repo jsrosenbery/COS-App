@@ -11,9 +11,9 @@ const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Sat
 
 // --- Official Term Start Dates ---
 const termStartDates = {
-  'Summer 2025': '2025-06-01',
-  'Fall 2025': '2025-08-10',
-  'Spring 2026': '2026-01-19',
+  'Summer 2025': '2025-06-05',
+  'Fall 2025': '2025-08-11',
+  'Spring 2026': '2026-01-12',
   'Summer 2026': '2026-06-01',
   'Fall 2026': '2026-08-10',
   'Spring 2027': '2027-01-19',
