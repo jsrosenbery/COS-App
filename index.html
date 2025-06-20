@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/datatables.net-dt/css/jquery.dataTables.min.css"/>
+  <!-- FullCalendar CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
   <style>
     .choices__item--selectable input[type="checkbox"] {
       margin-right: 6px;
@@ -60,6 +62,15 @@
       max-width: 350px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.18);
     }
+    /* Calendar styling */
+    #calendar-container {
+      max-width: 1200px;
+      margin: 20px auto;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.09);
+      padding: 20px;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -72,12 +83,12 @@
   <nav id="term-tabs"></nav>
   <div id="view-container" style="margin:10px 0;">
     <label for="viewSelect">View: </label>
-  <select id="viewSelect">
-    <option value="calendar">Snapshot</option>
-    <option value="heatmap">Heatmap</option>
-    <option value="linechart">Line Chart (Course Durations)</option>
-    <option value="fullcalendar">Calendar</option>
-  </select>
+    <select id="viewSelect">
+      <option value="calendar">Snapshot</option>
+      <option value="heatmap">Heatmap</option>
+      <option value="linechart">Line Chart (Course Durations)</option>
+      <option value="fullcalendar">Calendar</option>
+    </select>
   </div>
 
   <div id="upload-container"></div>
@@ -106,6 +117,10 @@
 
   <div id="schedule-container">
     <table id="schedule-table"></table>
+  </div>
+
+  <div id="calendar-container" style="display:none;">
+    <div id="calendar"></div>
   </div>
 
   <div id="heatmap-tool" style="display:none;">
@@ -139,6 +154,8 @@
   <!-- Tooltip for class blocks -->
   <div id="class-block-tooltip" class="class-block-tooltip"></div>
 
+  <!-- FullCalendar JS -->
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
