@@ -9,6 +9,19 @@ let fullCalendarInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
+// --- Official Term Start Dates ---
+const termStartDates = {
+  'Summer 2025': '2025-06-01',
+  'Fall 2025': '2025-08-10',
+  'Spring 2026': '2026-01-19',
+  'Summer 2026': '2026-06-01',
+  'Fall 2026': '2026-08-10',
+  'Spring 2027': '2027-01-19',
+  'Summer 2027': '2027-06-07',
+  'Fall 2027': '2027-08-10',
+  'Spring 2028': '2028-01-18'
+};
+
 function parseHour(t) {
   if (!t) return null;
   t = t.trim();
@@ -64,27 +77,6 @@ function getUniqueRooms(data) {
   return [...new Set(
     data.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`)
   )].filter(r => r && r !== '-' && !/^N\/A/i.test(r) && !/ONLINE/i.test(r)).sort();
-}
-
-// New: Get earliest valid start date (YYYY-MM-DD) in data for calendar snap
-function getEarliestStartDate(data) {
-  let minDate = null;
-  data.forEach(ev => {
-    let startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
-    if (startDate) {
-      // Try to convert MM/DD/YYYY or MM-DD-YYYY to YYYY-MM-DD
-      let match = startDate.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-      if (match) {
-        startDate = `${match[3]}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
-      }
-      let d = new Date(startDate);
-      if (!isNaN(d.getTime())) {
-        if (!minDate || d < minDate) minDate = d;
-      }
-    }
-  });
-  // Return ISO string (YYYY-MM-DD) or today's date if no valid found
-  return minDate ? minDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -803,8 +795,8 @@ Instructor: ${instructor || 'N/A'}
         description: ev.Title || ''
       });
     });
-    // Snap to earliest date for current term and filter selection
-    const initialDate = getEarliestStartDate(data);
+    // Snap to official term start date if available, else fallback to today
+    const initialDate = termStartDates[currentTerm] || new Date().toISOString().slice(0, 10);
     if (calendarEl._fullCalendar) {
       calendarEl._fullCalendar.destroy();
       calendarEl.innerHTML = '';
