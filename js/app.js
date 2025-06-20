@@ -66,6 +66,27 @@ function getUniqueRooms(data) {
   )].filter(r => r && r !== '-' && !/^N\/A/i.test(r) && !/ONLINE/i.test(r)).sort();
 }
 
+// New: Get earliest valid start date (YYYY-MM-DD) in data for calendar snap
+function getEarliestStartDate(data) {
+  let minDate = null;
+  data.forEach(ev => {
+    let startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+    if (startDate) {
+      // Try to convert MM/DD/YYYY or MM-DD-YYYY to YYYY-MM-DD
+      let match = startDate.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (match) {
+        startDate = `${match[3]}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
+      }
+      let d = new Date(startDate);
+      if (!isNaN(d.getTime())) {
+        if (!minDate || d < minDate) minDate = d;
+      }
+    }
+  });
+  // Return ISO string (YYYY-MM-DD) or today's date if no valid found
+  return minDate ? minDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -224,24 +245,28 @@ document.addEventListener('DOMContentLoaded', () => {
   function buildRoomDropdowns() {
     // For snapshot
     const combos = getUniqueRooms(currentData);
-    roomDiv.innerHTML = `
-      <label>Filter Bldg-Room:
-        <select id="room-select">
-          <option>All</option>
-          ${combos.map(r => `<option>${r}</option>`).join('')}
-        </select>
-      </label>`;
-    snapshotRoomFilter = document.getElementById('room-select');
-    snapshotRoomFilter.onchange = renderSchedule;
+    if (roomDiv) {
+      roomDiv.innerHTML = `
+        <label>Filter Bldg-Room:
+          <select id="room-select">
+            <option>All</option>
+            ${combos.map(r => `<option>${r}</option>`).join('')}
+          </select>
+        </label>`;
+      snapshotRoomFilter = document.getElementById('room-select');
+      snapshotRoomFilter.onchange = renderSchedule;
+    }
 
     // For fullcalendar
     const calendarRoomSelect = document.getElementById('calendar-room-select');
-    calendarRoomSelect.innerHTML = `
-      <option>All</option>
-      ${combos.map(r => `<option>${r}</option>`).join('')}
-    `;
-    calendarRoomFilter = calendarRoomSelect;
-    calendarRoomFilter.onchange = renderFullCalendar;
+    if (calendarRoomSelect) {
+      calendarRoomSelect.innerHTML = `
+        <option>All</option>
+        ${combos.map(r => `<option>${r}</option>`).join('')}
+      `;
+      calendarRoomFilter = calendarRoomSelect;
+      calendarRoomFilter.onchange = renderFullCalendar;
+    }
   }
 
   function clearSchedule() {
@@ -778,6 +803,8 @@ Instructor: ${instructor || 'N/A'}
         description: ev.Title || ''
       });
     });
+    // Snap to earliest date for current term and filter selection
+    const initialDate = getEarliestStartDate(data);
     if (calendarEl._fullCalendar) {
       calendarEl._fullCalendar.destroy();
       calendarEl.innerHTML = '';
@@ -789,6 +816,7 @@ Instructor: ${instructor || 'N/A'}
       slotMaxTime: '22:00:00',
       events: events,
       height: 700,
+      initialDate: initialDate,
       eventDidMount: function(info) {
         if (info.event.extendedProps.description) {
           info.el.title = info.event.extendedProps.description;
