@@ -45,7 +45,7 @@ function extractField(r, keys) {
     // Try lower case
     if (r[k.toLowerCase()] && typeof r[k.toLowerCase()] === 'string' && r[k.toLowerCase()].trim()) return r[k.toLowerCase()].trim();
     // Try upper case
-    if (r[k.toUpperCase()] && typeof r[k.toUpperCase()] === 'string' && r[k.toUpperCase()].trim()) return r[k.toUpperCase()].trim();
+    if (r[k.toUpperCase()] && typeof r[k.toUpperCase()].trim()) return r[k.toUpperCase()].trim();
     // Try snake_case
     if (r[k.replace(/\s+/g, '_')] && typeof r[k.replace(/\s+/g, '_')] === 'string' && r[k.replace(/\s+/g, '_')].trim()) return r[k.replace(/\s+/g, '_')].trim();
     // Try lower_snake
@@ -164,6 +164,14 @@ document.addEventListener('DOMContentLoaded', () => {
     roomDiv.innerHTML = '';
     uploadDiv.innerHTML = `<label>Upload CSV for ${currentTerm}: <input type="file" id="file-input" accept=".csv"></label>`;
     document.getElementById('file-input').onchange = e => {
+      // --- PASSWORD PROTECTION: ask for password before parsing ---
+      const password = prompt('Enter upload password:');
+      if (password !== 'COSGiants!') {
+        alert('Incorrect password. Upload cancelled.');
+        e.target.value = ''; // reset file input
+        return;
+      }
+      // --- End password protection ---
       parseCSVFile(e.target.files[0], data => {
         currentData = data;
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
@@ -569,7 +577,7 @@ Instructor: ${instructor || 'N/A'}
     html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
     hours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
     html+='</tr></thead><tbody>';
-    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1px solid #ccc;padding:4px;background:rgba(0,100,200,${op});">${c}</td>`; }); html+='</tr>'; });
+    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1p[...]
     html+='</tbody></table>';
     document.getElementById('heatmapContainer').innerHTML = html;
   }
