@@ -71,6 +71,10 @@
       box-shadow: 0 4px 16px rgba(0,0,0,0.09);
       padding: 20px;
     }
+    #calendar-room-filter {
+      display: none;
+      margin: 10px 0;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -117,6 +121,13 @@
 
   <div id="schedule-container">
     <table id="schedule-table"></table>
+  </div>
+  
+  <!-- Add calendar room dropdown ABOVE calendar-container, and keep hidden by default -->
+  <div id="calendar-room-filter" style="display:none; margin:10px 0;">
+    <label>Filter Bldg-Room:
+      <select id="calendar-room-select"></select>
+    </label>
   </div>
 
   <div id="calendar-container" style="display:none;">
