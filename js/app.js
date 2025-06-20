@@ -38,23 +38,17 @@ function getTimeRangeFromData(data) {
   return [min, max];
 }
 
-// Enhanced: Try all case/underscore variants for robust field extraction
 function extractField(r, keys) {
   for (const k of keys) {
     if (r[k] && typeof r[k] === 'string' && r[k].trim()) return r[k].trim();
-    // Try lower case
     if (r[k.toLowerCase()] && typeof r[k.toLowerCase()] === 'string' && r[k.toLowerCase()].trim()) return r[k.toLowerCase()].trim();
-    // Try upper case
-    if (r[k.toUpperCase()] && typeof r[k.toUpperCase()].trim()) return r[k.toUpperCase()].trim();
-    // Try snake_case
+    if (r[k.toUpperCase()] && typeof r[k.toUpperCase()] === 'string' && r[k.toUpperCase()].trim()) return r[k.toUpperCase()].trim();
     if (r[k.replace(/\s+/g, '_')] && typeof r[k.replace(/\s+/g, '_')] === 'string' && r[k.replace(/\s+/g, '_')].trim()) return r[k.replace(/\s+/g, '_')].trim();
-    // Try lower_snake
     if (r[k.replace(/\s+/g, '_').toLowerCase()] && typeof r[k.replace(/\s+/g, '_').toLowerCase()] === 'string' && r[k.replace(/\s+/g, '_').toLowerCase()].trim()) return r[k.replace(/\s+/g, '_').toLowerCase()].trim();
   }
   return '';
 }
 
-// Utility: get unique campuses from data
 function getUniqueCampuses(data) {
   const campuses = new Set();
   data.forEach(r => {
@@ -213,7 +207,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Overlap-aware tile sizing logic
   function renderSchedule() {
     clearSchedule();
     const filt = document.getElementById('room-select')?.value || 'All';
@@ -246,7 +239,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
       });
 
-      // For each event, determine its overlap group
       evs.forEach((ev, i) => {
         ev.overlaps = evs.filter(other =>
           !(other.endMin <= ev.startMin || other.startMin >= ev.endMin)
@@ -254,7 +246,6 @@ document.addEventListener('DOMContentLoaded', () => {
         ev.overlaps.sort((a, b) => a.startMin - b.startMin);
       });
 
-      // Assign a column index within each overlap group
       evs.forEach(ev => {
         let columns = [];
         ev.overlaps.forEach(overlapEv => {
@@ -295,13 +286,11 @@ document.addEventListener('DOMContentLoaded', () => {
         b.style.width  = `${widthPx}px`;
         b.style.height = `${heightPx}px`;
 
-        // Use robust field extraction for all possible case/snake variants
         const title = extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
         const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
         const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
         const endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
 
-        // Tile content: REMOVE title and dates from tile, keep on popup
         b.innerHTML = `
           <span style="font-weight:bold;">${ev.Subject_Course || ''}</span><br>
           <span>CRN: ${ev.CRN || ''}</span><br>
@@ -309,7 +298,6 @@ document.addEventListener('DOMContentLoaded', () => {
           <span>${instructor}</span>
         `;
 
-        // Tooltip content (unchanged: still shows title and dates)
         const tooltipContent = `
 <b>${ev.Subject_Course || ''}</b><br>
 ${title ? `<span>${title}</span><br>` : ''}
@@ -323,7 +311,6 @@ Instructor: ${instructor || 'N/A'}
           const tooltip = document.getElementById('class-block-tooltip');
           tooltip.innerHTML = tooltipContent;
           tooltip.style.display = 'block';
-          // Position tooltip
           const rect = b.getBoundingClientRect();
           tooltip.style.left = (rect.right + window.scrollX + 8) + 'px';
           tooltip.style.top = (rect.top + window.scrollY - 10) + 'px';
@@ -457,20 +444,16 @@ Instructor: ${instructor || 'N/A'}
       let daysVal = r.Days;
       if (typeof daysVal === 'string') daysVal = daysVal.split(',').map(s => s.trim());
 
-      // Use all relevant possible keys for each field:
       const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
       const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
       const endDate = extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
       const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
 
-      // Building and Room robust extraction
       const building = r.Building || r.BUILDING || '';
       const room = r.Room || r.ROOM || '';
 
-      // Start/End time robust extraction
       let startTime = r.Start_Time || '';
       let endTime = r.End_Time || '';
-      // If not present, try parsing from 'Time' column
       if ((!startTime || !endTime) && r.Time) {
         let parts = r.Time.split('-');
         if (parts.length === 2) {
@@ -505,7 +488,6 @@ Instructor: ${instructor || 'N/A'}
       return true;
     });
 
-    // Populate campus dropdowns
     const campuses = getUniqueCampuses(hmRaw);
     const heatmapCampusSelect = document.getElementById('heatmap-campus-select');
     const linechartCampusSelect = document.getElementById('linechart-campus-select');
@@ -575,9 +557,21 @@ Instructor: ${instructor || 'N/A'}
     const maxC = Math.max(...Object.values(counts).flat());
     let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
     html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
-    hours.forEach(h=>{ const ap=h<12?'AM':'PM'; const hh=h%12||12; html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; });
+    hours.forEach(h=>{ 
+      const ap=h<12?'AM':'PM'; 
+      const hh=h%12||12; 
+      html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; 
+    });
     html+='</tr></thead><tbody>';
-    hmDays.forEach(d=>{ html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`; counts[d].forEach(c=>{ const op=maxC?c/maxC:0; html+=`<td style="border:1p[...]
+    hmDays.forEach(d=>{
+      html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`;
+      counts[d].forEach(c=>{
+        const op=maxC?c/maxC:0;
+        const color = `rgba(255,102,0,${op*0.7+0.02})`;
+        html+=`<td style="border:1px solid #ccc; background:${color}; color:#222; text-align:center;">${c||''}</td>`;
+      });
+      html+='</tr>';
+    });
     html+='</tbody></table>';
     document.getElementById('heatmapContainer').innerHTML = html;
   }
