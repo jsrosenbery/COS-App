@@ -79,6 +79,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const resultsDiv   = document.getElementById('avail-results');
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
+  const calendarContainer = document.getElementById('calendar-container');
+  const calendarEl = document.getElementById('calendar');
 
   initHeatmap();
   initLineChartChoices();
@@ -125,8 +127,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('upload-container').style.display = (this.value === 'calendar') ? '' : 'none';
     document.getElementById('upload-timestamp').style.display = (this.value === 'calendar') ? '' : 'none';
     document.getElementById('linechart-tool').style.display = (this.value === 'linechart') ? 'block' : 'none';
+    document.getElementById('calendar-container').style.display = (this.value === 'fullcalendar') ? 'block' : 'none';
     if (this.value === 'linechart') {
       renderLineChart();
+    }
+    if (this.value === 'fullcalendar') {
+      renderFullCalendar();
     }
   });
 
@@ -147,10 +153,16 @@ document.addEventListener('DOMContentLoaded', () => {
       buildRoomDropdown();
       renderSchedule();
       feedHeatmapTool(currentData);
+      if (document.getElementById('viewSelect').value === 'fullcalendar') {
+        renderFullCalendar();
+      }
     } else {
       currentData = [];
       tsDiv.textContent = '';
       roomDiv.innerHTML = '';
+      if (document.getElementById('viewSelect').value === 'fullcalendar') {
+        renderFullCalendar();
+      }
     }
   }
 
@@ -172,6 +184,9 @@ document.addEventListener('DOMContentLoaded', () => {
         buildRoomDropdown();
         renderSchedule();
         feedHeatmapTool(currentData);
+        if (document.getElementById('viewSelect').value === 'fullcalendar') {
+          renderFullCalendar();
+        }
         localStorage.setItem(
           'cos_schedule_' + currentTerm,
           JSON.stringify({ data: currentData, timestamp: tsDiv.textContent })
@@ -682,5 +697,50 @@ Instructor: ${instructor || 'N/A'}
         }
       }
     });
+  }
+
+  // --- FullCalendar weekly view ---
+  function renderFullCalendar() {
+    if (!calendarEl) return;
+    // Prepare events
+    const daysMap = {
+      'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
+      'Thursday': 4, 'Friday': 5, 'Saturday': 6
+    };
+    const events = [];
+    (currentData || []).forEach(ev => {
+      const daysArr = Array.isArray(ev.Days) ? ev.Days : (typeof ev.Days === "string" ? ev.Days.split(',') : []);
+      daysArr.forEach(day => {
+        if (typeof day === "string" && daysMap.hasOwnProperty(day)) {
+          events.push({
+            title: `${ev.Subject_Course || ''} CRN: ${ev.CRN || ''}\n${ev.Building || ''}-${ev.Room || ''}`,
+            daysOfWeek: [daysMap[day]], // 0 = Sunday
+            startTime: ev.Start_Time,
+            endTime: ev.End_Time,
+            description: ev.Title || ''
+          });
+        }
+      });
+    });
+    // Remove existing calendar
+    if (calendarEl._fullCalendar) {
+      calendarEl._fullCalendar.destroy();
+      calendarEl.innerHTML = '';
+    }
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+      initialView: 'timeGridWeek',
+      allDaySlot: false,
+      slotMinTime: '06:00:00',
+      slotMaxTime: '22:00:00',
+      events: events,
+      height: 700,
+      eventDidMount: function(info) {
+        if (info.event.extendedProps.description) {
+          info.el.title = info.event.extendedProps.description;
+        }
+      }
+    });
+    calendar.render();
+    calendarEl._fullCalendar = calendar;
   }
 });
