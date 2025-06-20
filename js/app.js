@@ -5,6 +5,7 @@ let hmTable;
 let hmChoices;
 let lineCourseChoices;
 let lineChartInstance;
+let fullCalendarInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
@@ -58,6 +59,13 @@ function getUniqueCampuses(data) {
   return Array.from(campuses).sort();
 }
 
+function getUniqueRooms(data) {
+  // Returns array of "Bldg-Room" combos, sorted, excluding blanks
+  return [...new Set(
+    data.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`)
+  )].filter(r => r && r !== '-' && !/^N\/A/i.test(r) && !/ONLINE/i.test(r)).sort();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -81,6 +89,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const container    = document.getElementById('schedule-container');
   const calendarContainer = document.getElementById('calendar-container');
   const calendarEl = document.getElementById('calendar');
+
+  let snapshotRoomFilter = null;
+  let calendarRoomFilter = null;
 
   initHeatmap();
   initLineChartChoices();
@@ -120,23 +131,37 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   document.getElementById('viewSelect').addEventListener('change', function(){
-    document.getElementById('heatmap-tool').style.display = (this.value === 'heatmap') ? 'block' : 'none';
-    document.getElementById('schedule-container').style.display = (this.value === 'calendar') ? '' : 'none';
-    document.getElementById('availability-ui').style.display = (this.value === 'calendar') ? '' : 'none';
-    document.getElementById('room-filter').style.display = (this.value === 'calendar') ? '' : 'none';
-    document.getElementById('upload-container').style.display = (this.value === 'calendar') ? '' : 'none';
-    document.getElementById('upload-timestamp').style.display = (this.value === 'calendar') ? '' : 'none';
-    document.getElementById('linechart-tool').style.display = (this.value === 'linechart') ? 'block' : 'none';
-    document.getElementById('calendar-container').style.display = (this.value === 'fullcalendar') ? 'block' : 'none';
-    if (this.value === 'linechart') {
+    const view = this.value;
+    document.getElementById('heatmap-tool').style.display = (view === 'heatmap') ? 'block' : 'none';
+    document.getElementById('schedule-container').style.display = (view === 'calendar') ? '' : 'none';
+    document.getElementById('availability-ui').style.display = (view === 'calendar') ? '' : 'none';
+    document.getElementById('room-filter').style.display = (view === 'calendar') ? '' : 'none';
+    document.getElementById('upload-container').style.display = (view === 'calendar') ? '' : 'none';
+    document.getElementById('upload-timestamp').style.display = (view === 'calendar') ? '' : 'none';
+    document.getElementById('linechart-tool').style.display = (view === 'linechart') ? 'block' : 'none';
+    document.getElementById('calendar-container').style.display = (view === 'fullcalendar') ? 'block' : 'none';
+    document.getElementById('calendar-room-filter').style.display = (view === 'fullcalendar') ? 'block' : 'none';
+    if (view === 'linechart') {
       renderLineChart();
     }
-    if (this.value === 'fullcalendar') {
+    if (view === 'fullcalendar') {
       renderFullCalendar();
     }
   });
 
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
+
+  // -- NEW: Add fullcalendar room dropdown at DOM load time --
+  const calendarRoomFilterDiv = document.createElement('div');
+  calendarRoomFilterDiv.id = 'calendar-room-filter';
+  calendarRoomFilterDiv.style.display = 'none';
+  calendarRoomFilterDiv.style.margin = '10px 0';
+  calendarRoomFilterDiv.innerHTML = `<label>Filter Bldg-Room:
+    <select id="calendar-room-select"></select>
+  </label>`;
+  calendarContainer.parentNode.insertBefore(calendarRoomFilterDiv, calendarContainer);
+
+  document.getElementById('calendar-room-select').addEventListener('change', renderFullCalendar);
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
@@ -150,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const { data, timestamp } = JSON.parse(saved);
       currentData = data;
       tsDiv.textContent = timestamp;
-      buildRoomDropdown();
+      buildRoomDropdowns();
       renderSchedule();
       feedHeatmapTool(currentData);
       if (document.getElementById('viewSelect').value === 'fullcalendar') {
@@ -160,6 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
       currentData = [];
       tsDiv.textContent = '';
       roomDiv.innerHTML = '';
+      buildRoomDropdowns();
       if (document.getElementById('viewSelect').value === 'fullcalendar') {
         renderFullCalendar();
       }
@@ -181,7 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
       parseCSVFile(e.target.files[0], data => {
         currentData = data;
         tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
-        buildRoomDropdown();
+        buildRoomDropdowns();
         renderSchedule();
         feedHeatmapTool(currentData);
         if (document.getElementById('viewSelect').value === 'fullcalendar') {
@@ -195,8 +221,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  function buildRoomDropdown() {
-    const combos = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))].sort();
+  function buildRoomDropdowns() {
+    // For snapshot
+    const combos = getUniqueRooms(currentData);
     roomDiv.innerHTML = `
       <label>Filter Bldg-Room:
         <select id="room-select">
@@ -204,7 +231,17 @@ document.addEventListener('DOMContentLoaded', () => {
           ${combos.map(r => `<option>${r}</option>`).join('')}
         </select>
       </label>`;
-    document.getElementById('room-select').onchange = renderSchedule;
+    snapshotRoomFilter = document.getElementById('room-select');
+    snapshotRoomFilter.onchange = renderSchedule;
+
+    // For fullcalendar
+    const calendarRoomSelect = document.getElementById('calendar-room-select');
+    calendarRoomSelect.innerHTML = `
+      <option>All</option>
+      ${combos.map(r => `<option>${r}</option>`).join('')}
+    `;
+    calendarRoomFilter = calendarRoomSelect;
+    calendarRoomFilter.onchange = renderFullCalendar;
   }
 
   function clearSchedule() {
@@ -224,7 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderSchedule() {
     clearSchedule();
-    const filt = document.getElementById('room-select')?.value || 'All';
+    const filt = snapshotRoomFilter?.value || 'All';
     const data = filt === 'All'
       ? currentData
       : currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
@@ -699,7 +736,7 @@ Instructor: ${instructor || 'N/A'}
     });
   }
 
-  // --- FullCalendar weekly view ---
+  // --- FullCalendar weekly view with room filter and date span ---
   function renderFullCalendar() {
     if (!calendarEl) return;
     // Prepare events
@@ -707,27 +744,45 @@ Instructor: ${instructor || 'N/A'}
       'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
       'Thursday': 4, 'Friday': 5, 'Saturday': 6
     };
+    let data = currentData;
+    const filt = calendarRoomFilter?.value || 'All';
+    if (filt && filt !== 'All') {
+      data = data.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
+    }
     const events = [];
-    (currentData || []).forEach(ev => {
-      const daysArr = Array.isArray(ev.Days) ? ev.Days : (typeof ev.Days === "string" ? ev.Days.split(',') : []);
-      daysArr.forEach(day => {
-        if (typeof day === "string" && daysMap.hasOwnProperty(day)) {
-          events.push({
-            title: `${ev.Subject_Course || ''} CRN: ${ev.CRN || ''}\n${ev.Building || ''}-${ev.Room || ''}`,
-            daysOfWeek: [daysMap[day]], // 0 = Sunday
-            startTime: ev.Start_Time,
-            endTime: ev.End_Time,
-            description: ev.Title || ''
-          });
-        }
+    (data || []).forEach(ev => {
+      let daysArr = Array.isArray(ev.Days) ? ev.Days : (typeof ev.Days === "string" ? ev.Days.split(',') : []);
+      daysArr = daysArr.map(d => d.trim()).filter(d => daysMap.hasOwnProperty(d));
+      if (!daysArr.length) return;
+      // Get date span
+      let startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+      let endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+      if (!startDate || !endDate) return;
+      // Normalize date format to YYYY-MM-DD
+      startDate = (startDate || '').replace(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/, '$3-$1-$2');
+      endDate = (endDate || '').replace(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/, '$3-$1-$2');
+      // If still not ISO, try to parse anyway
+      let start = new Date(startDate);
+      let end = new Date(endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
+      // Make end exclusive for FullCalendar
+      end.setDate(end.getDate() + 1);
+      // Compose event
+      events.push({
+        title: `${ev.Subject_Course || ''} CRN: ${ev.CRN || ''}\n${ev.Building || ''}-${ev.Room || ''}`,
+        startTime: ev.Start_Time,
+        endTime: ev.End_Time,
+        daysOfWeek: daysArr.map(d => daysMap[d]),
+        startRecur: start.toISOString().slice(0,10),
+        endRecur: end.toISOString().slice(0,10),
+        description: ev.Title || ''
       });
     });
-    // Remove existing calendar
     if (calendarEl._fullCalendar) {
       calendarEl._fullCalendar.destroy();
       calendarEl.innerHTML = '';
     }
-    const calendar = new FullCalendar.Calendar(calendarEl, {
+    fullCalendarInstance = new FullCalendar.Calendar(calendarEl, {
       initialView: 'timeGridWeek',
       allDaySlot: false,
       slotMinTime: '06:00:00',
@@ -740,7 +795,7 @@ Instructor: ${instructor || 'N/A'}
         }
       }
     });
-    calendar.render();
-    calendarEl._fullCalendar = calendar;
+    fullCalendarInstance.render();
+    calendarEl._fullCalendar = fullCalendarInstance;
   }
 });
