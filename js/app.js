@@ -251,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csv: csvString, password: 'COSGiants!' }) // Use your current password
+      body: JSON.stringify({ csv: csvString, password: 'Upload2025' }) // <-- CHANGED TO Upload2025
     })
       .then(res => {
         if (!res.ok) throw new Error('Upload failed');
@@ -279,7 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('file-input').onchange = e => {
       // --- PASSWORD PROTECTION: ask for password before parsing ---
       const password = prompt('Enter upload password:');
-      if (password !== 'COSGiants!') {
+      if (password !== 'Upload2025') { // <-- CHANGED TO Upload2025
         alert('Incorrect password. Upload cancelled.');
         e.target.value = ''; // reset file input
         return;
