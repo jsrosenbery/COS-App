@@ -234,7 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('file-input').onchange = e => {
       // --- PASSWORD PROTECTION: ask for password before parsing ---
       const password = prompt('Enter upload password:');
-      if (password !== 'Upload2025!') {
+      if (password !== 'Upload2025') {
         alert('Incorrect password. Upload cancelled.');
         e.target.value = ''; // reset file input
         return;
