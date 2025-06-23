@@ -127,7 +127,10 @@ Instructor: ${props.instructor || 'N/A'}
 
 // Show/hide logic for calendar panel
 export function showHide(show) {
-  document.getElementById('calendar-container').style.display = show ? 'block' : 'none';
-  document.getElementById('calendar-room-filter').style.display = show ? 'block' : 'none';
-  document.getElementById('calendar-availability-ui').style.display = show ? 'block' : 'none';
+  const calContainer = document.getElementById('calendar-container');
+  if (calContainer) calContainer.style.display = show ? 'block' : 'none';
+  const calRoomFilter = document.getElementById('calendar-room-filter');
+  if (calRoomFilter) calRoomFilter.style.display = show ? 'block' : 'none';
+  const calAvailUI = document.getElementById('calendar-availability-ui');
+  if (calAvailUI) calAvailUI.style.display = show ? 'block' : 'none';
 }
