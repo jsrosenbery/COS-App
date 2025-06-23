@@ -10,16 +10,14 @@ export function parseCSVFile(file) {
           .map(r => ({
             Building: r['BUILDING'] || '',
             Room: r['ROOM'] || '',
-            Days: (r['DAYS'] || '').split('').map(d => ({
-              'M': 'Monday','T': 'Tuesday','W': 'Wednesday','R': 'Thursday','F': 'Friday','U': 'Sunday','S': 'Saturday'
-            })[d] || d),
+            Days: (r['DAYS'] || '').split('').map(d => ({'M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','U':'Sunday','S':'Saturday'})[d]),
             Start_Time: r['Time']?.split('-')[0].trim() || '',
-            End_Time:   r['Time']?.split('-')[1].trim() || '',
+            End_Time: r['Time']?.split('-')[1].trim() || '',
             Start_Date: r['Start_Date'] || '',
-            End_Date:   r['End_Date'] || '',
-            CRN:        r['CRN'] || '',
-            SUBJECT:    r['SUBJECT'] || '',
-            COURSE:     r['COURSE'] || ''
+            End_Date: r['End_Date'] || '',
+            CRN: r['CRN'] || '',
+            Subject: r['SUBJECT'] || '',
+            Course: r['COURSE'] || ''
           }));
         resolve(data);
       },
