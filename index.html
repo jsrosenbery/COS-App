@@ -1,22 +1,53 @@
-<!-- Add inside <body> just above the calendar -->
-<div id="availability-section" class="availability">
-  <h3>Find Room Availability</h3>
-  <form id="availability-form">
-    <label>From: <input type="date" id="avail-start" required></label>
-    <label>To: <input type="date" id="avail-end" required></label>
-    <fieldset>
-      <legend>Days of Week:</legend>
-      <label><input type="checkbox" name="day" value="Sunday">Sun</label>
-      <label><input type="checkbox" name="day" value="Monday">Mon</label>
-      <label><input type="checkbox" name="day" value="Tuesday">Tue</label>
-      <label><input type="checkbox" name="day" value="Wednesday">Wed</label>
-      <label><input type="checkbox" name="day" value="Thursday">Thu</label>
-      <label><input type="checkbox" name="day" value="Friday">Fri</label>
-      <label><input type="checkbox" name="day" value="Saturday">Sat</label>
-    </fieldset>
-    <label>Start Time: <input type="time" id="avail-time-start" required></label>
-    <label>End Time: <input type="time" id="avail-time-end" required></label>
-    <button type="submit">Check Availability</button>
-  </form>
-  <div id="availability-results"></div>
-</div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>COS Scheduling App</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- Semester Tabs -->
+  <ul id="term-tabs"></ul>
+  <!-- Room Filter -->
+  <div id="room-filter"><select id="room-select"><option value="">All Rooms</option></select></div>
+  <!-- Upload Control -->
+  <input type="file" id="schedule-upload" accept=".csv" />
+
+  <!-- Availability Section -->
+  <div id="availability-section" class="availability">
+    <h3>Find Room Availability</h3>
+    <form id="availability-form">
+      <label>From: <input type="date" id="avail-start" required></label>
+      <label>To: <input type="date" id="avail-end" required></label>
+      <fieldset>
+        <legend>Days of Week:</legend>
+        <label><input type="checkbox" name="day" value="Sunday">Sun</label>
+        <label><input type="checkbox" name="day" value="Monday">Mon</label>
+        <label><input type="checkbox" name="day" value="Tuesday">Tue</label>
+        <label><input type="checkbox" name="day" value="Wednesday">Wed</label>
+        <label><input type="checkbox" name="day" value="Thursday">Thu</label>
+        <label><input type="checkbox" name="day" value="Friday">Fri</label>
+        <label><input type="checkbox" name="day" value="Saturday">Sat</label>
+      </fieldset>
+      <label>Start Time: <input type="time" id="avail-time-start" required></label>
+      <label>End Time: <input type="time" id="avail-time-end" required></label>
+      <button type="submit">Check Availability</button>
+    </form>
+    <div id="availability-results"></div>
+  </div>
+
+  <!-- Containers for visualizations -->
+  <div id="heatmap-container"></div>
+  <canvas id="linechart-canvas"></canvas>
+  <div id="calendar"></div>
+
+  <!-- Dependencies -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.2.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.17/index.global.min.js"></script>
+  <!-- App Script -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

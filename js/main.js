@@ -1,6 +1,21 @@
-import { initAvailability } from './availability.js';
-// ... existing imports and code ...
+import {parseCSVFile} from'./parser.js';import{renderHeatmap}from'./heatmap.js';
+import{renderLineChart}from'./lineChart.js';import{initCalendar}from'./calendar.js';
+import{initAvailability}from'./availability.js';
 
-// inside upload event and room filter change, after initCalendar:
-initCalendar(currentData);
-initAvailability(currentData);
+const terms=['Spring2026','Summer2026','Fall2026'],tabs=document.getElementById('term-tabs');
+terms.forEach((t,i)=>{const li=document.createElement('li');li.textContent=t;li.className=i? '':'active';
+  li.onclick=()=>{document.querySelectorAll('#term-tabs li').forEach(el=>el.classList.remove('active'));li.classList.add('active');};
+  tabs.appendChild(li);
+});
+const roomSelect=document.getElementById('room-select'),upload=document.getElementById('schedule-upload');
+let currentData=[];
+upload.addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;
+  currentData=await parseCSVFile(f);
+  const rooms=[...new Set(currentData.map(r=>r.Room))].sort();
+  roomSelect.innerHTML='<option value="">All Rooms</option>'+rooms.map(r=>`<option>${r}</option>`).join('');
+  renderHeatmap(currentData);renderLineChart(currentData);initCalendar(currentData);initAvailability(currentData);
+});
+roomSelect.addEventListener('change',()=>{const room=roomSelect.value;
+  const fd=room?currentData.filter(r=>r.Room===room):currentData;
+  renderHeatmap(fd);renderLineChart(fd);initCalendar(fd);initAvailability(fd);
+});
