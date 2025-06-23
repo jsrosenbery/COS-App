@@ -662,9 +662,8 @@ Instructor: ${instructor || 'N/A'}
         campuses.map(c => `<option value="${c}">${c}</option>`).join('');
     });
 
-    // --- CAL-GETC group options at the very bottom ---
+    // --- CAL-GETC group options at the very bottom (no sorting) ---
     let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
-    // Only include NON-CAL-GETC options from the raw course list
     let nonCalGetcItems = uniqueKeys
       .filter(k => !k.startsWith("CAL-GETC"))
       .map(k => ({ value: k, label: k }));
@@ -672,19 +671,23 @@ Instructor: ${instructor || 'N/A'}
     let calGetcAreaOptions = [];
     let calGetcDivisionOptions = [];
     if (window.CAL_GETC_MAPPING) {
-      const calGetcGroups = { areas: new Set(), divisions: new Set() };
+      const calGetcGroups = { areas: [], divisions: [] };
       window.CAL_GETC_MAPPING.forEach(row => {
-        (row.areas || []).forEach(area => calGetcGroups.areas.add(area));
-        (row.divisions || []).forEach(div => calGetcGroups.divisions.add(div));
+        (row.areas || []).forEach(area => {
+          if (!calGetcGroups.areas.includes(area)) calGetcGroups.areas.push(area);
+        });
+        (row.divisions || []).forEach(div => {
+          if (!calGetcGroups.divisions.includes(div)) calGetcGroups.divisions.push(div);
+        });
       });
-      calGetcAreaOptions = Array.from(calGetcGroups.areas).sort();
-      calGetcDivisionOptions = Array.from(calGetcGroups.divisions).sort();
+      calGetcAreaOptions = calGetcGroups.areas;
+      calGetcDivisionOptions = calGetcGroups.divisions;
     }
     const calGetcItems = [
       ...calGetcAreaOptions.map(area => ({ value: area, label: area })),
       ...calGetcDivisionOptions.map(div => ({ value: div, label: div }))
     ];
-    // CAL-GETC options always at the bottom:
+    // CAL-GETC options always at the bottom, in mapping order:
     let items = [...nonCalGetcItems, ...calGetcItems];
 
     if (hmChoices) {
