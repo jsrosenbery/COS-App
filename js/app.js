@@ -59,6 +59,7 @@ function extractField(r, keys) {
     if (r[k.toUpperCase()] && typeof r[k.toUpperCase()] === 'string' && r[k.toUpperCase()].trim()) return r[k.toUpperCase()].trim();
     if (r[k.replace(/\s+/g, '_')] && typeof r[k.replace(/\s+/g, '_')] === 'string' && r[k.replace(/\s+/g, '_')].trim()) return r[k.replace(/\s+/g, '_')].trim();
     if (r[k.replace(/\s+/g, '_').toLowerCase()] && typeof r[k.replace(/\s+/g, '_').toLowerCase()] === 'string' && r[k.replace(/\s+/g, '_').toLowerCase()].trim()) return r[k.replace(/\s+/g, '_').toLowerCase()].trim();
+    if (r[k.replace(/\s+/g, '_').toUpperCase()] && typeof r[k.replace(/\s+/g, '_').toUpperCase()] === 'string' && r[k.replace(/\s+/g, '_').toUpperCase()].trim()) return r[k.replace(/\s+/g, '_').toUpperCase()].trim();
   }
   return '';
 }
@@ -79,6 +80,44 @@ function getUniqueRooms(data) {
   )].filter(r => r && r !== '-' && !/^N\/A/i.test(r) && !/ONLINE/i.test(r)).sort();
 }
 
+// --- NEW: Backend Integration ---
+// Backend base URL
+const BACKEND_BASE_URL = "https://app-backend-pp98.onrender.com";
+
+// Fetch schedule data for a term from backend
+function loadScheduleFromBackend(term) {
+  fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`)
+    .then(res => res.json())
+    .then(({ data, lastUpdated }) => {
+      currentData = data;
+      tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
+      buildRoomDropdowns();
+      renderSchedule();
+      feedHeatmapTool(currentData);
+      if (document.getElementById('viewSelect').value === 'fullcalendar') {
+        renderFullCalendar();
+      }
+    });
+}
+
+// Upload CSV to backend for a term
+function uploadScheduleToBackend(term, csvString) {
+  fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ csv: csvString, password: 'Upload2025' }) // Backend upload password
+  })
+    .then(res => {
+      if (!res.ok) throw new Error('Upload failed');
+      return res.json();
+    })
+    .then(() => {
+      alert('Upload successful!');
+      loadScheduleFromBackend(term);
+    })
+    .catch(err => alert('Upload failed: ' + err.message));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -88,6 +127,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const daysOfWeek = [...hmDays];
   let currentData = [];
   let currentTerm = '';
+
+  window.currentData = currentData; // For debugging
 
   const tabs         = document.getElementById('term-tabs');
   const uploadDiv    = document.getElementById('upload-container');
@@ -182,27 +223,8 @@ document.addEventListener('DOMContentLoaded', () => {
     tabElem.classList.add('active');
     clearSchedule();
     setupUpload();
-    const key = 'cos_schedule_' + term;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      const { data, timestamp } = JSON.parse(saved);
-      currentData = data;
-      tsDiv.textContent = timestamp;
-      buildRoomDropdowns();
-      renderSchedule();
-      feedHeatmapTool(currentData);
-      if (document.getElementById('viewSelect').value === 'fullcalendar') {
-        renderFullCalendar();
-      }
-    } else {
-      currentData = [];
-      tsDiv.textContent = '';
-      roomDiv.innerHTML = '';
-      buildRoomDropdowns();
-      if (document.getElementById('viewSelect').value === 'fullcalendar') {
-        renderFullCalendar();
-      }
-    }
+    // --- Backend fetch instead of localStorage ---
+    loadScheduleFromBackend(term);
   }
 
   function setupUpload() {
@@ -217,20 +239,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       // --- End password protection ---
-      parseCSVFile(e.target.files[0], data => {
-        currentData = data;
-        tsDiv.textContent = 'Last upload: ' + new Date().toLocaleString();
-        buildRoomDropdowns();
-        renderSchedule();
-        feedHeatmapTool(currentData);
-        if (document.getElementById('viewSelect').value === 'fullcalendar') {
-          renderFullCalendar();
-        }
-        localStorage.setItem(
-          'cos_schedule_' + currentTerm,
-          JSON.stringify({ data: currentData, timestamp: tsDiv.textContent })
-        );
-      });
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const csvString = ev.target.result;
+        // --- POST CSV to backend, not localStorage ---
+        uploadScheduleToBackend(currentTerm, csvString); // reloads after upload
+      };
+      reader.readAsText(file);
     };
   }
 
