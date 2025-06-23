@@ -1,21 +1,53 @@
-import {parseCSVFile} from'./parser.js';import{renderHeatmap}from'./heatmap.js';
-import{renderLineChart}from'./lineChart.js';import{initCalendar}from'./calendar.js';
-import{initAvailability}from'./availability.js';
+import { parseCSVFile } from './parser.js';
+import { renderHeatmap } from './heatmap.js';
+import { renderLineChart } from './lineChart.js';
+import { initCalendar } from './calendar.js';
+import { initAvailability } from './availability.js';
 
-const terms=['Spring2026','Summer2026','Fall2026'],tabs=document.getElementById('term-tabs');
-terms.forEach((t,i)=>{const li=document.createElement('li');li.textContent=t;li.className=i? '':'active';
+const termTabs = document.getElementById('term-tabs');
+const terms = ['Spring2026','Summer2026','Fall2026'];
+terms.forEach((t,i)=>{const li=document.createElement('li');li.textContent=t;li.className=i?'':'active';
   li.onclick=()=>{document.querySelectorAll('#term-tabs li').forEach(el=>el.classList.remove('active'));li.classList.add('active');};
-  tabs.appendChild(li);
+  termTabs.appendChild(li);
 });
-const roomSelect=document.getElementById('room-select'),upload=document.getElementById('schedule-upload');
-let currentData=[];
-upload.addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;
-  currentData=await parseCSVFile(f);
-  const rooms=[...new Set(currentData.map(r=>r.Room))].sort();
-  roomSelect.innerHTML='<option value="">All Rooms</option>'+rooms.map(r=>`<option>${r}</option>`).join('');
-  renderHeatmap(currentData);renderLineChart(currentData);initCalendar(currentData);initAvailability(currentData);
+
+const viewSelect = document.getElementById('view-select');
+const sections = {
+  heatmap: document.getElementById('heatmap-container'),
+  chart: document.getElementById('linechart-canvas'),
+  calendar: document.getElementById('calendar'),
+  availability: document.getElementById('availability-section')
+};
+viewSelect.addEventListener('change', ()=> {
+  Object.keys(sections).forEach(k=>{
+    sections[k].style.display = (k === viewSelect.value) ? '' : 'none';
+  });
 });
-roomSelect.addEventListener('change',()=>{const room=roomSelect.value;
-  const fd=room?currentData.filter(r=>r.Room===room):currentData;
-  renderHeatmap(fd);renderLineChart(fd);initCalendar(fd);initAvailability(fd);
+
+const roomSelect = document.getElementById('room-select');
+const uploadInput = document.getElementById('schedule-upload');
+let currentData = [];
+
+uploadInput.addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  currentData = await parseCSVFile(file);
+  // Populate room dropdown
+  const rooms = [...new Set(currentData.map(r=>r.Room))].sort();
+  roomSelect.innerHTML = '<option value="">All Rooms</option>' + rooms.map(r=>`<option>${r}</option>`).join('');
+  // Initial render
+  renderHeatmap(currentData);
+  renderLineChart(currentData);
+  initCalendar(currentData);
+  initAvailability(currentData);
+  // Show default view
+  sections[viewSelect.value].style.display = '';
+});
+
+roomSelect.addEventListener('change', ()=> {
+  const room = roomSelect.value;
+  const filtered = room ? currentData.filter(r=>r.Room === room) : currentData;
+  renderHeatmap(filtered);
+  renderLineChart(filtered);
+  initCalendar(filtered);
+  initAvailability(filtered);
 });

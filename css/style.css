@@ -2,12 +2,13 @@ body { font-family: Arial, sans-serif; margin: 20px; }
 #term-tabs { display: flex; list-style: none; padding: 0; margin-bottom: 10px; }
 #term-tabs li { padding: 8px 12px; margin-right: 5px; background: #eee; border-radius: 4px; cursor: pointer; }
 #term-tabs li.active { background: #007bff; color: #fff; }
+#view-select-container { margin-bottom: 10px; }
 #room-filter { margin-bottom: 10px; }
+#upload-container { margin-bottom: 20px; }
 .availability { margin: 20px 0; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
 .availability form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .availability fieldset { border: none; display: flex; gap: 5px; }
 #availability-results { margin-top: 10px; }
-#availability-results ul { list-style: none; padding: 0; }
 table.heatmap { border-collapse: collapse; width: 100%; margin-top: 10px; }
 table.heatmap th, table.heatmap td { border: 1px solid #ccc; padding: 4px; text-align: center; }
 table.heatmap th { background: #f0f0f0; }

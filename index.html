@@ -10,19 +10,31 @@
 <body>
   <!-- Semester Tabs -->
   <ul id="term-tabs"></ul>
+  <!-- View Selector -->
+  <div id="view-select-container">
+    <label for="view-select">View:</label>
+    <select id="view-select">
+      <option value="heatmap">Heatmap</option>
+      <option value="chart">Line Chart</option>
+      <option value="calendar">Calendar</option>
+      <option value="availability">Availability</option>
+    </select>
+  </div>
   <!-- Room Filter -->
-  <div id="room-filter"><select id="room-select"><option value="">All Rooms</option></select></div>
+  <div id="room-filter"><label>Room: <select id="room-select"><option value="">All Rooms</option></select></label></div>
   <!-- Upload Control -->
-  <input type="file" id="schedule-upload" accept=".csv" />
+  <div id="upload-container">
+    <input type="file" id="schedule-upload" accept=".csv" />
+  </div>
 
   <!-- Availability Section -->
-  <div id="availability-section" class="availability">
+  <div id="availability-section" class="availability" style="display:none;">
     <h3>Find Room Availability</h3>
     <form id="availability-form">
       <label>From: <input type="date" id="avail-start" required></label>
       <label>To: <input type="date" id="avail-end" required></label>
       <fieldset>
-        <legend>Days of Week:</legend>
+        <legend>Days:</legend>
         <label><input type="checkbox" name="day" value="Sunday">Sun</label>
         <label><input type="checkbox" name="day" value="Monday">Mon</label>
         <label><input type="checkbox" name="day" value="Tuesday">Tue</label>
@@ -38,10 +50,12 @@
     <div id="availability-results"></div>
   </div>
 
-  <!-- Containers for visualizations -->
-  <div id="heatmap-container"></div>
-  <canvas id="linechart-canvas"></canvas>
-  <div id="calendar"></div>
+  <!-- Heatmap Container -->
+  <div id="heatmap-container" style="display:none;"></div>
+  <!-- Line Chart Canvas -->
+  <canvas id="linechart-canvas" style="display:none;"></canvas>
+  <!-- Calendar Container -->
+  <div id="calendar" style="display:none;"></div>
 
   <!-- Dependencies -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>

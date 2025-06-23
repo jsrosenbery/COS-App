@@ -10,17 +10,9 @@ export function parseCSVFile(file) {
           .map(r => ({
             Building: r['BUILDING'] || '',
             Room: r['ROOM'] || '',
-            Days: (r['DAYS'] || '').split('').map(d => (
-              {
-                'M': 'Monday',
-                'T': 'Tuesday',
-                'W': 'Wednesday',
-                'R': 'Thursday',
-                'F': 'Friday',
-                'U': 'Sunday',
-                'S': 'Saturday'
-              }
-            )[d] || d),
+            Days: (r['DAYS'] || '').split('').map(d => ({
+              'M': 'Monday','T': 'Tuesday','W': 'Wednesday','R': 'Thursday','F': 'Friday','U': 'Sunday','S': 'Saturday'
+            })[d] || d),
             Start_Time: r['Time']?.split('-')[0].trim() || '',
             End_Time:   r['Time']?.split('-')[1].trim() || '',
             Start_Date: r['Start_Date'] || '',
