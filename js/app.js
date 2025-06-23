@@ -80,6 +80,12 @@ function getUniqueRooms(data) {
   )].filter(r => r && r !== '-' && !/^N\/A/i.test(r) && !/ONLINE/i.test(r)).sort();
 }
 
+function normalizeDays(days) {
+  if (Array.isArray(days)) return days;
+  if (typeof days === "string") return days.split(',').map(s => s.trim());
+  return [];
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -295,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rect = container.getBoundingClientRect();
     daysOfWeek.forEach((day, dIdx) => {
       let evs = data
-        .filter(i => i.Days.includes(day))
+        .filter(i => normalizeDays(i.Days).includes(day))
         .filter(i => parseHour(i.Start_Time) !== parseHour(i.End_Time))
         .map(i => ({
           ...i,
@@ -427,7 +433,7 @@ Instructor: ${instructor || 'N/A'}
     const rooms = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))];
     const occ   = new Set();
     currentData.forEach(i => {
-      if (i.Days.some(d => days.includes(d))) {
+      if (normalizeDays(i.Days).some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
           occ.add(`${i.Building || i.BUILDING}-${i.Room || i.ROOM}`);
@@ -778,8 +784,7 @@ Instructor: ${instructor || 'N/A'}
     }
     const events = [];
     (data || []).forEach(ev => {
-      let daysArr = Array.isArray(ev.Days) ? ev.Days : (typeof ev.Days === "string" ? ev.Days.split(',') : []);
-      daysArr = daysArr.map(d => d.trim()).filter(d => daysMap.hasOwnProperty(d));
+      let daysArr = normalizeDays(ev.Days).map(d => d.trim()).filter(d => daysMap.hasOwnProperty(d));
       if (!daysArr.length) return;
       // Get date span
       let startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
