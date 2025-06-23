@@ -1,13 +1,20 @@
-/* Updated font size for calendar tiles and remove default titles */
+/* Tabs styling */
+#term-tabs { display: flex; list-style: none; padding: 0; margin-bottom: 10px; }
+#term-tabs li { padding: 8px 12px; margin-right: 5px; background: #eee; border-radius: 4px; cursor: pointer; }
+#term-tabs li.active { background: #007bff; color: #fff; }
+
+/* Heatmap table styling */
+table.heatmap { border-collapse: collapse; width: 100%; margin-top: 10px; }
+table.heatmap th, table.heatmap td { border: 1px solid #ccc; padding: 4px; text-align: center; }
+table.heatmap th { background: #f0f0f0; }
+
+/* Calendar tiles */
 .fc .fc-event-time,
 .fc .fc-event {
   font-size: 12px !important;
   line-height: 1.2 !important;
 }
+.fc-custom-event { padding: 2px; }
 
-/* Custom event content container */
-.fc-custom-event {
-  font-size: 12px !important;
-  line-height: 1 !important;
-  padding: 2px;
-}
+/* Room filter */
+#room-filter { margin-bottom: 10px; }
