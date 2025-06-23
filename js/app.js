@@ -146,6 +146,8 @@ function normalizeRow(r) {
 // -- CAL-GETC Filtering helpers --
 function getCourseCodesFromCALGETC(value) {
   if (!window.CAL_GETC_MAPPING || !window.normalizeCALGETCCode) return [];
+  // Remove 'Z' prefix if present
+  if (value && value.startsWith('Z')) value = value.substring(1);
   const codes = [];
   window.CAL_GETC_MAPPING.forEach(row => {
     if ((row.areas || []).includes(value) || (row.divisions || []).includes(value)) {
@@ -156,7 +158,8 @@ function getCourseCodesFromCALGETC(value) {
 }
 
 function isCALGETCGroup(value) {
-  return value && value.startsWith("CAL-GETC");
+  // Now checks for 'ZCAL-GETC'
+  return value && value.startsWith("ZCAL-GETC");
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -663,7 +666,7 @@ Instructor: ${instructor || 'N/A'}
     });
 
     // --- CAL-GETC group options at the very bottom (no sorting) ---
-    let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k)))();
+    let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
     let nonCalGetcItems = uniqueKeys
       .filter(k => !k.startsWith("CAL-GETC"))
       .map(k => ({ value: k, label: k }));
@@ -684,8 +687,8 @@ Instructor: ${instructor || 'N/A'}
       calGetcDivisionOptions = calGetcGroups.divisions;
     }
     const calGetcItems = [
-      ...calGetcAreaOptions.map(area => ({ value: area, label: area })),
-      ...calGetcDivisionOptions.map(div => ({ value: div, label: div }))
+      ...calGetcAreaOptions.map(area => ({ value: 'Z' + area, label: 'Z' + area })),
+      ...calGetcDivisionOptions.map(div => ({ value: 'Z' + div, label: 'Z' + div }))
     ];
     // CAL-GETC options always at the bottom, in mapping order:
     let items = [...nonCalGetcItems, ...calGetcItems];
