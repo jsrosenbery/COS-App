@@ -9,7 +9,7 @@ export function initCalendar(data) {
     endTime: r.End_Time,
     extendedProps: {
       timeRange: `${r.Start_Time}-${r.End_Time}`,
-      courseRoom: `${r.Subject} ${r.Course}`.trim(),
+      courseRoom: `${r.SUBJECT || ''} ${r.COURSE || ''}`.trim(),
       crn: r.CRN ? `CRN ${r.CRN}` : ''
     }
   })));
