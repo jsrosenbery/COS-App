@@ -80,10 +80,54 @@ function getUniqueRooms(data) {
   )].filter(r => r && r !== '-' && !/^N\/A/i.test(r) && !/ONLINE/i.test(r)).sort();
 }
 
-function normalizeDays(days) {
-  if (Array.isArray(days)) return days;
-  if (typeof days === "string") return days.split(',').map(s => s.trim());
-  return [];
+function normalizeRow(r) {
+  // Convert DAYS like "MW" to ["Monday","Wednesday"]
+  const daysMap = {M:"Monday",T:"Tuesday",W:"Wednesday",R:"Thursday",F:"Friday",U:"Sunday",S:"Saturday"};
+  let daysArr = [];
+  if (typeof r.DAYS === "string") {
+    daysArr = r.DAYS.split('').map(d => daysMap[d] || d);
+  } else if (Array.isArray(r.Days)) {
+    daysArr = r.Days;
+  }
+  // Parse Time to Start_Time and End_Time
+  let start24 = "00:00", end24 = "00:00";
+  if (typeof r.Time === "string") {
+    const parts = r.Time.split('-').map(s => s.trim());
+    const to24 = (t) => {
+      const m = t.match(/^(\d{1,2}):?(\d{2})?\s*(AM|PM)/i);
+      if (m) {
+        let h = parseInt(m[1],10);
+        let min = m[2] ? parseInt(m[2],10) : 0;
+        const ap = m[3].toUpperCase();
+        if (ap === 'PM' && h < 12) h += 12;
+        if (ap === 'AM' && h === 12) h = 0;
+        return (h<10? '0'+h : h) + ':' + (min<10? '0'+min : min);
+      }
+      return '00:00';
+    };
+    if (parts.length === 2) {
+      start24 = to24(parts[0]);
+      end24 = to24(parts[1]);
+    }
+  } else if (typeof r.Start_Time === "string" && typeof r.End_Time === "string") {
+    start24 = r.Start_Time;
+    end24 = r.End_Time;
+  }
+
+  return {
+    Subject_Course: r.Subject_Course || "",
+    CRN: r.CRN || "",
+    Title: r.Title || "",
+    Building: r.BUILDING || r.Building || "",
+    Room: r.ROOM || r.Room || "",
+    Days: daysArr,
+    Start_Time: start24,
+    End_Time: end24,
+    Start_Date: r.Start_Date || "",
+    End_Date: r.End_Date || "",
+    Instructor: r.Instructor || "",
+    Campus: r.CAMPUS || r.Campus || "",
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -190,7 +234,8 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`)
       .then(res => res.json())
       .then(({ data, lastUpdated }) => {
-        currentData = data;
+        // PATCH: Normalize backend data fields to frontend expectations
+        currentData = (data || []).map(normalizeRow);
         tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
         buildRoomDropdowns();
         renderSchedule();
@@ -206,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csv: csvString, password: 'Upload2025' }) // Backend upload password
+      body: JSON.stringify({ csv: csvString, password: 'COSGiants!' }) // Use your current password
     })
       .then(res => {
         if (!res.ok) throw new Error('Upload failed');
@@ -234,7 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('file-input').onchange = e => {
       // --- PASSWORD PROTECTION: ask for password before parsing ---
       const password = prompt('Enter upload password:');
-      if (password !== 'Upload2025') {
+      if (password !== 'COSGiants!') {
         alert('Incorrect password. Upload cancelled.');
         e.target.value = ''; // reset file input
         return;
@@ -301,7 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rect = container.getBoundingClientRect();
     daysOfWeek.forEach((day, dIdx) => {
       let evs = data
-        .filter(i => normalizeDays(i.Days).includes(day))
+        .filter(i => Array.isArray(i.Days) ? i.Days.includes(day) : false)
         .filter(i => parseHour(i.Start_Time) !== parseHour(i.End_Time))
         .map(i => ({
           ...i,
@@ -433,7 +478,7 @@ Instructor: ${instructor || 'N/A'}
     const rooms = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))];
     const occ   = new Set();
     currentData.forEach(i => {
-      if (normalizeDays(i.Days).some(d => days.includes(d))) {
+      if (Array.isArray(i.Days) && i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
           occ.add(`${i.Building || i.BUILDING}-${i.Room || i.ROOM}`);
@@ -610,7 +655,7 @@ Instructor: ${instructor || 'N/A'}
       const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
       if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
       return true;
-    }).map(r => [r.key, r.Building, r.Room, r.Days.join(','), r.Start_Time + '-' + r.End_Time]);
+    }).map(r => [r.key, r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time]);
     hmTable.clear().rows.add(rows).draw();
   }
 
@@ -784,7 +829,8 @@ Instructor: ${instructor || 'N/A'}
     }
     const events = [];
     (data || []).forEach(ev => {
-      let daysArr = normalizeDays(ev.Days).map(d => d.trim()).filter(d => daysMap.hasOwnProperty(d));
+      let daysArr = Array.isArray(ev.Days) ? ev.Days : (typeof ev.Days === "string" ? ev.Days.split(',') : []);
+      daysArr = daysArr.map(d => d.trim()).filter(d => daysMap.hasOwnProperty(d));
       if (!daysArr.length) return;
       // Get date span
       let startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
