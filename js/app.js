@@ -22,38 +22,75 @@ document.addEventListener('DOMContentLoaded', () => {
     onRoomDropdown: dataLoader.buildRoomDropdowns,
   });
 
-  // Set up campus dropdown listeners for heatmap/linechart
-  document.getElementById('heatmap-campus-select').addEventListener('change', heatmap.updateAllHeatmap);
-  document.getElementById('linechart-campus-select').addEventListener('change', linechart.renderLineChart);
+  // Defensive: Only add event listeners if elements exist
+  const heatmapCampusSelect = document.getElementById('heatmap-campus-select');
+  if (heatmapCampusSelect) {
+    heatmapCampusSelect.addEventListener('change', heatmap.updateAllHeatmap);
+  }
 
-  // Heatmap/linechart course selector clear buttons
-  document.getElementById('heatmap-clear-btn').onclick = heatmap.clearHeatmapFilter;
-  document.getElementById('linechart-clear-btn').onclick = linechart.clearLineChartFilter;
+  const linechartCampusSelect = document.getElementById('linechart-campus-select');
+  if (linechartCampusSelect) {
+    linechartCampusSelect.addEventListener('change', linechart.renderLineChart);
+  }
 
-  // Heatmap/linechart course selector listeners
-  document.getElementById('courseSelect').addEventListener('change', heatmap.updateAllHeatmap);
-  document.getElementById('lineCourseSelect').addEventListener('change', linechart.renderLineChart);
+  const heatmapClearBtn = document.getElementById('heatmap-clear-btn');
+  if (heatmapClearBtn) {
+    heatmapClearBtn.onclick = heatmap.clearHeatmapFilter;
+  }
 
-  // Calendar room dropdown
-  document.getElementById('calendar-room-select').addEventListener('change', calendar.renderFullCalendar);
+  const linechartClearBtn = document.getElementById('linechart-clear-btn');
+  if (linechartClearBtn) {
+    linechartClearBtn.onclick = linechart.clearLineChartFilter;
+  }
 
-  // Room availability tools (snapshot and calendar)
-  document.getElementById('avail-check-btn').onclick = availability.handleAvailability;
-  document.getElementById('avail-clear-btn').onclick = availability.handleClearAvailability;
-  document.getElementById('calendar-avail-check-btn').onclick = availability.handleCalendarAvailability;
-  document.getElementById('calendar-avail-clear-btn').onclick = availability.handleClearCalendarAvailability;
+  const courseSelect = document.getElementById('courseSelect');
+  if (courseSelect) {
+    courseSelect.addEventListener('change', heatmap.updateAllHeatmap);
+  }
 
-  // UI view switching
-  document.getElementById('viewSelect').addEventListener('change', function() {
-    const view = this.value;
-    heatmap.showHide(view === 'heatmap');
-    linechart.showHide(view === 'linechart');
-    calendar.showHide(view === 'fullcalendar');
-    utils.showSnapshotUI(view === 'calendar');
-    utils.showUploadUI(view === 'calendar');
-    if (view === 'fullcalendar') calendar.renderFullCalendar();
-    if (view === 'linechart') linechart.renderLineChart();
-  });
+  const lineCourseSelect = document.getElementById('lineCourseSelect');
+  if (lineCourseSelect) {
+    lineCourseSelect.addEventListener('change', linechart.renderLineChart);
+  }
+
+  const calendarRoomSelect = document.getElementById('calendar-room-select');
+  if (calendarRoomSelect) {
+    calendarRoomSelect.addEventListener('change', calendar.renderFullCalendar);
+  }
+
+  const availCheckBtn = document.getElementById('avail-check-btn');
+  if (availCheckBtn) {
+    availCheckBtn.onclick = availability.handleAvailability;
+  }
+
+  const availClearBtn = document.getElementById('avail-clear-btn');
+  if (availClearBtn) {
+    availClearBtn.onclick = availability.handleClearAvailability;
+  }
+
+  const calendarAvailCheckBtn = document.getElementById('calendar-avail-check-btn');
+  if (calendarAvailCheckBtn) {
+    calendarAvailCheckBtn.onclick = availability.handleCalendarAvailability;
+  }
+
+  const calendarAvailClearBtn = document.getElementById('calendar-avail-clear-btn');
+  if (calendarAvailClearBtn) {
+    calendarAvailClearBtn.onclick = availability.handleClearCalendarAvailability;
+  }
+
+  const viewSelect = document.getElementById('viewSelect');
+  if (viewSelect) {
+    viewSelect.addEventListener('change', function() {
+      const view = this.value;
+      heatmap.showHide(view === 'heatmap');
+      linechart.showHide(view === 'linechart');
+      calendar.showHide(view === 'fullcalendar');
+      utils.showSnapshotUI(view === 'calendar');
+      utils.showUploadUI(view === 'calendar');
+      if (view === 'fullcalendar') calendar.renderFullCalendar();
+      if (view === 'linechart') linechart.renderLineChart();
+    });
+  }
 
   // Initial load for default term and view
   dataLoader.handleInitialLoad();
