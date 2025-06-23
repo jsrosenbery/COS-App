@@ -12,7 +12,7 @@ export function initCalendar(data) {
 
     new FullCalendar.Calendar(calendarEl, {
       initialView: 'timeGridWeek',
-      plugins: [ FullCalendar.timeGridPlugin ],
+      plugins: [ FullCalendar.TimeGridPlugin ],
       weekNumbers: true,
       events
     }).render();
