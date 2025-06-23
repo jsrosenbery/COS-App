@@ -1,124 +1,117 @@
-// data.js - Loading, normalizing, and storing schedule data and backend API communication
+// COS-App js/app.js (modularized entry point)
 
-import { normalizeRow } from './utils.js';
+// Import modules (using ES6 module syntax)
+import { termStartDates, holidaySet, hmDays } from './constants.js';
+import * as utils from './utils.js';
+import * as dataLoader from './data.js';
+import * as calgetc from './calgetc.js';
+import * as heatmap from './heatmap.js';
+import * as linechart from './linechart.js';
+import * as calendar from './calendar.js';
+import * as availability from './availability.js';
 
-// Expose current data/term globally for other modules (if desired)
-export let currentData = [];
-export let currentTerm = "";
+document.addEventListener('DOMContentLoaded', () => {
+  // Tabs, term selection, and backend data loading
 
-// Backend API base URL
-const BACKEND_BASE_URL = "https://app-backend-pp98.onrender.com";
+  // Set up UI event handlers for view switch, etc
+  heatmap.initHeatmap();
+  linechart.initLineChartChoices();
 
-// Load schedule data from backend for a given term
-export function loadScheduleFromBackend(term, onLoaded = () => {}) {
-  fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`)
-    .then(res => res.json())
-    .then(({ data, lastUpdated }) => {
-      currentData = (data || []).map(normalizeRow);
-      window.currentData = currentData; // for legacy/global code
-      if (lastUpdated) {
-        const tsDiv = document.getElementById('upload-timestamp');
-        if (tsDiv) tsDiv.textContent = `Last upload: ${new Date(lastUpdated).toLocaleString()}`;
-      }
-      onLoaded(currentData);
-    });
-}
-
-// Upload schedule CSV to backend for a given term
-export function uploadScheduleToBackend(term, csvString, cb = () => {}) {
-  fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ csv: csvString, password: 'Upload2025' })
-  })
-    .then(res => {
-      if (!res.ok) throw new Error('Upload failed');
-      return res.json();
-    })
-    .then(() => {
-      alert('Upload successful!');
-      loadScheduleFromBackend(term, cb);
-    })
-    .catch(err => alert('Upload failed: ' + err.message));
-}
-
-// Build unique campus list from data
-export function getUniqueCampuses(data) {
-  const campuses = new Set();
-  data.forEach(r => {
-    const campus = r.Campus || r.campus || r.CAMPUS;
-    if (campus) campuses.add(campus);
+  // --- FIX: Ensure tabs are rendered before loading data ---
+  utils.setupTermTabs({
+    onTermChange: (term) => {
+      dataLoader.handleTermChange(term, () => {
+        // After data loads, rebuild room dropdowns and render snapshot/calendar if needed
+        dataLoader.buildRoomDropdowns();
+        // If view is snapshot/calendar, rerender the UI
+        const view = document.getElementById('viewSelect')?.value || 'calendar';
+        if (view === 'calendar' && typeof window.renderSchedule === 'function') {
+          window.renderSchedule();
+        }
+        if (view === 'fullcalendar') {
+          calendar.renderFullCalendar();
+        }
+      });
+    },
+    onUpload: dataLoader.handleUpload,
+    onRoomDropdown: dataLoader.buildRoomDropdowns,
+    onTabsRendered: () => {
+      dataLoader.handleInitialLoad();
+    }
   });
-  return Array.from(campuses).sort();
-}
 
-// Build unique room list from data
-export function getUniqueRooms(data) {
-  // Returns array of "Bldg-Room" combos, sorted, excluding blanks, N/A, LIVE, ONLINE
-  return [...new Set(
-    data
-      .filter(i => i.Room && i.Room !== '' && i.Room !== 'N/A' && i.Room !== 'LIVE' && (i.Building || i.BUILDING) !== 'ONLINE')
-      .map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`)
-  )].sort();
-}
-
-// Setup: called on term change
-export function handleTermChange(term, onLoaded = () => {}) {
-  currentTerm = term;
-  window.currentTerm = term;
-  loadScheduleFromBackend(term, onLoaded);
-}
-
-// File upload handler (hook to file input)
-export function handleUpload(term, fileInput, cb = () => {}) {
-  // PASSWORD PROTECTION
-  const password = prompt('Enter upload password:');
-  if (password !== 'Upload2025') {
-    alert('Incorrect password. Upload cancelled.');
-    fileInput.value = '';
-    return;
+  // Defensive: Only add event listeners if elements exist
+  const heatmapCampusSelect = document.getElementById('heatmap-campus-select');
+  if (heatmapCampusSelect) {
+    heatmapCampusSelect.addEventListener('change', heatmap.updateAllHeatmap);
   }
-  const file = fileInput.files[0];
-  const reader = new FileReader();
-  reader.onload = function(ev) {
-    const csvString = ev.target.result;
-    uploadScheduleToBackend(term, csvString, cb);
-  };
-  reader.readAsText(file);
-}
 
-// Build room dropdowns in the UI
-export function buildRoomDropdowns() {
-  const combos = getUniqueRooms(currentData);
-  // Snapshot room filter
-  const roomDiv = document.getElementById('room-filter');
-  if (roomDiv) {
-    roomDiv.innerHTML = `
-      <label>Filter Bldg-Room:
-        <select id="room-select">
-          <option>All</option>
-          ${combos.map(r => `<option>${r}</option>`).join('')}
-        </select>
-      </label>`;
-    const snapshotRoomFilter = document.getElementById('room-select');
-    if (snapshotRoomFilter)
-      snapshotRoomFilter.onchange = () => window.renderSchedule && window.renderSchedule();
+  const linechartCampusSelect = document.getElementById('linechart-campus-select');
+  if (linechartCampusSelect) {
+    linechartCampusSelect.addEventListener('change', linechart.renderLineChart);
   }
-  // Fullcalendar room filter
+
+  const heatmapClearBtn = document.getElementById('heatmap-clear-btn');
+  if (heatmapClearBtn) {
+    heatmapClearBtn.onclick = heatmap.clearHeatmapFilter;
+  }
+
+  const linechartClearBtn = document.getElementById('linechart-clear-btn');
+  if (linechartClearBtn) {
+    linechartClearBtn.onclick = linechart.clearLineChartFilter;
+  }
+
+  const courseSelect = document.getElementById('courseSelect');
+  if (courseSelect) {
+    courseSelect.addEventListener('change', heatmap.updateAllHeatmap);
+  }
+
+  const lineCourseSelect = document.getElementById('lineCourseSelect');
+  if (lineCourseSelect) {
+    lineCourseSelect.addEventListener('change', linechart.renderLineChart);
+  }
+
   const calendarRoomSelect = document.getElementById('calendar-room-select');
   if (calendarRoomSelect) {
-    calendarRoomSelect.innerHTML = `
-      <option>All</option>
-      ${combos.map(r => `<option>${r}</option>`).join('')}
-    `;
-    calendarRoomSelect.onchange = () => window.renderFullCalendar && window.renderFullCalendar();
+    calendarRoomSelect.addEventListener('change', calendar.renderFullCalendar);
   }
-}
 
-// Initial load for default term
-export function handleInitialLoad() {
-  const defaultTerm = document.querySelector('.tab.active')?.textContent || '';
-  if (defaultTerm) {
-    handleTermChange(defaultTerm);
+  const availCheckBtn = document.getElementById('avail-check-btn');
+  if (availCheckBtn) {
+    availCheckBtn.onclick = availability.handleAvailability;
   }
-}
+
+  const availClearBtn = document.getElementById('avail-clear-btn');
+  if (availClearBtn) {
+    availClearBtn.onclick = availability.handleClearAvailability;
+  }
+
+  const calendarAvailCheckBtn = document.getElementById('calendar-avail-check-btn');
+  if (calendarAvailCheckBtn) {
+    calendarAvailCheckBtn.onclick = availability.handleCalendarAvailability;
+  }
+
+  const calendarAvailClearBtn = document.getElementById('calendar-avail-clear-btn');
+  if (calendarAvailClearBtn) {
+    calendarAvailClearBtn.onclick = availability.handleClearCalendarAvailability;
+  }
+
+  const viewSelect = document.getElementById('viewSelect');
+  if (viewSelect) {
+    viewSelect.addEventListener('change', function() {
+      const view = this.value;
+      heatmap.showHide(view === 'heatmap');
+      linechart.showHide(view === 'linechart');
+      calendar.showHide(view === 'fullcalendar');
+      utils.showSnapshotUI(view === 'calendar');
+      utils.showUploadUI(view === 'calendar');
+      if (view === 'fullcalendar') calendar.renderFullCalendar();
+      if (view === 'linechart') linechart.renderLineChart();
+      if (view === 'calendar' && typeof window.renderSchedule === 'function') {
+        window.renderSchedule();
+      }
+    });
+  }
+
+  // (Initial load for default term and view is now handled inside setupTermTabs via onTabsRendered)
+});
