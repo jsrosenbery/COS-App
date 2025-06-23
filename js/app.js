@@ -1,5 +1,8 @@
 // COS-App js/app.js
 
+// -- CAL-GETC Mapping integration --
+// Be sure to include <script src="cal_getc_mapping.js"></script> before this file in your HTML!
+
 let hmRaw = [];
 let hmTable;
 let hmChoices;
@@ -138,6 +141,22 @@ function normalizeRow(r) {
     Instructor: r.Instructor || "",
     Campus: r.CAMPUS || r.Campus || "",
   }
+}
+
+// -- CAL-GETC Filtering helpers --
+function getCourseCodesFromCALGETC(value) {
+  if (!window.CAL_GETC_MAPPING || !window.normalizeCALGETCCode) return [];
+  const codes = [];
+  window.CAL_GETC_MAPPING.forEach(row => {
+    if ((row.areas || []).includes(value) || (row.divisions || []).includes(value)) {
+      codes.push(window.normalizeCALGETCCode(row.code));
+    }
+  });
+  return codes;
+}
+
+function isCALGETCGroup(value) {
+  return value && value.startsWith("CAL-GETC");
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -643,11 +662,26 @@ Instructor: ${instructor || 'N/A'}
         campuses.map(c => `<option value="${c}">${c}</option>`).join('');
     });
 
-    const uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
-    const items = uniqueKeys.map(k => ({
-      value: k,
-      label: k
-    }));
+    // --- CAL-GETC group options ---
+    let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
+    let items = uniqueKeys.map(k => ({ value: k, label: k }));
+
+    // Append CAL-GETC area/division options at the bottom
+    if (window.CAL_GETC_MAPPING) {
+      const calGetcGroups = { areas: new Set(), divisions: new Set() };
+      window.CAL_GETC_MAPPING.forEach(row => {
+        (row.areas || []).forEach(area => calGetcGroups.areas.add(area));
+        (row.divisions || []).forEach(div => calGetcGroups.divisions.add(div));
+      });
+      const calGetcAreaOptions = Array.from(calGetcGroups.areas).sort();
+      const calGetcDivisionOptions = Array.from(calGetcGroups.divisions).sort();
+      items = [
+        ...items,
+        ...calGetcAreaOptions.map(area => ({ value: area, label: area })),
+        ...calGetcDivisionOptions.map(div => ({ value: div, label: div }))
+      ];
+    }
+
     if (hmChoices) {
       hmChoices.setChoices(items, 'value', 'label', true);
     }
@@ -665,8 +699,23 @@ Instructor: ${instructor || 'N/A'}
       : hmRaw;
 
     const selected = hmChoices.getValue(true);
+
+    // -- CAL-GETC group filtering --
+    let filterCourseCodes = new Set();
+    selected.forEach(val => {
+      if (isCALGETCGroup(val)) {
+        getCourseCodesFromCALGETC(val).forEach(c => filterCourseCodes.add(c));
+      } else {
+        if (window.normalizeCALGETCCode) {
+          filterCourseCodes.add(window.normalizeCALGETCCode(val));
+        } else {
+          filterCourseCodes.add(val);
+        }
+      }
+    });
+
     const rows = filteredCampus.filter(r => {
-      if(selected.length && !selected.includes(r.key)) return false;
+      if(selected.length && !filterCourseCodes.has(window.normalizeCALGETCCode ? window.normalizeCALGETCCode(r.key) : r.key)) return false;
       if(!isValidRoom(r.Building, r.Room)) return false;
       return true;
     }).map(r => [r.key, r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time]);
@@ -732,13 +781,29 @@ Instructor: ${instructor || 'N/A'}
       lineChartInstance = null;
     }
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
+
+    // -- CAL-GETC group filtering for line chart --
+    let filterCourseCodes = new Set();
+    selectedCourses.forEach(val => {
+      if (isCALGETCGroup(val)) {
+        getCourseCodesFromCALGETC(val).forEach(c => filterCourseCodes.add(c));
+      } else {
+        if (window.normalizeCALGETCCode) {
+          filterCourseCodes.add(window.normalizeCALGETCCode(val));
+        } else {
+          filterCourseCodes.add(val);
+        }
+      }
+    });
+
     const filtered = filteredCampus.filter(r => {
-      if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
+      if(selectedCourses.length && !filterCourseCodes.has(window.normalizeCALGETCCode ? window.normalizeCALGETCCode(r.key) : r.key)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       if (!isValidRoom(r.Building, r.Room)) return false;
       return true;
     });
+
     const [minHour, maxHour] = getTimeRangeFromData(filtered);
     const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
