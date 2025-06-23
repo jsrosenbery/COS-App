@@ -663,7 +663,7 @@ Instructor: ${instructor || 'N/A'}
     });
 
     // --- CAL-GETC group options at the very bottom (no sorting) ---
-    let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
+    let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k)))();
     let nonCalGetcItems = uniqueKeys
       .filter(k => !k.startsWith("CAL-GETC"))
       .map(k => ({ value: k, label: k }));
