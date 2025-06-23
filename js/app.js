@@ -64,6 +64,14 @@ function extractField(r, keys) {
   return '';
 }
 
+function isValidRoom(building, room) {
+  if (!room) return false;
+  const r = room.toUpperCase();
+  if (r === '' || r === 'N/A' || r === 'LIVE') return false;
+  if (building && building.toUpperCase() === 'ONLINE') return false;
+  return true;
+}
+
 function getUniqueCampuses(data) {
   const campuses = new Set();
   data.forEach(r => {
@@ -74,10 +82,12 @@ function getUniqueCampuses(data) {
 }
 
 function getUniqueRooms(data) {
-  // Returns array of "Bldg-Room" combos, sorted, excluding blanks
+  // Returns array of "Bldg-Room" combos, sorted, excluding blanks, N/A, LIVE, ONLINE
   return [...new Set(
-    data.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`)
-  )].filter(r => r && r !== '-' && !/^N\/A/i.test(r) && !/ONLINE/i.test(r)).sort();
+    data
+      .filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM))
+      .map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`)
+  )].sort();
 }
 
 function normalizeRow(r) {
@@ -251,7 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csv: csvString, password: 'Upload2025' }) // <-- CHANGED TO Upload2025
+      body: JSON.stringify({ csv: csvString, password: 'Upload2025' })
     })
       .then(res => {
         if (!res.ok) throw new Error('Upload failed');
@@ -279,7 +289,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('file-input').onchange = e => {
       // --- PASSWORD PROTECTION: ask for password before parsing ---
       const password = prompt('Enter upload password:');
-      if (password !== 'Upload2025') { // <-- CHANGED TO Upload2025
+      if (password !== 'Upload2025') {
         alert('Incorrect password. Upload cancelled.');
         e.target.value = ''; // reset file input
         return;
@@ -340,9 +350,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderSchedule() {
     clearSchedule();
     const filt = snapshotRoomFilter?.value || 'All';
-    const data = filt === 'All'
+    const data = (filt === 'All'
       ? currentData
-      : currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
+      : currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt)
+    ).filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM)); // Omit invalid rooms
     const rect = container.getBoundingClientRect();
     daysOfWeek.forEach((day, dIdx) => {
       let evs = data
@@ -475,9 +486,12 @@ Instructor: ${instructor || 'N/A'}
       return h*60 + m;
     };
     const sMin = toMin(start), eMin = toMin(end);
-    const rooms = [...new Set(currentData.map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))];
+    const rooms = [...new Set(currentData
+        .filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM))
+        .map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))];
     const occ   = new Set();
     currentData.forEach(i => {
+      if (!isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM)) return;
       if (Array.isArray(i.Days) && i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
@@ -608,6 +622,8 @@ Instructor: ${instructor || 'N/A'}
         Campus: extractField(r, ['Campus', 'campus', 'CAMPUS'])
       };
     }).filter(r => {
+      // Omit if room is blank, N/A, LIVE, ONLINE
+      if (!isValidRoom(r.Building, r.Room)) return false;
       let dayField = r.Days;
       if (Array.isArray(dayField)) dayField = dayField.join(',');
       if (typeof dayField !== 'string') dayField = '';
@@ -651,9 +667,7 @@ Instructor: ${instructor || 'N/A'}
     const selected = hmChoices.getValue(true);
     const rows = filteredCampus.filter(r => {
       if(selected.length && !selected.includes(r.key)) return false;
-      if(!r.Building || !r.Room) return false;
-      const b = r.Building.toUpperCase(), ro = r.Room.toUpperCase();
-      if(b==='N/A'||ro==='N/A'||b==='ONLINE') return false;
+      if(!isValidRoom(r.Building, r.Room)) return false;
       return true;
     }).map(r => [r.key, r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time]);
     hmTable.clear().rows.add(rows).draw();
@@ -722,6 +736,7 @@ Instructor: ${instructor || 'N/A'}
       if(selectedCourses.length && !selectedCourses.includes(r.key)) return false;
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
+      if (!isValidRoom(r.Building, r.Room)) return false;
       return true;
     });
     const [minHour, maxHour] = getTimeRangeFromData(filtered);
@@ -827,6 +842,8 @@ Instructor: ${instructor || 'N/A'}
     if (filt && filt !== 'All') {
       data = data.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
     }
+    // OMIT invalid rooms
+    data = (data || []).filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM));
     const events = [];
     (data || []).forEach(ev => {
       let daysArr = Array.isArray(ev.Days) ? ev.Days : (typeof ev.Days === "string" ? ev.Days.split(',') : []);
