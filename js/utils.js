@@ -108,8 +108,19 @@ export function showUploadUI(show) {
 }
 
 // Build term tabs and handle tab switching
-export function setupTermTabs({ onTermChange, onUpload, onRoomDropdown }) {
-  const tabs = document.querySelectorAll('.tab');
+// Now supports onTabsRendered callback for correct initialization order
+export function setupTermTabs({ onTermChange, onUpload, onRoomDropdown, onTabsRendered }) {
+  // Example: build tabs dynamically if needed
+  const nav = document.getElementById('term-tabs');
+  if (nav && !nav.querySelector('.tab')) {
+    // Example: get terms from backend or config
+    // This should be replaced with an actual dynamic terms list as needed
+    const terms = window.AVAILABLE_TERMS || ['Spring 2025', 'Fall 2024', 'Spring 2024'];
+    nav.innerHTML = terms.map((term, i) =>
+      `<div class="tab${i === 0 ? ' active' : ''}">${term}</div>`
+    ).join('');
+  }
+  const tabs = nav ? nav.querySelectorAll('.tab') : document.querySelectorAll('.tab');
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
       tabs.forEach(t => t.classList.remove('active'));
@@ -129,4 +140,7 @@ export function setupTermTabs({ onTermChange, onUpload, onRoomDropdown }) {
       if (typeof onUpload === 'function') onUpload(term, uploadInput, onRoomDropdown);
     };
   }
+
+  // New: call onTabsRendered after tabs are built
+  if (typeof onTabsRendered === 'function') onTabsRendered();
 }
