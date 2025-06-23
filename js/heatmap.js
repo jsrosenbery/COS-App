@@ -1,14 +1,13 @@
 import { getTimeRangeFromData, parseHour } from './timeUtils.js';
 
 export function renderHeatmap(data) {
-  // Clear container
   const container = document.getElementById('heatmap-container');
   container.innerHTML = '';
 
   const { start, end } = getTimeRangeFromData(data);
-  // Build table/grid elements
-  /* Adapt logic from original app.js to generate hmTable */
+  // Build heatmap grid based on start/end and room occupancy
+  // [Implementation here]
 
-  // Append to container
+  // Append generated heatmap element
   container.appendChild(hmTable);
 }
