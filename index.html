@@ -26,19 +26,23 @@
     </select>
   </div>
 
-  <!-- Upload Schedule -->
+  <!-- Schedule Upload -->
   <div id="upload-container">
     <h2>Upload Schedule CSV</h2>
     <input type="file" id="scheduleUpload" accept=".csv"/>
+    <label>
+      Password:
+      <input type="password" id="uploadPassword" placeholder="Upload Password"/>
+    </label>
   </div>
 
-  <!-- Upload Room Metadata -->
+  <!-- Room Metadata Upload -->
   <div id="metadata-upload-container">
     <h2>Upload Room Metadata (.xlsx)</h2>
     <input type="file" id="metadata-input" accept=".xlsx"/>
   </div>
 
-  <div id="upload-timestamp"></div>
+  <div id="upload-timestamp" class="upload-timestamp"></div>
 
   <!-- Availability UI -->
   <div id="availability-ui">
