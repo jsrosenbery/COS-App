@@ -1,23 +1,17 @@
 // js/app.js
+const API_BASE = window.BACKEND_BASE_URL;
 
-// API base URL from global
-const API_BASE = window.BACKEND_BASE_URL || 'https://app-backend-pp98.onrender.com';
-
-// Data stores
 let scheduleData = [];
 let roomMetadata = [];
 const metadataMap = {};
 
-// Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   setupTermTabs();
-  setupViewSelector();
   setupScheduleUpload();
   setupMetadataUpload();
   setupAvailability();
 });
 
-// Semester tabs
 function setupTermTabs() {
   const terms = [
     'Summer 2025','Fall 2025','Spring 2026',
@@ -35,56 +29,25 @@ function setupTermTabs() {
     });
     tabs.appendChild(btn);
   });
-  // Load first term by default
   loadSchedule(terms[0]);
 }
 
-// View selector (no-op for now)
-function setupViewSelector() {
-  document.getElementById('viewSelect').addEventListener('change', () => {
-    // Implement view switching if needed
-  });
-}
-
-// Schedule upload
-function setupScheduleUpload() {
-  const input = document.getElementById('scheduleUpload');
-  input.addEventListener('change', async e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    let password = document.getElementById('uploadPassword')?.value;
-    if (!password) password = prompt('Enter upload password:');
-    if (!password) return alert('Password required');
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('password', password);
-    try {
-      const res = await fetch(`${API_BASE}/api/schedule`, { method: 'POST', body: fd });
-      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
-      await loadSchedule(); // reload with current term
-      alert('Upload successful');
-    } catch (err) {
-      alert('Upload failed: ' + err.message);
-    }
-  });
-}
-
-// Load schedule for a term
 async function loadSchedule(term) {
-  try {
-    const url = term ? `${API_BASE}/api/schedule/${encodeURIComponent(term)}` : `${API_BASE}/api/schedule`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(res.statusText);
-    scheduleData = await res.json();
-    document.getElementById('upload-timestamp').textContent = 'Last upload: ' + new Date().toLocaleString();
-    renderSchedule();
-  } catch (err) {
-    console.error('Failed to load schedule:', err);
-    alert('Failed to load schedule: ' + err.message);
+  let url = `${API_BASE}/api/schedule/${encodeURIComponent(term)}`;
+  let res = await fetch(url);
+  if (res.status === 404) {
+    res = await fetch(`${API_BASE}/api/schedule`);
   }
+  if (!res.ok) {
+    alert('Failed to load schedule: ' + res.statusText);
+    return;
+  }
+  scheduleData = await res.json();
+  document.getElementById('upload-timestamp').textContent =
+    'Last upload: ' + new Date().toLocaleString();
+  renderSchedule();
 }
 
-// Render schedule grid
 function renderSchedule() {
   const table = document.getElementById('schedule-table');
   table.innerHTML = '';
@@ -99,16 +62,38 @@ function renderSchedule() {
   });
 }
 
-// Metadata upload
-function setupMetadataUpload() {
-  const input = document.getElementById('metadata-input');
+function setupScheduleUpload() {
+  const input = document.getElementById('scheduleUpload');
   input.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    let password = document.getElementById('uploadPassword').value;
+    if (!password) password = prompt('Enter upload password:');
+    if (!password) return alert('Password required');
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('password', password);
+    try {
+      const res = await fetch(`${API_BASE}/api/schedule`, { method:'POST', body: fd });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      await loadSchedule();
+      alert('Upload successful');
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    }
+  });
+}
+
+function setupMetadataUpload() {
+  const metaInput = document.getElementById('metadata-input');
+  if (!metaInput) return console.error('metadata-input element not found');
+  metaInput.addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file) return;
     const fd = new FormData();
     fd.append('file', file);
     try {
-      const res = await fetch(`${API_BASE}/api/rooms/metadata`, { method: 'POST', body: fd });
+      const res = await fetch(`${API_BASE}/api/rooms/metadata`, { method:'POST', body: fd });
       if (!res.ok) throw new Error((await res.json()).error || res.statusText);
       await fetchRoomMetadata();
       alert('Metadata upload successful');
@@ -119,25 +104,15 @@ function setupMetadataUpload() {
   fetchRoomMetadata();
 }
 
-// Fetch room metadata
 async function fetchRoomMetadata() {
-  try {
-    const res = await fetch(`${API_BASE}/api/rooms/metadata`);
-    if (!res.ok) throw new Error(res.statusText);
-    roomMetadata = await res.json();
-    metadataMapClear();
-    roomMetadata.forEach(r => metadataMap[`${r.building}-${r.room}`] = r);
-    populateFilters();
-  } catch (err) {
-    console.error('Failed to fetch metadata:', err);
-  }
-}
-
-function metadataMapClear() {
+  const res = await fetch(`${API_BASE}/api/rooms/metadata`);
+  if (!res.ok) return;
+  roomMetadata = await res.json();
   Object.keys(metadataMap).forEach(k => delete metadataMap[k]);
+  roomMetadata.forEach(r => metadataMap[`${r.building}-${r.room}`] = r);
+  populateFilters();
 }
 
-// Populate campus/type filters
 function populateFilters() {
   const campusSel = document.getElementById('avail-campus-select');
   const typeSel = document.getElementById('avail-type-select');
@@ -149,23 +124,18 @@ function populateFilters() {
     .forEach(t => typeSel.append(new Option(t, t)));
 }
 
-// Availability check
 function setupAvailability() {
-  document.getElementById('avail-check-btn')
-    .addEventListener('click', handleAvailability);
+  document.getElementById('avail-check-btn').addEventListener('click', handleAvailability);
 }
 
 function handleAvailability() {
   const days = [...document.querySelectorAll('#days input:checked')].map(i => i.value);
-  const start = document.getElementById('avail-start').value;
-  const end = document.getElementById('avail-end').value;
   const campus = document.getElementById('avail-campus-select').value;
   const type = document.getElementById('avail-type-select').value;
   const minCap = +document.getElementById('avail-min-capacity').value || 0;
-  const occupied = new Set(
-    scheduleData
-      .filter(r => r.Days.some(d => days.includes(d)))
-      .map(r => `${r.Building}-${r.Room}`)
+  const occupied = new Set(scheduleData
+    .filter(r => r.Days.some(d => days.includes(d)))
+    .map(r => `${r.Building}-${r.Room}`)
   );
   let avail = roomMetadata.map(r => `${r.building}-${r.room}`)
     .filter(id => !occupied.has(id));

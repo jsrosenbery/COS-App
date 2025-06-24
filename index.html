@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>COS Scheduling App</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css"/>
 </head>
 <body>
   <header>
-    <img src="images/logo.png" alt="COS Logo" class="logo" />
+    <img src="images/logo.png" alt="COS Logo" class="logo"/>
     <h1>COS Course Scheduler</h1>
   </header>
 
@@ -27,61 +27,54 @@
   </div>
 
   <!-- Schedule Upload -->
-  <div id="upload-section">
+  <div id="upload-container">
     <h2>Upload Schedule CSV</h2>
-    <input type="file" id="scheduleUpload" accept=".csv" />
+    <input type="file" id="scheduleUpload" accept=".csv"/>
+    <input type="password" id="uploadPassword" placeholder="Upload password"/>
   </div>
 
   <!-- Room Metadata Upload -->
-  <div id="metadata-section" style="margin-top:1rem;">
+  <div id="metadata-upload-container">
     <h2>Upload Room Metadata (.xlsx)</h2>
-    <input type="file" id="metadataUpload" accept=".xlsx" />
+    <input type="file" id="metadata-input" accept=".xlsx"/>
   </div>
 
   <div id="upload-timestamp" class="upload-timestamp"></div>
 
   <!-- Availability UI -->
-  <div id="availability-ui" class="availability-ui" style="margin-top:1rem;">
+  <div id="availability-ui">
     <h3>Check Room Availability</h3>
-    <div>
-      <label>Days: 
-        <select id="daySelect" multiple>
-          <option value="Sunday">Sun</option>
-          <option value="Monday">Mon</option>
-          <option value="Tuesday">Tue</option>
-          <option value="Wednesday">Wed</option>
-          <option value="Thursday">Thu</option>
-          <option value="Friday">Fri</option>
-          <option value="Saturday">Sat</option>
-        </select>
-      </label>
+    <div id="days">
+      <label><input type="checkbox" value="Sunday"/> Sun</label>
+      <label><input type="checkbox" value="Monday"/> Mon</label>
+      <label><input type="checkbox" value="Tuesday"/> Tue</label>
+      <label><input type="checkbox" value="Wednesday"/> Wed</label>
+      <label><input type="checkbox" value="Thursday"/> Thu</label>
+      <label><input type="checkbox" value="Friday"/> Fri</label>
+      <label><input type="checkbox" value="Saturday"/> Sat</label>
     </div>
-    <div>
-      <label>Start: <input type="time" id="avail-start" /></label>
-      <label>End: <input type="time" id="avail-end" /></label>
+    <div id="times">
+      <label>Start: <input type="time" id="avail-start"/></label>
+      <label>End: <input type="time" id="avail-end"/></label>
     </div>
-    <div>
+    <div id="filters">
       <label>Campus:
-        <select id="avail-campus">
-          <option value="">All</option>
-        </select>
+        <select id="avail-campus-select"><option value="">All</option></select>
       </label>
       <label>Type:
-        <select id="avail-type">
-          <option value="">All</option>
-        </select>
+        <select id="avail-type-select"><option value="">All</option></select>
       </label>
       <label>Min Cap:
-        <input type="number" id="avail-min-capacity" min="0" value="0" />
+        <input type="number" id="avail-min-capacity" min="0" value="0"/>
       </label>
     </div>
-    <button id="avail-check-btn">Check Availability</button>
+    <button id="avail-check-btn">Check</button>
     <div id="avail-results"></div>
   </div>
 
   <!-- Schedule Grid -->
-  <div id="schedule-grid" style="margin-top:1rem;">
-    <table id="schedule-table" border="1"></table>
+  <div id="schedule-container">
+    <table id="schedule-table"></table>
   </div>
 
   <script>
