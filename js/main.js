@@ -40,7 +40,7 @@ viewSelect.addEventListener('change', ()=> {
 });
 
 // Room filter
-const roomSelect = document.getElementById('room-select');
+const roomSelect = document.getElementById('calendar-room-select');
 roomSelect.addEventListener('change',()=> applyFilters());
 
 // Upload/initial load
