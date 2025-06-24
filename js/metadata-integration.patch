@@ -1,0 +1,121 @@
+--- a/index.html
++++ b/index.html
+@@
+-  <div id="upload-container"></div>
++  <div id="upload-container"></div>
++  <!-- Room Metadata Upload -->
++  <div id="metadata-upload-container" style="padding:0.5rem 1rem; border-top:1px solid #ccc;">
++    <label>
++      Upload Room Metadata:
++      <input type="file" id="metadata-input" accept=".xlsx">
++    </label>
++  </div>
+@@
+-    <div class="times">
++    <div class="times">
+@@
+-    </div>
+-    <div id="avail-results" class="avail-results"></div>
++    </div>
++    <!-- Campus/Type/Capacity Filters -->
++    <div class="extra-filters" style="margin:0.5rem 0; display:flex; gap:1rem; align-items:center;">
++      <label>
++        Campus:
++        <select id="avail-campus-select">
++          <option value="">All campuses</option>
++        </select>
++      </label>
++      <label>
++        Room Type:
++        <select id="avail-type-select">
++          <option value="">All types</option>
++        </select>
++      </label>
++      <label>
++        Min Capacity:
++        <input type="number" id="avail-min-capacity" min="0" value="0" style="width:60px">
++      </label>
++    </div>
++    <div id="avail-results" class="avail-results"></div>
+
+--- a/js/app.js
++++ b/js/app.js
+@@
+// COS-App js/app.js
++
++// --- Room Metadata Integration ---
++let roomMetadata = [];
++const metadataMap = {};
++
++async function fetchRoomMetadata() {
++  try {
++    const res = await fetch(`${BACKEND_BASE_URL}/api/rooms/metadata`);
++    roomMetadata = await res.json();
++    roomMetadata.forEach(r => {
++      metadataMap[`${r.building}-${r.room}`] = r;
++    });
++    populateAvailabilityFilters();
++  } catch (err) {
++    console.error('Failed to load room metadata', err);
++  }
++}
++
++function populateAvailabilityFilters() {
++  const campSel = document.getElementById('avail-campus-select');
++  const typeSel = document.getElementById('avail-type-select');
++  const campuses = [...new Set(roomMetadata.map(r => r.campus))].sort();
++  const types = [...new Set(roomMetadata.map(r => r.type))].sort();
++  campSel.innerHTML = '<option value="">All campuses</option>' +
++    campuses.map(c => `<option value="${c}">${c}</option>`).join('');
++  typeSel.innerHTML = '<option value="">All types</option>' +
++    types.map(t => `<option value="${t}">${t}</option>`).join('');
++}
++
++// Hook metadata upload input
++document.getElementById('metadata-input').addEventListener('change', async e => {
++  const file = e.target.files[0];
++  if (!file) return;
++  const fd = new FormData();
++  fd.append('file', file);
++  const resp = await fetch(`${BACKEND_BASE_URL}/api/rooms/metadata`, { method: 'POST', body: fd });
++  if (resp.ok) {
++    await fetchRoomMetadata();
++    alert('Room metadata uploaded');
++  } else {
++    alert('Metadata upload failed');
++  }
++});
++
+@@ document.addEventListener('DOMContentLoaded', () => {
+   const BACKEND_BASE_URL = "https://app-backend-pp98.onrender.com";
++  // Load room metadata on startup
++  fetchRoomMetadata();
+@@
+-  function handleAvailability() {
++  function handleAvailability() {
+@@
+-    const avail = rooms.filter(r => !occ.has(r)).sort();
+-    if (avail.length) {
+-      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
+-    } else {
+-      resultsDiv.textContent = 'No rooms available.';
+-    }
++    let avail = rooms.filter(r => !occ.has(r)).sort();
++    // Apply Campus filter
++    const selCampus = document.getElementById('avail-campus-select').value;
++    if (selCampus) avail = avail.filter(r => metadataMap[r]?.campus === selCampus);
++    // Apply Type filter
++    const selType = document.getElementById('avail-type-select').value;
++    if (selType) avail = avail.filter(r => metadataMap[r]?.type === selType);
++    // Apply Capacity filter
++    const minCap = Number(document.getElementById('avail-min-capacity').value) || 0;
++    if (minCap > 0) avail = avail.filter(r => (metadataMap[r]?.capacity || 0) >= minCap);
++
++    if (avail.length) {
++      resultsDiv.innerHTML = '<ul>' + avail.map(r => {
++        const cap = metadataMap[r]?.capacity || 'N/A';
++        return `<li>${r} — max ${cap} seats</li>`;
++      }).join('') + '</ul>';
++    } else {
++      resultsDiv.textContent = 'No rooms available.';
++    }
