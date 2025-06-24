@@ -28,10 +28,10 @@ terms.forEach((t,i)=>{
 // View handling
 const viewSelect = document.getElementById('view-select');
 const sections = {
-  calendar: document.getElementById('snapshot'),
   heatmap: document.getElementById('heatmap-container'),
-  linechart: document.getElementById('linechart-tool'),
-  fullcalendar: document.getElementById('calendar-container')
+  chart:   document.getElementById('linechart-canvas'),
+  calendar:document.getElementById('calendar'),
+  availability:document.getElementById('availability-section')
 };
 viewSelect.addEventListener('change', ()=> {
   Object.keys(sections).forEach(k=>{
