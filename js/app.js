@@ -1,91 +1,75 @@
-// js/app.js
+// --- New room metadata integration ---
 
-let scheduleData = null;
+// room metadata storage
 let roomMetadata = [];
+const metadataMap = {};
 
-// Upload schedule CSV
-document.getElementById('scheduleUpload').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const formData = new FormData();
-  formData.append('file', file);
-  await fetch('/api/schedule', { method: 'POST', body: formData });
-  // Fetch updated schedule
-  const res = await fetch('/api/schedule');
-  scheduleData = await res.json();
-});
-
-// Upload room metadata XLSX
-document.getElementById('roomMetadataUpload').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const formData = new FormData();
-  formData.append('file', file);
-  await fetch('/api/rooms/metadata', { method: 'POST', body: formData });
-  await fetchRoomMetadata();
-});
-
-// Fetch room metadata and populate selectors
+// fetch room metadata from backend
 async function fetchRoomMetadata() {
-  const res = await fetch('/api/rooms/metadata');
-  roomMetadata = await res.json();
-  populateSelectors();
+  try {
+    const res = await fetch('/api/rooms/metadata');
+    roomMetadata = await res.json();
+    roomMetadata.forEach(r => {
+      metadataMap[`${r.building}-${r.room}`] = r;
+    });
+    populateAvailabilityFilters();
+  } catch (err) {
+    console.error('Failed to load room metadata', err);
+  }
 }
 
-// Populate campus and type dropdowns
-function populateSelectors() {
-  const campusSelect = document.getElementById('campusSelect');
-  const typeSelect = document.getElementById('typeSelect');
-  const campuses = [...new Set(roomMetadata.map(r => r.campus))];
-  const types = [...new Set(roomMetadata.map(r => r.type))];
-
-  // Clear existing options except default
-  campusSelect.innerHTML = '<option value="">All campuses</option>';
-  typeSelect.innerHTML = '<option value="">All types</option>';
-
-  campuses.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c;
-    opt.textContent = c;
-    campusSelect.appendChild(opt);
-  });
-  types.forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t;
-    opt.textContent = t;
-    typeSelect.appendChild(opt);
-  });
+// populate campus and type selectors
+function populateAvailabilityFilters() {
+  const campSel = document.getElementById('avail-campus-select');
+  const typeSel = document.getElementById('avail-type-select');
+  const campuses = [...new Set(roomMetadata.map(r=>r.campus))].sort();
+  const types    = [...new Set(roomMetadata.map(r=>r.type))].sort();
+  campSel.innerHTML = '<option value="">All campuses</option>' +
+    campuses.map(c=>`<option value="${c}">${c}</option>`).join('');
+  typeSel.innerHTML = '<option value="">All types</option>' +
+    types.map(t=>`<option value="${t}">${t}</option>`).join('');
 }
 
-// Filter and display available rooms
-document.getElementById('findRoomsBtn').addEventListener('click', () => {
-  if (!scheduleData) { alert('Please upload schedule first'); return; }
-  if (!roomMetadata.length) { alert('Please upload room metadata first'); return; }
-
-  const selectedCampus = document.getElementById('campusSelect').value;
-  const selectedType = document.getElementById('typeSelect').value;
-  const minCapacity = Number(document.getElementById('capacityInput').value) || 0;
-
-  // TODO: Replace with your actual availability logic
-  const availableRoomIds = getAvailableRooms(scheduleData);
-
-  const filtered = roomMetadata
-    .filter(r => availableRoomIds.includes(r.room))
-    .filter(r => !selectedCampus || r.campus === selectedCampus)
-    .filter(r => !selectedType || r.type === selectedType)
-    .filter(r => r.capacity >= minCapacity);
-
-  const resultsList = document.getElementById('resultsList');
-  resultsList.innerHTML = '';
-  filtered.forEach(r => {
-    const li = document.createElement('li');
-    li.textContent = `${r.building}-${r.room} (${r.type}) — max ${r.capacity} seats`;
-    resultsList.appendChild(li);
-  });
+// hook up metadata upload
+document.getElementById('metadata-input').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  const resp = await fetch('/api/rooms/metadata', { method: 'POST', body: fd });
+  if (resp.ok) {
+    await fetchRoomMetadata();
+    alert('Room metadata uploaded');
+  } else {
+    alert('Metadata upload failed');
+  }
 });
 
-// Placeholder function: implement your schedule availability logic
-function getAvailableRooms(schedule) {
-  // Example stub: return all room IDs
-  return schedule.map(entry => entry.room);
+// load metadata on startup
+fetchRoomMetadata();
+
+// modify existing availability handler (example seed; adapt into your function)
+function handleAvailability() {
+  // ... existing logic to get `avail` list ...
+  let avail = getBaseAvailability(); // placeholder
+
+  const selCampus = document.getElementById('avail-campus-select').value;
+  if (selCampus) avail = avail.filter(r => metadataMap[r]?.campus === selCampus);
+
+  const selType = document.getElementById('avail-type-select').value;
+  if (selType) avail = avail.filter(r => metadataMap[r]?.type === selType);
+
+  const minCap = Number(document.getElementById('avail-min-capacity').value) || 0;
+  if (minCap > 0) avail = avail.filter(r => (metadataMap[r]?.capacity || 0) >= minCap);
+
+  // render results
+  const resultsDiv = document.getElementById('avail-results');
+  if (avail.length) {
+    resultsDiv.innerHTML = '<ul>' + avail.map(r => {
+      const cap = metadataMap[r]?.capacity || 'N/A';
+      return `<li>${r} — max ${cap} seats</li>`;
+    }).join('') + '</ul>';
+  } else {
+    resultsDiv.textContent = 'No rooms available.';
+  }
 }
