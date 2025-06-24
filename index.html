@@ -19,7 +19,7 @@
       display: flex;
       align-items: center;
     }
-    #heatmapContainer {
+    #heatmap-container {
       min-height: 600px;
     }
     #chart-container {
@@ -95,7 +95,10 @@
     </select>
   </div>
 
-  <div id="upload-container"></div>
+  <div id="upload-container">
+    <label for="schedule-upload">Upload Schedule CSV:</label>
+    <input type="file" id="schedule-upload" accept=".csv" />
+  </div>
   <div id="upload-timestamp" class="upload-timestamp"></div>
   <div id="room-filter"></div>
 
@@ -144,7 +147,7 @@
       <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
       <button id="heatmap-clear-btn" type="button">Clear</button>
     </div>
-    <div id="heatmapContainer"></div>
+    <div id="heatmap-container"></div>
     <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
   </div>
 
