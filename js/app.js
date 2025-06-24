@@ -1,19 +1,25 @@
-// COS-App js/app.js
+// js/app.js
 
-// Define your backend URL
 const BACKEND_BASE_URL = "https://app-backend-pp98.onrender.com";
 
-// Existing variable declarations...
 let scheduleData = [];
 let selectedTerm = null;
 let termData = {};
-// ... plus all your existing variables
+// ... other original app.js variables and functions ...
 
-// --- Room Metadata Integration ---
+// Room metadata integration
 let roomMetadata = [];
 const metadataMap = {};
 
-// Fetch room metadata from backend
+function populateAvailabilityFilters() {
+  const campSel = document.getElementById('avail-campus-select');
+  const typeSel = document.getElementById('avail-type-select');
+  const campuses = [...new Set(roomMetadata.map(r => r.campus))].sort();
+  const types = [...new Set(roomMetadata.map(r => r.type))].sort();
+  campSel.innerHTML = '<option value="">All campuses</option>' + campuses.map(c => `<option>${c}</option>`).join('');
+  typeSel.innerHTML = '<option value="">All types</option>' + types.map(t => `<option>${t}</option>`).join('');
+}
+
 async function fetchRoomMetadata() {
   try {
     const res = await fetch(`${BACKEND_BASE_URL}/api/rooms/metadata`);
@@ -27,73 +33,52 @@ async function fetchRoomMetadata() {
   }
 }
 
-// Populate campus and type selectors
-function populateAvailabilityFilters() {
-  const campSel = document.getElementById('avail-campus-select');
-  const typeSel = document.getElementById('avail-type-select');
-  const campuses = [...new Set(roomMetadata.map(r=>r.campus))].sort();
-  const types    = [...new Set(roomMetadata.map(r=>r.type))].sort();
-  campSel.innerHTML = '<option value="">All campuses</option>' +
-    campuses.map(c=>`<option value="${c}">${c}</option>`).join('');
-  typeSel.innerHTML = '<option value="">All types</option>' +
-    types.map(t=>`<option value="${t}">${t}</option>`).join('');
-}
-
-// Hook metadata upload input
-document.getElementById('metadata-input').addEventListener('change', async e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const fd = new FormData();
-  fd.append('file', file);
-  const resp = await fetch(`${BACKEND_BASE_URL}/api/rooms/metadata`, { method: 'POST', body: fd });
-  if (resp.ok) {
-    await fetchRoomMetadata();
-    alert('Room metadata uploaded');
-  } else {
-    alert('Metadata upload failed');
-  }
-});
-
-// Load metadata on startup
-fetchRoomMetadata();
-
-// Existing DOMContentLoaded handler and term-tabs logic...
 document.addEventListener('DOMContentLoaded', () => {
-  // Your original initialization: load terms, set up schedule upload, term-tabs, view-selector, etc.
+  // Original initialization: term-tabs, schedule upload, view-selector...
+  initTerms();      // assume this sets up semester tabs
+  initUpload();     // original schedule upload
+  initViewSwitch(); // original view selector logic
 
-  // Example: Setup availability checkbox & buttons
-  document.getElementById('avail-check-btn').addEventListener('click', handleAvailability);
-  document.getElementById('avail-clear-btn').addEventListener('click', () => {
-    // Clear logic...
+  // Load room metadata after DOM is ready
+  fetchRoomMetadata();
+
+  // Hook metadata upload
+  document.getElementById('metadata-input').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch(`${BACKEND_BASE_URL}/api/rooms/metadata`, { method: 'POST', body: fd });
+    if (resp.ok) {
+      await fetchRoomMetadata();
+      alert('Room metadata uploaded');
+    } else {
+      alert('Metadata upload failed');
+    }
   });
 
-  // other initialization...
+  // Hook availability check
+  document.getElementById('avail-check-btn').addEventListener('click', handleAvailability);
+  document.getElementById('avail-clear-btn').addEventListener('click', () => {
+    document.getElementById('avail-results').innerHTML = '';
+  });
 });
 
-// Modified availability handler to include new filters
 function handleAvailability() {
-  const checkedDays = Array.from(document.querySelectorAll('#availability-ui .days input:checked')).map(i => i.value);
-  const start = document.getElementById('avail-start').value;
-  const end   = document.getElementById('avail-end').value;
-  const resultsDiv = document.getElementById('avail-results');
+  // Original availability logic to compute rooms list
+  let rooms = computeAvailableRooms(scheduleData, selectedTerm); // your function
 
-  // Your existing scheduling logic to compute available rooms:
-  let rooms = computeAvailableRooms(scheduleData, selectedTerm, checkedDays, start, end); 
-  // (Replace computeAvailableRooms with your actual function)
-
-  // Apply Campus filter
+  // Apply filters
   const selCampus = document.getElementById('avail-campus-select').value;
   if (selCampus) rooms = rooms.filter(r => metadataMap[r]?.campus === selCampus);
 
-  // Apply Type filter
   const selType = document.getElementById('avail-type-select').value;
   if (selType) rooms = rooms.filter(r => metadataMap[r]?.type === selType);
 
-  // Apply Capacity filter
   const minCap = Number(document.getElementById('avail-min-capacity').value) || 0;
   if (minCap > 0) rooms = rooms.filter(r => (metadataMap[r]?.capacity || 0) >= minCap);
 
-  // Render results
+  const resultsDiv = document.getElementById('avail-results');
   if (rooms.length) {
     resultsDiv.innerHTML = '<ul>' + rooms.map(r => {
       const cap = metadataMap[r]?.capacity || 'N/A';
@@ -104,4 +89,4 @@ function handleAvailability() {
   }
 }
 
-// ... rest of your original app.js code ...
+// ... rest of original functions like initTerms, initUpload, initViewSwitch, computeAvailableRooms ...
