@@ -84,7 +84,7 @@
     <h1>COS Course Scheduler</h1>
   </header>
 
-  <ul id="term-tabs"></ul>
+  <nav id="term-tabs"></nav>
   <div id="view-container" style="margin:10px 0;">
     <label for="viewSelect">View: </label>
     <select id="viewSelect">
@@ -95,10 +95,7 @@
     </select>
   </div>
 
-  <div id="upload-container">
-    <label for="schedule-upload">Upload Schedule CSV:</label>
-    <input type="file" id="schedule-upload" accept=".csv" />
-  </div>
+  <div id="upload-container"></div>
   <div id="upload-timestamp" class="upload-timestamp"></div>
   <div id="room-filter"></div>
 
@@ -147,7 +144,7 @@
       <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
       <button id="heatmap-clear-btn" type="button">Clear</button>
     </div>
-    <div id="heatmapContainer"></div>
+    <div id="heatmap-container"></div>
     <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
   </div>
 
@@ -174,7 +171,9 @@
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
+  <!-- CAL-GETC mapping file must be loaded BEFORE app.js -->
   <script src="js/cal_getc_mapping.js"></script>
   <script type="module" src="js/main.js"></script>
+  
 </body>
 </html>

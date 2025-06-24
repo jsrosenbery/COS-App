@@ -26,12 +26,12 @@ terms.forEach((t,i)=>{
 });
 
 // View handling
-const viewSelect = document.getElementById('viewSelect');
+const viewSelect = document.getElementById('view-select');
 const sections = {
+  calendar: document.getElementById('snapshot'),
   heatmap: document.getElementById('heatmap-container'),
-  chart:   document.getElementById('linechart-canvas'),
-  calendar:document.getElementById('calendar'),
-  availability:document.getElementById('availability-section')
+  linechart: document.getElementById('linechart-tool'),
+  fullcalendar: document.getElementById('calendar-container')
 };
 viewSelect.addEventListener('change', ()=> {
   Object.keys(sections).forEach(k=>{
@@ -40,7 +40,7 @@ viewSelect.addEventListener('change', ()=> {
 });
 
 // Room filter
-const roomSelect = document.getElementById('calendar-room-select');
+const roomSelect = document.getElementById('room-select');
 roomSelect.addEventListener('change',()=> applyFilters());
 
 // Upload/initial load
@@ -64,7 +64,7 @@ uploadInput.addEventListener('change', async e => {
 async function loadTermData(term) {
   const res = await fetch(`${BACKEND}/api/schedule/${term}`);
   const json = await res.json();
-  currentData = normalizeRows(json.data || json);
+  currentData = normalizeRows(json.data);
   populateUI();
 }
 
