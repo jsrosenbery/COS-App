@@ -1,13 +1,22 @@
-// --- New room metadata integration ---
+// COS-App js/app.js
 
-// room metadata storage
+// Define your backend URL
+const BACKEND_BASE_URL = "https://app-backend-pp98.onrender.com";
+
+// Existing variable declarations...
+let scheduleData = [];
+let selectedTerm = null;
+let termData = {};
+// ... plus all your existing variables
+
+// --- Room Metadata Integration ---
 let roomMetadata = [];
 const metadataMap = {};
 
-// fetch room metadata from backend
+// Fetch room metadata from backend
 async function fetchRoomMetadata() {
   try {
-    const res = await fetch('/api/rooms/metadata');
+    const res = await fetch(`${BACKEND_BASE_URL}/api/rooms/metadata`);
     roomMetadata = await res.json();
     roomMetadata.forEach(r => {
       metadataMap[`${r.building}-${r.room}`] = r;
@@ -18,7 +27,7 @@ async function fetchRoomMetadata() {
   }
 }
 
-// populate campus and type selectors
+// Populate campus and type selectors
 function populateAvailabilityFilters() {
   const campSel = document.getElementById('avail-campus-select');
   const typeSel = document.getElementById('avail-type-select');
@@ -30,13 +39,13 @@ function populateAvailabilityFilters() {
     types.map(t=>`<option value="${t}">${t}</option>`).join('');
 }
 
-// hook up metadata upload
+// Hook metadata upload input
 document.getElementById('metadata-input').addEventListener('change', async e => {
   const file = e.target.files[0];
   if (!file) return;
   const fd = new FormData();
   fd.append('file', file);
-  const resp = await fetch('/api/rooms/metadata', { method: 'POST', body: fd });
+  const resp = await fetch(`${BACKEND_BASE_URL}/api/rooms/metadata`, { method: 'POST', body: fd });
   if (resp.ok) {
     await fetchRoomMetadata();
     alert('Room metadata uploaded');
@@ -45,27 +54,48 @@ document.getElementById('metadata-input').addEventListener('change', async e => 
   }
 });
 
-// load metadata on startup
+// Load metadata on startup
 fetchRoomMetadata();
 
-// modify existing availability handler (example seed; adapt into your function)
+// Existing DOMContentLoaded handler and term-tabs logic...
+document.addEventListener('DOMContentLoaded', () => {
+  // Your original initialization: load terms, set up schedule upload, term-tabs, view-selector, etc.
+
+  // Example: Setup availability checkbox & buttons
+  document.getElementById('avail-check-btn').addEventListener('click', handleAvailability);
+  document.getElementById('avail-clear-btn').addEventListener('click', () => {
+    // Clear logic...
+  });
+
+  // other initialization...
+});
+
+// Modified availability handler to include new filters
 function handleAvailability() {
-  // ... existing logic to get `avail` list ...
-  let avail = getBaseAvailability(); // placeholder
-
-  const selCampus = document.getElementById('avail-campus-select').value;
-  if (selCampus) avail = avail.filter(r => metadataMap[r]?.campus === selCampus);
-
-  const selType = document.getElementById('avail-type-select').value;
-  if (selType) avail = avail.filter(r => metadataMap[r]?.type === selType);
-
-  const minCap = Number(document.getElementById('avail-min-capacity').value) || 0;
-  if (minCap > 0) avail = avail.filter(r => (metadataMap[r]?.capacity || 0) >= minCap);
-
-  // render results
+  const checkedDays = Array.from(document.querySelectorAll('#availability-ui .days input:checked')).map(i => i.value);
+  const start = document.getElementById('avail-start').value;
+  const end   = document.getElementById('avail-end').value;
   const resultsDiv = document.getElementById('avail-results');
-  if (avail.length) {
-    resultsDiv.innerHTML = '<ul>' + avail.map(r => {
+
+  // Your existing scheduling logic to compute available rooms:
+  let rooms = computeAvailableRooms(scheduleData, selectedTerm, checkedDays, start, end); 
+  // (Replace computeAvailableRooms with your actual function)
+
+  // Apply Campus filter
+  const selCampus = document.getElementById('avail-campus-select').value;
+  if (selCampus) rooms = rooms.filter(r => metadataMap[r]?.campus === selCampus);
+
+  // Apply Type filter
+  const selType = document.getElementById('avail-type-select').value;
+  if (selType) rooms = rooms.filter(r => metadataMap[r]?.type === selType);
+
+  // Apply Capacity filter
+  const minCap = Number(document.getElementById('avail-min-capacity').value) || 0;
+  if (minCap > 0) rooms = rooms.filter(r => (metadataMap[r]?.capacity || 0) >= minCap);
+
+  // Render results
+  if (rooms.length) {
+    resultsDiv.innerHTML = '<ul>' + rooms.map(r => {
       const cap = metadataMap[r]?.capacity || 'N/A';
       return `<li>${r} — max ${cap} seats</li>`;
     }).join('') + '</ul>';
@@ -73,3 +103,5 @@ function handleAvailability() {
     resultsDiv.textContent = 'No rooms available.';
   }
 }
+
+// ... rest of your original app.js code ...
