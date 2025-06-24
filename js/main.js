@@ -64,7 +64,7 @@ uploadInput.addEventListener('change', async e => {
 async function loadTermData(term) {
   const res = await fetch(`${BACKEND}/api/schedule/${term}`);
   const json = await res.json();
-  currentData = normalizeRows(json.data);
+  currentData = normalizeRows(json.data || json);
   populateUI();
 }
 
