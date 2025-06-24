@@ -2,35 +2,36 @@
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const XLSX = require('xlsx');
 const Papa = require('papaparse');
+const XLSX = require('xlsx');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
 const upload = multer();
 
 let scheduleData = [];
+let roomMetadata = [];
 
-// Schedule upload
+// POST /api/schedule
 app.post('/api/schedule', upload.single('file'), (req, res) => {
   const password = req.body.password;
   if (password !== 'Upload2025') {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ error: 'Unauthorized: incorrect password' });
   }
-  const csv = req.file.buffer.toString('utf-8');
-  const rows = Papa.parse(csv, { header: true, skipEmptyLines: true }).data;
-  scheduleData = rows;
-  return res.json({ success: true });
+  const csvString = req.file.buffer.toString('utf-8');
+  const parsed = Papa.parse(csvString, { header: true, skipEmptyLines: true });
+  scheduleData = parsed.data;
+  return res.json({ success: true, count: scheduleData.length });
 });
 
-// Serve schedule for any term
+// GET /api/schedule and /api/schedule/:term
 app.get(['/api/schedule', '/api/schedule/:term'], (req, res) => {
-  return res.json(scheduleData);
+  res.json(scheduleData);
 });
 
-// Room metadata endpoints unchanged
-let roomMetadata = [];
+// POST /api/rooms/metadata
 app.post('/api/rooms/metadata', upload.single('file'), (req, res) => {
   try {
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
@@ -43,11 +44,13 @@ app.post('/api/rooms/metadata', upload.single('file'), (req, res) => {
       type: r.Type,
       capacity: Number(r['# of Desks in Room'])
     }));
-    res.json({ success: true });
+    return res.json({ success: true, count: roomMetadata.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
+
+// GET /api/rooms/metadata
 app.get('/api/rooms/metadata', (req, res) => {
   res.json(roomMetadata);
 });
