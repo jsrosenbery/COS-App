@@ -26,7 +26,7 @@ terms.forEach((t,i)=>{
 });
 
 // View handling
-const viewSelect = document.getElementById('view-select');
+const viewSelect = document.getElementById('viewSelect');
 const sections = {
   heatmap: document.getElementById('heatmap-container'),
   chart:   document.getElementById('linechart-canvas'),
