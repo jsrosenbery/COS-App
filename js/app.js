@@ -1,166 +1,144 @@
 // js/app.js
 
 const API_BASE = window.BACKEND_BASE_URL;
-
-// Data stores
 let scheduleData = [];
 let roomMetadata = [];
 const metadataMap = {};
 
-// Initialize on DOM ready
+// Initialize
 document.addEventListener('DOMContentLoaded', () => {
-  setupTermTabs();
+  renderTermTabs();
   setupViewSelector();
-  setupUpload();
-  setupMetadataUpload();
-  setupAvailability();
+  document.getElementById('scheduleUpload').onchange = handleScheduleUpload;
+  document.getElementById('metadataUpload').onchange = handleMetadataUpload;
+  document.getElementById('avail-check-btn').onclick = handleAvailability;
+  fetchRoomMetadata();
 });
 
-// Semester tabs: full term list
-function setupTermTabs() {
-  const terms = [
-    'Summer 2025','Fall 2025','Spring 2026',
-    'Summer 2026','Fall 2026','Spring 2027',
-    'Summer 2027','Fall 2027','Spring 2028'
-  ];
-  const tabs = document.getElementById('term-tabs');
-  terms.forEach((term, idx) => {
+// Terms
+function renderTermTabs() {
+  const terms = ['Summer 2025','Fall 2025','Spring 2026','Summer 2026','Fall 2026','Spring 2027','Summer 2027','Fall 2027','Spring 2028'];
+  const container = document.getElementById('term-tabs');
+  terms.forEach((t, i) => {
     const btn = document.createElement('button');
-    btn.textContent = term;
-    btn.className = idx === 0 ? 'active' : '';
-    btn.onclick = () => selectTerm(term, btn);
-    tabs.appendChild(btn);
+    btn.textContent = t;
+    btn.onclick = () => currentTerm = t;
+    if(i===0) btn.classList.add('active');
+    container.appendChild(btn);
   });
-  selectTerm(terms[0], tabs.children[0]);
+  window.currentTerm = terms[0];
 }
 
-function selectTerm(term, btn) {
-  Array.from(document.getElementById('term-tabs').children)
-    .forEach(b => b.classList.toggle('active', b === btn));
-  loadSchedule();
-}
-
-// View selector stub
 function setupViewSelector() {
-  document.getElementById('viewSelect').onchange = () => {};
+  // stub
 }
 
-// Upload schedule with password
-function setupUpload() {
-  document.getElementById('scheduleUpload')
-    .addEventListener('change', async e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const password = document.getElementById('uploadPassword').value ||
-        prompt('Enter upload password:');
-      if (!password) return alert('Password required');
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('password', password);
-      try {
-        const res = await fetch(`${API_BASE}/api/schedule`, {
-          method: 'POST',
-          body: fd
-        });
-        if (res.status === 401) throw new Error('Unauthorized: wrong password');
-        if (!res.ok) throw new Error(res.statusText);
-        await loadSchedule();
-      } catch (err) {
-        alert('Upload failed: ' + err.message);
-      }
+// Upload schedule
+async function handleScheduleUpload(e) {
+  const file = e.target.files[0];
+  if(!file) return;
+  const text = await file.text();
+  const password = prompt('Enter upload password:');
+  if(!password) return alert('Password required');
+  try {
+    const res = await fetch(`${API_BASE}/api/schedule/${encodeURIComponent(currentTerm)}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({csv: text, password})
     });
+    if(!res.ok) throw new Error(res.statusText);
+    alert('Upload successful');
+    loadSchedule();
+  } catch(err) {
+    alert('Upload failed: '+err.message);
+  }
 }
 
+// Load schedule
 async function loadSchedule() {
-  const res = await fetch(`${API_BASE}/api/schedule`);
-  scheduleData = await res.json();
-  document.getElementById('upload-timestamp').textContent =
-    'Last upload: ' + new Date().toLocaleString();
+  try {
+    const res = await fetch(`${API_BASE}/api/schedule/${encodeURIComponent(currentTerm)}`);
+    const {data} = await res.json();
+    scheduleData = data;
+  } catch {
+    // fallback generic
+    const res = await fetch(`${API_BASE}/api/schedule`);
+    scheduleData = await res.json();
+  }
   renderSchedule();
+  document.getElementById('upload-timestamp').textContent = 'Last upload: '+new Date().toLocaleString();
 }
 
+// Render grid
 function renderSchedule() {
-  const table = document.getElementById('schedule-table');
-  table.innerHTML = '';
+  const tbl = document.getElementById('schedule-table');
+  tbl.innerHTML = '';
   scheduleData.forEach(r => {
     const tr = document.createElement('tr');
     ['Building','Room','Days','Start_Time','End_Time'].forEach(key => {
       const td = document.createElement('td');
-      td.textContent = Array.isArray(r[key]) ? r[key].join(',') : r[key];
+      td.textContent = Array.isArray(r[key])? r[key].join(','): r[key];
       tr.appendChild(td);
     });
-    table.appendChild(tr);
+    tbl.appendChild(tr);
   });
 }
 
-// Metadata upload & fetch
-function setupMetadataUpload() {
-  document.getElementById('metadata-input')
-    .addEventListener('change', async e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const fd = new FormData();
-      fd.append('file', file);
-      try {
-        const res = await fetch(`${API_BASE}/api/rooms/metadata`, {
-          method: 'POST',
-          body: fd
-        });
-        if (!res.ok) throw new Error(res.statusText);
-        await fetchRoomMetadata();
-      } catch (err) {
-        alert('Metadata upload failed: ' + err.message);
-      }
-    });
-  fetchRoomMetadata();
+// Metadata
+async function handleMetadataUpload(e) {
+  const file = e.target.files[0];
+  if(!file) return;
+  const fd = new FormData(); fd.append('file', file);
+  try {
+    const res = await fetch(`${API_BASE}/api/rooms/metadata`, {method:'POST', body: fd});
+    if(!res.ok) throw new Error(res.statusText);
+    fetchRoomMetadata();
+    alert('Metadata uploaded');
+  } catch(err) {
+    alert('Metadata upload failed: '+err.message);
+  }
 }
 
 async function fetchRoomMetadata() {
   const res = await fetch(`${API_BASE}/api/rooms/metadata`);
   roomMetadata = await res.json();
-  Object.keys(metadataMap).forEach(k => delete metadataMap[k]);
-  roomMetadata.forEach(r => metadataMap[`${r.building}-${r.room}`] = r);
+  roomMetadata.forEach(r => {
+    metadataMap[`${r.building}-${r.room}`] = r;
+  });
   populateFilters();
 }
 
 function populateFilters() {
-  const campusSel = document.getElementById('avail-campus-select');
-  const typeSel = document.getElementById('avail-type-select');
-  campusSel.innerHTML = '<option value="">All</option>';
-  typeSel.innerHTML = '<option value="">All</option>';
-  [...new Set(roomMetadata.map(r => r.campus))].sort()
-    .forEach(c => campusSel.append(new Option(c, c)));
-  [...new Set(roomMetadata.map(r => r.type))].sort()
-    .forEach(t => typeSel.append(new Option(t, t)));
+  const csel = document.getElementById('avail-campus');
+  const tsel = document.getElementById('avail-type');
+  csel.innerHTML = '<option value="">All</option>';
+  tsel.innerHTML = '<option value="">All</option>';
+  Array.from(new Set(roomMetadata.map(r=>r.campus))).forEach(c=>csel.append(new Option(c,c)));
+  Array.from(new Set(roomMetadata.map(r=>r.type))).forEach(t=>tsel.append(new Option(t,t)));
 }
 
-// Availability check
-function setupAvailability() {
-  document.getElementById('avail-check-btn')
-    .addEventListener('click', handleAvailability);
-}
-
+// Availability
 function handleAvailability() {
-  const days = [...document.querySelectorAll('#days input:checked')]
-    .map(i => i.value);
-  const start = document.getElementById('avail-start').value;
-  const end = document.getElementById('avail-end').value;
-  let avail = roomMetadata.map(r => `${r.building}-${r.room}`);
-  const occ = new Set();
+  const days = Array.from(document.getElementById('daySelect').selectedOptions).map(o=>o.value);
+  const s = document.getElementById('avail-start').value;
+  const e = document.getElementById('avail-end').value;
+  let avail = Object.keys(metadataMap);
+  // exclude occupied
   scheduleData.forEach(r => {
-    if (r.Days.some(d => days.includes(d))) {
-      occ.add(`${r.Building}-${r.Room}`);
+    if(r.Days.some(d=>days.includes(d))) {
+      delete metadataMap[`${r.Building}-${r.Room}`];
     }
   });
-  avail = avail.filter(id => !occ.has(id));
-  const campus = document.getElementById('avail-campus-select').value;
-  const type = document.getElementById('avail-type-select').value;
-  const minCap = Number(document.getElementById('avail-min-capacity').value) || 0;
-  if (campus) avail = avail.filter(id => metadataMap[id].campus === campus);
-  if (type)   avail = avail.filter(id => metadataMap[id].type === type);
-  if (minCap) avail = avail.filter(id => metadataMap[id].capacity >= minCap);
-  const resDiv = document.getElementById('avail-results');
-  resDiv.innerHTML = avail.length
-    ? '<ul>' + avail.map(id => `<li>${id} — max ${metadataMap[id].capacity}</li>`).join('') + '</ul>'
-    : 'No rooms available.';
+  // filters
+  const campus = document.getElementById('avail-campus').value;
+  const type = document.getElementById('avail-type').value;
+  const minCap = Number(document.getElementById('avail-min-capacity').value)||0;
+  avail = avail.filter(id=>{
+    const m = metadataMap[id];
+    if(campus && m.campus!==campus) return false;
+    if(type && m.type!==type) return false;
+    if(m.capacity<minCap) return false;
+    return true;
+  });
+  document.getElementById('avail-results').innerHTML = avail.map(id=>`<div>${id} — max ${metadataMap[id].capacity}</div>`).join('') || 'No rooms available';
 }
