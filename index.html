@@ -20,7 +20,10 @@
     <h1>COS Course Scheduler</h1>
   </header>
 
+  <!-- Semester tabs -->
   <nav id="term-tabs"></nav>
+
+  <!-- View selector: Snapshot, Heatmap, Line Chart, Calendar -->
   <div id="view-container" style="margin:10px 0;">
     <label for="viewSelect">View: </label>
     <select id="viewSelect">
@@ -31,9 +34,10 @@
     </select>
   </div>
 
+  <!-- Schedule upload -->
   <div id="upload-container"></div>
 
-  <!-- New Room Metadata Upload -->
+  <!-- Room metadata upload -->
   <div id="metadata-upload-container" style="padding:0.5rem 1rem; border-top:1px solid #ccc;">
     <label>
       Upload Room Metadata:
@@ -44,15 +48,25 @@
   <div id="upload-timestamp" class="upload-timestamp"></div>
   <div id="room-filter"></div>
 
+  <!-- Availability UI -->
   <div id="availability-ui" class="availability-ui">
     <h3>Check Room Availability</h3>
     <div class="days">
-      <!-- day checkboxes -->
+      <label><input type="checkbox" value="Sunday"> Sun</label>
+      <label><input type="checkbox" value="Monday"> Mon</label>
+      <label><input type="checkbox" value="Tuesday"> Tue</label>
+      <label><input type="checkbox" value="Wednesday"> Wed</label>
+      <label><input type="checkbox" value="Thursday"> Thu</label>
+      <label><input type="checkbox" value="Friday"> Fri</label>
+      <label><input type="checkbox" value="Saturday"> Sat</label>
     </div>
     <div class="times">
-      <!-- time inputs and buttons -->
+      <label>Start: <input type="time" id="avail-start" step="300"></label>
+      <label>End:   <input type="time" id="avail-end" step="300"></label>
+      <button id="avail-check-btn">Check</button>
+      <button id="avail-clear-btn">Clear</button>
     </div>
-    <!-- New campus/type/capacity filters -->
+    <!-- Campus, Type, Capacity filters -->
     <div class="extra-filters" style="margin:0.5rem 0; display:flex; gap:1rem; align-items:center;">
       <label>
         Campus:
@@ -71,35 +85,37 @@
         <input type="number" id="avail-min-capacity" min="0" value="0" style="width:60px">
       </label>
     </div>
-    <button id="avail-check-btn">Check</button>
-    <button id="avail-clear-btn">Clear</button>
     <div id="avail-results" class="avail-results"></div>
   </div>
 
+  <!-- Schedule grid -->
   <div id="schedule-container">
     <table id="schedule-table"></table>
   </div>
 
+  <!-- FullCalendar view -->
   <div id="calendar-room-filter" style="display:none; margin:10px 0;">
     <label>Filter Bldg-Room:
       <select id="calendar-room-select"></select>
     </label>
   </div>
-
   <div id="calendar-container" style="display:none;">
     <div id="calendar"></div>
   </div>
 
+  <!-- Heatmap -->
   <div id="heatmap-tool" style="display:none;">
     <!-- heatmap UI -->
   </div>
 
+  <!-- Line Chart -->
   <div id="linechart-tool" style="display:none;">
     <!-- linechart UI -->
   </div>
 
   <div id="class-block-tooltip" class="class-block-tooltip"></div>
 
+  <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
