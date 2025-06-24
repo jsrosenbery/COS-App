@@ -830,7 +830,7 @@ Instructor: ${instructor || 'N/A'}
       html+='</tr>';
     });
     html+='</tbody></table>';
-    document.getElementById('heatmap-container').innerHTML = html;
+    document.getElementById('heatmapContainer').innerHTML = html;
   }
 
   function renderLineChart() {
