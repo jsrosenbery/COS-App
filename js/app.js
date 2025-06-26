@@ -578,13 +578,12 @@ Instructor: ${instructor || 'N/A'}
     });
     const avail = rooms.filter(r => !occ.has(r)).sort();
     if (avail.length) {
-      const availDescs = avail.map(r => {
-      const [building, room] = r.split('-');
-      const entry = window.roomList.find(e => e.building === building && e.room === room);
-      if (entry) return `${entry.campus} – ${entry.building} ${entry.room} – ${entry.cap} Cap`;
-      return r;
-    });
-    resultsDiv.innerHTML = '<ul>' + availDescs.map(d => `<li>${d}</li>`).join('') + '</ul>';
+      resultsDiv.innerHTML = '<ul>' + avail.map(r => {
+            const [building, room] = r.split('-');
+            const roomObj = window.roomList.find(o => o.building === building && o.room === room);
+            const display = roomObj ? `${roomObj.campus} – ${roomObj.building} ${roomObj.room} – ${roomObj.cap} Cap` : r;
+            return `<li>${display}</li>`;
+      }).join('') + '</ul>';
     } else {
       resultsDiv.textContent = 'No rooms available.';
     }
