@@ -1,5 +1,5 @@
 // js/rooms.js
-// Auto-generated list of rooms from spreadsheet
+// Updated list of rooms from new spreadsheet
 window.roomList = [
   { campus: 'COS', building: 'CEDAR', room: '421', cap: 28 },
   { campus: 'COS', building: 'CEDAR', room: '422', cap: 27 },
