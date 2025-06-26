@@ -381,8 +381,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function buildRoomDropdowns() {
+  // Use full roomList instead of auto-generated
+  const combos = window.roomList.map(r => `${r.campus} – ${r.building} ${r.room} – ${r.cap} Cap`);
     // For snapshot
-    const combos = getUniqueRooms(currentData);
+    // Removed old auto-generated combos
     if (roomDiv) {
       roomDiv.innerHTML = `
         <label>Filter Bldg-Room:
