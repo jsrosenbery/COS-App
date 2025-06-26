@@ -302,6 +302,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
 
+  // -- NEW: Add fullcalendar room dropdown at DOM load time --
+  const calendarRoomFilterDiv = document.createElement('div');
+  calendarRoomFilterDiv.id = 'calendar-room-filter';
+  calendarRoomFilterDiv.style.display = 'none';
+  calendarRoomFilterDiv.style.margin = '10px 0';
+  calendarRoomFilterDiv.innerHTML = `<label>Filter Bldg-Room:
+    <select id="calendar-room-select"></select>
+  </label>`;
+  calendarContainer.parentNode.insertBefore(calendarRoomFilterDiv, calendarContainer);
+
+  document.getElementById('calendar-room-select').addEventListener('change', renderFullCalendar);
 
   // --- Backend fetch instead of localStorage ---
   function loadScheduleFromBackend(term) {
@@ -370,25 +381,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function buildRoomDropdowns() {
-  // Use full roomList instead of auto-generated
-  const combos = window.roomList.map(r => `${r.campus} – ${r.building} ${r.room} – ${r.cap} Cap`);
-  // snapshot filter
-  const snapSelect = document.getElementById('room-select');
-  if (snapSelect) {
-    snapSelect.innerHTML = '<option>All</option>' +
-      combos.map(o => `<option>${o}</option>`).join('');
-    snapSelect.onchange = renderSchedule;
-  }
-
-  // calendar filter
-  const calSelect = document.getElementById('calendar-room-select');
-  if (calSelect) {
-    calSelect.innerHTML = '<option>All</option>' +
-      combos.map(o => `<option>${o}</option>`).join('');
-    calSelect.onchange = renderFullCalendar;
-  }
     // For snapshot
-    // Removed old auto-generated combos
+    const combos = getUniqueRooms(currentData);
     if (roomDiv) {
       roomDiv.innerHTML = `
         <label>Filter Bldg-Room:
@@ -582,12 +576,7 @@ Instructor: ${instructor || 'N/A'}
     });
     const avail = rooms.filter(r => !occ.has(r)).sort();
     if (avail.length) {
-      resultsDiv.innerHTML = '<ul>' + avail.map(r => {
-            const [building, room] = r.split('-');
-            const roomObj = window.roomList.find(o => o.building === building && o.room === room);
-            const display = roomObj ? `${roomObj.campus} – ${roomObj.building} ${roomObj.room} – ${roomObj.cap} Cap` : r;
-            return `<li>${display}</li>`;
-      }).join('') + '</ul>';
+      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
     } else {
       resultsDiv.textContent = 'No rooms available.';
     }
