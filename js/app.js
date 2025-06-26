@@ -302,17 +302,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
 
-  // -- NEW: Add fullcalendar room dropdown at DOM load time --
-  const calendarRoomFilterDiv = document.createElement('div');
-  calendarRoomFilterDiv.id = 'calendar-room-filter';
-  calendarRoomFilterDiv.style.display = 'none';
-  calendarRoomFilterDiv.style.margin = '10px 0';
-  calendarRoomFilterDiv.innerHTML = `<label>Filter Bldg-Room:
-    <select id="calendar-room-select"></select>
-  </label>`;
-  calendarContainer.parentNode.insertBefore(calendarRoomFilterDiv, calendarContainer);
-
-  document.getElementById('calendar-room-select').addEventListener('change', renderFullCalendar);
 
   // --- Backend fetch instead of localStorage ---
   function loadScheduleFromBackend(term) {
@@ -383,6 +372,21 @@ document.addEventListener('DOMContentLoaded', () => {
   function buildRoomDropdowns() {
   // Use full roomList instead of auto-generated
   const combos = window.roomList.map(r => `${r.campus} – ${r.building} ${r.room} – ${r.cap} Cap`);
+  // snapshot filter
+  const snapSelect = document.getElementById('room-select');
+  if (snapSelect) {
+    snapSelect.innerHTML = '<option>All</option>' +
+      combos.map(o => `<option>${o}</option>`).join('');
+    snapSelect.onchange = renderSchedule;
+  }
+
+  // calendar filter
+  const calSelect = document.getElementById('calendar-room-select');
+  if (calSelect) {
+    calSelect.innerHTML = '<option>All</option>' +
+      combos.map(o => `<option>${o}</option>`).join('');
+    calSelect.onchange = renderFullCalendar;
+  }
     // For snapshot
     // Removed old auto-generated combos
     if (roomDiv) {
