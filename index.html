@@ -97,7 +97,11 @@
 
   <div id="upload-container"></div>
   <div id="upload-timestamp" class="upload-timestamp"></div>
-  <div id="room-filter"></div>
+  <div id="room-filter">
+  <label>Filter Bldg-Room:
+    <select id="room-select"><option>All</option></select>
+  </label>
+</div>
 
   <div id="availability-ui" class="availability-ui">
     <h3>Check Room Availability</h3>
@@ -125,10 +129,10 @@
   
   <!-- Add calendar room dropdown ABOVE calendar-container, and keep hidden by default -->
   <div id="calendar-room-filter" style="display:none; margin:10px 0;">
-    <label>Filter Bldg-Room:
-      <select id="calendar-room-select"></select>
-    </label>
-  </div>
+  <label>Filter Bldg-Room:
+    <select id="calendar-room-select"><option>All</option></select>
+  </label>
+</div>
 
   <div id="calendar-container" style="display:none;">
     <div id="calendar"></div>
