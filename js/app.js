@@ -1,4 +1,4 @@
-// COS-App js/app.js
+// COS-App js/app.js 
 
 // -- CAL-GETC Mapping integration --
 // Be sure to include <script src="cal_getc_mapping.js"></script> before this file in your HTML!
