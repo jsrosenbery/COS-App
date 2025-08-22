@@ -59,3 +59,16 @@ h1 { margin:0; font-size:1.5rem; }
   max-width: 350px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.18);
 }
+
+/* --- TIMBER Acronym Styling --- */
+.timber-acronym {
+  margin-top: 2em;
+  font-size: 1.3em;
+  font-weight: 400;
+}
+.timber-acronym-big {
+  text-decoration: underline;
+  font-size: 1.4em;
+  font-weight: 600;
+  margin-right: 2px;
+}
