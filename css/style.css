@@ -6,7 +6,15 @@ h1 { margin:0; font-size:1.5rem; }
 .tab { margin-right:0.5rem; padding:0.5rem 1rem; cursor:pointer; }
 .tab.active { background:#003366; color:#fff; }
 #upload-container, .upload-timestamp, #room-filter, .availability-ui { padding:0.5rem 1rem; }
-#schedule-container { position:relative; margin:1rem; border:1px solid #ccc; overflow-y:auto; max-height:80vh; }
+/* --- STATIC GRID: REMOVE SCROLLING FROM SCHEDULE CONTAINER --- */
+#schedule-container { 
+  position:relative; 
+  margin:1rem; 
+  border:1px solid #ccc; 
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important; 
+}
 #schedule-table { border-collapse:collapse; width:100%; table-layout:fixed; }
 #schedule-table th, #schedule-table td { border:1px solid #ccc; text-align:center; padding:0; height:30px; }
 #schedule-table th { background:#e0e0e0; font-size:0.85rem; }
