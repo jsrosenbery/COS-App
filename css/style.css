@@ -6,6 +6,7 @@ h1 { margin:0; font-size:1.5rem; }
 .tab { margin-right:0.5rem; padding:0.5rem 1rem; cursor:pointer; }
 .tab.active { background:#003366; color:#fff; }
 #upload-container, .upload-timestamp, #room-filter, .availability-ui { padding:0.5rem 1rem; }
+
 /* --- STATIC GRID: REMOVE SCROLLING FROM SCHEDULE CONTAINER --- */
 #schedule-container { 
   position:relative; 
@@ -15,14 +16,27 @@ h1 { margin:0; font-size:1.5rem; }
   max-height: none !important;
   overflow: visible !important; 
 }
+
 #schedule-table { border-collapse:collapse; width:100%; table-layout:fixed; }
 #schedule-table th, #schedule-table td { border:1px solid #ccc; text-align:center; padding:0; height:30px; }
 #schedule-table th { background:#e0e0e0; font-size:0.85rem; }
+
+/* --- LARGE ROOM HEADER ABOVE GRID --- */
+#selected-room-header {
+  font-size: 2.4em;
+  font-weight: bold;
+  color: #003366;
+  text-align: center;
+  margin: 24px 0 12px 0;
+  letter-spacing: 2px;
+}
+
 /* --- UNIFORM TILE FONT SIZE --- */
 .class-block, .class-block * { 
-  font-size: 0.8rem !important; /* Set your desired uniform size here */
+  font-size: 0.8rem !important;
 }
 .class-block { position:absolute; background:#FFA500; border:2px solid #003366; box-sizing:border-box; padding:2px; text-align:center; overflow:hidden; }
+
 .upload-timestamp { font-size:0.85rem; color:#555; }
 .availability-ui { background:#f9f9f9; border:1px solid #ccc; border-radius:4px; }
 .availability-ui h3 { margin-top:0; }
