@@ -263,6 +263,41 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('linechart-clear-btn').onclick = () => {
     if (lineCourseChoices) lineCourseChoices.removeActiveItems();
     renderLineChart();
+    // --- Export to PDF and Excel ---
+document.addEventListener('DOMContentLoaded', () => {
+  // ... (existing DOMContentLoaded code, schedule rendering, etc.)
+
+  // Export to PDF
+  document.getElementById('export-pdf-btn').addEventListener('click', function() {
+    const roomHeader = document.getElementById('selected-room-header').textContent;
+    // Use html2canvas to capture the visual grid
+    html2canvas(document.getElementById('schedule-container')).then(canvas => {
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jspdf.jsPDF({
+        orientation: 'landscape',
+        unit: 'pt',
+        format: 'a4'
+      });
+      pdf.setFontSize(24);
+      pdf.text(roomHeader || 'All Rooms', 40, 40);
+      // Fit image to page, leaving margin
+      const pageWidth = pdf.internal.pageSize.getWidth() - 80;
+      const pageHeight = pdf.internal.pageSize.getHeight() - 100;
+      pdf.addImage(imgData, 'PNG', 40, 60, pageWidth, pageHeight);
+      pdf.save(`Schedule-${roomHeader || 'All'}.pdf`);
+    });
+  });
+
+  // Export to Excel
+  document.getElementById('export-excel-btn').addEventListener('click', function() {
+    const roomHeader = document.getElementById('selected-room-header').textContent;
+    // Extract table data
+    const table = document.getElementById('schedule-table');
+    const ws = XLSX.utils.table_to_sheet(table);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
+    XLSX.writeFile(wb, `Schedule-${roomHeader || 'All'}.xlsx`);
+  });
   };
 
   terms.forEach((term, i) => {
