@@ -252,7 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('heatmap-campus-select').addEventListener('change', updateAllHeatmap);
   document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
 
-  document.getElementById('heatmap-clear-btn').onclick = () => {
+document.getElementById('heatmap-clear-btn').onclick = () => {
     if (hmChoices) hmChoices.removeActiveItems();
     if (document.getElementById('textSearch')) {
       document.getElementById('textSearch').value = '';
@@ -261,38 +261,63 @@ document.addEventListener('DOMContentLoaded', () => {
     updateAllHeatmap();
   };
   document.getElementById('linechart-clear-btn').onclick = () => {
-  if (lineCourseChoices) lineCourseChoices.removeActiveItems();
-  renderLineChart();
-};
+    if (lineCourseChoices) lineCourseChoices.removeActiveItems();
+    renderLineChart();
+  };
 
-// --- Export to PDF ---
-document.getElementById('export-pdf-btn').addEventListener('click', function() {
-  const roomHeader = document.getElementById('selected-room-header').textContent;
-  html2canvas(document.getElementById('schedule-container')).then(canvas => {
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jspdf.jsPDF({
-      orientation: 'landscape',
-      unit: 'pt',
-      format: 'a4'
+  // --- Export to PDF ---
+  document.getElementById('export-pdf-btn').addEventListener('click', function() {
+    const roomHeader = document.getElementById('selected-room-header').textContent;
+    html2canvas(document.getElementById('schedule-container')).then(canvas => {
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jspdf.jsPDF({
+        orientation: 'landscape',
+        unit: 'pt',
+        format: 'a4'
+      });
+      pdf.setFontSize(24);
+      pdf.text(roomHeader || 'All Rooms', 40, 40);
+      const pageWidth = pdf.internal.pageSize.getWidth() - 80;
+      const pageHeight = pdf.internal.pageSize.getHeight() - 100;
+      pdf.addImage(imgData, 'PNG', 40, 60, pageWidth, pageHeight);
+      pdf.save(`Schedule-${roomHeader || 'All'}.pdf`);
     });
-    pdf.setFontSize(24);
-    pdf.text(roomHeader || 'All Rooms', 40, 40);
-    const pageWidth = pdf.internal.pageSize.getWidth() - 80;
-    const pageHeight = pdf.internal.pageSize.getHeight() - 100;
-    pdf.addImage(imgData, 'PNG', 40, 60, pageWidth, pageHeight);
-    pdf.save(`Schedule-${roomHeader || 'All'}.pdf`);
   });
-});
 
-// --- Export to Excel ---
-document.getElementById('export-excel-btn').addEventListener('click', function() {
-  const roomHeader = document.getElementById('selected-room-header').textContent;
-  const table = document.getElementById('schedule-table');
-  const ws = XLSX.utils.table_to_sheet(table);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
-  XLSX.writeFile(wb, `Schedule-${roomHeader || 'All'}.xlsx`);
-});
+  // --- Export to Excel (FIXED VERSION) ---
+  document.getElementById('export-excel-btn').addEventListener('click', function() {
+    const roomHeader = document.getElementById('selected-room-header').textContent || 'All';
+    let selectedRoom = roomHeader === 'All' ? null : roomHeader;
+    // Use the same filter as renderSchedule()
+    let filteredClasses = (selectedRoom)
+      ? currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === selectedRoom)
+      : currentData;
+    filteredClasses = filteredClasses.filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM));
+    let sheetData = [
+      [ 'Room', selectedRoom || 'Multiple' ],
+      [],
+      [ 'Course', 'CRN', 'Title', 'Building', 'Room', 'Day(s)', 'Start Time', 'End Time', 'Instructor', 'Start Date', 'End Date' ]
+    ];
+    filteredClasses.forEach(ev => {
+      sheetData.push([
+        ev.Subject_Course || '',
+        ev.CRN || '',
+        extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']),
+        ev.Building || ev.BUILDING || '',
+        ev.Room || ev.ROOM || '',
+        Array.isArray(ev.Days) ? ev.Days.join(', ') : '',
+        ev.Start_Time || '',
+        ev.End_Time || '',
+        extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']),
+        ev.Start_Date || '',
+        ev.End_Date || ''
+      ]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
+    XLSX.writeFile(wb, `Schedule-${roomHeader}.xlsx`);
+  });
 
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
