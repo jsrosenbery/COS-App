@@ -284,16 +284,6 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   });
 });
 
-// --- Export to Excel ---
-document.getElementById('export-excel-btn').addEventListener('click', function() {
-  const roomHeader = document.getElementById('selected-room-header').textContent;
-  const table = document.getElementById('schedule-table');
-  const ws = XLSX.utils.table_to_sheet(table);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
-  XLSX.writeFile(wb, `Schedule-${roomHeader || 'All'}.xlsx`);
-});
-
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
     tab.className = 'tab' + (i === 2 ? ' active' : '');
