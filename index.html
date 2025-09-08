@@ -75,8 +75,27 @@
       display: none;
       margin: 10px 0;
     }
+    /* Export buttons styling */
+    #export-pdf-btn, #export-excel-btn {
+      padding: 10px 24px;
+      font-size: 1.1em;
+      background: #003366;
+      color: #fff;
+      border-radius: 6px;
+      border: none;
+      margin-right: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #export-pdf-btn:hover, #export-excel-btn:hover {
+      background: #0055aa;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- PDF and Excel Export Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
   
@@ -131,7 +150,12 @@
     <div id="avail-results" class="avail-results"></div>
   </div>
 
-  <!-- NEW: Room header for selected room above the grid -->
+  <!-- Export Buttons -->
+  <div style="text-align:center; margin-bottom:12px;">
+    <button id="export-pdf-btn">Export to PDF</button>
+    <button id="export-excel-btn">Export to Excel</button>
+  </div>
+  <!-- Room header for selected room above the grid -->
   <div id="selected-room-header"></div>
 
   <div id="schedule-container">
