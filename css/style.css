@@ -31,6 +31,22 @@ h1 { margin:0; font-size:1.5rem; }
   letter-spacing: 2px;
 }
 
+/* --- EXPORT BUTTONS --- */
+#export-pdf-btn, #export-excel-btn {
+  padding: 10px 24px;
+  font-size: 1.1em;
+  background: #003366;
+  color: #fff;
+  border-radius: 6px;
+  border: none;
+  margin-right: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+#export-pdf-btn:hover, #export-excel-btn:hover {
+  background: #0055aa;
+}
+
 /* --- UNIFORM TILE FONT SIZE --- */
 .class-block, .class-block * { 
   font-size: 0.8rem !important;
