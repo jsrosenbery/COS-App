@@ -240,6 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const container    = document.getElementById('schedule-container');
   const calendarContainer = document.getElementById('calendar-container');
   const calendarEl = document.getElementById('calendar');
+  const roomHeaderDiv = document.getElementById('selected-room-header'); // NEW: header div
 
   let snapshotRoomFilter = null;
   let calendarRoomFilter = null;
@@ -292,6 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('linechart-tool').style.display = (view === 'linechart') ? 'block' : 'none';
     document.getElementById('calendar-container').style.display = (view === 'fullcalendar') ? 'block' : 'none';
     document.getElementById('calendar-room-filter').style.display = (view === 'fullcalendar') ? 'block' : 'none';
+    document.getElementById('selected-room-header').style.display = (view === 'calendar' ? '' : 'none'); // NEW: hide header on non-grid views
     if (view === 'linechart') {
       renderLineChart();
     }
@@ -423,8 +425,21 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderSchedule() {
+    // --- NEW: Large room header above grid ---
+    const selectedRoom = snapshotRoomFilter?.value || 'All';
+    if (roomHeaderDiv) {
+      if (selectedRoom !== 'All') {
+        roomHeaderDiv.textContent = selectedRoom;
+        roomHeaderDiv.style.display = 'block';
+      } else {
+        roomHeaderDiv.textContent = '';
+        roomHeaderDiv.style.display = 'none';
+      }
+    }
+    // --- END HEADER CODE ---
+
     clearSchedule();
-    const filt = snapshotRoomFilter?.value || 'All';
+    const filt = selectedRoom;
     const data = (filt === 'All'
       ? currentData
       : currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt)
