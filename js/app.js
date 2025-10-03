@@ -342,6 +342,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       .then(({ data, lastUpdated }) => {
         // PATCH: Normalize backend data fields to frontend expectations
         currentData = (data || []).map(normalizeRow);
+        currentData = (data || []).map(normalizeRow);
+window.currentData = currentData; // ← add this line
         tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
         buildRoomDropdowns();
         renderSchedule();
@@ -372,6 +374,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
+    window.currentTerm = currentTerm;
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
     clearSchedule();
@@ -788,6 +791,8 @@ Instructor: ${instructor || 'N/A'}
     }
     updateAllHeatmap();
     renderLineChart();
+    window.hmRaw = hmRaw;   // makes hmRaw available to changeForm.js
+
   }
 
   function updateAllHeatmap() {
