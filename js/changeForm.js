@@ -85,9 +85,11 @@
     // If you prefer a PDF, use html2canvas + jsPDF already loaded in index.html.
   }
 
-  // Hook up
-  const fillBtn = document.getElementById('cos-crn-fill-btn');
+// Hook up (defer until DOM is ready)
+document.addEventListener('DOMContentLoaded', () => {
+  const fillBtn  = document.getElementById('cos-crn-fill-btn');
   const printBtn = document.getElementById('cos-form-print-btn');
-  if(fillBtn) fillBtn.addEventListener('click', fillFromCRN);
-  if(printBtn) printBtn.addEventListener('click', printForm);
-})();
+  if (fillBtn)  fillBtn.addEventListener('click', fillFromCRN);
+  if (printBtn) printBtn.addEventListener('click', printForm);
+});
+
