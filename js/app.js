@@ -733,6 +733,13 @@ Instructor: ${instructor || 'N/A'}
         Instructor: instructor,
         Campus: extractField(r, ['Campus', 'campus', 'CAMPUS'])
       };
+          // your existing chart and heatmap updates
+    updateAllHeatmap();
+    renderLineChart();
+
+    // make the raw data available globally for changeForm.js
+    window.hmRaw = hmRaw;
+}
     }).filter(r => {
       // Omit if room is blank, N/A, LIVE, ONLINE
       if (!isValidRoom(r.Building, r.Room)) return false;
