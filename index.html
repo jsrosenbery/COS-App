@@ -79,8 +79,7 @@
     </select>
   </div>
 
-  <!-- Removed the old #scf-mount to avoid confusion -->
-
+  <!-- Upload and filters -->
   <div id="upload-container"></div>
   <div id="upload-timestamp" class="upload-timestamp"></div>
   <div id="room-filter"></div>
@@ -105,10 +104,10 @@
     <div id="avail-results" class="avail-results"></div>
   </div>
 
-  <!-- Export Buttons row (SCF button will mount inline to the right) -->
+  <!-- Export row. SCF button mounts to the right of Export with a 12px gap -->
   <div style="text-align:center; margin-bottom:12px;">
     <button id="export-pdf-btn">Export to PDF</button>
-    <!-- SCF button will be injected here with a 12px gap -->
+    <!-- SCF button will be injected here -->
   </div>
 
   <!-- Room header for selected room above the grid -->
@@ -118,7 +117,7 @@
     <table id="schedule-table"></table>
   </div>
   
-  <!-- Add calendar room dropdown ABOVE calendar-container, and keep hidden by default -->
+  <!-- Calendar filter above calendar -->
   <div id="calendar-room-filter" style="display:none; margin:10px 0;">
     <label>Filter Bldg-Room:
       <select id="calendar-room-select"></select>
@@ -174,88 +173,42 @@
   <script src="js/app.js"></script>
 
   <!-- Schedule Change Form component (Shadow DOM, non-destructive) -->
+  <!-- If your file lives under /js/, change to src="js/schedule-change-form.js" -->
   <script src="schedule-change-form.js"></script>
   <script>
-    // Mount SCF button inline with Export to PDF, with clean spacing
+    // Mount SCF button inline with Export to PDF, styled to match Export
     document.addEventListener('DOMContentLoaded', function () {
       const exportBtn = document.getElementById('export-pdf-btn');
-      if (!exportBtn) { console.error('Export PDF button not found'); return; }
+      if (!exportBtn) {
+        console.error('[SCF] Export PDF button not found (id="export-pdf-btn").');
+        return;
+      }
 
-      // Create a tiny mount element with a left margin for spacing
+      // Create a small mount with 12px gap to the right
       const spacer = document.createElement('span');
       spacer.style.display = 'inline-block';
       spacer.style.marginLeft = '12px';
-
-      // Insert mount immediately after the Export PDF button
       exportBtn.insertAdjacentElement('afterend', spacer);
 
-      // Initialize the Schedule Change Form into that mount
       if (window.ScheduleChangeForm && typeof window.ScheduleChangeForm.init === 'function') {
-        window.ScheduleChangeForm.init({ mount: spacer });
+        window.ScheduleChangeForm.init({
+          mount: spacer,
+          buttonText: 'Schedule Change Form',
+          theme: {
+            btnBg: '#003366',
+            btnHoverBg: '#0055aa',
+            btnColor: '#fff',
+            btnPadding: '10px 24px',
+            btnFontSize: '1.1em',
+            btnBorderRadius: '6px',
+            btnBorder: 'none'
+          }
+        });
       } else {
-        console.error('ScheduleChangeForm component not found or not loaded.');
+        console.error('[SCF] schedule-change-form.js not loaded or init() missing.');
       }
     });
   </script>
-<!-- must be after the Export button and after schedule-change-form.js -->
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  const exportBtn = document.getElementById('export-pdf-btn');
-  if (!exportBtn) return;
-  const spacer = document.createElement('span');
-  spacer.style.display = 'inline-block';
-  spacer.style.marginLeft = '12px';
-  exportBtn.insertAdjacentElement('afterend', spacer);
-
-  window.ScheduleChangeForm.init({
-    mount: spacer,
-    buttonText: 'Schedule Change Form',
-    theme: {
-      btnBg: '#003366',
-      btnHoverBg: '#0055aa',
-      btnColor: '#fff',
-      btnPadding: '10px 24px',
-      btnFontSize: '1.1em',
-      btnBorderRadius: '6px',
-      btnBorder: 'none'
-    }
-  });
-});
-</script>
-
-  onceReady(async function(){
-    const exportBtn = document.getElementById('export-pdf-btn');
-    if (!exportBtn) {
-      console.error('[SCF] Could not find #export-pdf-btn. Verify the button has id="export-pdf-btn".');
-      return;
-    }
-
-    // Visible placeholder so you can confirm location even if the component fails to load
-    const spacer = document.createElement('span');
-    spacer.style.display = 'inline-block';
-    spacer.style.marginLeft = '12px';
-    exportBtn.insertAdjacentElement('afterend', spacer);
-
-    const placeholder = document.createElement('button');
-    placeholder.type = 'button';
-    placeholder.textContent = 'Schedule Change Form';
-    placeholder.style.cssText = 'padding:10px 16px;border-radius:6px;border:1px solid #dcdfe6;background:#fff;cursor:pointer;';
-    placeholder.title = 'Loading…';
-    spacer.appendChild(placeholder);
-
-    try {
-      await waitForComponent();          // ensure schedule-change-form.js actually loaded
-      spacer.removeChild(placeholder);   // remove temp button
-      window.ScheduleChangeForm.init({ mount: spacer });
-      console.log('[SCF] Mounted next to Export to PDF.');
-    } catch (e) {
-      console.error('[SCF] Component not available:', e);
-      placeholder.title = 'Component failed to load (check console/network path)';
-      // keep placeholder so you can see the intended position
-    }
-  });
-})();
-</script>
 
 </body>
 </html>
