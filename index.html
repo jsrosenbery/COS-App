@@ -1,216 +1,411 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>COS Scheduling App</title>
-
-  <link rel="icon" href="images/favicon.png" type="image/png">
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/datatables.net-dt/css/jquery.dataTables.min.css"/>
-  <!-- FullCalendar CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Schedule Change Form Modal</title>
   <style>
-    .choices__item--selectable input[type="checkbox"] {
-      margin-right: 6px;
+    :root{
+      --ink:#1a1a1a;--bg: #f6f7fb;--paper:#fff;--accent:#0f62fe;--line:#dcdfe6;
     }
-    .choices__item--selectable {
-      display: flex;
-      align-items: center;
+    html,body{margin:0;height:100%;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,'Noto Sans',sans-serif;color:var(--ink);}
+
+    /* Trigger Button */
+    .btn{display:inline-flex;gap:.5rem;align-items:center;padding:.7rem 1rem;border-radius:.75rem;border:1px solid var(--line);background:var(--paper);cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.06);}    
+    .btn:focus{outline:3px solid rgba(15,98,254,.25);outline-offset:2px}
+    .btn:hover{background:#fafafa}
+
+    /* Modal Shell */
+    .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(6,10,20,.55);backdrop-filter:saturate(120%) blur(3px);z-index:9999}
+    .modal.open{display:grid}
+
+    /* Paper */
+    .paper{background:var(--paper); width:min(1100px,92vw); max-height:92vh; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.25); display:flex; flex-direction:column}
+    .paper header{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;border-bottom:1px solid var(--line);}
+    .paper header h2{margin:0;font-weight:700;font-size:1.15rem;letter-spacing:.2px}
+    .paper main{padding:1rem 1.25rem; overflow:auto}
+    .paper footer{display:flex;gap:.5rem;justify-content:flex-end;align-items:center;padding:.75rem 1.25rem;border-top:1px solid var(--line);background:#fafafa;}
+
+    /* Form Look & Feel */
+    form{--gap: .65rem;}
+    .row{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--gap);align-items:center}
+    .field{display:flex;flex-direction:column;gap:.35rem}
+    label{font-size:.78rem;color:#444}
+    input[type="text"],input[type="number"],input[type="date"],textarea,select{border:1px solid var(--line);border-radius:.5rem;padding:.55rem .6rem;font-size:.95rem;background:#fff;}
+    textarea{min-height:72px;}
+
+    .pill{display:inline-flex;align-items:center;gap:.5rem;border:1px solid var(--line);border-radius:999px;padding:.35rem .65rem;margin:.25rem .35rem .25rem 0;}
+    .checkgrid{display:flex;flex-wrap:wrap}
+
+    .section{margin:1rem 0 1.25rem}
+    .section h3{font-size:.95rem;margin:.25rem 0 .65rem;font-weight:700;border-bottom:2px solid #e9ecf3;padding-bottom:.35rem}
+
+    /* Table-ish lists */
+    .table{width:100%;border-collapse:collapse;border:1px solid var(--line);border-radius:.75rem;overflow:hidden}
+    .table thead th{background:#f2f4f8;font-weight:700;font-size:.85rem;text-align:left;padding:.6rem;border-bottom:1px solid var(--line)}
+    .table td{border-top:1px solid var(--line);padding:.5rem}
+    .muted{color:#6b7280;font-size:.85rem}
+
+    .badge{display:inline-flex;align-items:center;gap:.4rem;background:#eef2ff;color:#243bff;padding:.25rem .5rem;border-radius:.5rem;border:1px solid #d7ddff;font-size:.75rem}
+
+    /* Sticky helpers */
+    .note{background:#fffbe6;border:1px dashed #f2d024;border-radius:.5rem;padding:.5rem .6rem;font-size:.85rem}
+
+    /* Print styles of the form content only */
+    @media print{
+      body{background:#fff}
+      .modal{all:unset}
+      .paper{all:unset}
+      header,.btn,footer{display:none !important}
+      main{padding:0}
     }
-    #heatmapContainer {
-      min-height: 600px;
-    }
-    #chart-container {
-      width: 100%;
-      max-width: 1600px;
-      height: 600px;
-      margin: auto;
-    }
-    /* Scrollable dropdowns for heatmap filters */
-    #heatmap-tool .choices__list--dropdown {
-      max-height: 300px;
-      overflow-y: auto;
-    }
-    /* Clear button for Heatmap and Line Chart filter bars */
-    #heatmap-clear-btn, #linechart-clear-btn {
-      padding: 5px 16px;
-      font-size: 1rem;
-      border-radius: 4px;
-      border: 1px solid #bbb;
-      background: #f4f4f4;
-      cursor: pointer;
-      transition: background 0.2s;
-      margin-left: 10px;
-    }
-    #heatmap-clear-btn:hover, #linechart-clear-btn:hover {
-      background: #e0e0e0;
-    }
-    /* Tooltip for class blocks */
-    .class-block-tooltip {
-      display: none;
-      position: absolute;
-      z-index: 9999;
-      background: #222;
-      color: #fff;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 0.95em;
-      pointer-events: none;
-      white-space: pre-line;
-      max-width: 350px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-    }
-    /* Calendar styling */
-    #calendar-container {
-      max-width: 1200px;
-      margin: 20px auto;
-      background: #fff;
-      border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.09);
-      padding: 20px;
-    }
-    #calendar-room-filter {
-      display: none;
-      margin: 10px 0;
-    }
-    /* Export buttons styling */
-  #export-pdf-btn {
-    padding: 10px 24px;
-    font-size: 1.1em;
-    background: #003366;
-    color: #fff;
-    border-radius: 6px;
-    border: none;
-    margin-right: 12px;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-  #export-pdf-btn:hover {
-    background: #0055aa;
-}
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <!-- PDF and Excel Export Libraries -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
-  
-<header>
-  <img src="images/logo.png" alt="COS Logo" class="logo">
-  <h1 style="font-size: 3em; font-weight: 700; letter-spacing: 0.15em; margin-bottom: 0.2em;">T.I.M.B.E.R.</h1>
-  <div class="timber-acronym"> <br><br><br><br>
-    <span class="timber-acronym-big">T</span>echnology 
-    for 
-    <span class="timber-acronym-big">I</span>nstructional 
-    <span class="timber-acronym-big">M</span>anagement 
-    of 
-    <span class="timber-acronym-big">B</span>uildings, 
-    <span class="timber-acronym-big">E</span>ducation 
-    and 
-    <span class="timber-acronym-big">R</span>esources
-  </div>
-</header>
+  <!-- Drop this button anywhere in your app -->
+  <button id="openChangeFormBtn" class="btn" type="button" aria-haspopup="dialog" aria-controls="changeFormModal" aria-expanded="false">
+    <!-- icon -->
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M12 5v14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    Schedule Change Form
+  </button>
 
-  <nav id="term-tabs"></nav>
-  <div id="view-container" style="margin:10px 0;">
-    <label for="viewSelect">View: </label>
-    <select id="viewSelect">
-      <option value="calendar">Snapshot</option>
-      <option value="heatmap">Heatmap</option>
-      <option value="linechart">Line Chart (Course Durations)</option>
-      <option value="fullcalendar">Calendar</option>
-    </select>
-  </div>
+  <!-- Modal -->
+  <div id="changeFormModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="scfTitle">
+    <div class="paper">
+      <header>
+        <h2 id="scfTitle">Change of Schedule Form</h2>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <span class="badge" title="This form is editable and will print cleanly">Editable</span>
+          <button id="closeFormBtn" class="btn" type="button" aria-label="Close form">Close</button>
+        </div>
+      </header>
 
-  <div id="upload-container"></div>
-  <div id="upload-timestamp" class="upload-timestamp"></div>
-  <div id="room-filter"></div>
+      <main>
+        <form id="scheduleChangeForm">
+          <!-- Top details -->
+          <div class="section">
+            <div class="row">
+              <div class="field" style="grid-column: span 3;">
+                <label for="year">Year</label>
+                <input id="year" name="year" type="text" placeholder="YYYY" />
+              </div>
+              <div class="field" style="grid-column: span 9;">
+                <label>Approval</label>
+                <div class="row">
+                  <div class="field" style="grid-column: span 4;">
+                    <label class="muted">Date sent to Scheduler</label>
+                    <input type="date" name="date_sent" />
+                  </div>
+                  <div class="field" style="grid-column: span 4;">
+                    <label>Division Chair</label>
+                    <input type="text" name="division_chair" placeholder="Name / Initials" />
+                  </div>
+                  <div class="field" style="grid-column: span 4;">
+                    <label>Area Dean</label>
+                    <input type="text" name="area_dean" placeholder="Name / Initials" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
-  <div id="availability-ui" class="availability-ui">
-    <h3>Check Room Availability</h3>
-    <div class="days">
-      <label><input type="checkbox" value="Sunday"> Sun</label>
-      <label><input type="checkbox" value="Monday"> Mon</label>
-      <label><input type="checkbox" value="Tuesday"> Tue</label>
-      <label><input type="checkbox" value="Wednesday"> Wed</label>
-      <label><input type="checkbox" value="Thursday"> Thu</label>
-      <label><input type="checkbox" value="Friday"> Fri</label>
-      <label><input type="checkbox" value="Saturday"> Sat</label>
+          <div class="section">
+            <div class="row">
+              <div class="field" style="grid-column: span 6;">
+                <label>Term</label>
+                <div class="checkgrid">
+                  <label class="pill"><input type="checkbox" name="term" value="Spring"> Spring</label>
+                  <label class="pill"><input type="checkbox" name="term" value="Summer"> Summer</label>
+                  <label class="pill"><input type="checkbox" name="term" value="Fall"> Fall</label>
+                </div>
+              </div>
+              <div class="field" style="grid-column: span 6;">
+                <label>Campus</label>
+                <div class="checkgrid">
+                  <label class="pill"><input type="checkbox" name="campus" value="Visalia"> Visalia</label>
+                  <label class="pill"><input type="checkbox" name="campus" value="Tulare"> Tulare</label>
+                  <label class="pill"><input type="checkbox" name="campus" value="Hanford"> Hanford</label>
+                  <label class="pill"><input type="checkbox" name="campus" value="Online"> Online</label>
+                  <label class="pill"><input type="checkbox" name="campus" value="Off-Campus"> Off-Campus</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>Action</h3>
+            <div class="checkgrid">
+              <label class="pill"><input type="checkbox" name="action" value="Modification"> Modification</label>
+              <label class="pill"><input type="checkbox" name="action" value="Cancel - No Staff"> Cancel - No Staff</label>
+              <label class="pill"><input type="checkbox" name="action" value="Cancel - Low Enroll"> Cancel - Low Enroll</label>
+              <label class="pill"><input type="checkbox" name="action" value="Cancel - Rebuild"> Cancel - Rebuild</label>
+              <label class="pill"><input type="checkbox" name="action" value="Cancel - Clerical Err."> Cancel - Clerical Err.</label>
+              <label class="pill"><input type="checkbox" name="action" value="Cancel - Sched. Dev."> Cancel - Sched. Dev.</label>
+              <label class="pill"><input type="checkbox" name="action" value="Un-Cancel"> Un-Cancel</label>
+              <label class="pill"><input type="checkbox" name="action" value="Addition"> Addition</label>
+              <label class="pill"><input type="checkbox" name="action" value="Activation"> Activation</label>
+              <label class="pill"><input type="checkbox" name="action" value="Inactivate"> Inactivate</label>
+            </div>
+            <div class="row" style="margin-top:.5rem;">
+              <div class="field" style="grid-column: span 2;">
+                <label># Enrolled</label>
+                <input type="number" name="num_enrolled" min="0" />
+              </div>
+              <div class="field" style="grid-column: span 2;">
+                <label>Adj. Canceled</label>
+                <input type="number" name="adj_canceled" min="0" />
+              </div>
+              <div class="field" style="grid-column: span 8;">
+                <label>Class Comp. Form sent to Academic Services</label>
+                <div class="checkgrid">
+                  <label class="pill"><input type="checkbox" name="class_comp_sent" value="Yes"> Yes</label>
+                  <label class="pill"><input type="checkbox" name="class_comp_sent" value="No"> No</label>
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field" style="grid-column: span 6;">
+                <label>Visible in Class Search?</label>
+                <div class="checkgrid">
+                  <label class="pill"><input type="radio" name="visible" value="Yes"> Yes</label>
+                  <label class="pill"><input type="radio" name="visible" value="No"> No</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>Change Details</h3>
+            <table class="table" aria-label="Change details">
+              <thead>
+                <tr>
+                  <th style="width:22%">Field</th>
+                  <th>New / Current…</th>
+                  <th>Changed To…</th>
+                  <th style="width:70px">Done</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Helper to generate consistent rows -->
+                <script>
+                  const detailRows=[
+                    'CRN','Subject & Course #','Time(s)','Day(s)','Short Term Dates','# of Weeks','Units','Capacity','Building(s)','Room(s)','Instructor Full Name','Banner ID','Split Load Instructor','Split Load Banner ID'
+                  ];
+                </script>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h3>For Academic Services Use Only</h3>
+            <div class="note">Enter totals based on course outline and scheduled hours.</div>
+
+            <div class="row" style="margin-top:.75rem;">
+              <div class="field" style="grid-column: span 4;">
+                <label>Lecture Hours</label>
+                <input type="number" step="0.1" min="0" name="lecture_hours" />
+              </div>
+              <div class="field" style="grid-column: span 4;">
+                <label>Lab Hours</label>
+                <input type="number" step="0.1" min="0" name="lab_hours" />
+              </div>
+              <div class="field" style="grid-column: span 4;">
+                <label>Activity Hours</label>
+                <input type="number" step="0.1" min="0" name="activity_hours" />
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="field" style="grid-column: span 4;">
+                <label># of Days Scheduled for Course</label>
+                <input type="number" min="0" name="days_scheduled_lecture" placeholder="Lecture" />
+              </div>
+              <div class="field" style="grid-column: span 4;">
+                <label class="muted">&nbsp;</label>
+                <input type="number" min="0" name="days_scheduled_lab" placeholder="Lab" />
+              </div>
+              <div class="field" style="grid-column: span 4;">
+                <label class="muted">&nbsp;</label>
+                <input type="number" min="0" name="days_scheduled_activity" placeholder="Activity" />
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="field" style="grid-column: span 4;">
+                <label># of Contact Hours per Day</label>
+                <input type="number" step="0.1" min="0" name="contact_per_day_lecture" placeholder="Lecture" />
+              </div>
+              <div class="field" style="grid-column: span 4;">
+                <label class="muted">&nbsp;</label>
+                <input type="number" step="0.1" min="0" name="contact_per_day_lab" placeholder="Lab" />
+              </div>
+              <div class="field" style="grid-column: span 4;">
+                <label class="muted">&nbsp;</label>
+                <input type="number" step="0.1" min="0" name="contact_per_day_activity" placeholder="Activity" />
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="field" style="grid-column: span 4;">
+                <label>Total (Lecture)</label>
+                <input type="number" step="0.1" min="0" name="total_lecture" />
+              </div>
+              <div class="field" style="grid-column: span 4;">
+                <label>Total (Lab)</label>
+                <input type="number" step="0.1" min="0" name="total_lab" />
+              </div>
+              <div class="field" style="grid-column: span 4;">
+                <label>Total (Activity)</label>
+                <input type="number" step="0.1" min="0" name="total_activity" />
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="field" style="grid-column: span 6;">
+                <label>Notes / Additional Calculations</label>
+                <textarea name="notes"></textarea>
+              </div>
+              <div class="field" style="grid-column: span 6;">
+                <label>Payroll Information</label>
+                <textarea name="payroll_info"></textarea>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="field" style="grid-column: span 3;">
+                <label>Semester Lecture Hours</label>
+                <input type="number" step="0.1" min="0" name="sem_lect" />
+              </div>
+              <div class="field" style="grid-column: span 3;">
+                <label>Semester Lab Hours</label>
+                <input type="number" step="0.1" min="0" name="sem_lab" />
+              </div>
+              <div class="field" style="grid-column: span 3;">
+                <label>Semester Activity Hours</label>
+                <input type="number" step="0.1" min="0" name="sem_act" />
+              </div>
+              <div class="field" style="grid-column: span 3;">
+                <label>Sick Leave Hours</label>
+                <input type="number" step="0.1" min="0" name="sick_leave" />
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="field" style="grid-column: span 6;">
+                <label>Date Forwarded to Payroll & HR</label>
+                <input type="date" name="date_forwarded" />
+              </div>
+              <div class="field" style="grid-column: span 6;">
+                <label>Date and Initial</label>
+                <input type="text" name="date_and_initial" placeholder="MM/DD/YYYY – Initials" />
+              </div>
+            </div>
+          </div>
+        </form>
+      </main>
+
+      <footer>
+        <button id="printFormBtn" class="btn" type="button">Print</button>
+        <button id="saveJsonBtn" class="btn" type="button">Download JSON</button>
+        <button id="clearFormBtn" class="btn" type="button">Clear</button>
+        <button id="closeFormBtn2" class="btn" type="button">Close</button>
+      </footer>
     </div>
-    <div class="times">
-      <label>Start: <input type="time" id="avail-start" step="300"></label>
-      <label>End:   <input type="time" id="avail-end"   step="300"></label>
-      <button id="avail-check-btn">Check</button>
-      <button id="avail-clear-btn">Clear</button>
-    </div>
-    <div id="avail-results" class="avail-results"></div>
   </div>
 
-  <!-- Export Buttons -->
-  <div style="text-align:center; margin-bottom:12px;">
-    <button id="export-pdf-btn">Export to PDF</button>
-  </div>
-  <!-- Room header for selected room above the grid -->
-  <div id="selected-room-header"></div>
+  <script>
+    // Wire up modal open/close
+    const openBtn = document.getElementById('openChangeFormBtn');
+    const modal = document.getElementById('changeFormModal');
+    const closeBtns = [document.getElementById('closeFormBtn'), document.getElementById('closeFormBtn2')];
 
-  <div id="schedule-container">
-    <table id="schedule-table"></table>
-  </div>
-  
-  <!-- Add calendar room dropdown ABOVE calendar-container, and keep hidden by default -->
-  <div id="calendar-room-filter" style="display:none; margin:10px 0;">
-    <label>Filter Bldg-Room:
-      <select id="calendar-room-select"></select>
-    </label>
-  </div>
+    openBtn.addEventListener('click',()=>{ modal.classList.add('open'); openBtn.setAttribute('aria-expanded','true'); ensureDetailRows(); preserveFromLocalStorage(); setTimeout(()=>document.getElementById('year')?.focus(),100);});
+    closeBtns.forEach(btn=>btn.addEventListener('click',()=>{ modal.classList.remove('open'); openBtn.setAttribute('aria-expanded','false'); }));
+    modal.addEventListener('click', (e)=>{ if(e.target===modal){ modal.classList.remove('open'); openBtn.setAttribute('aria-expanded','false'); }});
 
-  <div id="calendar-container" style="display:none;">
-    <div id="calendar"></div>
-  </div>
+    // Build the change-details rows programmatically so you can tweak labels easily
+    function ensureDetailRows(){
+      const tbody = document.querySelector('.table tbody');
+      if(tbody.dataset.built==='1') return;
+      const fields = [
+        'CRN','Subject & Course #','Time(s)','Day(s)','Short Term Dates','# of Weeks','Units','Capacity','Building(s)','Room(s)','Instructor Full Name','Banner ID','Split Load Instructor','Split Load Banner ID'
+      ];
+      fields.forEach((label,i)=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML = `
+          <td><label class="muted">${label}</label></td>
+          <td><input type="text" name="current_${i}" /></td>
+          <td><input type="text" name="changed_${i}" /></td>
+          <td style="text-align:center"><input type="checkbox" name="done_${i}" aria-label="Done for ${label}"></td>
+        `;
+        tbody.appendChild(tr);
+      });
+      tbody.dataset.built='1';
+    }
 
-  <div id="heatmap-tool" style="display:none;">
-    <h2>Course Offerings Heatmap & Table</h2>
-    <div id="controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <label>Campus:
-        <select id="heatmap-campus-select"></select>
-      </label>
-      <select id="courseSelect" multiple placeholder="Filter by discipline/course"></select>
-      <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
-      <button id="heatmap-clear-btn" type="button">Clear</button>
-    </div>
-    <div id="heatmapContainer"></div>
-    <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
-  </div>
+    // Save/restore
+    const form = document.getElementById('scheduleChangeForm');
+    const STORAGE_KEY = 'cos_schedule_change_form_v1';
 
-  <div id="linechart-tool" style="display:none;">
-    <h2>Course Duration Line Chart</h2>
-    <div id="linechart-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <label>Campus:
-        <select id="linechart-campus-select"></select>
-      </label>
-      <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
-      <button id="linechart-clear-btn" type="button">Clear</button>
-    </div>
-    <div id="chart-container">
-      <canvas id="lineChartCanvas" style="width:100%; height:100%;"></canvas>
-    </div>
-  </div>
+    function formToJSON(form){
+      const data = new FormData(form);
+      // Combine multi-value checkboxes
+      const obj = {};
+      for(const [k,v] of data.entries()){
+        if(obj[k]!==undefined){
+          if(Array.isArray(obj[k])) obj[k].push(v); else obj[k]=[obj[k],v];
+        } else {
+          obj[k]=v;
+        }
+      }
+      // Include unchecked checkboxes as false for the dynamic rows
+      [...form.querySelectorAll('input[type="checkbox"][name^="done_"]')].forEach(cb=>{
+        if(!(cb.name in obj)) obj[cb.name]=false;
+      });
+      return obj;
+    }
 
-  <!-- Tooltip for class blocks -->
-  <div id="class-block-tooltip" class="class-block-tooltip"></div>
+    function jsonToForm(json){
+      for(const el of form.elements){
+        if(!el.name) continue;
+        if(el.type==='checkbox' || el.type==='radio'){
+          const v = json[el.name];
+          if(Array.isArray(v)) el.checked = v.includes(el.value);
+          else if(typeof v!== 'undefined') el.checked = (v===true || v===el.value);
+        }else{
+          if(typeof json[el.name] !== 'undefined') el.value = json[el.name];
+        }
+      }
+    }
 
-  <!-- FullCalendar JS -->
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
-  <script src="js/parser.js"></script>
-  <!-- CAL-GETC mapping file must be loaded BEFORE app.js -->
-  <script src="js/cal_getc_mapping.js"></script>
-  <script src="js/app.js"></script>
+    function preserveToLocalStorage(){
+      const json = formToJSON(form);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(json));
+    }
+
+    function preserveFromLocalStorage(){
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return;
+      try{ jsonToForm(JSON.parse(raw)); }catch{}
+    }
+
+    form.addEventListener('input', ()=>preserveToLocalStorage());
+
+    // Footer actions
+    document.getElementById('clearFormBtn').addEventListener('click', ()=>{
+      if(confirm('Clear all fields?')){ form.reset(); localStorage.removeItem(STORAGE_KEY); }
+    });
+
+    document.getElementById('saveJsonBtn').addEventListener('click', ()=>{
+      const blob = new Blob([JSON.stringify(formToJSON(form), null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'schedule-change-form.json'; a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('printFormBtn').addEventListener('click', ()=>{
+      window.print();
+    });
+  </script>
 </body>
 </html>
