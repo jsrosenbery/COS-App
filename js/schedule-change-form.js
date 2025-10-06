@@ -476,6 +476,24 @@ async function scfExportDocx(shadow){
     modal.addEventListener('keydown', onKey);
     if(firstEl) firstEl.focus();
   }
+// Build the "Change Details" table rows
+function buildRows(tbody){
+  if (!tbody) return;
+  // Avoid duplicating rows if init runs twice
+  tbody.innerHTML = '';
+  CHANGE_FIELDS.forEach((label, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><label class="muted">${label}</label></td>
+      <td><input type="text" name="current_${i}" /></td>
+      <td><input type="text" name="changed_${i}" /></td>
+      <td style="text-align:center">
+        <input type="checkbox" name="done_${i}" aria-label="Done for ${label}">
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
   function attachBehavior(shadow, theme){
     const openBtn = shadow.getElementById('openBtn');
