@@ -362,43 +362,83 @@
     };
   }
 
-  async function scfExportDocx(shadow){
-    const TEMPLATE_URL = 'templates/Change_of_Schedule_Form_TEMPLATE_WITH_TAGS.docx';
-    try{
-      const res = await fetch(TEMPLATE_URL);
-      if(!res.ok) throw new Error('Template not found at ' + TEMPLATE_URL);
-      const content = await res.arrayBuffer();
+async function scfExportDocx(shadow){
+  // 1) Where your template lives (keep relative if deploying under a subpath)
+  const TEMPLATE_URL = window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_TEMPLATE_WITH_TAGS.docx';
 
-      const zip = new window.PizZip(content);
-      const doc = new window.docxtemplater(zip, { paragraphLoop:true, linebreaks:true });
+  // 2) Tags we expect in the template (the tagged DOCX I gave you uses exactly these)
+  const EXPECTED_TAGS = [
+    'year','date_sent','date_processed','division_chair','area_dean',
+    'term_spring','term_summer','term_fall',
+    'campus_visalia','campus_tulare','campus_hanford','campus_online','campus_offcampus',
+    'visible_yes','visible_no',
+    'lecture_hours','lab_hours','activity_hours','sem_lect','sem_lab','sem_act','sick_leave'
+  ];
 
-      const data = scfGetMergeData(shadow);
-      doc.setData(data);
-      doc.render();
+  try{
+    // Load template (no-cache to avoid stale 404s or old copies)
+    const res = await fetch(TEMPLATE_URL, { cache: 'no-store' });
+    if(!res.ok) throw new Error(`Fetch failed (${res.status}) at ${TEMPLATE_URL}`);
+    const content = await res.arrayBuffer();
 
-      const out = doc.getZip().generate({ type:'blob' });
-      const filename = `Change_of_Schedule_${data.year || 'form'}.docx`;
-      window.saveAs(out, filename);
-    }catch(e){
-      console.error('[SCF] DOCX export failed:', e);
-      alert('DOCX export failed. Check console and confirm the template path.');
+    // Build data from the form
+    const data = scfGetMergeData(shadow);
+
+    // Optional: warn early if any expected keys are missing
+    const missingProvided = EXPECTED_TAGS.filter(k => !(k in data));
+    if (missingProvided.length) {
+      console.warn('[SCF] Data object is missing keys (will render as empty):', missingProvided);
+      // This is just a warning; export will still proceed with empty strings.
     }
-  }
 
-  // ===== Helpers =====
-  function buildRows(tbody){
-    CHANGE_FIELDS.forEach((label,i)=>{
-      const tr=document.createElement('tr');
-      tr.innerHTML = `
-        <td><label class="muted">${label}</label></td>
-        <td><input type="text" name="current_${i}" /></td>
-        <td><input type="text" name="changed_${i}" /></td>
-        <td style="text-align:center"><input type="checkbox" name="done_${i}" aria-label="Done for ${label}"></td>
-      `;
-      tbody.appendChild(tr);
+    // Init docxtemplater with a nullGetter so missing keys don’t throw
+    const zip = new window.PizZip(content);
+    const doc = new window.docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+      nullGetter: (part) => {
+        // part = { tag, scopePath, filePath, ... }
+        console.warn('[SCF] Missing tag in data (rendering empty):', part.tag);
+        return ''; // Render empty string if a key isn’t provided
+      }
     });
-  }
 
+    // Merge + render
+    doc.setData(data);
+    doc.render(); // If template has syntax issues, this will still throw
+
+    // Save
+    const out = doc.getZip().generate({ type:'blob' });
+    const filename = `Change_of_Schedule_${data.year || 'form'}.docx`;
+    window.saveAs(out, filename);
+  } catch (e) {
+    console.error('[SCF] DOCX export failed:', e);
+
+    // Docxtemplater-specific error info (very helpful)
+    if (e.properties && Array.isArray(e.properties.errors)) {
+      const details = e.properties.errors
+        .map(err => `• ${err.properties?.explanation || err.message || String(err)}`)
+        .join('\n');
+      alert(
+        'DOCX export failed while rendering the template.\n\n' +
+        details + '\n\n' +
+        'Tips:\n' +
+        '• Make sure the template tags exactly match the data keys (see console).\n' +
+        '• If the error mentions an unknown tag, open the DOCX and search for that tag.\n' +
+        '• Keep the template in compatibility mode (no content controls).'
+      );
+      return;
+    }
+
+    alert(
+      'DOCX export failed.\n' +
+      `Template URL: ${window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_TEMPLATE_WITH_TAGS.docx'}\n` +
+      '• Confirm PizZip, Docxtemplater, FileSaver are loaded.\n' +
+      '• Serve via http:// (not file://) when testing locally.\n' +
+      'Check the console for the full stack trace.'
+    );
+  }
+}
   function formToJSON(form){
     const data = new FormData(form);
     const obj = {};
