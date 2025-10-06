@@ -109,11 +109,3 @@ h1 { margin:0; font-size:1.5rem; }
   font-weight: 600;
   margin-right: 2px;
 }
-#cos-change-form .form-grid {
-  display:grid; grid-template-columns: repeat(3, minmax(220px, 1fr));
-  gap:14px; margin-top:10px;
-}
-#cos-change-form label { font-weight:600; display:block; margin-bottom:4px; }
-#cos-change-form input, #cos-change-form select { width:100%; padding:8px; }
-#cos-change-form .row { display:flex; gap:10px; align-items:center; margin-bottom:8px; }
-

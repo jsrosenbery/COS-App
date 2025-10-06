@@ -27,6 +27,7 @@ const termStartDates = {
 
 // --- Holiday Dates (all in ISO YYYY-MM-DD format) ---
 const holidayRanges = [
+  // [start, end] inclusive dates
   ['2025-06-19','2025-06-19'],
   ['2025-07-04','2025-07-04'],
   ['2025-09-01','2025-09-01'],
@@ -80,13 +81,16 @@ const holidaySet = (() => {
 function parseHour(t) {
   if (!t) return null;
   t = t.trim();
-  const m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  let m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
   if (!m) return null;
   let h = parseInt(m[1],10);
   const min = parseInt(m[2],10);
   const ampm = m[3] ? m[3].toUpperCase() : null;
-  if (ampm === "AM") { if (h === 12) h = 0; }
-  else if (ampm === "PM") { if (h !== 12) h += 12; }
+  if (ampm === "AM") {
+    if (h === 12) h = 0;
+  } else if (ampm === "PM") {
+    if (h !== 12) h += 12;
+  }
   return h + min/60;
 }
 
@@ -107,22 +111,20 @@ function getTimeRangeFromData(data) {
 function extractField(r, keys) {
   for (const k of keys) {
     if (r[k] && typeof r[k] === 'string' && r[k].trim()) return r[k].trim();
-    const lo = k.toLowerCase(), up = k.toUpperCase(), us = k.replace(/\s+/g, '_');
-    if (r[lo] && typeof r[lo] === 'string' && r[lo].trim()) return r[lo].trim();
-    if (r[up] && typeof r[up] === 'string' && r[up].trim()) return r[up].trim();
-    if (r[us] && typeof r[us] === 'string' && r[us].trim()) return r[us].trim();
-    const usLo = us.toLowerCase(), usUp = us.toUpperCase();
-    if (r[usLo] && typeof r[usLo] === 'string' && r[usLo].trim()) return r[usLo].trim();
-    if (r[usUp] && typeof r[usUp] === 'string' && r[usUp].trim()) return r[usUp].trim();
+    if (r[k.toLowerCase()] && typeof r[k.toLowerCase()] === 'string' && r[k.toLowerCase()].trim()) return r[k.toLowerCase()].trim();
+    if (r[k.toUpperCase()] && typeof r[k.toUpperCase()] === 'string' && r[k.toUpperCase()].trim()) return r[k.toUpperCase()].trim();
+    if (r[k.replace(/\s+/g, '_')] && typeof r[k.replace(/\s+/g, '_')] === 'string' && r[k.replace(/\s+/g, '_')].trim()) return r[k.replace(/\s+/g, '_')].trim();
+    if (r[k.replace(/\s+/g, '_').toLowerCase()] && typeof r[k.replace(/\s+/g, '_').toLowerCase()] === 'string' && r[k.replace(/\s+/g, '_').toLowerCase()].trim()) return r[k.replace(/\s+/g, '_').toLowerCase()].trim();
+    if (r[k.replace(/\s+/g, '_').toUpperCase()] && typeof r[k.replace(/\s+/g, '_').toUpperCase()] === 'string' && r[k.replace(/\s+/g, '_').toUpperCase()].trim()) return r[k.replace(/\s+/g, '_').toUpperCase()].trim();
   }
   return '';
 }
 
 function isValidRoom(building, room) {
   if (!room) return false;
-  const r = String(room).toUpperCase();
+  const r = room.toUpperCase();
   if (r === '' || r === 'N/A' || r === 'LIVE') return false;
-  if (building && String(building).toUpperCase() === 'ONLINE') return false;
+  if (building && building.toUpperCase() === 'ONLINE') return false;
   return true;
 }
 
@@ -136,6 +138,7 @@ function getUniqueCampuses(data) {
 }
 
 function getUniqueRooms(data) {
+  // Returns array of "Bldg-Room" combos, sorted, excluding blanks, N/A, LIVE, ONLINE
   return [...new Set(
     data
       .filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM))
@@ -144,11 +147,15 @@ function getUniqueRooms(data) {
 }
 
 function normalizeRow(r) {
+  // Convert DAYS like "MW" to ["Monday","Wednesday"]
   const daysMap = {M:"Monday",T:"Tuesday",W:"Wednesday",R:"Thursday",F:"Friday",U:"Sunday",S:"Saturday"};
   let daysArr = [];
-  if (typeof r.DAYS === "string") daysArr = r.DAYS.split('').map(d => daysMap[d] || d);
-  else if (Array.isArray(r.Days)) daysArr = r.Days;
-
+  if (typeof r.DAYS === "string") {
+    daysArr = r.DAYS.split('').map(d => daysMap[d] || d);
+  } else if (Array.isArray(r.Days)) {
+    daysArr = r.Days;
+  }
+  // Parse Time to Start_Time and End_Time
   let start24 = "00:00", end24 = "00:00";
   if (typeof r.Time === "string") {
     const parts = r.Time.split('-').map(s => s.trim());
@@ -164,9 +171,13 @@ function normalizeRow(r) {
       }
       return '00:00';
     };
-    if (parts.length === 2) { start24 = to24(parts[0]); end24 = to24(parts[1]); }
+    if (parts.length === 2) {
+      start24 = to24(parts[0]);
+      end24 = to24(parts[1]);
+    }
   } else if (typeof r.Start_Time === "string" && typeof r.End_Time === "string") {
-    start24 = r.Start_Time; end24 = r.End_Time;
+    start24 = r.Start_Time;
+    end24 = r.End_Time;
   }
 
   return {
@@ -185,9 +196,10 @@ function normalizeRow(r) {
   }
 }
 
-// -- CAL-GETC helpers --
+// -- CAL-GETC Filtering helpers --
 function getCourseCodesFromCALGETC(value) {
   if (!window.CAL_GETC_MAPPING || !window.normalizeCALGETCCode) return [];
+  // Remove 'Z' prefix if present
   if (value && value.startsWith('Z')) value = value.substring(1);
   const codes = [];
   window.CAL_GETC_MAPPING.forEach(row => {
@@ -197,10 +209,18 @@ function getCourseCodesFromCALGETC(value) {
   });
   return codes;
 }
-function isCALGETCGroup(value) { return value && value.startsWith("ZCAL-GETC"); }
+
+function isCALGETCGroup(value) {
+  // Now checks for 'ZCAL-GETC'
+  return value && value.startsWith("ZCAL-GETC");
+}
 
 document.addEventListener('DOMContentLoaded', () => {
-  const terms = ['Summer 2025','Fall 2025','Spring 2026','Summer 2026','Fall 2026','Spring 2027','Summer 2027','Fall 2027','Spring 2028'];
+  const terms = [
+    'Summer 2025','Fall 2025','Spring 2026',
+    'Summer 2026','Fall 2026','Spring 2027',
+    'Summer 2027','Fall 2027','Spring 2028'
+  ];
   const daysOfWeek = [...hmDays];
   let currentData = [];
   let currentTerm = '';
@@ -219,8 +239,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
   const calendarContainer = document.getElementById('calendar-container');
-  const calendarEl   = document.getElementById('calendar');
-  const roomHeaderDiv = document.getElementById('selected-room-header');
+  const calendarEl = document.getElementById('calendar');
+  const roomHeaderDiv = document.getElementById('selected-room-header'); // NEW: header div
 
   let snapshotRoomFilter = null;
   let calendarRoomFilter = null;
@@ -241,26 +261,29 @@ document.addEventListener('DOMContentLoaded', () => {
     updateAllHeatmap();
   };
   document.getElementById('linechart-clear-btn').onclick = () => {
-    if (lineCourseChoices) lineCourseChoices.removeActiveItems();
-    renderLineChart();
-  };
+  if (lineCourseChoices) lineCourseChoices.removeActiveItems();
+  renderLineChart();
+};
 
-  // --- Export to PDF ---
-  document.getElementById('export-pdf-btn').addEventListener('click', function() {
-    const roomHeader = document.getElementById('selected-room-header').textContent;
-    html2canvas(document.getElementById('schedule-container')).then(canvas => {
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-      pdf.setFontSize(24);
-      pdf.text(roomHeader || 'All Rooms', 40, 40);
-      const pageWidth = pdf.internal.pageSize.getWidth() - 80;
-      const pageHeight = pdf.internal.pageSize.getHeight() - 100;
-      pdf.addImage(imgData, 'PNG', 40, 60, pageWidth, pageHeight);
-      pdf.save(`Schedule-${roomHeader || 'All'}.pdf`);
+// --- Export to PDF ---
+document.getElementById('export-pdf-btn').addEventListener('click', function() {
+  const roomHeader = document.getElementById('selected-room-header').textContent;
+  html2canvas(document.getElementById('schedule-container')).then(canvas => {
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jspdf.jsPDF({
+      orientation: 'landscape',
+      unit: 'pt',
+      format: 'a4'
     });
+    pdf.setFontSize(24);
+    pdf.text(roomHeader || 'All Rooms', 40, 40);
+    const pageWidth = pdf.internal.pageSize.getWidth() - 80;
+    const pageHeight = pdf.internal.pageSize.getHeight() - 100;
+    pdf.addImage(imgData, 'PNG', 40, 60, pageWidth, pageHeight);
+    pdf.save(`Schedule-${roomHeader || 'All'}.pdf`);
   });
+});
 
-  // Tabs
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
     tab.className = 'tab' + (i === 2 ? ' active' : '');
@@ -289,9 +312,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('linechart-tool').style.display = (view === 'linechart') ? 'block' : 'none';
     document.getElementById('calendar-container').style.display = (view === 'fullcalendar') ? 'block' : 'none';
     document.getElementById('calendar-room-filter').style.display = (view === 'fullcalendar') ? 'block' : 'none';
-    document.getElementById('selected-room-header').style.display = (view === 'calendar' ? '' : 'none');
-    if (view === 'linechart') renderLineChart();
-    if (view === 'fullcalendar') renderFullCalendar();
+    document.getElementById('selected-room-header').style.display = (view === 'calendar' ? '' : 'none'); // NEW: hide header on non-grid views
+    if (view === 'linechart') {
+      renderLineChart();
+    }
+    if (view === 'fullcalendar') {
+      renderFullCalendar();
+    }
   });
 
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
@@ -305,6 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
     <select id="calendar-room-select"></select>
   </label>`;
   calendarContainer.parentNode.insertBefore(calendarRoomFilterDiv, calendarContainer);
+
   document.getElementById('calendar-room-select').addEventListener('change', renderFullCalendar);
 
   // --- Backend fetch instead of localStorage ---
@@ -312,21 +340,19 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`)
       .then(res => res.json())
       .then(({ data, lastUpdated }) => {
+        // PATCH: Normalize backend data fields to frontend expectations
         currentData = (data || []).map(normalizeRow);
-        window.currentData = currentData; // ← expose normalized array for changeForm.js
         tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
         buildRoomDropdowns();
         renderSchedule();
         feedHeatmapTool(currentData);
-        if (document.getElementById('viewSelect').value === 'fullcalendar') renderFullCalendar();
-      })
-      .catch(err => {
-        tsDiv.textContent = 'Error loading schedule.';
-        console.error(err);
+        if (document.getElementById('viewSelect').value === 'fullcalendar') {
+          renderFullCalendar();
+        }
       });
   }
 
-  // --- POST CSV to backend ---
+  // --- POST CSV to backend, not localStorage ---
   function uploadScheduleToBackend(term, csvString) {
     fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
       method: 'POST',
@@ -346,7 +372,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function selectTerm(term, tabElem) {
     currentTerm = term;
-    window.currentTerm = currentTerm; // ← expose current term for form auto-fill
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
     clearSchedule();
@@ -358,23 +383,26 @@ document.addEventListener('DOMContentLoaded', () => {
     roomDiv.innerHTML = '';
     uploadDiv.innerHTML = `<label>Upload CSV for ${currentTerm}: <input type="file" id="file-input" accept=".csv"></label>`;
     document.getElementById('file-input').onchange = e => {
+      // --- PASSWORD PROTECTION: ask for password before parsing ---
       const password = prompt('Enter upload password:');
       if (password !== 'Upload2025') {
         alert('Incorrect password. Upload cancelled.');
-        e.target.value = '';
+        e.target.value = ''; // reset file input
         return;
       }
+      // --- End password protection ---
       const file = e.target.files[0];
       const reader = new FileReader();
       reader.onload = function(ev) {
         const csvString = ev.target.result;
-        uploadScheduleToBackend(currentTerm, csvString);
+        uploadScheduleToBackend(currentTerm, csvString); // reloads after upload
       };
       reader.readAsText(file);
     };
   }
 
   function buildRoomDropdowns() {
+    // For snapshot
     const combos = getUniqueRooms(currentData);
     if (roomDiv) {
       roomDiv.innerHTML = `
@@ -387,6 +415,8 @@ document.addEventListener('DOMContentLoaded', () => {
       snapshotRoomFilter = document.getElementById('room-select');
       snapshotRoomFilter.onchange = renderSchedule;
     }
+
+    // For fullcalendar
     const calendarRoomSelect = document.getElementById('calendar-room-select');
     if (calendarRoomSelect) {
       calendarRoomSelect.innerHTML = `
@@ -414,6 +444,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderSchedule() {
+    // --- NEW: Large room header above grid ---
     const selectedRoom = snapshotRoomFilter?.value || 'All';
     if (roomHeaderDiv) {
       if (selectedRoom !== 'All') {
@@ -424,28 +455,34 @@ document.addEventListener('DOMContentLoaded', () => {
         roomHeaderDiv.style.display = 'none';
       }
     }
+    // --- END HEADER CODE ---
 
     clearSchedule();
     const filt = selectedRoom;
     const data = (filt === 'All'
       ? currentData
       : currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt)
-    ).filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM));
-
+    ).filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM)); // Omit invalid rooms
     const rect = container.getBoundingClientRect();
     daysOfWeek.forEach((day, dIdx) => {
       let evs = data
         .filter(i => Array.isArray(i.Days) ? i.Days.includes(day) : false)
         .filter(i => parseHour(i.Start_Time) !== parseHour(i.End_Time))
-        .map(i => ({ ...i, startMin: parseTime(i.Start_Time), endMin: parseTime(i.End_Time) }))
+        .map(i => ({
+          ...i,
+          startMin: parseTime(i.Start_Time),
+          endMin:   parseTime(i.End_Time)
+        }))
         .sort((a,b) => a.startMin - b.startMin);
-
       const seen = new Set();
       evs = evs.filter(ev => {
         const key = [
-          ev.CRN, ev.Start_Time, ev.End_Time,
+          ev.CRN,
+          ev.Start_Time,
+          ev.End_Time,
           Array.isArray(ev.Days) ? ev.Days.join(',') : ev.Days,
-          ev.Building || ev.BUILDING, ev.Room || ev.ROOM
+          ev.Building || ev.BUILDING,
+          ev.Room || ev.ROOM
         ].join('|');
         if (seen.has(key)) return false;
         seen.add(key);
@@ -453,7 +490,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       evs.forEach((ev, i) => {
-        ev.overlaps = evs.filter(other => !(other.endMin <= ev.startMin || other.startMin >= ev.endMin));
+        ev.overlaps = evs.filter(other =>
+          !(other.endMin <= ev.startMin || other.startMin >= ev.endMin)
+        );
         ev.overlaps.sort((a, b) => a.startMin - b.startMin);
       });
 
@@ -464,13 +503,18 @@ document.addEventListener('DOMContentLoaded', () => {
           for (let c = 0; c < columns.length; c++) {
             if (columns[c][columns[c].length-1].endMin <= overlapEv.startMin) {
               columns[c].push(overlapEv);
-              placed = true; break;
+              placed = true;
+              break;
             }
           }
           if (!placed) columns.push([overlapEv]);
         });
         for (let c = 0; c < columns.length; c++) {
-          if (columns[c].includes(ev)) { ev.colIndex = c; ev.colCount = columns.length; break; }
+          if (columns[c].includes(ev)) {
+            ev.colIndex = c;
+            ev.colCount = columns.length;
+            break;
+          }
         }
       });
 
@@ -485,7 +529,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const leftPx   = cr.left - rect.left + (ev.colCount === 1 ? 0 : ev.colIndex*(cr.width/ev.colCount));
         const widthPx  = (ev.colCount === 1) ? cr.width : cr.width / ev.colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
-
         const b = document.createElement('div');
         b.className = 'class-block';
         b.style.top    = `${topPx}px`;
@@ -495,6 +538,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const title = extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
         const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
+        const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+        const endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
 
         b.innerHTML = `
           <span style="font-weight:bold;">${ev.Subject_Course || ''}</span><br>
@@ -503,8 +548,6 @@ document.addEventListener('DOMContentLoaded', () => {
           <span>${instructor}</span>
         `;
 
-        const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
-        const endDate   = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
         const tooltipContent = `
 <b>${ev.Subject_Course || ''}</b><br>
 ${title ? `<span>${title}</span><br>` : ''}
@@ -518,9 +561,9 @@ Instructor: ${instructor || 'N/A'}
           const tooltip = document.getElementById('class-block-tooltip');
           tooltip.innerHTML = tooltipContent;
           tooltip.style.display = 'block';
-          const r = b.getBoundingClientRect();
-          tooltip.style.left = (r.right + window.scrollX + 8) + 'px';
-          tooltip.style.top = (r.top + window.scrollY - 10) + 'px';
+          const rect = b.getBoundingClientRect();
+          tooltip.style.left = (rect.right + window.scrollX + 8) + 'px';
+          tooltip.style.top = (rect.top + window.scrollY - 10) + 'px';
         });
         b.addEventListener('mouseleave', function() {
           const tooltip = document.getElementById('class-block-tooltip');
@@ -539,38 +582,46 @@ Instructor: ${instructor || 'N/A'}
 
   function handleAvailability() {
     resultsDiv.textContent = '';
-    const days = Array.from(document.querySelectorAll('#availability-ui .days input:checked')).map(cb => cb.value);
+    const days = Array.from(
+      document.querySelectorAll('#availability-ui .days input:checked')
+    ).map(cb => cb.value);
     const start = startInput.value, end = endInput.value;
     if (!days.length || !start || !end) {
       resultsDiv.textContent = 'Please select at least one day and both start/end times.';
       return;
     }
-    const toMin = t => { const [h,m] = t.split(':').map(Number); return h*60 + m; };
+    const toMin = t => {
+      const [h,m] = t.split(':').map(Number);
+      return h*60 + m;
+    };
     const sMin = toMin(start), eMin = toMin(end);
     const rooms = [...new Set(currentData
         .filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM))
         .map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))];
-    const occ = new Set();
+    const occ   = new Set();
     currentData.forEach(i => {
       if (!isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM)) return;
       if (Array.isArray(i.Days) && i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
-        if (!(ei <= sMin || si >= eMin)) occ.add(`${i.Building || i.BUILDING}-${i.Room || i.ROOM}`);
+        if (!(ei <= sMin || si >= eMin)) {
+          occ.add(`${i.Building || i.BUILDING}-${i.Room || i.ROOM}`);
+        }
       }
     });
     const avail = rooms.filter(r => !occ.has(r)).sort();
-    resultsDiv.innerHTML = avail.length ? ('<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>') : 'No rooms available.';
+    if (avail.length) {
+      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
+    } else {
+      resultsDiv.textContent = 'No rooms available.';
+    }
   }
 
   function parseTime(t) {
-    if (!t || !t.includes(':')) return 0;
     const [h,m] = t.split(':').map(Number);
-    return (isNaN(h)||isNaN(m)) ? 0 : h*60 + m;
+    return h*60 + m;
   }
   function format12(t) {
-    if (!t || !t.includes(':')) return t || '';
     let [h,m] = t.split(':').map(Number);
-    if (isNaN(h)||isNaN(m)) return t;
     const ap = h<12 ? 'AM':'PM';
     h = ((h+11)%12)+1;
     return `${h}:${('0'+m).slice(-2)}${ap}`;
@@ -597,7 +648,10 @@ Instructor: ${instructor || 'N/A'}
         }
       }
     });
-    if(hmTable) { hmTable.destroy(); $('#dataTable').empty(); }
+    if(hmTable) {
+      hmTable.destroy();
+      $('#dataTable').empty();
+    }
     hmTable = $('#dataTable').DataTable({
       data: [],
       columns: [
@@ -654,8 +708,11 @@ Instructor: ${instructor || 'N/A'}
       let startTime = r.Start_Time || '';
       let endTime = r.End_Time || '';
       if ((!startTime || !endTime) && r.Time) {
-        const p = r.Time.split('-');
-        if (p.length === 2) { startTime = startTime || p[0].trim(); endTime = endTime || p[1].trim(); }
+        let parts = r.Time.split('-');
+        if (parts.length === 2) {
+          startTime = startTime || parts[0].trim();
+          endTime = endTime || parts[1].trim();
+        }
       }
 
       return {
@@ -674,6 +731,7 @@ Instructor: ${instructor || 'N/A'}
         Campus: extractField(r, ['Campus', 'campus', 'CAMPUS'])
       };
     }).filter(r => {
+      // Omit if room is blank, N/A, LIVE, ONLINE
       if (!isValidRoom(r.Building, r.Room)) return false;
       let dayField = r.Days;
       if (Array.isArray(dayField)) dayField = dayField.join(',');
@@ -694,6 +752,7 @@ Instructor: ${instructor || 'N/A'}
         campuses.map(c => `<option value="${c}">${c}</option>`).join('');
     });
 
+    // --- CAL-GETC group options at the very bottom (no sorting) ---
     let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
     let nonCalGetcItems = uniqueKeys
       .filter(k => !k.startsWith("CAL-GETC"))
@@ -704,8 +763,12 @@ Instructor: ${instructor || 'N/A'}
     if (window.CAL_GETC_MAPPING) {
       const calGetcGroups = { areas: [], divisions: [] };
       window.CAL_GETC_MAPPING.forEach(row => {
-        (row.areas || []).forEach(area => { if (!calGetcGroups.areas.includes(area)) calGetcGroups.areas.push(area); });
-        (row.divisions || []).forEach(div => { if (!calGetcGroups.divisions.includes(div)) calGetcGroups.divisions.push(div); });
+        (row.areas || []).forEach(area => {
+          if (!calGetcGroups.areas.includes(area)) calGetcGroups.areas.push(area);
+        });
+        (row.divisions || []).forEach(div => {
+          if (!calGetcGroups.divisions.includes(div)) calGetcGroups.divisions.push(div);
+        });
       });
       calGetcAreaOptions = calGetcGroups.areas;
       calGetcDivisionOptions = calGetcGroups.divisions;
@@ -714,16 +777,17 @@ Instructor: ${instructor || 'N/A'}
       ...calGetcAreaOptions.map(area => ({ value: 'Z' + area, label: 'Z' + area })),
       ...calGetcDivisionOptions.map(div => ({ value: 'Z' + div, label: 'Z' + div }))
     ];
-    const items = [...nonCalGetcItems, ...calGetcItems];
+    // CAL-GETC options always at the bottom, in mapping order:
+    let items = [...nonCalGetcItems, ...calGetcItems];
 
-    if (hmChoices) hmChoices.setChoices(items, 'value', 'label', true);
-    if (lineCourseChoices) lineCourseChoices.setChoices(items, 'value', 'label', true);
-
+    if (hmChoices) {
+      hmChoices.setChoices(items, 'value', 'label', true);
+    }
+    if (lineCourseChoices) {
+      lineCourseChoices.setChoices(items, 'value', 'label', true);
+    }
     updateAllHeatmap();
     renderLineChart();
-
-    // ← make raw heatmap data visible for changeForm.js CRN autofill
-    window.hmRaw = hmRaw;
   }
 
   function updateAllHeatmap() {
@@ -734,10 +798,18 @@ Instructor: ${instructor || 'N/A'}
 
     const selected = hmChoices.getValue(true);
 
+    // -- CAL-GETC group filtering --
     let filterCourseCodes = new Set();
     selected.forEach(val => {
-      if (isCALGETCGroup(val)) getCourseCodesFromCALGETC(val).forEach(c => filterCourseCodes.add(c));
-      else filterCourseCodes.add(window.normalizeCALGETCCode ? window.normalizeCALGETCCode(val) : val);
+      if (isCALGETCGroup(val)) {
+        getCourseCodesFromCALGETC(val).forEach(c => filterCourseCodes.add(c));
+      } else {
+        if (window.normalizeCALGETCCode) {
+          filterCourseCodes.add(window.normalizeCALGETCCode(val));
+        } else {
+          filterCourseCodes.add(val);
+        }
+      }
     });
 
     const rows = filteredCampus.filter(r => {
@@ -758,8 +830,9 @@ Instructor: ${instructor || 'N/A'}
     const counts = {};
     hmDays.forEach(d => counts[d] = hours.map(() => 0));
     filtered.forEach(row => {
-      const dayList = String(row[3] || '').split(',');
-      const timeParts = String(row[4] || '').split('-');
+      const [ course, bld, room, daysStr, timeStr ] = row;
+      const dayList = daysStr.split(',');
+      const timeParts = timeStr.split('-');
       const st = timeParts[0]?.trim();
       const en = timeParts[1]?.trim();
       if (!st || !en) return;
@@ -772,7 +845,7 @@ Instructor: ${instructor || 'N/A'}
         if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
       });
     });
-    const maxC = Math.max(...Object.values(counts).flat(), 0);
+    const maxC = Math.max(...Object.values(counts).flat());
     let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
     html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
     hours.forEach(h=>{ 
@@ -801,13 +874,24 @@ Instructor: ${instructor || 'N/A'}
       : hmRaw;
 
     const chartDiv = document.getElementById('lineChartCanvas');
-    if (lineChartInstance) { lineChartInstance.destroy(); lineChartInstance = null; }
+    if (lineChartInstance) {
+      lineChartInstance.destroy();
+      lineChartInstance = null;
+    }
     const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
 
+    // -- CAL-GETC group filtering for line chart --
     let filterCourseCodes = new Set();
     selectedCourses.forEach(val => {
-      if (isCALGETCGroup(val)) getCourseCodesFromCALGETC(val).forEach(c => filterCourseCodes.add(c));
-      else filterCourseCodes.add(window.normalizeCALGETCCode ? window.normalizeCALGETCCode(val) : val);
+      if (isCALGETCGroup(val)) {
+        getCourseCodesFromCALGETC(val).forEach(c => filterCourseCodes.add(c));
+      } else {
+        if (window.normalizeCALGETCCode) {
+          filterCourseCodes.add(window.normalizeCALGETCCode(val));
+        } else {
+          filterCourseCodes.add(val);
+        }
+      }
     });
 
     const filtered = filteredCampus.filter(r => {
@@ -826,8 +910,8 @@ Instructor: ${instructor || 'N/A'}
     filtered.forEach(rec => {
       let recDays = Array.isArray(rec.Days) ? rec.Days : (typeof rec.Days === "string" ? rec.Days.split(',') : []);
       if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !daysOfWeek.includes(recDays[0])) {
-        const map = { 'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday' };
-        recDays = recDays[0].split('').map(abbr => map[abbr] || abbr);
+        const abbrevDayMap = { 'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday' };
+        recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
       }
       const startHour = parseHour(rec.Start_Time);
       const endHour = parseHour(rec.End_Time);
@@ -836,13 +920,17 @@ Instructor: ${instructor || 'N/A'}
       recDays.forEach(day => {
         if (!day || !daysOfWeek.includes(day)) return;
         hours.forEach(h => {
-          if (h >= Math.floor(startHour) && h < endHour) counts[day+'-'+h] += 1;
+          if (h >= Math.floor(startHour) && h < endHour) {
+            counts[day+'-'+h] += 1;
+          }
         });
       });
     });
     const ctx = chartDiv.getContext('2d');
     const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
-    const colorList = ["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2"];
+    const colorList = [
+      "#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2"
+    ];
     const datasets = daysOfWeek.map((day, idx) => ({
       label: day,
       data: hours.map(h => counts[day+'-'+h]),
@@ -853,31 +941,51 @@ Instructor: ${instructor || 'N/A'}
       pointRadius: 2,
       borderWidth: 2
     }));
-    let maxY = 0; datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
+    let maxY = 0;
+    datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
     let tickCount = Math.max(3, Math.min(6, maxY));
-    let stepSize = 1, yMax = 1;
-    if (maxY <= 3) { tickCount = 3; yMax = 3; stepSize = 1; }
-    else {
+    let stepSize = 1;
+    let yMax = 1;
+    if (maxY <= 3) {
+      tickCount = 3;
+      yMax = 3;
+      stepSize = 1;
+    } else {
       stepSize = Math.ceil(maxY / (tickCount - 1));
       yMax = stepSize * (tickCount - 1);
-      if (yMax < maxY) yMax += stepSize;
+      if (yMax < maxY) {
+        yMax += stepSize;
+      }
     }
     lineChartInstance = new Chart(ctx, {
       type: 'line',
       data: { labels, datasets },
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true,
+        maintainAspectRatio: false,
         plugins: {
           legend: { position: 'bottom' },
-          tooltip: { enabled: true, callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}` } }
+          tooltip: {
+            enabled: true,
+            callbacks: {
+              label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
+            }
+          }
         },
         layout: { padding: 0 },
         scales: {
           x: { title: { display: true, text: 'Time of Day' }, ticks: { font: { size: 10 } } },
           y: {
-            min: 0, max: yMax, beginAtZero: true,
+            min: 0,
+            max: yMax,
             title: { display: true, text: 'Concurrent Courses' },
-            ticks: { stepSize, maxTicksLimit: tickCount, padding: 2, font: { size: 10 } }
+            beginAtZero: true,
+            ticks: {
+              stepSize: stepSize,
+              maxTicksLimit: tickCount,
+              padding: 2,
+              font: { size: 10 }
+            }
           }
         }
       }
@@ -887,27 +995,37 @@ Instructor: ${instructor || 'N/A'}
   // --- FullCalendar weekly view with room filter and date span ---
   function renderFullCalendar() {
     if (!calendarEl) return;
-    const daysMap = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
+    // Prepare events
+    const daysMap = {
+      'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
+      'Thursday': 4, 'Friday': 5, 'Saturday': 6
+    };
     let data = currentData;
     const filt = calendarRoomFilter?.value || 'All';
-    if (filt && filt !== 'All') data = data.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
+    if (filt && filt !== 'All') {
+      data = data.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
+    }
+    // OMIT invalid rooms
     data = (data || []).filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM));
     const events = [];
     (data || []).forEach(ev => {
       let daysArr = Array.isArray(ev.Days) ? ev.Days : (typeof ev.Days === "string" ? ev.Days.split(',') : []);
       daysArr = daysArr.map(d => d.trim()).filter(d => daysMap.hasOwnProperty(d));
       if (!daysArr.length) return;
-
+      // Get date span
       let startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
-      let endDate   = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+      let endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
       if (!startDate || !endDate) return;
-
+      // Normalize date format to YYYY-MM-DD
       startDate = (startDate || '').replace(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/, '$3-$1-$2');
-      endDate   = (endDate   || '').replace(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/, '$3-$1-$2');
-      let start = new Date(startDate), end = new Date(endDate);
+      endDate = (endDate || '').replace(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/, '$3-$1-$2');
+      // If still not ISO, try to parse anyway
+      let start = new Date(startDate);
+      let end = new Date(endDate);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
+      // Make end exclusive for FullCalendar
       end.setDate(end.getDate() + 1);
-
+      // Compose event with extra info for popup
       const title = extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
       const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
       const subject_course = ev.Subject_Course || '';
@@ -925,14 +1043,22 @@ Instructor: ${instructor || 'N/A'}
         startRecur: start.toISOString().slice(0,10),
         endRecur: end.toISOString().slice(0,10),
         extendedProps: {
-          subject_course, crn, bldg_room, displayTime, instructor, title,
+          subject_course,
+          crn,
+          bldg_room,
+          displayTime,
+          instructor,
+          title,
           dateRange: `${startDateDisplay} - ${endDateDisplay}`
         }
       });
     });
-
+    // Snap to official term start date if available, else fallback to today
     const initialDate = termStartDates[currentTerm] || new Date().toISOString().slice(0, 10);
-    if (calendarEl._fullCalendar) { calendarEl._fullCalendar.destroy(); calendarEl.innerHTML = ''; }
+    if (calendarEl._fullCalendar) {
+      calendarEl._fullCalendar.destroy();
+      calendarEl.innerHTML = '';
+    }
     fullCalendarInstance = new FullCalendar.Calendar(calendarEl, {
       initialView: 'timeGridWeek',
       allDaySlot: false,
@@ -942,6 +1068,7 @@ Instructor: ${instructor || 'N/A'}
       height: 700,
       initialDate: initialDate,
       eventDidMount: function(info) {
+        // Show popup tile like snapshot grid
         info.el.addEventListener('mouseenter', function(e) {
           const props = info.event.extendedProps;
           const tooltip = document.getElementById('class-block-tooltip');
@@ -968,6 +1095,7 @@ Instructor: ${props.instructor || 'N/A'}
         });
       },
       dayCellDidMount: function(arg) {
+        // For timeGridWeek, arg.date is the cell date
         const iso = arg.date.toISOString().slice(0,10);
         if (holidaySet.has(iso)) {
           arg.el.style.backgroundColor = '#e0e0e0';
