@@ -1,25 +1,94 @@
-// schedule-change-form.js
-// Non-destructive, Shadow DOM–scoped “Schedule Change Form” button + modal
+// schedule-change-form.js — Shadow DOM component
 (function () {
-  const STORAGE_KEY = 'cos_schedule_change_form_v1';
+  const DEFAULT_THEME = {
+    btnBg: '#003366',
+    btnHoverBg: '#0055aa',
+    btnColor: '#fff',
+    btnPadding: '10px 24px',
+    btnFontSize: '1.1em',
+    btnBorderRadius: '6px',
+    btnBorder: 'none'
+  };
 
-  const html = /*html*/`
-    <button id="openChangeFormBtn" class="btn" type="button" aria-haspopup="dialog" aria-controls="changeFormModal" aria-expanded="false">
+  function cssVars(theme){
+    return `
+      :host{ --btn-bg:${theme.btnBg}; --btn-hover-bg:${theme.btnHoverBg}; --btn-color:${theme.btnColor};
+             --btn-padding:${theme.btnPadding}; --btn-font:${theme.btnFontSize};
+             --btn-radius:${theme.btnBorderRadius}; --btn-border:${theme.btnBorder}; }
+    `;
+  }
+
+  const cssBase = `
+    :host{ all: initial; font-family: system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,'Noto Sans',sans-serif; color:#1a1a1a }
+    /* Button matches Export PDF */
+    .btn{
+      display:inline-flex; gap:.5rem; align-items:center;
+      padding:var(--btn-padding); font-size:var(--btn-font);
+      background:var(--btn-bg); color:var(--btn-color);
+      border-radius:var(--btn-radius); border:var(--btn-border);
+      cursor:pointer; transition:background .2s;
+    }
+    .btn:hover{ background:var(--btn-hover-bg) }
+    .btn:focus{ outline:3px solid rgba(15,98,254,.25); outline-offset:2px }
+
+    /* Modal */
+    .modal{ position:fixed; inset:0; display:none; place-items:center;
+      background:rgba(6,10,20,.55); backdrop-filter:saturate(120%) blur(3px);
+      z-index:2147483647; /* above everything */
+    }
+    .modal.open{ display:grid }
+
+    .paper{ background:#fff; width:min(1100px,92vw); max-height:92vh; border-radius:16px;
+      box-shadow:0 20px 60px rgba(0,0,0,.25); display:flex; flex-direction:column }
+    header{ display:flex; justify-content:space-between; align-items:center; padding:1rem 1.25rem; border-bottom:1px solid #dcdfe6; }
+    header h2{ margin:0; font-weight:700; font-size:1.15rem; letter-spacing:.2px }
+    main{ padding:1rem 1.25rem; overflow:auto }
+    footer{ display:flex; gap:.5rem; justify-content:flex-end; align-items:center; padding:.75rem 1.25rem; border-top:1px solid #dcdfe6; background:#fafafa; }
+
+    form{ --gap:.65rem; }
+    .row{ display:grid; grid-template-columns:repeat(12,1fr); gap:var(--gap); align-items:center }
+    .field{ display:flex; flex-direction:column; gap:.35rem }
+    label{ font-size:.78rem; color:#444 }
+    input[type="text"],input[type="number"],input[type="date"],textarea,select{
+      border:1px solid #dcdfe6; border-radius:.5rem; padding:.55rem .6rem; font-size:.95rem; background:#fff;
+    }
+    textarea{ min-height:72px; }
+    .pill{ display:inline-flex; align-items:center; gap:.5rem; border:1px solid #dcdfe6; border-radius:999px; padding:.35rem .65rem; margin:.25rem .35rem .25rem 0; }
+    .checkgrid{ display:flex; flex-wrap:wrap }
+    .section{ margin:1rem 0 1.25rem }
+    .section h3{ font-size:.95rem; margin:.25rem 0 .65rem; font-weight:700; border-bottom:2px solid #e9ecf3; padding-bottom:.35rem }
+    .table{ width:100%; border-collapse:collapse; border:1px solid #dcdfe6; border-radius:.75rem; overflow:hidden }
+    .table thead th{ background:#f2f4f8; font-weight:700; font-size:.85rem; text-align:left; padding:.6rem; border-bottom:1px solid #dcdfe6 }
+    .table td{ border-top:1px solid #dcdfe6; padding:.5rem }
+    .muted{ color:#6b7280; font-size:.85rem }
+    .badge{ display:inline-flex; align-items:center; gap:.4rem; background:#eef2ff; color:#243bff; padding:.25rem .5rem; border-radius:.5rem; border:1px solid #d7ddff; font-size:.75rem }
+    .note{ background:#fffbe6; border:1px dashed #f2d024; border-radius:.5rem; padding:.5rem .6rem; font-size:.85rem }
+
+    @media print{
+      .modal{ all:unset }
+      .paper{ all:unset }
+      header,.btn,footer{ display:none !important }
+      main{ padding:0 }
+    }
+  `;
+
+  const html = (buttonText) => `
+    <button id="openBtn" class="btn" type="button" aria-haspopup="dialog" aria-controls="scfModal" aria-expanded="false">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M12 5v14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      Schedule Change Form
+      ${buttonText || 'Schedule Change Form'}
     </button>
 
-    <div id="changeFormModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="scfTitle">
-      <div class="paper">
+    <div id="scfModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="scfTitle">
+      <div class="paper" tabindex="-1">
         <header>
           <h2 id="scfTitle">Change of Schedule Form</h2>
           <div style="display:flex;gap:.5rem;align-items:center">
             <span class="badge" title="This form is editable and will print cleanly">Editable</span>
-            <button id="closeFormBtn" class="btn" type="button" aria-label="Close form">Close</button>
+            <button id="closeBtn" class="btn" type="button" aria-label="Close form">Close</button>
           </div>
         </header>
         <main>
-          <form id="scheduleChangeForm">
+          <form id="scf">
             <div class="section">
               <div class="row">
                 <div class="field" style="grid-column: span 3;">
@@ -116,7 +185,7 @@
                     <th style="width:70px">Done</th>
                   </tr>
                 </thead>
-                <tbody id="scf-detail-rows"></tbody>
+                <tbody id="rows"></tbody>
               </table>
             </div>
 
@@ -228,51 +297,24 @@
           </form>
         </main>
         <footer>
-          <button id="printFormBtn" class="btn" type="button">Print</button>
-          <button id="saveJsonBtn" class="btn" type="button">Download JSON</button>
-          <button id="clearFormBtn" class="btn" type="button">Clear</button>
-          <button id="closeFormBtn2" class="btn" type="button">Close</button>
+          <button id="printBtn" class="btn" type="button">Print</button>
+          <button id="saveBtn" class="btn" type="button">Download JSON</button>
+          <button id="clearBtn" class="btn" type="button">Clear</button>
+          <button id="closeBtn2" class="btn" type="button">Close</button>
         </footer>
       </div>
     </div>
   `;
 
-  const css = /*css*/`
-    :host{ all: initial; font-family: system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,'Noto Sans',sans-serif; color:#1a1a1a }
-    .btn{display:inline-flex;gap:.5rem;align-items:center;padding:.7rem 1rem;border-radius:.75rem;border:1px solid #dcdfe6;background:#fff;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.06);}
-    .btn:focus{outline:3px solid rgba(15,98,254,.25);outline-offset:2px}
-    .btn:hover{background:#fafafa}
-    .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(6,10,20,.55);backdrop-filter:saturate(120%) blur(3px);z-index:2147483647}
-    .modal.open{display:grid}
-    .paper{background:#fff; width:min(1100px,92vw); max-height:92vh; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.25); display:flex; flex-direction:column}
-    .paper header{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;border-bottom:1px solid #dcdfe6;}
-    .paper header h2{margin:0;font-weight:700;font-size:1.15rem;letter-spacing:.2px}
-    .paper main{padding:1rem 1.25rem; overflow:auto}
-    .paper footer{display:flex;gap:.5rem;justify-content:flex-end;align-items:center;padding:.75rem 1.25rem;border-top:1px solid #dcdfe6;background:#fafafa;}
-    form{--gap:.65rem;}
-    .row{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--gap);align-items:center}
-    .field{display:flex;flex-direction:column;gap:.35rem}
-    label{font-size:.78rem;color:#444}
-    input[type="text"],input[type="number"],input[type="date"],textarea,select{border:1px solid #dcdfe6;border-radius:.5rem;padding:.55rem .6rem;font-size:.95rem;background:#fff;}
-    textarea{min-height:72px;}
-    .pill{display:inline-flex;align-items:center;gap:.5rem;border:1px solid #dcdfe6;border-radius:999px;padding:.35rem .65rem;margin:.25rem .35rem .25rem 0;}
-    .checkgrid{display:flex;flex-wrap:wrap}
-    .section{margin:1rem 0 1.25rem}
-    .section h3{font-size:.95rem;margin:.25rem 0 .65rem;font-weight:700;border-bottom:2px solid #e9ecf3;padding-bottom:.35rem}
-    .table{width:100%;border-collapse:collapse;border:1px solid #dcdfe6;border-radius:.75rem;overflow:hidden}
-    .table thead th{background:#f2f4f8;font-weight:700;font-size:.85rem;text-align:left;padding:.6rem;border-bottom:1px solid #dcdfe6}
-    .table td{border-top:1px solid #dcdfe6;padding:.5rem}
-    .muted{color:#6b7280;font-size:.85rem}
-    .badge{display:inline-flex;align-items:center;gap:.4rem;background:#eef2ff;color:#243bff;padding:.25rem .5rem;border-radius:.5rem;border:1px solid #d7ddff;font-size:.75rem}
-    .note{background:#fffbe6;border:1px dashed #f2d024;border-radius:.5rem;padding:.5rem .6rem;font-size:.85rem}
-    @media print{ .modal{all:unset} .paper{all:unset} header,.btn,footer{display:none !important} main{padding:0} }
-  `;
+  const CHANGE_FIELDS = [
+    'CRN','Subject & Course #','Time(s)','Day(s)','Short Term Dates','# of Weeks','Units','Capacity',
+    'Building(s)','Room(s)','Instructor Full Name','Banner ID','Split Load Instructor','Split Load Banner ID'
+  ];
+
+  const STORAGE_KEY = 'cos_schedule_change_form_v1';
 
   function buildRows(tbody){
-    const fields = [
-      'CRN','Subject & Course #','Time(s)','Day(s)','Short Term Dates','# of Weeks','Units','Capacity','Building(s)','Room(s)','Instructor Full Name','Banner ID','Split Load Instructor','Split Load Banner ID'
-    ];
-    fields.forEach((label,i)=>{
+    CHANGE_FIELDS.forEach((label,i)=>{
       const tr=document.createElement('tr');
       tr.innerHTML = `
         <td><label class="muted">${label}</label></td>
@@ -288,11 +330,9 @@
     const data = new FormData(form);
     const obj = {};
     for(const [k,v] of data.entries()){
-      if(obj[k]!==undefined){
-        if(Array.isArray(obj[k])) obj[k].push(v); else obj[k]=[obj[k],v];
-      } else { obj[k]=v; }
+      if(obj[k]!==undefined){ Array.isArray(obj[k]) ? obj[k].push(v) : obj[k]=[obj[k],v]; }
+      else obj[k]=v;
     }
-    // include unchecked dynamic checkboxes
     [...form.querySelectorAll('input[type="checkbox"][name^="done_"]')].forEach(cb=>{
       if(!(cb.name in obj)) obj[cb.name]=false;
     });
@@ -302,77 +342,107 @@
     for(const el of form.elements){
       if(!el.name) continue;
       if(el.type==='checkbox' || el.type==='radio'){
-        const v = json[el.name];
-        if(Array.isArray(v)) el.checked = v.includes(el.value);
-        else if(typeof v!=='undefined') el.checked = (v===true || v===el.value);
-      }else{
-        if(typeof json[el.name] !== 'undefined') el.value = json[el.name];
-      }
+        const v=json[el.name];
+        if(Array.isArray(v)) el.checked=v.includes(el.value);
+        else if(typeof v!=='undefined') el.checked=(v===true||v===el.value);
+      } else if(typeof json[el.name] !== 'undefined'){ el.value=json[el.name]; }
     }
   }
 
-  function attachBehavior(shadow){
-    const openBtn = shadow.getElementById('openChangeFormBtn');
-    const modal = shadow.getElementById('changeFormModal');
-    const closeBtn1 = shadow.getElementById('closeFormBtn');
-    const closeBtn2 = shadow.getElementById('closeFormBtn2');
-    const form = shadow.getElementById('scheduleChangeForm');
-    const tbody = shadow.getElementById('scf-detail-rows');
+  function focusTrap(modal, firstEl){
+    function onKey(e){
+      if(e.key==='Escape'){ modal.classList.remove('open'); }
+      if(e.key!=='Tab') return;
+      const focusables = modal.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])');
+      const f = Array.from(focusables).filter(el => !el.hasAttribute('disabled'));
+      if(!f.length) return;
+      const first=f[0], last=f[f.length-1];
+      if(e.shiftKey && document.activeElement===first){ last.focus(); e.preventDefault(); }
+      else if(!e.shiftKey && document.activeElement===last){ first.focus(); e.preventDefault(); }
+    }
+    modal.addEventListener('keydown', onKey);
+    if(firstEl) firstEl.focus();
+  }
+
+  function attachBehavior(shadow, theme){
+    const openBtn = shadow.getElementById('openBtn');
+    const modal = shadow.getElementById('scfModal');
+    const closeBtn = shadow.getElementById('closeBtn');
+    const closeBtn2 = shadow.getElementById('closeBtn2');
+    const printBtn = shadow.getElementById('printBtn');
+    const saveBtn = shadow.getElementById('saveBtn');
+    const clearBtn = shadow.getElementById('clearBtn');
+    const form = shadow.getElementById('scf');
+    const tbody = shadow.getElementById('rows');
+
     buildRows(tbody);
 
     function preserve(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(formToJSON(form))); }
     function restore(){
       const raw = localStorage.getItem(STORAGE_KEY);
       if(!raw) return;
-      try{ jsonToForm(form, JSON.parse(raw)); }catch{}
+      try{ jsonToForm(form, JSON.parse(raw)); }catch(e){ console.warn('[SCF] restore failed', e); }
     }
 
-    openBtn.addEventListener('click', ()=>{
+    function open(){
       modal.classList.add('open');
       openBtn.setAttribute('aria-expanded','true');
       restore();
-      setTimeout(()=>shadow.getElementById('year')?.focus(),100);
-    });
-    [closeBtn1, closeBtn2].forEach(btn=>btn.addEventListener('click', ()=>{
-      modal.classList.remove('open'); openBtn.setAttribute('aria-expanded','false');
-    }));
-    modal.addEventListener('click', (e)=>{ if(e.target===modal){ modal.classList.remove('open'); openBtn.setAttribute('aria-expanded','false'); }});
-    form.addEventListener('input', preserve);
+      setTimeout(()=>shadow.getElementById('year')?.focus(), 50);
+      focusTrap(modal, shadow.getElementById('year'));
+    }
+    function close(){
+      modal.classList.remove('open');
+      openBtn.setAttribute('aria-expanded','false');
+      openBtn.focus();
+    }
 
-    shadow.getElementById('clearFormBtn').addEventListener('click', ()=>{
-      if(confirm('Clear all fields?')){ form.reset(); localStorage.removeItem(STORAGE_KEY); }
-    });
-    shadow.getElementById('saveJsonBtn').addEventListener('click', ()=>{
+    openBtn.addEventListener('click', open);
+    [closeBtn, closeBtn2].forEach(b=>b.addEventListener('click', close));
+    modal.addEventListener('click', (e)=>{ if(e.target===modal) close(); });
+
+    form.addEventListener('input', preserve);
+    clearBtn.addEventListener('click', ()=>{ if(confirm('Clear all fields?')){ form.reset(); localStorage.removeItem(STORAGE_KEY); }});
+    saveBtn.addEventListener('click', ()=>{
       const blob = new Blob([JSON.stringify(formToJSON(form), null, 2)], {type:'application/json'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = 'schedule-change-form.json'; a.click();
-      URL.revokeObjectURL(a.href);
+      const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='schedule-change-form.json'; a.click(); URL.revokeObjectURL(a.href);
     });
-    shadow.getElementById('printFormBtn').addEventListener('click', ()=>{ window.print(); });
+    printBtn.addEventListener('click', ()=>window.print());
+
+    // expose for debugging if needed
+    shadow.host.open = open;
+    shadow.host.close = close;
   }
 
-  function makeComponent(mountEl){
+  function makeComponent(mountEl, opts){
+    const theme = Object.assign({}, DEFAULT_THEME, opts?.theme || {});
+    const buttonText = opts?.buttonText || 'Schedule Change Form';
+
     const host = document.createElement('div');
     host.setAttribute('data-scf','');
     const shadow = host.attachShadow({ mode:'open' });
 
-    const style = document.createElement('style');
-    style.textContent = css;
-    shadow.appendChild(style);
+    const styleVars = document.createElement('style');
+    styleVars.textContent = cssVars(theme);
+    shadow.appendChild(styleVars);
+
+    const styleBase = document.createElement('style');
+    styleBase.textContent = cssBase;
+    shadow.appendChild(styleBase);
 
     const wrap = document.createElement('div');
-    wrap.innerHTML = html;
+    wrap.innerHTML = html(buttonText);
     shadow.appendChild(wrap);
 
     mountEl.appendChild(host);
-    attachBehavior(shadow);
+    attachBehavior(shadow, theme);
   }
 
   window.ScheduleChangeForm = {
-    init({ mount } = {}){
+    init({ mount, buttonText, theme } = {}){
       const el = (typeof mount === 'string') ? document.querySelector(mount) : mount;
-      if(!el){ console.error('[ScheduleChangeForm] mount not found:', mount); return; }
-      makeComponent(el);
+      if(!el){ console.error('[SCF] mount not found:', mount); return; }
+      makeComponent(el, { buttonText, theme });
     }
   };
 })();
