@@ -1,4 +1,4 @@
-// schedule-change-form.js — Shadow DOM component
+// js/schedule-change-form.js — Shadow DOM component with DOCX export
 (function () {
   const DEFAULT_THEME = {
     btnBg: '#003366',
@@ -301,6 +301,7 @@
           <button id="saveBtn" class="btn" type="button">Download JSON</button>
           <button id="clearBtn" class="btn" type="button">Clear</button>
           <button id="closeBtn2" class="btn" type="button">Close</button>
+          <button id="exportDocxBtn" class="btn" type="button">Export to Official Form (DOCX)</button>
         </footer>
       </div>
     </div>
@@ -313,6 +314,78 @@
 
   const STORAGE_KEY = 'cos_schedule_change_form_v1';
 
+  // ===== DOCX EXPORT (DocxTemplater) =====
+  function scfMark(b){ return b ? "☒" : "☐"; }
+
+  function scfGetMergeData(shadow){
+    const form = shadow.getElementById('scf');
+    const fd = new FormData(form);
+    const data = {};
+    for (const [k,v] of fd.entries()){
+      if (data[k] !== undefined) {
+        if (Array.isArray(data[k])) data[k].push(v); else data[k] = [data[k], v];
+      } else data[k] = v;
+    }
+    const has = (name, value)=>{
+      const els = form.querySelectorAll(`[name="${name}"]`);
+      for (const el of els) if ((el.type==='checkbox'||el.type==='radio') && el.checked && el.value===value) return true;
+      return false;
+    };
+
+    return {
+      year: data.year || "",
+      date_sent: data.date_sent || "",
+      date_processed: data.date_processed || "",
+      division_chair: data.division_chair || "",
+      area_dean: data.area_dean || "",
+
+      term_spring: scfMark(has('term','Spring')),
+      term_summer: scfMark(has('term','Summer')),
+      term_fall:   scfMark(has('term','Fall')),
+
+      campus_visalia:   scfMark(has('campus','Visalia')),
+      campus_tulare:    scfMark(has('campus','Tulare')),
+      campus_hanford:   scfMark(has('campus','Hanford')),
+      campus_online:    scfMark(has('campus','Online')),
+      campus_offcampus: scfMark(has('campus','Off-Campus')),
+
+      visible_yes: scfMark(has('visible','Yes')),
+      visible_no:  scfMark(has('visible','No')),
+
+      lecture_hours:   data.lecture_hours   || "",
+      lab_hours:       data.lab_hours       || "",
+      activity_hours:  data.activity_hours  || "",
+      sem_lect:        data.sem_lect        || "",
+      sem_lab:         data.sem_lab         || "",
+      sem_act:         data.sem_act         || "",
+      sick_leave:      data.sick_leave      || ""
+    };
+  }
+
+  async function scfExportDocx(shadow){
+    const TEMPLATE_URL = 'templates/Change_of_Schedule_Form_TEMPLATE_WITH_TAGS.docx';
+    try{
+      const res = await fetch(TEMPLATE_URL);
+      if(!res.ok) throw new Error('Template not found at ' + TEMPLATE_URL);
+      const content = await res.arrayBuffer();
+
+      const zip = new window.PizZip(content);
+      const doc = new window.docxtemplater(zip, { paragraphLoop:true, linebreaks:true });
+
+      const data = scfGetMergeData(shadow);
+      doc.setData(data);
+      doc.render();
+
+      const out = doc.getZip().generate({ type:'blob' });
+      const filename = `Change_of_Schedule_${data.year || 'form'}.docx`;
+      window.saveAs(out, filename);
+    }catch(e){
+      console.error('[SCF] DOCX export failed:', e);
+      alert('DOCX export failed. Check console and confirm the template path.');
+    }
+  }
+
+  // ===== Helpers =====
   function buildRows(tbody){
     CHANGE_FIELDS.forEach((label,i)=>{
       const tr=document.createElement('tr');
@@ -372,6 +445,7 @@
     const printBtn = shadow.getElementById('printBtn');
     const saveBtn = shadow.getElementById('saveBtn');
     const clearBtn = shadow.getElementById('clearBtn');
+    const exportDocxBtn = shadow.getElementById('exportDocxBtn');
     const form = shadow.getElementById('scf');
     const tbody = shadow.getElementById('rows');
 
@@ -408,6 +482,7 @@
       const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='schedule-change-form.json'; a.click(); URL.revokeObjectURL(a.href);
     });
     printBtn.addEventListener('click', ()=>window.print());
+    if (exportDocxBtn) exportDocxBtn.addEventListener('click', ()=>scfExportDocx(shadow));
 
     // expose for debugging if needed
     shadow.host.open = open;
