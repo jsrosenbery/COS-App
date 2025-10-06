@@ -197,24 +197,31 @@
       }
     });
   </script>
-<!-- keep this AFTER your Export button markup and AFTER <script src="schedule-change-form.js"></script> -->
+<!-- must be after the Export button and after schedule-change-form.js -->
 <script>
-(function () {
-  function onceReady(cb){ 
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', cb);
-    else cb();
-  }
+document.addEventListener('DOMContentLoaded', function () {
+  const exportBtn = document.getElementById('export-pdf-btn');
+  if (!exportBtn) return;
+  const spacer = document.createElement('span');
+  spacer.style.display = 'inline-block';
+  spacer.style.marginLeft = '12px';
+  exportBtn.insertAdjacentElement('afterend', spacer);
 
-  function waitForComponent(maxMs=5000){
-    return new Promise((resolve,reject)=>{
-      const start=Date.now();
-      (function check(){
-        if (window.ScheduleChangeForm && typeof window.ScheduleChangeForm.init==='function') return resolve();
-        if (Date.now()-start>maxMs) return reject(new Error('ScheduleChangeForm not found'));
-        setTimeout(check,100);
-      })();
-    });
-  }
+  window.ScheduleChangeForm.init({
+    mount: spacer,
+    buttonText: 'Schedule Change Form',
+    theme: {
+      btnBg: '#003366',
+      btnHoverBg: '#0055aa',
+      btnColor: '#fff',
+      btnPadding: '10px 24px',
+      btnFontSize: '1.1em',
+      btnBorderRadius: '6px',
+      btnBorder: 'none'
+    }
+  });
+});
+</script>
 
   onceReady(async function(){
     const exportBtn = document.getElementById('export-pdf-btn');
