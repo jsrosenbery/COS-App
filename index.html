@@ -101,6 +101,17 @@
       <button id="avail-check-btn">Check</button>
       <button id="avail-clear-btn">Clear</button>
     </div>
+    <div class="room-attributes">
+      <label>Campus:
+        <select id="avail-campus-select"></select>
+      </label>
+      <label>Room Type:
+        <select id="avail-type-select"></select>
+      </label>
+      <label>Min Capacity:
+        <input type="number" id="avail-capacity-input" min="0" step="1" placeholder="Any">
+      </label>
+    </div>
     <div id="avail-results" class="avail-results"></div>
   </div>
 
@@ -170,6 +181,7 @@
   <script src="js/parser.js"></script>
   <!-- CAL-GETC mapping file must be loaded BEFORE app.js -->
   <script src="js/cal_getc_mapping.js"></script>
+  <script src="js/roomCatalog.js"></script>
   <script src="js/app.js"></script>
 
   <!-- === DOCX merge libraries (for official form export) === -->

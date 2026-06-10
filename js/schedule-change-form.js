@@ -364,7 +364,7 @@
 
 async function scfExportDocx(shadow){
   // 1) Where your template lives (keep relative if deploying under a subpath)
-  const TEMPLATE_URL = window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_TEMPLATE_WITH_TAGS.docx';
+  const TEMPLATE_URL = window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_CRN_ONLY_v2.docx';
 
   // 2) Tags we expect in the template (the tagged DOCX I gave you uses exactly these)
   const EXPECTED_TAGS = [
@@ -432,7 +432,7 @@ async function scfExportDocx(shadow){
 
     alert(
       'DOCX export failed.\n' +
-      `Template URL: ${window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_TEMPLATE_WITH_TAGS.docx'}\n` +
+      `Template URL: ${window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_CRN_ONLY_v2.docx'}\n` +
       '• Confirm PizZip, Docxtemplater, FileSaver are loaded.\n' +
       '• Serve via http:// (not file://) when testing locally.\n' +
       'Check the console for the full stack trace.'

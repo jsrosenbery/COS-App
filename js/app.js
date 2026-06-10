@@ -128,6 +128,44 @@ function isValidRoom(building, room) {
   return true;
 }
 
+function escapeHTML(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[char]));
+}
+
+function resetSelect(select, options, allLabel = 'All', allValue = 'All') {
+  select.replaceChildren();
+  select.appendChild(new Option(allLabel, allValue));
+  options.forEach(option => {
+    if (option && typeof option === 'object') {
+      select.appendChild(new Option(option.label, option.value));
+    } else {
+      select.appendChild(new Option(option, option));
+    }
+  });
+}
+
+function appendLine(parent, text, bold = false) {
+  const span = document.createElement('span');
+  span.textContent = text ?? '';
+  if (bold) span.style.fontWeight = 'bold';
+  parent.appendChild(span);
+  parent.appendChild(document.createElement('br'));
+}
+
+function setTooltipLines(tooltip, lines) {
+  tooltip.replaceChildren();
+  lines.forEach(({ text, bold = false }) => {
+    if (text === undefined || text === null || text === '') return;
+    appendLine(tooltip, text, bold);
+  });
+}
+
 function getUniqueCampuses(data) {
   const campuses = new Set();
   data.forEach(r => {
@@ -137,12 +175,44 @@ function getUniqueCampuses(data) {
   return Array.from(campuses).sort();
 }
 
+const roomCatalog = (window.ROOM_CATALOG || [])
+  .map(room => ({
+    campus: String(room.campus || '').trim(),
+    building: String(room.building || '').trim(),
+    room: String(room.room || '').trim(),
+    buildingRoom: String(room.buildingRoom || `${room.building || ''}-${room.room || ''}`).trim(),
+    type: String(room.type || '').trim(),
+    capacity: Number.isFinite(Number(room.capacity)) ? Number(room.capacity) : null
+  }))
+  .filter(room => room.building && room.room && room.buildingRoom);
+
+const roomCatalogByKey = new Map(roomCatalog.map(room => [room.buildingRoom, room]));
+
+function getRoomCatalogEntries() {
+  return [...roomCatalog].sort((a, b) => a.buildingRoom.localeCompare(b.buildingRoom, undefined, { numeric: true }));
+}
+
+function getRoomKey(record) {
+  return `${record.Building || record.BUILDING}-${record.Room || record.ROOM}`;
+}
+
+function getRoomDisplay(key) {
+  const meta = roomCatalogByKey.get(key);
+  if (!meta) return key;
+  const details = [
+    meta.capacity == null ? null : `${meta.capacity} seats`,
+    meta.type || null
+  ].filter(Boolean).join(', ');
+  return details ? `${key} (${details})` : key;
+}
+
 function getUniqueRooms(data) {
-  // Returns array of "Bldg-Room" combos, sorted, excluding blanks, N/A, LIVE, ONLINE
+  if (roomCatalog.length) return getRoomCatalogEntries().map(room => room.buildingRoom);
+  // Fallback: returns array of "Bldg-Room" combos from uploaded section rows.
   return [...new Set(
     data
       .filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM))
-      .map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`)
+      .map(getRoomKey)
   )].sort();
 }
 
@@ -236,6 +306,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const checkBtn     = document.getElementById('avail-check-btn');
   const clearBtn     = document.getElementById('avail-clear-btn');
   const resultsDiv   = document.getElementById('avail-results');
+  const availCampusSelect = document.getElementById('avail-campus-select');
+  const availTypeSelect = document.getElementById('avail-type-select');
+  const availCapacityInput = document.getElementById('avail-capacity-input');
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
   const calendarContainer = document.getElementById('calendar-container');
@@ -247,6 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   initHeatmap();
   initLineChartChoices();
+  initAvailabilityAttributeFilters();
 
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-campus-select').addEventListener('change', updateAllHeatmap);
@@ -298,6 +372,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     document.querySelectorAll('#availability-ui .days input').forEach(cb => cb.checked = false);
     startInput.value = '';
     endInput.value   = '';
+    if (availCampusSelect) availCampusSelect.value = '';
+    if (availTypeSelect) availTypeSelect.value = '';
+    if (availCapacityInput) availCapacityInput.value = '';
     resultsDiv.textContent = '';
   };
 
@@ -323,17 +400,19 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
 
-  // -- NEW: Add fullcalendar room dropdown at DOM load time --
-  const calendarRoomFilterDiv = document.createElement('div');
-  calendarRoomFilterDiv.id = 'calendar-room-filter';
-  calendarRoomFilterDiv.style.display = 'none';
-  calendarRoomFilterDiv.style.margin = '10px 0';
-  calendarRoomFilterDiv.innerHTML = `<label>Filter Bldg-Room:
-    <select id="calendar-room-select"></select>
-  </label>`;
-  calendarContainer.parentNode.insertBefore(calendarRoomFilterDiv, calendarContainer);
-
   document.getElementById('calendar-room-select').addEventListener('change', renderFullCalendar);
+
+  function initAvailabilityAttributeFilters() {
+    if (!roomCatalog.length) {
+      if (availCampusSelect) resetSelect(availCampusSelect, [], 'All', '');
+      if (availTypeSelect) resetSelect(availTypeSelect, [], 'All', '');
+      return;
+    }
+    const campuses = [...new Set(roomCatalog.map(room => room.campus).filter(Boolean))].sort();
+    const types = [...new Set(roomCatalog.map(room => room.type).filter(Boolean))].sort();
+    if (availCampusSelect) resetSelect(availCampusSelect, campuses, 'All', '');
+    if (availTypeSelect) resetSelect(availTypeSelect, types, 'All', '');
+  }
 
   // --- Backend fetch instead of localStorage ---
   function loadScheduleFromBackend(term) {
@@ -353,11 +432,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   // --- POST CSV to backend, not localStorage ---
-  function uploadScheduleToBackend(term, csvString) {
+  function uploadScheduleToBackend(term, csvString, password) {
     fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csv: csvString, password: 'Upload2025' })
+      body: JSON.stringify({ csv: csvString, password })
     })
       .then(res => {
         if (!res.ok) throw new Error('Upload failed');
@@ -380,22 +459,29 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function setupUpload() {
-    roomDiv.innerHTML = '';
-    uploadDiv.innerHTML = `<label>Upload CSV for ${currentTerm}: <input type="file" id="file-input" accept=".csv"></label>`;
-    document.getElementById('file-input').onchange = e => {
-      // --- PASSWORD PROTECTION: ask for password before parsing ---
+    roomDiv.replaceChildren();
+    uploadDiv.replaceChildren();
+    const label = document.createElement('label');
+    label.append(`Upload CSV for ${currentTerm}: `);
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'file-input';
+    input.accept = '.csv';
+    label.appendChild(input);
+    uploadDiv.appendChild(label);
+    input.onchange = e => {
       const password = prompt('Enter upload password:');
-      if (password !== 'Upload2025') {
-        alert('Incorrect password. Upload cancelled.');
-        e.target.value = ''; // reset file input
+      if (!password) {
+        alert('Upload cancelled.');
+        e.target.value = '';
         return;
       }
-      // --- End password protection ---
       const file = e.target.files[0];
+      if (!file) return;
       const reader = new FileReader();
       reader.onload = function(ev) {
         const csvString = ev.target.result;
-        uploadScheduleToBackend(currentTerm, csvString); // reloads after upload
+        uploadScheduleToBackend(currentTerm, csvString, password); // reloads after upload
       };
       reader.readAsText(file);
     };
@@ -404,25 +490,23 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function buildRoomDropdowns() {
     // For snapshot
     const combos = getUniqueRooms(currentData);
+    const roomOptions = combos.map(room => ({ value: room, label: getRoomDisplay(room) }));
     if (roomDiv) {
-      roomDiv.innerHTML = `
-        <label>Filter Bldg-Room:
-          <select id="room-select">
-            <option>All</option>
-            ${combos.map(r => `<option>${r}</option>`).join('')}
-          </select>
-        </label>`;
-      snapshotRoomFilter = document.getElementById('room-select');
+      roomDiv.replaceChildren();
+      const label = document.createElement('label');
+      label.append('Filter Bldg-Room: ');
+      snapshotRoomFilter = document.createElement('select');
+      snapshotRoomFilter.id = 'room-select';
+      resetSelect(snapshotRoomFilter, roomOptions);
+      label.appendChild(snapshotRoomFilter);
+      roomDiv.appendChild(label);
       snapshotRoomFilter.onchange = renderSchedule;
     }
 
     // For fullcalendar
     const calendarRoomSelect = document.getElementById('calendar-room-select');
     if (calendarRoomSelect) {
-      calendarRoomSelect.innerHTML = `
-        <option>All</option>
-        ${combos.map(r => `<option>${r}</option>`).join('')}
-      `;
+      resetSelect(calendarRoomSelect, roomOptions);
       calendarRoomFilter = calendarRoomSelect;
       calendarRoomFilter.onchange = renderFullCalendar;
     }
@@ -448,7 +532,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const selectedRoom = snapshotRoomFilter?.value || 'All';
     if (roomHeaderDiv) {
       if (selectedRoom !== 'All') {
-        roomHeaderDiv.textContent = selectedRoom;
+        roomHeaderDiv.textContent = getRoomDisplay(selectedRoom);
         roomHeaderDiv.style.display = 'block';
       } else {
         roomHeaderDiv.textContent = '';
@@ -461,7 +545,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const filt = selectedRoom;
     const data = (filt === 'All'
       ? currentData
-      : currentData.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt)
+      : currentData.filter(i => getRoomKey(i) === filt)
     ).filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM)); // Omit invalid rooms
     const rect = container.getBoundingClientRect();
     daysOfWeek.forEach((day, dIdx) => {
@@ -541,25 +625,21 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
         const endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
 
-        b.innerHTML = `
-          <span style="font-weight:bold;">${ev.Subject_Course || ''}</span><br>
-          <span>CRN: ${ev.CRN || ''}</span><br>
-          <span>${format12(ev.Start_Time)} - ${format12(ev.End_Time)}</span><br>
-          <span>${instructor}</span>
-        `;
-
-        const tooltipContent = `
-<b>${ev.Subject_Course || ''}</b><br>
-${title ? `<span>${title}</span><br>` : ''}
-CRN: ${ev.CRN || ''}<br>
-Time: ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}<br>
-Date Range: ${startDate || 'N/A'} - ${endDate || 'N/A'}<br>
-Instructor: ${instructor || 'N/A'}
-        `.trim();
+        appendLine(b, ev.Subject_Course || '', true);
+        appendLine(b, `CRN: ${ev.CRN || ''}`);
+        appendLine(b, `${format12(ev.Start_Time)} - ${format12(ev.End_Time)}`);
+        appendLine(b, instructor);
 
         b.addEventListener('mouseenter', function(e) {
           const tooltip = document.getElementById('class-block-tooltip');
-          tooltip.innerHTML = tooltipContent;
+          setTooltipLines(tooltip, [
+            { text: ev.Subject_Course || '', bold: true },
+            { text: title },
+            { text: `CRN: ${ev.CRN || ''}` },
+            { text: `Time: ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}` },
+            { text: `Date Range: ${startDate || 'N/A'} - ${endDate || 'N/A'}` },
+            { text: `Instructor: ${instructor || 'N/A'}` }
+          ]);
           tooltip.style.display = 'block';
           const rect = b.getBoundingClientRect();
           tooltip.style.left = (rect.right + window.scrollX + 8) + 'px';
@@ -595,22 +675,35 @@ Instructor: ${instructor || 'N/A'}
       return h*60 + m;
     };
     const sMin = toMin(start), eMin = toMin(end);
-    const rooms = [...new Set(currentData
-        .filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM))
-        .map(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}`))];
+    const catalogRooms = roomCatalog.length
+      ? getRoomCatalogEntries()
+      : getUniqueRooms(currentData).map(key => ({ buildingRoom: key, campus: '', type: '', capacity: null }));
+    const selectedCampus = availCampusSelect?.value || '';
+    const selectedType = availTypeSelect?.value || '';
+    const minCapacity = Number(availCapacityInput?.value || 0);
     const occ   = new Set();
     currentData.forEach(i => {
       if (!isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM)) return;
       if (Array.isArray(i.Days) && i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
-          occ.add(`${i.Building || i.BUILDING}-${i.Room || i.ROOM}`);
+          occ.add(getRoomKey(i));
         }
       }
     });
-    const avail = rooms.filter(r => !occ.has(r)).sort();
+    const avail = catalogRooms
+      .filter(room => !occ.has(room.buildingRoom))
+      .filter(room => !selectedCampus || room.campus === selectedCampus)
+      .filter(room => !selectedType || room.type === selectedType)
+      .filter(room => !minCapacity || (room.capacity != null && room.capacity >= minCapacity));
     if (avail.length) {
-      resultsDiv.innerHTML = '<ul>' + avail.map(r => `<li>${r}</li>`).join('') + '</ul>';
+      const list = document.createElement('ul');
+      avail.forEach(room => {
+        const item = document.createElement('li');
+        item.textContent = getRoomDisplay(room.buildingRoom);
+        list.appendChild(item);
+      });
+      resultsDiv.replaceChildren(list);
     } else {
       resultsDiv.textContent = 'No rooms available.';
     }
@@ -635,13 +728,16 @@ Instructor: ${instructor || 'N/A'}
       callbackOnCreateTemplates: function(template) {
         return {
           choice: (classNames, data) => {
+            const choiceId = escapeHTML(data.id);
+            const choiceValue = escapeHTML(data.value);
+            const choiceLabel = escapeHTML(data.label);
             return template(`
               <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
                 ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
-                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+                data-id="${choiceId}" data-value="${choiceValue}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'}
                 role="option">
                 <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
-                <span>${data.label}</span>
+                <span>${choiceLabel}</span>
               </div>
             `);
           }
@@ -655,11 +751,11 @@ Instructor: ${instructor || 'N/A'}
     hmTable = $('#dataTable').DataTable({
       data: [],
       columns: [
-        { title: 'Course' },
-        { title: 'Building' },
-        { title: 'Room' },
-        { title: 'Days' },
-        { title: 'Time' }
+        { title: 'Course', render: $.fn.dataTable.render.text() },
+        { title: 'Building', render: $.fn.dataTable.render.text() },
+        { title: 'Room', render: $.fn.dataTable.render.text() },
+        { title: 'Days', render: $.fn.dataTable.render.text() },
+        { title: 'Time', render: $.fn.dataTable.render.text() }
       ],
       destroy: true,
       searching: true
@@ -675,13 +771,16 @@ Instructor: ${instructor || 'N/A'}
       callbackOnCreateTemplates: function(template) {
         return {
           choice: (classNames, data) => {
+            const choiceId = escapeHTML(data.id);
+            const choiceValue = escapeHTML(data.value);
+            const choiceLabel = escapeHTML(data.label);
             return template(`
               <div class="${classNames.item} ${classNames.itemChoice} ${data.disabled 
                 ? classNames.itemDisabled : classNames.itemSelectable}" data-select-text="" data-choice 
-                data-id="${data.id}" data-value="${data.value}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'} 
+                data-id="${choiceId}" data-value="${choiceValue}" ${data.disabled ? 'data-choice-disabled aria-disabled="true"' : 'data-choice-selectable'}
                 role="option">
                 <input type="checkbox" ${data.selected ? 'checked' : ''} tabindex="-1"/>
-                <span>${data.label}</span>
+                <span>${choiceLabel}</span>
               </div>
             `);
           }
@@ -748,8 +847,7 @@ Instructor: ${instructor || 'N/A'}
     const linechartCampusSelect = document.getElementById('linechart-campus-select');
     [heatmapCampusSelect, linechartCampusSelect].forEach(sel => {
       if (!sel) return;
-      sel.innerHTML = '<option value="">All</option>' +
-        campuses.map(c => `<option value="${c}">${c}</option>`).join('');
+      resetSelect(sel, campuses, 'All', '');
     });
 
     // --- CAL-GETC group options at the very bottom (no sorting) ---
@@ -1003,7 +1101,7 @@ Instructor: ${instructor || 'N/A'}
     let data = currentData;
     const filt = calendarRoomFilter?.value || 'All';
     if (filt && filt !== 'All') {
-      data = data.filter(i => `${i.Building || i.BUILDING}-${i.Room || i.ROOM}` === filt);
+      data = data.filter(i => getRoomKey(i) === filt);
     }
     // OMIT invalid rooms
     data = (data || []).filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM));
@@ -1072,14 +1170,14 @@ Instructor: ${instructor || 'N/A'}
         info.el.addEventListener('mouseenter', function(e) {
           const props = info.event.extendedProps;
           const tooltip = document.getElementById('class-block-tooltip');
-          tooltip.innerHTML = `
-<b>${props.subject_course || ''}</b><br>
-${props.title ? `<span>${props.title}</span><br>` : ''}
-CRN: ${props.crn || ''}<br>
-Time: ${props.displayTime}<br>
-Date Range: ${props.dateRange}<br>
-Instructor: ${props.instructor || 'N/A'}
-          `.trim();
+          setTooltipLines(tooltip, [
+            { text: props.subject_course || '', bold: true },
+            { text: props.title },
+            { text: `CRN: ${props.crn || ''}` },
+            { text: `Time: ${props.displayTime}` },
+            { text: `Date Range: ${props.dateRange}` },
+            { text: `Instructor: ${props.instructor || 'N/A'}` }
+          ]);
           tooltip.style.display = 'block';
           tooltip.style.left = (e.pageX + 12) + 'px';
           tooltip.style.top  = (e.pageY + 12) + 'px';

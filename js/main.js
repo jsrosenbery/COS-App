@@ -6,7 +6,6 @@ import { initCalendar } from './calendar.js';
 import { initAvailability } from './availability.js';
 
 const BACKEND = 'https://app-backend-pp98.onrender.com';
-const UPLOAD_PW = 'Upload2025';
 
 const termTabs = document.getElementById('term-tabs');
 const terms = ['Spring2026','Summer2026','Fall2026'];
@@ -47,12 +46,17 @@ roomSelect.addEventListener('change',()=> applyFilters());
 const uploadInput = document.getElementById('schedule-upload');
 uploadInput.addEventListener('change', async e => {
   const file = e.target.files[0]; if (!file) return;
+  const password = prompt('Enter upload password:');
+  if (!password) {
+    e.target.value = '';
+    return;
+  }
   const csvText = await file.text();
   // POST to backend
   await fetch(`${BACKEND}/api/schedule/${currentTerm}`, {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ csv: csvText, password: UPLOAD_PW })
+    body: JSON.stringify({ csv: csvText, password })
   });
   // parse & normalize
   const raw = await parseCSVFile(file);
@@ -72,7 +76,9 @@ async function loadTermData(term) {
 function populateUI() {
   // rooms
   const rooms = [...new Set(currentData.map(r=>r.Room))].sort();
-  roomSelect.innerHTML = '<option value="">All Rooms</option>' + rooms.map(r=>`<option>${r}</option>`).join('');
+  roomSelect.replaceChildren();
+  roomSelect.appendChild(new Option('All Rooms', ''));
+  rooms.forEach(room => roomSelect.appendChild(new Option(room, room)));
   applyFilters();
 }
 

@@ -59,6 +59,8 @@ h1 { margin:0; font-size:1.5rem; }
 .availability-controls { display:flex; flex-wrap:wrap; gap:1rem; align-items:center; }
 .availability-controls .days label { margin-right:0.5rem; }
 .availability-controls .times label { margin-right:1rem; }
+.room-attributes { display:flex; flex-wrap:wrap; gap:1rem; margin-top:0.75rem; align-items:center; }
+.room-attributes input, .room-attributes select { margin-left:0.25rem; }
 .avail-results { margin-top:0.5rem; font-size:0.9rem; }
 
 /* Scrollable dropdowns for Choices.js in the heatmap tool */

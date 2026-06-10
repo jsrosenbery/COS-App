@@ -15,6 +15,19 @@ export function initAvailability(data) {
         return !(r.End_Time <= ts || r.Start_Time >= te);
       });
     });
-    results.innerHTML = avail.length ? '<ul>'+avail.map(r=>`<li>${r}</li>`).join('')+'</ul>' : '<p>No rooms available.</p>';
+    results.replaceChildren();
+    if (avail.length) {
+      const list = document.createElement('ul');
+      avail.forEach(room => {
+        const item = document.createElement('li');
+        item.textContent = room;
+        list.appendChild(item);
+      });
+      results.appendChild(list);
+    } else {
+      const message = document.createElement('p');
+      message.textContent = 'No rooms available.';
+      results.appendChild(message);
+    }
   });
 }
