@@ -14,15 +14,20 @@ const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Sat
 
 // --- Official Term Start Dates ---
 const termStartDates = {
-  'Summer 2025': '2025-06-05',
-  'Fall 2025': '2025-08-11',
-  'Spring 2026': '2026-01-12',
   'Summer 2026': '2026-06-01',
   'Fall 2026': '2026-08-10',
   'Spring 2027': '2027-01-19',
   'Summer 2027': '2027-06-07',
   'Fall 2027': '2027-08-10',
-  'Spring 2028': '2028-01-18'
+  'Spring 2028': '2028-01-18',
+  'Summer 2028': '2028-06-05',
+  'Fall 2028': '2028-08-14',
+  'Spring 2029': '2029-01-16',
+  'Summer 2029': '2029-06-04',
+  'Fall 2029': '2029-08-13',
+  'Spring 2030': '2030-01-14',
+  'Summer 2030': '2030-06-03',
+  'Fall 2030': '2030-08-12'
 };
 
 // --- Holiday Dates (all in ISO YYYY-MM-DD format) ---
@@ -287,10 +292,14 @@ function isCALGETCGroup(value) {
 
 document.addEventListener('DOMContentLoaded', () => {
   const terms = [
-    'Summer 2025','Fall 2025','Spring 2026',
     'Summer 2026','Fall 2026','Spring 2027',
-    'Summer 2027','Fall 2027','Spring 2028'
+    'Summer 2027','Fall 2027','Spring 2028',
+    'Summer 2028','Fall 2028','Spring 2029',
+    'Summer 2029','Fall 2029','Spring 2030',
+    'Summer 2030','Fall 2030'
   ];
+  const defaultTerm = 'Fall 2026';
+  const defaultTermIndex = Math.max(0, terms.indexOf(defaultTerm));
   const daysOfWeek = [...hmDays];
   let currentData = [];
   let currentTerm = '';
@@ -360,12 +369,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   terms.forEach((term, i) => {
     const tab = document.createElement('div');
-    tab.className = 'tab' + (i === 2 ? ' active' : '');
+    tab.className = 'tab' + (i === defaultTermIndex ? ' active' : '');
     tab.textContent = term;
     tab.onclick = () => selectTerm(term, tab);
     tabs.appendChild(tab);
   });
-  selectTerm(terms[2], tabs.children[2]);
+  selectTerm(terms[defaultTermIndex], tabs.children[defaultTermIndex]);
 
   checkBtn.onclick = handleAvailability;
   clearBtn.onclick = () => {
