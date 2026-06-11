@@ -180,18 +180,26 @@ function getUniqueCampuses(data) {
   return Array.from(campuses).sort();
 }
 
-const roomCatalog = (window.ROOM_CATALOG || [])
-  .map(room => ({
-    campus: String(room.campus || '').trim(),
-    building: String(room.building || '').trim(),
-    room: String(room.room || '').trim(),
-    buildingRoom: String(room.buildingRoom || `${room.building || ''}-${room.room || ''}`).trim(),
-    type: String(room.type || '').trim(),
-    capacity: Number.isFinite(Number(room.capacity)) ? Number(room.capacity) : null
-  }))
-  .filter(room => room.building && room.room && room.buildingRoom);
+function normalizeRoomCatalog(rawRooms) {
+  return (rawRooms || [])
+    .map(room => ({
+      campus: String(room.campus || room.Campus || '').trim(),
+      building: String(room.building || room.Building || '').trim(),
+      room: String(room.room || room.Room || '').trim(),
+      buildingRoom: String(room.buildingRoom || room['Building-Room'] || room.BuildingRoom || `${room.building || room.Building || ''}-${room.room || room.Room || ''}`).trim(),
+      type: String(room.type || room.Type || room.roomType || room['Room Type'] || '').trim(),
+      capacity: Number.isFinite(Number(room.capacity ?? room.Capacity ?? room.cap)) ? Number(room.capacity ?? room.Capacity ?? room.cap) : null
+    }))
+    .filter(room => room.building && room.room && room.buildingRoom);
+}
 
-const roomCatalogByKey = new Map(roomCatalog.map(room => [room.buildingRoom, room]));
+let roomCatalog = normalizeRoomCatalog(window.ROOM_CATALOG || []);
+let roomCatalogByKey = new Map(roomCatalog.map(room => [room.buildingRoom, room]));
+
+function setRoomCatalog(rawRooms) {
+  roomCatalog = normalizeRoomCatalog(rawRooms);
+  roomCatalogByKey = new Map(roomCatalog.map(room => [room.buildingRoom, room]));
+}
 
 function getRoomCatalogEntries() {
   return [...roomCatalog].sort((a, b) => a.buildingRoom.localeCompare(b.buildingRoom, undefined, { numeric: true }));
@@ -310,6 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const tabs         = document.getElementById('term-tabs');
   const uploadDiv    = document.getElementById('upload-container');
   const tsDiv        = document.getElementById('upload-timestamp');
+  const roomCatalogAdminDiv = document.getElementById('room-catalog-admin');
   const roomDiv      = document.getElementById('room-filter');
   const startInput   = document.getElementById('avail-start');
   const endInput     = document.getElementById('avail-end');
@@ -331,6 +340,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeatmap();
   initLineChartChoices();
   initAvailabilityAttributeFilters();
+  setupRoomCatalogAdmin();
+  loadRoomCatalogFromBackend();
 
   window.COSScheduleApp = {
     getCurrentData: () => currentData,
@@ -401,6 +412,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     document.getElementById('room-filter').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('upload-container').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('upload-timestamp').style.display = (view === 'calendar') ? '' : 'none';
+    document.getElementById('room-catalog-admin').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('linechart-tool').style.display = (view === 'linechart') ? 'block' : 'none';
     document.getElementById('calendar-container').style.display = (view === 'fullcalendar') ? 'block' : 'none';
     document.getElementById('calendar-room-filter').style.display = (view === 'fullcalendar') ? 'block' : 'none';
@@ -427,6 +439,192 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const types = [...new Set(roomCatalog.map(room => room.type).filter(Boolean))].sort();
     if (availCampusSelect) resetSelect(availCampusSelect, campuses, 'All', '');
     if (availTypeSelect) resetSelect(availTypeSelect, types, 'All', '');
+  }
+
+  function setRoomCatalogStatus(message, isError = false) {
+    const status = document.getElementById('room-catalog-status');
+    if (!status) return;
+    status.textContent = message;
+    status.style.color = isError ? '#b91c1c' : '';
+  }
+
+  function refreshRoomCatalogViews(lastUpdated = null) {
+    initAvailabilityAttributeFilters();
+    buildRoomDropdowns();
+    renderSchedule();
+    if (document.getElementById('viewSelect').value === 'fullcalendar') {
+      renderFullCalendar();
+    }
+    const stamp = lastUpdated ? ` Updated ${new Date(lastUpdated).toLocaleString()}.` : '';
+    setRoomCatalogStatus(`${roomCatalog.length} rooms loaded.${stamp}`);
+  }
+
+  function loadRoomCatalogFromBackend() {
+    fetch(`${BACKEND_BASE_URL}/api/rooms`)
+      .then(res => {
+        if (!res.ok) throw new Error('Room catalog fetch failed');
+        return res.json();
+      })
+      .then(({ data, lastUpdated }) => {
+        const backendRooms = normalizeRoomCatalog(data);
+        setRoomCatalog(backendRooms.length ? backendRooms : (window.ROOM_CATALOG || []));
+        refreshRoomCatalogViews(lastUpdated);
+      })
+      .catch(err => {
+        setRoomCatalog(window.ROOM_CATALOG || []);
+        refreshRoomCatalogViews();
+        setRoomCatalogStatus(`Using built-in room catalog. ${err.message}`, true);
+      });
+  }
+
+  function setupRoomCatalogAdmin() {
+    if (!roomCatalogAdminDiv) return;
+    roomCatalogAdminDiv.replaceChildren();
+
+    const title = document.createElement('strong');
+    title.textContent = 'Room Catalog';
+
+    const exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.textContent = 'Export Rooms CSV';
+
+    const exportJsonBtn = document.createElement('button');
+    exportJsonBtn.type = 'button';
+    exportJsonBtn.textContent = 'Export Rooms JSON';
+
+    const importLabel = document.createElement('label');
+    importLabel.append('Import Rooms:');
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.accept = '.csv,.json,application/json,text/csv';
+    importLabel.appendChild(importInput);
+
+    const status = document.createElement('span');
+    status.id = 'room-catalog-status';
+    status.className = 'room-catalog-status';
+    status.textContent = `${roomCatalog.length} rooms loaded.`;
+
+    roomCatalogAdminDiv.append(title, exportBtn, exportJsonBtn, importLabel, status);
+
+    exportBtn.addEventListener('click', () => exportRoomCatalog('csv'));
+    exportJsonBtn.addEventListener('click', () => exportRoomCatalog('json'));
+    importInput.addEventListener('change', e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      importRoomCatalog(file).finally(() => {
+        e.target.value = '';
+      });
+    });
+  }
+
+  function getRoomCatalogPassword(action) {
+    const password = prompt(`Enter upload password to ${action} room catalog:`);
+    if (!password) {
+      alert('Room catalog action cancelled.');
+      return null;
+    }
+    return password;
+  }
+
+  function roomCatalogToCsv(rooms) {
+    const rows = normalizeRoomCatalog(rooms).map(room => ({
+      Campus: room.campus,
+      Building: room.building,
+      Room: room.room,
+      Capacity: room.capacity == null ? '' : room.capacity,
+      'Room Type': room.type
+    }));
+    return Papa.unparse(rows);
+  }
+
+  function downloadTextFile(filename, content, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportRoomCatalog(format = 'csv') {
+    const password = getRoomCatalogPassword('export');
+    if (!password) return;
+    fetch(`${BACKEND_BASE_URL}/api/rooms/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(res.status === 403 ? 'Unauthorized' : 'Export failed');
+        return res.json();
+      })
+      .then(({ data }) => {
+        const rooms = normalizeRoomCatalog(data).length ? normalizeRoomCatalog(data) : roomCatalog;
+        if (format === 'json') {
+          downloadTextFile('cos-room-catalog.json', JSON.stringify(rooms, null, 2), 'application/json;charset=utf-8');
+        } else {
+          downloadTextFile('cos-room-catalog.csv', roomCatalogToCsv(rooms), 'text/csv;charset=utf-8');
+        }
+        setRoomCatalogStatus(`Exported ${rooms.length} rooms.`);
+      })
+      .catch(err => {
+        alert('Room catalog export failed: ' + err.message);
+        setRoomCatalogStatus('Room catalog export failed.', true);
+      });
+  }
+
+  function parseRoomCatalogFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Could not read selected file'));
+      reader.onload = ev => {
+        try {
+          const text = String(ev.target.result || '');
+          if (file.name.toLowerCase().endsWith('.json')) {
+            const parsed = JSON.parse(text);
+            resolve(Array.isArray(parsed) ? parsed : parsed.data || parsed.rooms || []);
+            return;
+          }
+          const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+          if (parsed.errors?.length) {
+            reject(new Error(parsed.errors[0].message || 'CSV parse failed'));
+            return;
+          }
+          resolve(parsed.data || []);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  async function importRoomCatalog(file) {
+    const password = getRoomCatalogPassword('import');
+    if (!password) return;
+    try {
+      const parsedRooms = await parseRoomCatalogFile(file);
+      const rooms = normalizeRoomCatalog(parsedRooms);
+      if (!rooms.length) {
+        throw new Error('No valid rooms found. Include Building and Room columns.');
+      }
+      const res = await fetch(`${BACKEND_BASE_URL}/api/rooms/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, rooms })
+      });
+      if (!res.ok) throw new Error(res.status === 403 ? 'Unauthorized' : 'Import failed');
+      const payload = await res.json();
+      setRoomCatalog(payload.data || rooms);
+      refreshRoomCatalogViews(payload.lastUpdated);
+      alert(`Imported ${payload.count || rooms.length} rooms.`);
+    } catch (err) {
+      alert('Room catalog import failed: ' + err.message);
+      setRoomCatalogStatus('Room catalog import failed.', true);
+    }
   }
 
   // --- Backend fetch instead of localStorage ---
