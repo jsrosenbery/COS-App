@@ -395,6 +395,21 @@
       campus_online:    scfMark(has('campus','Online')),
       campus_offcampus: scfMark(has('campus','Off-Campus')),
 
+      action_modification: scfMark(has('action','Modification')),
+      action_cancel_no_staff: scfMark(has('action','Cancel - No Staff')),
+      action_cancel_low_enroll: scfMark(has('action','Cancel - Low Enroll')),
+      action_cancel_rebuild: scfMark(has('action','Cancel - Rebuild')),
+      action_cancel_clerical: scfMark(has('action','Cancel - Clerical Err.')),
+      action_cancel_sched_dev: scfMark(has('action','Cancel - Sched. Dev.')),
+      action_uncancel: scfMark(has('action','Un-Cancel')),
+      action_addition: scfMark(has('action','Addition')),
+      action_activation: scfMark(has('action','Activation')),
+      action_inactivate: scfMark(has('action','Inactivate')),
+      num_enrolled: data.num_enrolled || "",
+      adj_canceled: data.adj_canceled || "",
+      class_comp_yes: scfMark(has('class_comp_sent','Yes')),
+      class_comp_no: scfMark(has('class_comp_sent','No')),
+
       visible_yes: scfMark(has('visible','Yes')),
       visible_no:  scfMark(has('visible','No')),
 
@@ -419,6 +434,10 @@ async function scfExportDocx(shadow){
     'year','date_sent','date_processed','division_chair','area_dean',
     'term_spring','term_summer','term_fall',
     'campus_visalia','campus_tulare','campus_hanford','campus_online','campus_offcampus',
+    'action_modification','action_cancel_no_staff','action_cancel_low_enroll',
+    'action_cancel_rebuild','action_cancel_clerical','action_cancel_sched_dev',
+    'action_uncancel','action_addition','action_activation','action_inactivate',
+    'num_enrolled','adj_canceled','class_comp_yes','class_comp_no',
     'visible_yes','visible_no',
     'lecture_hours','lab_hours','activity_hours','sem_lect','sem_lab','sem_act','sick_leave'
   ];
