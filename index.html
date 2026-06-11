@@ -169,24 +169,34 @@
         </thead>
         <tbody>
           <tr>
-            <td>Weighted hours</td>
-            <td>Each scheduled room hour counts once; minutes between 9:00 AM and 3:00 PM count 1.5x.</td>
-            <td>Peak-demand usage carries more weight than early morning, late afternoon, or evening usage.</td>
-          </tr>
-          <tr>
-            <td>Expected use</td>
-            <td>A weekly target is adjusted by room type: general classrooms highest, labs/computer labs moderate, meeting/study/exercise lower.</td>
-            <td>Specialized spaces should not be judged against the same regular-use target as general classrooms.</td>
-          </tr>
-          <tr>
-            <td>Capacity adjustment</td>
-            <td>Rooms under 20, 30, and 40 seats receive lower expected-use factors.</td>
-            <td>Small rooms are not expected to carry as much routine scheduling as larger rooms.</td>
-          </tr>
-          <tr>
             <td>Score</td>
-            <td>Weighted scheduled minutes divided by expected weighted minutes.</td>
+            <td>Weighted hours divided by expected weighted hours.</td>
             <td>A score near 1.00 means the room is being used near its adjusted expectation.</td>
+          </tr>
+          <tr>
+            <td>Weekly hours</td>
+            <td>Total scheduled room hours across selected meeting days for the loaded term data.</td>
+            <td>Shows the raw amount of weekly room use before peak-hour or room-type weighting.</td>
+          </tr>
+          <tr>
+            <td>Peak hours</td>
+            <td>Scheduled room hours that fall between 9:00 AM and 3:00 PM.</td>
+            <td>Highlights use during the highest-demand part of the day.</td>
+          </tr>
+          <tr>
+            <td>Weighted hours</td>
+            <td>Off-peak hours count 1.0x; peak minutes between 9:00 AM and 3:00 PM count 1.5x.</td>
+            <td>Gives extra value to room use during peak demand while still counting other scheduled use.</td>
+          </tr>
+          <tr>
+            <td>Expected weighted</td>
+            <td>Weekly weighted availability multiplied by room-type and capacity factors.</td>
+            <td>Sets a fair target so specialized rooms and small rooms are not judged like large general classrooms.</td>
+          </tr>
+          <tr>
+            <td>Peak share</td>
+            <td>Peak hours divided by total weekly hours.</td>
+            <td>Shows what percentage of the room's use happens during the 9:00 AM-3:00 PM demand window.</td>
           </tr>
         </tbody>
       </table>
