@@ -326,10 +326,25 @@
     </div>
   `;
 
-  const CHANGE_FIELDS = [
-    'CRN','Subject & Course #','Time(s)','Day(s)','Short Term Dates','# of Weeks','Units','Capacity',
-    'Building(s)','Room(s)','Instructor Full Name','Banner ID','Split Load Instructor','Split Load Banner ID'
+  const CHANGE_FIELD_DEFS = [
+    ['CRN', 'crn'],
+    ['Subject & Course #', 'subject_course'],
+    ['Time(s)', 'times'],
+    ['Day(s)', 'days'],
+    ['Short Term Dates', 'short_dates'],
+    ['# of Weeks', 'weeks'],
+    ['Units', 'units'],
+    ['Capacity', 'capacity'],
+    ['Building(s)', 'building'],
+    ['Room(s)', 'room'],
+    ['Instructor Full Name', 'instructor_full'],
+    ['Banner ID', 'banner_id'],
+    ['Split Load Instructor', 'split_instructor'],
+    ['Split Load Banner ID', 'split_banner_id']
   ];
+
+  const CHANGE_FIELDS = CHANGE_FIELD_DEFS.map(([label]) => label);
+  const CHANGE_FIELD_EXPORT_KEYS = CHANGE_FIELD_DEFS.map(([, key]) => key);
 
   const CHANGE_FIELD_INDEX = CHANGE_FIELDS.reduce((acc, label, index) => {
     acc[label] = index;
@@ -340,26 +355,24 @@
   function scfMark(b){ return b ? "☒" : "☐"; }
 
   function getChangeFieldData(form) {
-    const get = label => {
+    const getCurrent = label => {
       const index = CHANGE_FIELD_INDEX[label];
       return index === undefined ? '' : (form.elements[`current_${index}`]?.value || '');
     };
-    return {
-      crn: get('CRN'),
-      subject_course: get('Subject & Course #'),
-      times: get('Time(s)'),
-      days: get('Day(s)'),
-      short_dates: get('Short Term Dates'),
-      weeks: get('# of Weeks'),
-      units: get('Units'),
-      capacity: get('Capacity'),
-      building: get('Building(s)'),
-      room: get('Room(s)'),
-      instructor_full: get('Instructor Full Name'),
-      banner_id: get('Banner ID'),
-      split_instructor: get('Split Load Instructor'),
-      split_banner_id: get('Split Load Banner ID')
+    const getChanged = label => {
+      const index = CHANGE_FIELD_INDEX[label];
+      return index === undefined ? '' : (form.elements[`changed_${index}`]?.value || '');
     };
+    const getDone = label => {
+      const index = CHANGE_FIELD_INDEX[label];
+      return index === undefined ? false : Boolean(form.elements[`done_${index}`]?.checked);
+    };
+    return CHANGE_FIELD_DEFS.reduce((acc, [label, key]) => {
+      acc[key] = getCurrent(label);
+      acc[`${key}_changed`] = getChanged(label);
+      acc[`${key}_done`] = scfMark(getDone(label));
+      return acc;
+    }, {});
   }
 
   function scfGetMergeData(shadow){
@@ -382,6 +395,8 @@
       year: data.year || "",
       date_sent: data.date_sent || "",
       date_processed: data.date_processed || "",
+      date_forwarded: data.date_forwarded || "",
+      date_and_initial: data.date_and_initial || "",
       division_chair: data.division_chair || "",
       area_dean: data.area_dean || "",
 
@@ -428,10 +443,14 @@ async function scfExportDocx(shadow){
   const TEMPLATE_URL = window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_CRN_ONLY_v2.docx';
 
   // 2) Tags expected in the template
+  const changeFieldTags = CHANGE_FIELD_EXPORT_KEYS.reduce((tags, key) => {
+    tags.push(key, `${key}_changed`, `${key}_done`);
+    return tags;
+  }, []);
+
   const EXPECTED_TAGS = [
-    'crn','subject_course','times','days','short_dates','weeks','units','capacity',
-    'building','room','instructor_full','banner_id','split_instructor','split_banner_id',
-    'year','date_sent','date_processed','division_chair','area_dean',
+    ...changeFieldTags,
+    'year','date_sent','date_processed','date_forwarded','date_and_initial','division_chair','area_dean',
     'term_spring','term_summer','term_fall',
     'campus_visalia','campus_tulare','campus_hanford','campus_online','campus_offcampus',
     'action_modification','action_cancel_no_staff','action_cancel_low_enroll',
@@ -586,21 +605,26 @@ function scfExportPdf(shadow) {
   const headerH = 18;
   const lineH = 18;
   const detailRows = [
-    ['CRN', changes.crn],
-    ['SUBJECT & COURSE #', changes.subject_course],
-    ['TIME(S)', changes.times],
-    ['DAY(S)', changes.days],
-    ['SHORT TERM DATES', changes.short_dates],
-    ['# OF WEEKS', changes.weeks],
-    ['UNITS', changes.units],
-    ['CAPACITY', changes.capacity],
-    ['BUILDING(S)', changes.building],
-    ['ROOM(S)', changes.room],
-    ['INSTRUCTOR FULL NAME', changes.instructor_full],
-    ['BANNER ID', changes.banner_id],
-    ['SPLIT LOAD INSTRUCTOR', changes.split_instructor],
-    ['BANNER ID', changes.split_banner_id]
-  ];
+    ['CRN', 'crn'],
+    ['SUBJECT & COURSE #', 'subject_course'],
+    ['TIME(S)', 'times'],
+    ['DAY(S)', 'days'],
+    ['SHORT TERM DATES', 'short_dates'],
+    ['# OF WEEKS', 'weeks'],
+    ['UNITS', 'units'],
+    ['CAPACITY', 'capacity'],
+    ['BUILDING(S)', 'building'],
+    ['ROOM(S)', 'room'],
+    ['INSTRUCTOR FULL NAME', 'instructor_full'],
+    ['BANNER ID', 'banner_id'],
+    ['SPLIT LOAD INSTRUCTOR', 'split_instructor'],
+    ['BANNER ID', 'split_banner_id']
+  ].map(([label, key]) => [
+    label,
+    changes[key],
+    changes[`${key}_changed`],
+    changes[`${key}_done`]
+  ]);
   const tableH = headerH + (detailRows.length * lineH);
 
   rect(left, tableTop, actionW, tableH);
@@ -632,12 +656,12 @@ function scfExportPdf(shadow) {
   ], tableTop, headerH);
   y = tableTop + headerH;
   pdf.setFont('helvetica', 'normal');
-  detailRows.forEach(([label, value]) => {
+  detailRows.forEach(([label, value, changed, done]) => {
     row([
       { x: left + actionW, w: fieldW, text: label },
       { x: left + actionW + fieldW, w: currentW, text: value },
-      { x: left + actionW + fieldW + currentW, w: changedW, text: '' },
-      { x: left + actionW + fieldW + currentW + changedW, w: doneW, text: '' }
+      { x: left + actionW + fieldW + currentW, w: changedW, text: changed },
+      { x: left + actionW + fieldW + currentW + changedW, w: doneW, text: done }
     ], y, lineH);
     y += lineH;
   });
