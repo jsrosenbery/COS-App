@@ -325,6 +325,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const checkBtn     = document.getElementById('avail-check-btn');
   const clearBtn     = document.getElementById('avail-clear-btn');
   const resultsDiv   = document.getElementById('avail-results');
+  const availTermMode = document.getElementById('avail-term-mode');
+  const availDateStart = document.getElementById('avail-date-start');
+  const availDateEnd = document.getElementById('avail-date-end');
   const availCampusSelect = document.getElementById('avail-campus-select');
   const availTypeSelect = document.getElementById('avail-type-select');
   const availCapacityInput = document.getElementById('avail-capacity-input');
@@ -401,8 +404,23 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (availCampusSelect) availCampusSelect.value = '';
     if (availTypeSelect) availTypeSelect.value = '';
     if (availCapacityInput) availCapacityInput.value = '';
+    if (availTermMode) availTermMode.value = 'full';
+    setAvailabilityDateMode();
     resultsDiv.textContent = '';
   };
+
+  function setAvailabilityDateMode() {
+    const isShortTerm = availTermMode?.value === 'short';
+    [availDateStart, availDateEnd].forEach(input => {
+      if (!input) return;
+      input.disabled = !isShortTerm;
+      if (!isShortTerm) input.value = '';
+    });
+  }
+  if (availTermMode) {
+    availTermMode.addEventListener('change', setAvailabilityDateMode);
+    setAvailabilityDateMode();
+  }
 
   document.getElementById('viewSelect').addEventListener('change', function(){
     const view = this.value;
@@ -410,9 +428,6 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     document.getElementById('schedule-container').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('availability-ui').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('room-filter').style.display = (view === 'calendar') ? '' : 'none';
-    document.getElementById('upload-container').style.display = (view === 'calendar') ? '' : 'none';
-    document.getElementById('upload-timestamp').style.display = (view === 'calendar') ? '' : 'none';
-    document.getElementById('room-catalog-admin').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('linechart-tool').style.display = (view === 'linechart') ? 'block' : 'none';
     document.getElementById('calendar-container').style.display = (view === 'fullcalendar') ? 'block' : 'none';
     document.getElementById('calendar-room-filter').style.display = (view === 'fullcalendar') ? 'block' : 'none';
@@ -888,6 +903,17 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       return h*60 + m;
     };
     const sMin = toMin(start), eMin = toMin(end);
+    const isShortTerm = availTermMode?.value === 'short';
+    const requestedStart = isShortTerm ? parseDateOnly(availDateStart?.value) : null;
+    const requestedEnd = isShortTerm ? parseDateOnly(availDateEnd?.value) : null;
+    if (isShortTerm && (!requestedStart || !requestedEnd)) {
+      resultsDiv.textContent = 'Please enter a start and end date for a short-term availability search.';
+      return;
+    }
+    if (isShortTerm && requestedStart > requestedEnd) {
+      resultsDiv.textContent = 'The short-term start date must be on or before the end date.';
+      return;
+    }
     const catalogRooms = roomCatalog.length
       ? getRoomCatalogEntries()
       : getUniqueRooms(currentData).map(key => ({ buildingRoom: key, campus: '', type: '', capacity: null }));
@@ -900,6 +926,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (Array.isArray(i.Days) && i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
+          if (isShortTerm && !sectionOverlapsRequestedDates(i, requestedStart, requestedEnd)) return;
           occ.add(getRoomKey(i));
         }
       }
@@ -926,6 +953,36 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const [h,m] = t.split(':').map(Number);
     return h*60 + m;
   }
+
+  function parseDateOnly(value) {
+    if (!value) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) {
+      return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+    }
+    const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (slash) {
+      let year = Number(slash[3]);
+      if (year < 100) year += 2000;
+      return new Date(year, Number(slash[1]) - 1, Number(slash[2]));
+    }
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  }
+
+  function dateRangesOverlap(startA, endA, startB, endB) {
+    if (!startA || !endA || !startB || !endB) return true;
+    return startA <= endB && endA >= startB;
+  }
+
+  function sectionOverlapsRequestedDates(section, requestedStart, requestedEnd) {
+    const sectionStart = parseDateOnly(extractField(section, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']));
+    const sectionEnd = parseDateOnly(extractField(section, ['End_Date', 'End Date', 'End', 'end_date', 'end']));
+    return dateRangesOverlap(sectionStart, sectionEnd, requestedStart, requestedEnd);
+  }
+
   function format12(t) {
     let [h,m] = t.split(':').map(Number);
     const ap = h<12 ? 'AM':'PM';

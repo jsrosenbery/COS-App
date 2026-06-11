@@ -56,10 +56,7 @@
     </select>
   </div>
 
-  <!-- Upload and filters -->
-  <div id="upload-container"></div>
-  <div id="upload-timestamp" class="upload-timestamp"></div>
-  <div id="room-catalog-admin" class="room-catalog-admin"></div>
+  <!-- Filters -->
   <div id="room-filter"></div>
 
   <div id="availability-ui" class="availability-ui">
@@ -78,6 +75,20 @@
       <label>End:   <input type="time" id="avail-end"   step="300"></label>
       <button id="avail-check-btn">Check</button>
       <button id="avail-clear-btn">Clear</button>
+    </div>
+    <div class="availability-dates">
+      <label>Term:
+        <select id="avail-term-mode">
+          <option value="full" selected>Full-Term</option>
+          <option value="short">Short-Term</option>
+        </select>
+      </label>
+      <label>Start Date:
+        <input type="date" id="avail-date-start" disabled>
+      </label>
+      <label>End Date:
+        <input type="date" id="avail-date-end" disabled>
+      </label>
     </div>
     <div class="room-attributes">
       <label>Campus:
@@ -144,6 +155,13 @@
       <canvas id="lineChartCanvas" style="width:100%; height:100%;"></canvas>
     </div>
   </div>
+
+  <section id="admin-tools" class="admin-tools">
+    <h2>Admin Tools</h2>
+    <div id="upload-container"></div>
+    <div id="upload-timestamp" class="upload-timestamp"></div>
+    <div id="room-catalog-admin" class="room-catalog-admin"></div>
+  </section>
 
   <!-- Tooltip for class blocks -->
   <div id="class-block-tooltip" class="class-block-tooltip"></div>

@@ -120,6 +120,7 @@ h1 {
 #upload-container,
 .upload-timestamp,
 #room-catalog-admin,
+#admin-tools,
 #room-filter,
 .availability-ui,
 #calendar-room-filter,
@@ -132,6 +133,7 @@ h1 {
 #view-container,
 #upload-container,
 #room-catalog-admin,
+#admin-tools,
 #room-filter,
 #calendar-room-filter,
 .availability-ui,
@@ -287,6 +289,7 @@ button:hover,
 }
 
 .availability-ui h3,
+.admin-tools h2,
 #heatmap-tool h2,
 #linechart-tool h2 {
   margin-top: 0;
@@ -295,6 +298,7 @@ button:hover,
 
 .days,
 .times,
+.availability-dates,
 .room-attributes,
 #controls,
 #linechart-controls {
@@ -316,6 +320,21 @@ button:hover,
 
 .room-attributes {
   margin-top: 0.85rem;
+}
+
+.availability-dates {
+  margin-top: 0.85rem;
+}
+
+.admin-tools {
+  margin-top: 2rem;
+}
+
+.admin-tools #upload-container,
+.admin-tools .upload-timestamp,
+.admin-tools #room-catalog-admin {
+  width: auto;
+  margin: 0.75rem 0 0;
 }
 
 .avail-results {
@@ -397,6 +416,7 @@ button:hover,
   #upload-container,
   .upload-timestamp,
   #room-catalog-admin,
+  #admin-tools,
   #room-filter,
   .availability-ui,
   #calendar-room-filter,
