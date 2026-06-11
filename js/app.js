@@ -331,6 +331,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const availCampusSelect = document.getElementById('avail-campus-select');
   const availTypeSelect = document.getElementById('avail-type-select');
   const availCapacityInput = document.getElementById('avail-capacity-input');
+  const utilizationCampusSelect = document.getElementById('utilization-campus-select');
+  const utilizationTypeSelect = document.getElementById('utilization-type-select');
+  const utilizationClearBtn = document.getElementById('utilization-clear-btn');
+  const utilizationSummary = document.getElementById('utilization-summary');
+  const utilizationMap = document.getElementById('utilization-map');
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
   const calendarContainer = document.getElementById('calendar-container');
@@ -354,6 +359,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-campus-select').addEventListener('change', updateAllHeatmap);
   document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
+  if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
+  if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
+  if (utilizationClearBtn) {
+    utilizationClearBtn.onclick = () => {
+      if (utilizationCampusSelect) utilizationCampusSelect.value = '';
+      if (utilizationTypeSelect) utilizationTypeSelect.value = '';
+      renderUtilizationMap();
+    };
+  }
 
   document.getElementById('heatmap-clear-btn').onclick = () => {
     if (hmChoices) hmChoices.removeActiveItems();
@@ -425,6 +439,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   document.getElementById('viewSelect').addEventListener('change', function(){
     const view = this.value;
     document.getElementById('heatmap-tool').style.display = (view === 'heatmap') ? 'block' : 'none';
+    document.getElementById('utilization-tool').style.display = (view === 'utilization') ? 'block' : 'none';
     document.getElementById('schedule-container').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('availability-ui').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('room-filter').style.display = (view === 'calendar') ? '' : 'none';
@@ -434,6 +449,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     document.getElementById('selected-room-header').style.display = (view === 'calendar' ? '' : 'none'); // NEW: hide header on non-grid views
     if (view === 'linechart') {
       renderLineChart();
+    }
+    if (view === 'utilization') {
+      renderUtilizationMap();
     }
     if (view === 'fullcalendar') {
       renderFullCalendar();
@@ -465,10 +483,14 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function refreshRoomCatalogViews(lastUpdated = null) {
     initAvailabilityAttributeFilters();
+    initUtilizationFilters();
     buildRoomDropdowns();
     renderSchedule();
     if (document.getElementById('viewSelect').value === 'fullcalendar') {
       renderFullCalendar();
+    }
+    if (document.getElementById('viewSelect').value === 'utilization') {
+      renderUtilizationMap();
     }
     const stamp = lastUpdated ? ` Updated ${new Date(lastUpdated).toLocaleString()}.` : '';
     setRoomCatalogStatus(`${roomCatalog.length} rooms loaded.${stamp}`);
@@ -653,6 +675,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         buildRoomDropdowns();
         renderSchedule();
         feedHeatmapTool(currentData);
+        initUtilizationFilters();
+        if (document.getElementById('viewSelect').value === 'utilization') {
+          renderUtilizationMap();
+        }
         if (document.getElementById('viewSelect').value === 'fullcalendar') {
           renderFullCalendar();
         }
@@ -947,6 +973,186 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     } else {
       resultsDiv.textContent = 'No rooms available.';
     }
+  }
+
+  function initUtilizationFilters() {
+    if (!utilizationCampusSelect || !utilizationTypeSelect) return;
+    const rooms = getRoomCatalogEntries();
+    const campuses = [...new Set(rooms.map(room => room.campus).filter(Boolean))].sort();
+    const types = [...new Set(rooms.map(room => room.type).filter(Boolean))].sort();
+    const campusValue = utilizationCampusSelect.value;
+    const typeValue = utilizationTypeSelect.value;
+    resetSelect(utilizationCampusSelect, campuses, 'All', '');
+    resetSelect(utilizationTypeSelect, types, 'All', '');
+    if (campuses.includes(campusValue)) utilizationCampusSelect.value = campusValue;
+    if (types.includes(typeValue)) utilizationTypeSelect.value = typeValue;
+  }
+
+  function overlapMinutes(startMin, endMin, windowStart, windowEnd) {
+    return Math.max(0, Math.min(endMin, windowEnd) - Math.max(startMin, windowStart));
+  }
+
+  function getRoomTypeTarget(type) {
+    const normalized = String(type || '').toLowerCase();
+    if (normalized.includes('meeting') || normalized.includes('study')) return 0.25;
+    if (normalized.includes('exercise')) return 0.35;
+    if (normalized.includes('lab') || normalized.includes('activity')) return 0.45;
+    if (normalized.includes('computer')) return 0.55;
+    return 0.6;
+  }
+
+  function getCapacityExpectation(capacity) {
+    if (capacity == null) return { factor: 0.85, label: 'Unknown capacity' };
+    if (capacity < 20) return { factor: 0.35, label: 'Very small room' };
+    if (capacity < 30) return { factor: 0.55, label: 'Small room' };
+    if (capacity < 40) return { factor: 0.8, label: 'Moderate room' };
+    return { factor: 1, label: 'Standard capacity' };
+  }
+
+  function getUtilizationStatus(room) {
+    if (room.capacity != null && room.capacity < 20 && room.totalHours >= 12) {
+      return {
+        label: 'High use, low capacity',
+        color: '#f59e0b',
+        reason: 'This room is used often, but its capacity is low enough that it may not be the best regular-use option.'
+      };
+    }
+    if (room.score < 0.45) {
+      return {
+        label: 'Underused',
+        color: '#2563eb',
+        reason: 'Low weighted use compared with the expected use for this room type and capacity.'
+      };
+    }
+    if (room.score > 1.25) {
+      return {
+        label: 'Overloaded',
+        color: '#dc2626',
+        reason: 'Heavy weighted use, especially during high-demand hours.'
+      };
+    }
+    if (room.peakShare < 0.25 && room.totalHours >= 10) {
+      return {
+        label: 'Off-peak heavy',
+        color: '#7c3aed',
+        reason: 'The room has usage, but relatively little of it occurs during the 9:00 AM-3:00 PM demand window.'
+      };
+    }
+    return {
+      label: 'Efficient',
+      color: '#059669',
+      reason: 'Weighted use is aligned with expectations for the room type and capacity.'
+    };
+  }
+
+  function calculateRoomUtilization() {
+    const rooms = getRoomCatalogEntries().map(room => ({
+      ...room,
+      sections: 0,
+      totalMinutes: 0,
+      peakMinutes: 0,
+      weightedMinutes: 0
+    }));
+    const roomMap = new Map(rooms.map(room => [room.buildingRoom, room]));
+    currentData.forEach(section => {
+      if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return;
+      const key = getRoomKey(section);
+      if (!roomMap.has(key)) {
+        const fallback = { buildingRoom: key, campus: '', building: section.Building || '', room: section.Room || '', type: '', capacity: null, sections: 0, totalMinutes: 0, peakMinutes: 0, weightedMinutes: 0 };
+        roomMap.set(key, fallback);
+        rooms.push(fallback);
+      }
+      const room = roomMap.get(key);
+      const days = Array.isArray(section.Days) ? section.Days : [];
+      const startMin = parseTime(section.Start_Time || '');
+      const endMin = parseTime(section.End_Time || '');
+      if (!days.length || !Number.isFinite(startMin) || !Number.isFinite(endMin) || endMin <= startMin) return;
+      const dailyMinutes = endMin - startMin;
+      const peakMinutes = overlapMinutes(startMin, endMin, 9 * 60, 15 * 60);
+      const offPeakMinutes = dailyMinutes - peakMinutes;
+      room.sections += 1;
+      room.totalMinutes += dailyMinutes * days.length;
+      room.peakMinutes += peakMinutes * days.length;
+      room.weightedMinutes += ((peakMinutes * 1.5) + offPeakMinutes) * days.length;
+    });
+
+    const weeklyWeightedAvailable = (5 * ((6 * 60 * 1.5) + (3 * 60)));
+    return rooms
+      .filter(room => room.buildingRoom && room.buildingRoom !== 'undefined-undefined')
+      .map(room => {
+        const capacity = getCapacityExpectation(room.capacity);
+        const target = getRoomTypeTarget(room.type) * capacity.factor;
+        const expectedWeightedMinutes = Math.max(weeklyWeightedAvailable * target, 1);
+        const score = room.weightedMinutes / expectedWeightedMinutes;
+        const totalHours = room.totalMinutes / 60;
+        const peakHours = room.peakMinutes / 60;
+        const peakShare = room.totalMinutes ? room.peakMinutes / room.totalMinutes : 0;
+        const enriched = { ...room, score, totalHours, peakHours, peakShare, target, capacityLabel: capacity.label };
+        return { ...enriched, status: getUtilizationStatus(enriched) };
+      })
+      .sort((a, b) => b.score - a.score || a.buildingRoom.localeCompare(b.buildingRoom, undefined, { numeric: true }));
+  }
+
+  function renderUtilizationMap() {
+    if (!utilizationMap || !utilizationSummary) return;
+    const selectedCampus = utilizationCampusSelect?.value || '';
+    const selectedType = utilizationTypeSelect?.value || '';
+    const rooms = calculateRoomUtilization()
+      .filter(room => !selectedCampus || room.campus === selectedCampus)
+      .filter(room => !selectedType || room.type === selectedType);
+    const counts = rooms.reduce((acc, room) => {
+      acc[room.status.label] = (acc[room.status.label] || 0) + 1;
+      return acc;
+    }, {});
+    utilizationSummary.replaceChildren();
+    [
+      `Rooms: ${rooms.length}`,
+      `Efficient: ${counts.Efficient || 0}`,
+      `Underused: ${counts.Underused || 0}`,
+      `Overloaded: ${counts.Overloaded || 0}`,
+      `Small/high use: ${counts['High use, low capacity'] || 0}`
+    ].forEach(text => {
+      const pill = document.createElement('div');
+      pill.className = 'utilization-pill';
+      pill.textContent = text;
+      utilizationSummary.appendChild(pill);
+    });
+
+    utilizationMap.replaceChildren();
+    if (!rooms.length) {
+      utilizationMap.textContent = 'No rooms match the selected filters.';
+      return;
+    }
+    rooms.forEach(room => {
+      const card = document.createElement('article');
+      card.className = 'utilization-card';
+      card.style.setProperty('--status-color', room.status.color);
+      const title = document.createElement('h3');
+      title.textContent = room.buildingRoom;
+      const badge = document.createElement('span');
+      badge.className = 'status';
+      badge.textContent = room.status.label;
+      const details = document.createElement('dl');
+      [
+        ['Score', room.score.toFixed(2)],
+        ['Weekly hours', room.totalHours.toFixed(1)],
+        ['Peak hours', room.peakHours.toFixed(1)],
+        ['Peak share', `${Math.round(room.peakShare * 100)}%`],
+        ['Capacity', room.capacity == null ? 'N/A' : room.capacity],
+        ['Type', room.type || 'N/A']
+      ].forEach(([label, value]) => {
+        const dt = document.createElement('dt');
+        dt.textContent = label;
+        const dd = document.createElement('dd');
+        dd.textContent = value;
+        details.append(dt, dd);
+      });
+      const reason = document.createElement('p');
+      reason.className = 'reason';
+      reason.textContent = `${room.status.reason} ${room.capacityLabel}.`;
+      card.append(title, badge, details, reason);
+      utilizationMap.appendChild(card);
+    });
   }
 
   function parseTime(t) {

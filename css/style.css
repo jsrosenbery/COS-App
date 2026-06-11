@@ -125,6 +125,7 @@ h1 {
 .availability-ui,
 #calendar-room-filter,
 #heatmap-tool,
+#utilization-tool,
 #linechart-tool {
   width: min(1480px, calc(100% - 2rem));
   margin: 0.9rem auto;
@@ -138,6 +139,7 @@ h1 {
 #calendar-room-filter,
 .availability-ui,
 #heatmap-tool,
+#utilization-tool,
 #linechart-tool,
 #calendar-container {
   padding: 1rem;
@@ -291,6 +293,7 @@ button:hover,
 .availability-ui h3,
 .admin-tools h2,
 #heatmap-tool h2,
+#utilization-tool h2,
 #linechart-tool h2 {
   margin-top: 0;
   color: var(--brand);
@@ -301,6 +304,7 @@ button:hover,
 .availability-dates,
 .room-attributes,
 #controls,
+#utilization-controls,
 #linechart-controls {
   display: flex;
   flex-wrap: wrap;
@@ -368,12 +372,93 @@ button:hover,
   min-height: 600px;
 }
 
+#utilization-controls {
+  margin-bottom: 0.85rem;
+}
+
+.utilization-note {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.utilization-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.utilization-pill {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 800;
+}
+
+.utilization-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0.9rem;
+}
+
+.utilization-card {
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-left: 8px solid var(--status-color, var(--brand-2));
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(16, 32, 51, 0.08);
+}
+
+.utilization-card h3 {
+  margin: 0 0 0.35rem;
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.utilization-card .status {
+  display: inline-flex;
+  margin-bottom: 0.5rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--status-color, var(--brand-2));
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.utilization-card dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.utilization-card dt {
+  color: var(--muted);
+}
+
+.utilization-card dd {
+  margin: 0;
+  font-weight: 800;
+}
+
+.utilization-card .reason {
+  margin-top: 0.65rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
 #heatmap-tool .choices__list--dropdown {
   max-height: 300px;
   overflow-y: auto;
 }
 
 #heatmap-clear-btn,
+#utilization-clear-btn,
 #linechart-clear-btn {
   background: linear-gradient(135deg, #dff8f1, #bfe9ff);
   color: var(--brand);
@@ -421,6 +506,7 @@ button:hover,
   .availability-ui,
   #calendar-room-filter,
   #heatmap-tool,
+  #utilization-tool,
   #linechart-tool,
   #schedule-container {
     width: calc(100% - 1rem);

@@ -51,6 +51,7 @@
     <select id="viewSelect">
       <option value="calendar">Snapshot</option>
       <option value="heatmap">Heatmap</option>
+      <option value="utilization">Room Utilization Map</option>
       <option value="linechart">Line Chart (Course Durations)</option>
       <option value="fullcalendar">Calendar</option>
     </select>
@@ -140,6 +141,24 @@
     </div>
     <div id="heatmapContainer"></div>
     <table id="dataTable" class="display"></table>
+  </div>
+
+  <div id="utilization-tool" style="display:none;">
+    <h2>Room Utilization Map</h2>
+    <div id="utilization-controls">
+      <label>Campus:
+        <select id="utilization-campus-select"></select>
+      </label>
+      <label>Room Type:
+        <select id="utilization-type-select"></select>
+      </label>
+      <button id="utilization-clear-btn" type="button">Clear</button>
+    </div>
+    <div class="utilization-note">
+      Scores weight room usage between 9:00 AM and 3:00 PM more heavily, then adjust expectations by room type and capacity.
+    </div>
+    <div id="utilization-summary" class="utilization-summary"></div>
+    <div id="utilization-map" class="utilization-map"></div>
   </div>
 
   <div id="linechart-tool" style="display:none;">
