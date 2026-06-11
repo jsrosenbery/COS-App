@@ -16,32 +16,7 @@
     .choices__item--selectable { display: flex; align-items: center; }
     #heatmapContainer { min-height: 600px; }
     #chart-container { width: 100%; max-width: 1600px; height: 600px; margin: auto; }
-    /* Scrollable dropdowns for heatmap filters */
-    #heatmap-tool .choices__list--dropdown { max-height: 300px; overflow-y: auto; }
-    /* Clear button for Heatmap and Line Chart filter bars */
-    #heatmap-clear-btn, #linechart-clear-btn {
-      padding: 5px 16px; font-size: 1rem; border-radius: 4px; border: 1px solid #bbb;
-      background: #f4f4f4; cursor: pointer; transition: background 0.2s; margin-left: 10px;
-    }
-    #heatmap-clear-btn:hover, #linechart-clear-btn:hover { background: #e0e0e0; }
-    /* Tooltip for class blocks */
-    .class-block-tooltip {
-      display: none; position: absolute; z-index: 9999; background: #222; color: #fff;
-      padding: 8px 12px; border-radius: 6px; font-size: 0.95em; pointer-events: none;
-      white-space: pre-line; max-width: 350px; box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-    }
-    /* Calendar styling */
-    #calendar-container {
-      max-width: 1200px; margin: 20px auto; background: #fff; border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.09); padding: 20px;
-    }
     #calendar-room-filter { display: none; margin: 10px 0; }
-    /* Export button styling */
-    #export-pdf-btn {
-      padding: 10px 24px; font-size: 1.1em; background: #003366; color: #fff;
-      border-radius: 6px; border: none; margin-right: 12px; cursor: pointer; transition: background 0.2s;
-    }
-    #export-pdf-btn:hover { background: #0055aa; }
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -53,8 +28,9 @@
   
 <header>
   <img src="images/logo.png" alt="COS Logo" class="logo">
-  <h1 style="font-size: 3em; font-weight: 700; letter-spacing: 0.15em; margin-bottom: 0.2em;">T.I.M.B.E.R.</h1>
-  <div class="timber-acronym"> <br><br><br><br>
+  <div>
+  <h1>T.I.M.B.E.R.</h1>
+  <div class="timber-acronym">
     <span class="timber-acronym-big">T</span>echnology 
     for 
     <span class="timber-acronym-big">I</span>nstructional 
@@ -65,11 +41,12 @@
     and 
     <span class="timber-acronym-big">R</span>esources
   </div>
+  </div>
 </header>
 
   <nav id="term-tabs"></nav>
 
-  <div id="view-container" style="margin:10px 0;">
+  <div id="view-container">
     <label for="viewSelect">View: </label>
     <select id="viewSelect">
       <option value="calendar">Snapshot</option>
@@ -116,7 +93,7 @@
   </div>
 
   <!-- Export row. SCF button mounts to the right of Export with a 12px gap -->
-  <div style="text-align:center; margin-bottom:12px;">
+  <div class="export-actions">
     <button id="export-pdf-btn">Export to PDF</button>
     <!-- SCF button will be injected here -->
   </div>
@@ -129,7 +106,7 @@
   </div>
   
   <!-- Calendar filter above calendar -->
-  <div id="calendar-room-filter" style="display:none; margin:10px 0;">
+  <div id="calendar-room-filter" style="display:none;">
     <label>Filter Bldg-Room:
       <select id="calendar-room-select"></select>
     </label>
@@ -141,21 +118,21 @@
 
   <div id="heatmap-tool" style="display:none;">
     <h2>Course Offerings Heatmap & Table</h2>
-    <div id="controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <div id="controls">
       <label>Campus:
         <select id="heatmap-campus-select"></select>
       </label>
       <select id="courseSelect" multiple placeholder="Filter by discipline/course"></select>
-      <input type="text" id="textSearch" placeholder="Type to search table…" style="padding:5px; width:200px;"/>
+      <input type="text" id="textSearch" placeholder="Type to search table…"/>
       <button id="heatmap-clear-btn" type="button">Clear</button>
     </div>
     <div id="heatmapContainer"></div>
-    <table id="dataTable" class="display" style="width:100%; margin-top:20px;"></table>
+    <table id="dataTable" class="display"></table>
   </div>
 
   <div id="linechart-tool" style="display:none;">
     <h2>Course Duration Line Chart</h2>
-    <div id="linechart-controls" style="margin-bottom:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <div id="linechart-controls">
       <label>Campus:
         <select id="linechart-campus-select"></select>
       </label>
@@ -211,8 +188,8 @@
           mount: spacer,
           buttonText: 'Schedule Change Form',
           theme: {
-            btnBg: '#003366',
-            btnHoverBg: '#0055aa',
+            btnBg: 'linear-gradient(135deg, #003366, #0077a8)',
+            btnHoverBg: 'linear-gradient(135deg, #004b8d, #00a884)',
             btnColor: '#fff',
             btnPadding: '10px 24px',
             btnFontSize: '1.1em',
