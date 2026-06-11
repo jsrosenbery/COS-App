@@ -317,7 +317,7 @@
         </main>
         <footer>
           <button id="printBtn" class="btn" type="button">Print</button>
-          <button id="saveBtn" class="btn" type="button">Download JSON</button>
+          <button id="exportPdfBtn" class="btn" type="button">Export PDF</button>
           <button id="clearBtn" class="btn" type="button">Clear</button>
           <button id="closeBtn2" class="btn" type="button">Close</button>
           <button id="exportDocxBtn" class="btn" type="button">Export to Official Form (DOCX)</button>
@@ -336,10 +336,31 @@
     return acc;
   }, {});
 
-  const STORAGE_KEY = 'cos_schedule_change_form_v1';
-
-  // ===== DOCX EXPORT (DocxTemplater) =====
+  // ===== Exports =====
   function scfMark(b){ return b ? "☒" : "☐"; }
+
+  function getChangeFieldData(form) {
+    const get = label => {
+      const index = CHANGE_FIELD_INDEX[label];
+      return index === undefined ? '' : (form.elements[`current_${index}`]?.value || '');
+    };
+    return {
+      crn: get('CRN'),
+      subject_course: get('Subject & Course #'),
+      times: get('Time(s)'),
+      days: get('Day(s)'),
+      short_dates: get('Short Term Dates'),
+      weeks: get('# of Weeks'),
+      units: get('Units'),
+      capacity: get('Capacity'),
+      building: get('Building(s)'),
+      room: get('Room(s)'),
+      instructor_full: get('Instructor Full Name'),
+      banner_id: get('Banner ID'),
+      split_instructor: get('Split Load Instructor'),
+      split_banner_id: get('Split Load Banner ID')
+    };
+  }
 
   function scfGetMergeData(shadow){
     const form = shadow.getElementById('scf');
@@ -357,6 +378,7 @@
     };
 
     return {
+      ...getChangeFieldData(form),
       year: data.year || "",
       date_sent: data.date_sent || "",
       date_processed: data.date_processed || "",
@@ -390,8 +412,10 @@ async function scfExportDocx(shadow){
   // 1) Where your template lives (keep relative if deploying under a subpath)
   const TEMPLATE_URL = window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_CRN_ONLY_v2.docx';
 
-  // 2) Tags we expect in the template (the tagged DOCX I gave you uses exactly these)
+  // 2) Tags expected in the template
   const EXPECTED_TAGS = [
+    'crn','subject_course','times','days','short_dates','weeks','units','capacity',
+    'building','room','instructor_full','banner_id','split_instructor','split_banner_id',
     'year','date_sent','date_processed','division_chair','area_dean',
     'term_spring','term_summer','term_fall',
     'campus_visalia','campus_tulare','campus_hanford','campus_online','campus_offcampus',
@@ -420,6 +444,7 @@ async function scfExportDocx(shadow){
     const doc = new window.docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
+      delimiters: { start: '{{', end: '}}' },
       nullGetter: (part) => {
         // part = { tag, scopePath, filePath, ... }
         console.warn('[SCF] Missing tag in data (rendering empty):', part.tag);
@@ -463,28 +488,92 @@ async function scfExportDocx(shadow){
     );
   }
 }
-  function formToJSON(form){
-    const data = new FormData(form);
-    const obj = {};
-    for(const [k,v] of data.entries()){
-      if(obj[k]!==undefined){ Array.isArray(obj[k]) ? obj[k].push(v) : obj[k]=[obj[k],v]; }
-      else obj[k]=v;
-    }
-    [...form.querySelectorAll('input[type="checkbox"][name^="done_"]')].forEach(cb=>{
-      if(!(cb.name in obj)) obj[cb.name]=false;
-    });
-    return obj;
+
+function getCheckedValues(form, name) {
+  return [...form.querySelectorAll(`[name="${name}"]:checked`)].map(input => input.value).join(', ');
+}
+
+function addPdfLine(pdf, label, value, x, y, maxWidth) {
+  const text = `${label}: ${value || ''}`;
+  const lines = pdf.splitTextToSize(text, maxWidth);
+  pdf.text(lines, x, y);
+  return y + (lines.length * 14);
+}
+
+function scfExportPdf(shadow) {
+  const JsPDF = window.jspdf?.jsPDF;
+  if (!JsPDF) {
+    alert('PDF export is unavailable. Confirm jsPDF is loaded.');
+    return;
   }
-  function jsonToForm(form,json){
-    for(const el of form.elements){
-      if(!el.name) continue;
-      if(el.type==='checkbox' || el.type==='radio'){
-        const v=json[el.name];
-        if(Array.isArray(v)) el.checked=v.includes(el.value);
-        else if(typeof v!=='undefined') el.checked=(v===true||v===el.value);
-      } else if(typeof json[el.name] !== 'undefined'){ el.value=json[el.name]; }
-    }
-  }
+
+  const form = shadow.getElementById('scf');
+  const fd = new FormData(form);
+  const changes = getChangeFieldData(form);
+  const pdf = new JsPDF({ unit: 'pt', format: 'letter' });
+  const margin = 42;
+  const maxWidth = 528;
+  let y = margin;
+
+  const ensureSpace = needed => {
+    if (y + needed <= 750) return;
+    pdf.addPage();
+    y = margin;
+  };
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(16);
+  pdf.text('Change of Schedule Form', margin, y);
+  y += 24;
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  y = addPdfLine(pdf, 'Year', fd.get('year'), margin, y, maxWidth);
+  y = addPdfLine(pdf, 'Term', getCheckedValues(form, 'term'), margin, y, maxWidth);
+  y = addPdfLine(pdf, 'Campus', getCheckedValues(form, 'campus'), margin, y, maxWidth);
+  y = addPdfLine(pdf, 'Action', getCheckedValues(form, 'action'), margin, y, maxWidth);
+  y = addPdfLine(pdf, 'Visible in Class Search', getCheckedValues(form, 'visible'), margin, y, maxWidth);
+  y += 10;
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('Section Details', margin, y);
+  y += 16;
+  pdf.setFont('helvetica', 'normal');
+
+  Object.entries({
+    CRN: changes.crn,
+    'Subject & Course #': changes.subject_course,
+    'Time(s)': changes.times,
+    'Day(s)': changes.days,
+    'Short Term Dates': changes.short_dates,
+    '# of Weeks': changes.weeks,
+    Units: changes.units,
+    Capacity: changes.capacity,
+    'Building(s)': changes.building,
+    'Room(s)': changes.room,
+    'Instructor Full Name': changes.instructor_full,
+    'Banner ID': changes.banner_id,
+    'Split Load Instructor': changes.split_instructor,
+    'Split Load Banner ID': changes.split_banner_id
+  }).forEach(([label, value]) => {
+    ensureSpace(18);
+    y = addPdfLine(pdf, label, value, margin, y, maxWidth);
+  });
+
+  y += 10;
+  ensureSpace(90);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('Approval', margin, y);
+  y += 16;
+  pdf.setFont('helvetica', 'normal');
+  y = addPdfLine(pdf, 'Date sent to Scheduler', fd.get('date_sent'), margin, y, maxWidth);
+  y = addPdfLine(pdf, 'Division Chair', fd.get('division_chair'), margin, y, maxWidth);
+  y = addPdfLine(pdf, 'Area Dean', fd.get('area_dean'), margin, y, maxWidth);
+  y = addPdfLine(pdf, 'Notes / Additional Calculations', fd.get('notes'), margin, y, maxWidth);
+
+  const filename = `Change_of_Schedule_${changes.crn || fd.get('year') || 'form'}.pdf`;
+  pdf.save(filename);
+}
 
   function extractField(row, keys) {
     for (const key of keys) {
@@ -618,7 +707,6 @@ async function scfExportDocx(shadow){
 
     setChecked(form, 'term', getTermSeason(getCurrentTerm?.()));
     setChecked(form, 'campus', getCampusValue(row));
-    preserveForm(form);
 
     status.textContent = `Autofilled ${getCourseValue(row) || 'section'} from CRN ${extractField(row, ['CRN'])}.`;
     status.className = 'status ok';
@@ -657,15 +745,13 @@ function buildRows(tbody){
   });
 }
 
-  function preserveForm(form){ localStorage.setItem(STORAGE_KEY, JSON.stringify(formToJSON(form))); }
-
   function attachBehavior(shadow, opts){
     const openBtn = shadow.getElementById('openBtn');
     const modal = shadow.getElementById('scfModal');
     const closeBtn = shadow.getElementById('closeBtn');
     const closeBtn2 = shadow.getElementById('closeBtn2');
     const printBtn = shadow.getElementById('printBtn');
-    const saveBtn = shadow.getElementById('saveBtn');
+    const exportPdfBtn = shadow.getElementById('exportPdfBtn');
     const clearBtn = shadow.getElementById('clearBtn');
     const exportDocxBtn = shadow.getElementById('exportDocxBtn');
     const lookupBtn = shadow.getElementById('lookupBtn');
@@ -679,22 +765,25 @@ function buildRows(tbody){
 
     buildRows(tbody);
 
-    function preserve(){ preserveForm(form); }
-    function restore(){
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if(!raw) return;
-      try{ jsonToForm(form, JSON.parse(raw)); }catch(e){ console.warn('[SCF] restore failed', e); }
+    function resetFormState() {
+      form.reset();
+      if (crnLookup) crnLookup.value = '';
+      if (lookupStatus) {
+        lookupStatus.textContent = '';
+        lookupStatus.className = 'status';
+      }
     }
 
     function open(){
+      resetFormState();
       modal.classList.add('open');
       openBtn.setAttribute('aria-expanded','true');
-      restore();
       populateCrnOptions(crnOptions, getScheduleData);
       setTimeout(()=>crnLookup?.focus(), 50);
       focusTrap(modal, crnLookup);
     }
     function close(){
+      resetFormState();
       modal.classList.remove('open');
       openBtn.setAttribute('aria-expanded','false');
       openBtn.focus();
@@ -704,7 +793,6 @@ function buildRows(tbody){
     [closeBtn, closeBtn2].forEach(b=>b.addEventListener('click', close));
     modal.addEventListener('click', (e)=>{ if(e.target===modal) close(); });
 
-    form.addEventListener('input', preserve);
     lookupBtn.addEventListener('click', () => autofillFromCrn(shadow, getScheduleData, getCurrentTerm));
     crnLookup.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
@@ -714,19 +802,11 @@ function buildRows(tbody){
     });
     clearBtn.addEventListener('click', ()=>{
       if(confirm('Clear all fields?')){
-        form.reset();
-        if (lookupStatus) {
-          lookupStatus.textContent = '';
-          lookupStatus.className = 'status';
-        }
-        localStorage.removeItem(STORAGE_KEY);
+        resetFormState();
       }
     });
-    saveBtn.addEventListener('click', ()=>{
-      const blob = new Blob([JSON.stringify(formToJSON(form), null, 2)], {type:'application/json'});
-      const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='schedule-change-form.json'; a.click(); URL.revokeObjectURL(a.href);
-    });
     printBtn.addEventListener('click', ()=>window.print());
+    if (exportPdfBtn) exportPdfBtn.addEventListener('click', ()=>scfExportPdf(shadow));
     if (exportDocxBtn) exportDocxBtn.addEventListener('click', ()=>scfExportDocx(shadow));
 
     // expose for debugging if needed
