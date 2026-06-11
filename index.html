@@ -155,7 +155,77 @@
       <button id="utilization-clear-btn" type="button">Clear</button>
     </div>
     <div class="utilization-note">
-      Scores weight room usage between 9:00 AM and 3:00 PM more heavily, then adjust expectations by room type and capacity.
+      Scores weight room usage between 9:00 AM and 3:00 PM more heavily, then adjust expectations by room type and capacity. VISFSC rooms are excluded from this view.
+    </div>
+    <div class="utilization-explainer">
+      <h3>Calculation and Designation Guide</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Element</th>
+            <th>How It Is Calculated</th>
+            <th>Why It Matters</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Weighted hours</td>
+            <td>Each scheduled room hour counts once; minutes between 9:00 AM and 3:00 PM count 1.5x.</td>
+            <td>Peak-demand usage carries more weight than early morning, late afternoon, or evening usage.</td>
+          </tr>
+          <tr>
+            <td>Expected use</td>
+            <td>A weekly target is adjusted by room type: general classrooms highest, labs/computer labs moderate, meeting/study/exercise lower.</td>
+            <td>Specialized spaces should not be judged against the same regular-use target as general classrooms.</td>
+          </tr>
+          <tr>
+            <td>Capacity adjustment</td>
+            <td>Rooms under 20, 30, and 40 seats receive lower expected-use factors.</td>
+            <td>Small rooms are not expected to carry as much routine scheduling as larger rooms.</td>
+          </tr>
+          <tr>
+            <td>Score</td>
+            <td>Weighted scheduled minutes divided by expected weighted minutes.</td>
+            <td>A score near 1.00 means the room is being used near its adjusted expectation.</td>
+          </tr>
+        </tbody>
+      </table>
+      <table>
+        <thead>
+          <tr>
+            <th>Designation</th>
+            <th>Score / Condition</th>
+            <th>Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Very Efficient</td>
+            <td>Score 1.10 or higher</td>
+            <td>Strong use relative to the adjusted target, especially valuable when peak-hour use is present.</td>
+          </tr>
+          <tr>
+            <td>Efficient</td>
+            <td>Score 0.75 to 1.09</td>
+            <td>Healthy use close to the expected range for that room type and capacity.</td>
+          </tr>
+          <tr>
+            <td>Moderately Utilized</td>
+            <td>Score 0.45 to 0.74</td>
+            <td>Some use, but below the preferred range for regular scheduling.</td>
+          </tr>
+          <tr>
+            <td>Under Utilized</td>
+            <td>Score below 0.45</td>
+            <td>Low use compared with the adjusted expectation.</td>
+          </tr>
+          <tr>
+            <td>Small Room Caution</td>
+            <td>Capacity below 20 and 12+ weekly scheduled hours</td>
+            <td>The room is being used regularly, but its size may limit its scheduling value.</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
     <div id="utilization-summary" class="utilization-summary"></div>
     <div id="utilization-map" class="utilization-map"></div>

@@ -381,6 +381,40 @@ button:hover,
   font-size: 0.92rem;
 }
 
+.utilization-explainer {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.utilization-explainer h3 {
+  margin: 0 0 0.75rem;
+  color: var(--brand);
+  font-size: 1rem;
+}
+
+.utilization-explainer table {
+  width: 100%;
+  margin-top: 0.75rem;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.utilization-explainer th,
+.utilization-explainer td {
+  padding: 0.55rem;
+  border: 1px solid rgba(32, 66, 96, 0.14);
+  text-align: left;
+  vertical-align: top;
+}
+
+.utilization-explainer th {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+}
+
 .utilization-summary {
   display: flex;
   flex-wrap: wrap;

@@ -977,7 +977,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function initUtilizationFilters() {
     if (!utilizationCampusSelect || !utilizationTypeSelect) return;
-    const rooms = getRoomCatalogEntries();
+    const rooms = getRoomCatalogEntries().filter(room => !isExcludedUtilizationRoom(room));
     const campuses = [...new Set(rooms.map(room => room.campus).filter(Boolean))].sort();
     const types = [...new Set(rooms.map(room => room.type).filter(Boolean))].sort();
     const campusValue = utilizationCampusSelect.value;
@@ -1009,44 +1009,42 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return { factor: 1, label: 'Standard capacity' };
   }
 
+  function isExcludedUtilizationRoom(room) {
+    return String(room?.building || '').trim().toUpperCase() === 'VISFSC' ||
+      String(room?.buildingRoom || '').trim().toUpperCase().startsWith('VISFSC-');
+  }
+
   function getUtilizationStatus(room) {
-    if (room.capacity != null && room.capacity < 20 && room.totalHours >= 12) {
-      return {
-        label: 'High use, low capacity',
-        color: '#f59e0b',
-        reason: 'This room is used often, but its capacity is low enough that it may not be the best regular-use option.'
-      };
-    }
     if (room.score < 0.45) {
       return {
-        label: 'Underused',
+        label: 'Under Utilized',
         color: '#2563eb',
         reason: 'Low weighted use compared with the expected use for this room type and capacity.'
       };
     }
-    if (room.score > 1.25) {
+    if (room.score < 0.75) {
       return {
-        label: 'Overloaded',
-        color: '#dc2626',
-        reason: 'Heavy weighted use, especially during high-demand hours.'
+        label: 'Moderately Utilized',
+        color: '#7c3aed',
+        reason: 'Some use is present, but the room is below the preferred adjusted utilization range.'
       };
     }
-    if (room.peakShare < 0.25 && room.totalHours >= 10) {
+    if (room.score >= 1.1) {
       return {
-        label: 'Off-peak heavy',
-        color: '#7c3aed',
-        reason: 'The room has usage, but relatively little of it occurs during the 9:00 AM-3:00 PM demand window.'
+        label: 'Very Efficient',
+        color: '#059669',
+        reason: 'Strong use relative to the adjusted target for this room type and capacity.'
       };
     }
     return {
       label: 'Efficient',
-      color: '#059669',
+      color: '#0d9488',
       reason: 'Weighted use is aligned with expectations for the room type and capacity.'
     };
   }
 
   function calculateRoomUtilization() {
-    const rooms = getRoomCatalogEntries().map(room => ({
+    const rooms = getRoomCatalogEntries().filter(room => !isExcludedUtilizationRoom(room)).map(room => ({
       ...room,
       sections: 0,
       totalMinutes: 0,
@@ -1057,6 +1055,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     currentData.forEach(section => {
       if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return;
       const key = getRoomKey(section);
+      if (String(key || '').toUpperCase().startsWith('VISFSC-')) return;
       if (!roomMap.has(key)) {
         const fallback = { buildingRoom: key, campus: '', building: section.Building || '', room: section.Room || '', type: '', capacity: null, sections: 0, totalMinutes: 0, peakMinutes: 0, weightedMinutes: 0 };
         roomMap.set(key, fallback);
@@ -1086,8 +1085,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const score = room.weightedMinutes / expectedWeightedMinutes;
         const totalHours = room.totalMinutes / 60;
         const peakHours = room.peakMinutes / 60;
+        const weightedHours = room.weightedMinutes / 60;
+        const expectedWeightedHours = expectedWeightedMinutes / 60;
         const peakShare = room.totalMinutes ? room.peakMinutes / room.totalMinutes : 0;
-        const enriched = { ...room, score, totalHours, peakHours, peakShare, target, capacityLabel: capacity.label };
+        const smallRoomCaution = room.capacity != null && room.capacity < 20 && totalHours >= 12;
+        const enriched = { ...room, score, totalHours, peakHours, weightedHours, expectedWeightedHours, peakShare, target, capacityLabel: capacity.label, smallRoomCaution };
         return { ...enriched, status: getUtilizationStatus(enriched) };
       })
       .sort((a, b) => b.score - a.score || a.buildingRoom.localeCompare(b.buildingRoom, undefined, { numeric: true }));
@@ -1107,10 +1109,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     utilizationSummary.replaceChildren();
     [
       `Rooms: ${rooms.length}`,
+      `Very Efficient: ${counts['Very Efficient'] || 0}`,
       `Efficient: ${counts.Efficient || 0}`,
-      `Underused: ${counts.Underused || 0}`,
-      `Overloaded: ${counts.Overloaded || 0}`,
-      `Small/high use: ${counts['High use, low capacity'] || 0}`
+      `Moderately Utilized: ${counts['Moderately Utilized'] || 0}`,
+      `Under Utilized: ${counts['Under Utilized'] || 0}`,
+      `Small-room cautions: ${rooms.filter(room => room.smallRoomCaution).length}`
     ].forEach(text => {
       const pill = document.createElement('div');
       pill.className = 'utilization-pill';
@@ -1137,9 +1140,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         ['Score', room.score.toFixed(2)],
         ['Weekly hours', room.totalHours.toFixed(1)],
         ['Peak hours', room.peakHours.toFixed(1)],
+        ['Weighted hours', room.weightedHours.toFixed(1)],
+        ['Expected weighted', room.expectedWeightedHours.toFixed(1)],
         ['Peak share', `${Math.round(room.peakShare * 100)}%`],
         ['Capacity', room.capacity == null ? 'N/A' : room.capacity],
-        ['Type', room.type || 'N/A']
+        ['Type', room.type || 'N/A'],
+        ['Caution', room.smallRoomCaution ? 'Small room with regular use' : 'None']
       ].forEach(([label, value]) => {
         const dt = document.createElement('dt');
         dt.textContent = label;
@@ -1149,7 +1155,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       });
       const reason = document.createElement('p');
       reason.className = 'reason';
-      reason.textContent = `${room.status.reason} ${room.capacityLabel}.`;
+      reason.textContent = `${room.status.reason} ${room.capacityLabel}.${room.smallRoomCaution ? ' Small room caution applies because capacity is below 20 and weekly scheduled use is 12+ hours.' : ''}`;
       card.append(title, badge, details, reason);
       utilizationMap.appendChild(card);
     });
