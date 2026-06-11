@@ -63,6 +63,12 @@
     .muted{ color:#6b7280; font-size:.85rem }
     .badge{ display:inline-flex; align-items:center; gap:.4rem; background:#eef2ff; color:#243bff; padding:.25rem .5rem; border-radius:.5rem; border:1px solid #d7ddff; font-size:.75rem }
     .note{ background:#fffbe6; border:1px dashed #f2d024; border-radius:.5rem; padding:.5rem .6rem; font-size:.85rem }
+    .lookup-panel{ background:linear-gradient(135deg,#eef9ff,#effff9); border:1px solid #d7e8f4; border-radius:.75rem; padding:.85rem; }
+    .lookup-actions{ display:flex; gap:.5rem; align-items:end; flex-wrap:wrap }
+    .lookup-actions .field{ min-width:190px }
+    .status{ font-size:.85rem; color:#4b5563; min-height:1.2rem }
+    .status.ok{ color:#047857 }
+    .status.err{ color:#b91c1c }
 
     @media print{
       .modal{ all:unset }
@@ -89,6 +95,19 @@
         </header>
         <main>
           <form id="scf">
+            <div class="section lookup-panel">
+              <h3>Autofill From Schedule</h3>
+              <div class="lookup-actions">
+                <div class="field">
+                  <label for="crnLookup">CRN</label>
+                  <input id="crnLookup" type="text" inputmode="numeric" placeholder="Enter CRN" list="crnOptions" />
+                  <datalist id="crnOptions"></datalist>
+                </div>
+                <button id="lookupBtn" class="btn" type="button">Autofill</button>
+                <div id="lookupStatus" class="status" aria-live="polite"></div>
+              </div>
+            </div>
+
             <div class="section">
               <div class="row">
                 <div class="field" style="grid-column: span 3;">
@@ -312,6 +331,11 @@
     'Building(s)','Room(s)','Instructor Full Name','Banner ID','Split Load Instructor','Split Load Banner ID'
   ];
 
+  const CHANGE_FIELD_INDEX = CHANGE_FIELDS.reduce((acc, label, index) => {
+    acc[label] = index;
+    return acc;
+  }, {});
+
   const STORAGE_KEY = 'cos_schedule_change_form_v1';
 
   // ===== DOCX EXPORT (DocxTemplater) =====
@@ -462,6 +486,144 @@ async function scfExportDocx(shadow){
     }
   }
 
+  function extractField(row, keys) {
+    for (const key of keys) {
+      const candidates = [
+        key,
+        key.toLowerCase(),
+        key.toUpperCase(),
+        key.replace(/\s+/g, '_'),
+        key.replace(/\s+/g, '_').toLowerCase(),
+        key.replace(/\s+/g, '_').toUpperCase()
+      ];
+      for (const candidate of candidates) {
+        const value = row?.[candidate];
+        if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+      }
+    }
+    return '';
+  }
+
+  function setFieldValue(form, label, value) {
+    const index = CHANGE_FIELD_INDEX[label];
+    if (index === undefined) return;
+    const input = form.elements[`current_${index}`];
+    if (input) input.value = value || '';
+  }
+
+  function setChecked(form, name, values) {
+    const wanted = new Set((Array.isArray(values) ? values : [values]).filter(Boolean));
+    [...form.querySelectorAll(`[name="${name}"]`)].forEach(input => {
+      input.checked = wanted.has(input.value);
+    });
+  }
+
+  function normalizeDayList(days) {
+    if (Array.isArray(days)) return days.filter(Boolean);
+    const daysMap = { U:'Sunday', M:'Monday', T:'Tuesday', W:'Wednesday', R:'Thursday', F:'Friday', S:'Saturday' };
+    return String(days || '').split('').map(day => daysMap[day] || day).filter(Boolean);
+  }
+
+  function getCourseValue(row) {
+    const subjectCourse = extractField(row, ['Subject_Course', 'Subject Course', 'Course']);
+    if (subjectCourse) return subjectCourse;
+    return [extractField(row, ['Subject', 'SUBJ']), extractField(row, ['Course Number', 'Course_Num', 'COURSE'])]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  function getTimeValue(row) {
+    const time = extractField(row, ['Time', 'Meeting Time']);
+    if (time) return time;
+    const start = extractField(row, ['Start_Time', 'Start Time']);
+    const end = extractField(row, ['End_Time', 'End Time']);
+    return [start, end].filter(Boolean).join(' - ');
+  }
+
+  function getDateRangeValue(row) {
+    const start = extractField(row, ['Start_Date', 'Start Date', 'Start']);
+    const end = extractField(row, ['End_Date', 'End Date', 'End']);
+    return [start, end].filter(Boolean).join(' - ');
+  }
+
+  function getTermSeason(term) {
+    return ['Spring', 'Summer', 'Fall'].find(season => String(term || '').includes(season)) || '';
+  }
+
+  function getCampusValue(row) {
+    const campus = extractField(row, ['Campus']);
+    const building = extractField(row, ['Building']);
+    if (/tulare|tcc/i.test(campus) || /^TCC/i.test(building)) return 'Tulare';
+    if (/hanford/i.test(campus) || /^HAN/i.test(building)) return 'Hanford';
+    if (/online/i.test(campus) || /^ONLINE/i.test(building)) return 'Online';
+    if (/off/i.test(campus)) return 'Off-Campus';
+    return campus ? 'Visalia' : '';
+  }
+
+  function getRoomCapacityValue(row) {
+    const sectionCapacity = extractField(row, ['Capacity', 'Max Enrollment', 'Enrollment Max', 'Cap']);
+    if (sectionCapacity) return sectionCapacity;
+    const building = extractField(row, ['Building']);
+    const room = extractField(row, ['Room']);
+    const roomMeta = (window.ROOM_CATALOG || []).find(item =>
+      String(item.building || '').trim() === building &&
+      String(item.room || '').trim() === room
+    );
+    return roomMeta?.capacity == null ? '' : String(roomMeta.capacity);
+  }
+
+  function findScheduleRowByCrn(getScheduleData, crn) {
+    const normalized = String(crn || '').trim();
+    if (!normalized) return null;
+    return (getScheduleData?.() || []).find(row => extractField(row, ['CRN']) === normalized) || null;
+  }
+
+  function populateCrnOptions(datalist, getScheduleData) {
+    if (!datalist) return;
+    const crns = [...new Set((getScheduleData?.() || [])
+      .map(row => extractField(row, ['CRN']))
+      .filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    datalist.replaceChildren();
+    crns.forEach(crn => datalist.appendChild(new Option(crn, crn)));
+  }
+
+  function autofillFromCrn(shadow, getScheduleData, getCurrentTerm) {
+    const form = shadow.getElementById('scf');
+    const crnInput = shadow.getElementById('crnLookup');
+    const status = shadow.getElementById('lookupStatus');
+    const row = findScheduleRowByCrn(getScheduleData, crnInput?.value);
+    if (!row) {
+      status.textContent = crnInput?.value ? `No loaded section found for CRN ${crnInput.value}.` : 'Enter a CRN to autofill.';
+      status.className = 'status err';
+      return;
+    }
+
+    const building = extractField(row, ['Building']);
+    const room = extractField(row, ['Room']);
+    const instructor = extractField(row, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty']);
+
+    setFieldValue(form, 'CRN', extractField(row, ['CRN']));
+    setFieldValue(form, 'Subject & Course #', getCourseValue(row));
+    setFieldValue(form, 'Time(s)', getTimeValue(row));
+    setFieldValue(form, 'Day(s)', normalizeDayList(row.Days || extractField(row, ['DAYS', 'Days'])).join(', '));
+    setFieldValue(form, 'Short Term Dates', getDateRangeValue(row));
+    setFieldValue(form, '# of Weeks', extractField(row, ['Weeks', '# of Weeks', 'Number of Weeks']));
+    setFieldValue(form, 'Units', extractField(row, ['Units', 'Credit Hours', 'Credits']));
+    setFieldValue(form, 'Capacity', getRoomCapacityValue(row));
+    setFieldValue(form, 'Building(s)', building);
+    setFieldValue(form, 'Room(s)', room);
+    setFieldValue(form, 'Instructor Full Name', instructor);
+    setFieldValue(form, 'Banner ID', extractField(row, ['Banner ID', 'Banner_ID', 'Instructor ID']));
+
+    setChecked(form, 'term', getTermSeason(getCurrentTerm?.()));
+    setChecked(form, 'campus', getCampusValue(row));
+    preserveForm(form);
+
+    status.textContent = `Autofilled ${getCourseValue(row) || 'section'} from CRN ${extractField(row, ['CRN'])}.`;
+    status.className = 'status ok';
+  }
+
   function focusTrap(modal, firstEl){
     function onKey(e){
       if(e.key==='Escape'){ modal.classList.remove('open'); }
@@ -495,7 +657,9 @@ function buildRows(tbody){
   });
 }
 
-  function attachBehavior(shadow, theme){
+  function preserveForm(form){ localStorage.setItem(STORAGE_KEY, JSON.stringify(formToJSON(form))); }
+
+  function attachBehavior(shadow, opts){
     const openBtn = shadow.getElementById('openBtn');
     const modal = shadow.getElementById('scfModal');
     const closeBtn = shadow.getElementById('closeBtn');
@@ -504,12 +668,18 @@ function buildRows(tbody){
     const saveBtn = shadow.getElementById('saveBtn');
     const clearBtn = shadow.getElementById('clearBtn');
     const exportDocxBtn = shadow.getElementById('exportDocxBtn');
+    const lookupBtn = shadow.getElementById('lookupBtn');
+    const crnLookup = shadow.getElementById('crnLookup');
+    const crnOptions = shadow.getElementById('crnOptions');
+    const lookupStatus = shadow.getElementById('lookupStatus');
     const form = shadow.getElementById('scf');
     const tbody = shadow.getElementById('rows');
+    const getScheduleData = opts?.getScheduleData || (() => []);
+    const getCurrentTerm = opts?.getCurrentTerm || (() => '');
 
     buildRows(tbody);
 
-    function preserve(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(formToJSON(form))); }
+    function preserve(){ preserveForm(form); }
     function restore(){
       const raw = localStorage.getItem(STORAGE_KEY);
       if(!raw) return;
@@ -520,8 +690,9 @@ function buildRows(tbody){
       modal.classList.add('open');
       openBtn.setAttribute('aria-expanded','true');
       restore();
-      setTimeout(()=>shadow.getElementById('year')?.focus(), 50);
-      focusTrap(modal, shadow.getElementById('year'));
+      populateCrnOptions(crnOptions, getScheduleData);
+      setTimeout(()=>crnLookup?.focus(), 50);
+      focusTrap(modal, crnLookup);
     }
     function close(){
       modal.classList.remove('open');
@@ -534,7 +705,23 @@ function buildRows(tbody){
     modal.addEventListener('click', (e)=>{ if(e.target===modal) close(); });
 
     form.addEventListener('input', preserve);
-    clearBtn.addEventListener('click', ()=>{ if(confirm('Clear all fields?')){ form.reset(); localStorage.removeItem(STORAGE_KEY); }});
+    lookupBtn.addEventListener('click', () => autofillFromCrn(shadow, getScheduleData, getCurrentTerm));
+    crnLookup.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        autofillFromCrn(shadow, getScheduleData, getCurrentTerm);
+      }
+    });
+    clearBtn.addEventListener('click', ()=>{
+      if(confirm('Clear all fields?')){
+        form.reset();
+        if (lookupStatus) {
+          lookupStatus.textContent = '';
+          lookupStatus.className = 'status';
+        }
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    });
     saveBtn.addEventListener('click', ()=>{
       const blob = new Blob([JSON.stringify(formToJSON(form), null, 2)], {type:'application/json'});
       const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='schedule-change-form.json'; a.click(); URL.revokeObjectURL(a.href);
@@ -568,14 +755,14 @@ function buildRows(tbody){
     shadow.appendChild(wrap);
 
     mountEl.appendChild(host);
-    attachBehavior(shadow, theme);
+    attachBehavior(shadow, opts);
   }
 
   window.ScheduleChangeForm = {
-    init({ mount, buttonText, theme } = {}){
+    init({ mount, buttonText, theme, getScheduleData, getCurrentTerm } = {}){
       const el = (typeof mount === 'string') ? document.querySelector(mount) : mount;
       if(!el){ console.error('[SCF] mount not found:', mount); return; }
-      makeComponent(el, { buttonText, theme });
+      makeComponent(el, { buttonText, theme, getScheduleData, getCurrentTerm });
     }
   };
 })();

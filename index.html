@@ -187,6 +187,8 @@
         window.ScheduleChangeForm.init({
           mount: spacer,
           buttonText: 'Schedule Change Form',
+          getScheduleData: () => window.COSScheduleApp?.getCurrentData?.() || [],
+          getCurrentTerm: () => window.COSScheduleApp?.getCurrentTerm?.() || '',
           theme: {
             btnBg: 'linear-gradient(135deg, #003366, #0077a8)',
             btnHoverBg: 'linear-gradient(135deg, #004b8d, #00a884)',

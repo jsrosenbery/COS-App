@@ -256,6 +256,7 @@ function normalizeRow(r) {
   }
 
   return {
+    ...r,
     Subject_Course: r.Subject_Course || "",
     CRN: r.CRN || "",
     Title: r.Title || "",
@@ -330,6 +331,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeatmap();
   initLineChartChoices();
   initAvailabilityAttributeFilters();
+
+  window.COSScheduleApp = {
+    getCurrentData: () => currentData,
+    getCurrentTerm: () => currentTerm
+  };
 
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-campus-select').addEventListener('change', updateAllHeatmap);
