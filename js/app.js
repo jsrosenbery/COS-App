@@ -992,6 +992,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return Math.max(0, Math.min(endMin, windowEnd) - Math.max(startMin, windowStart));
   }
 
+  function isUtilizationPeakDay(day) {
+    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday'].includes(day);
+  }
+
   function getRoomTypeTarget(type) {
     const normalized = String(type || '').toLowerCase();
     if (normalized.includes('meeting') || normalized.includes('study')) return 0.25;
@@ -1068,14 +1072,17 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (!days.length || !Number.isFinite(startMin) || !Number.isFinite(endMin) || endMin <= startMin) return;
       const dailyMinutes = endMin - startMin;
       const peakMinutes = overlapMinutes(startMin, endMin, 9 * 60, 15 * 60);
-      const offPeakMinutes = dailyMinutes - peakMinutes;
       room.sections += 1;
-      room.totalMinutes += dailyMinutes * days.length;
-      room.peakMinutes += peakMinutes * days.length;
-      room.weightedMinutes += ((peakMinutes * 1.5) + offPeakMinutes) * days.length;
+      days.forEach(day => {
+        const peakCreditMinutes = isUtilizationPeakDay(day) ? peakMinutes : 0;
+        const offPeakMinutes = dailyMinutes - peakCreditMinutes;
+        room.totalMinutes += dailyMinutes;
+        room.peakMinutes += peakCreditMinutes;
+        room.weightedMinutes += (peakCreditMinutes * 1.5) + offPeakMinutes;
+      });
     });
 
-    const weeklyWeightedAvailable = (5 * ((6 * 60 * 1.5) + (3 * 60)));
+    const weeklyWeightedAvailable = (4 * ((6 * 60 * 1.5) + (3 * 60))) + (9 * 60);
     return rooms
       .filter(room => room.buildingRoom && room.buildingRoom !== 'undefined-undefined')
       .map(room => {
