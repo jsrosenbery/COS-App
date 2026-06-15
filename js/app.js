@@ -11,6 +11,7 @@ let lineChartInstance;
 let fullCalendarInstance;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const ROOM_CATALOG_BACKUP_KEY = 'cos-room-catalog-backup-v1';
 
 // --- Official Term Start Dates ---
 const termStartDates = {
@@ -291,6 +292,30 @@ let roomCatalogByKey = new Map(roomCatalog.map(room => [room.buildingRoom, room]
 function setRoomCatalog(rawRooms) {
   roomCatalog = normalizeRoomCatalog(rawRooms);
   roomCatalogByKey = new Map(roomCatalog.map(room => [room.buildingRoom, room]));
+}
+
+function saveRoomCatalogBackup(rawRooms, lastUpdated = null) {
+  const rooms = normalizeRoomCatalog(rawRooms);
+  if (!rooms.length) return;
+  try {
+    localStorage.setItem(ROOM_CATALOG_BACKUP_KEY, JSON.stringify({
+      lastUpdated: lastUpdated || new Date().toISOString(),
+      data: rooms
+    }));
+  } catch (err) {
+    console.warn('Room catalog browser backup failed:', err);
+  }
+}
+
+function readRoomCatalogBackup() {
+  try {
+    const payload = JSON.parse(localStorage.getItem(ROOM_CATALOG_BACKUP_KEY) || 'null');
+    const rooms = normalizeRoomCatalog(payload?.data || []);
+    return rooms.length ? { data: rooms, lastUpdated: payload.lastUpdated || null } : null;
+  } catch (err) {
+    console.warn('Room catalog browser backup read failed:', err);
+    return null;
+  }
 }
 
 function getRoomCatalogEntries() {
@@ -641,10 +666,30 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       })
       .then(({ data, lastUpdated }) => {
         const backendRooms = normalizeRoomCatalog(data);
-        setRoomCatalog(backendRooms.length ? backendRooms : (window.ROOM_CATALOG || []));
+        if (backendRooms.length) {
+          setRoomCatalog(backendRooms);
+          saveRoomCatalogBackup(backendRooms, lastUpdated);
+          refreshRoomCatalogViews(lastUpdated);
+          return;
+        }
+        const backup = readRoomCatalogBackup();
+        if (backup) {
+          setRoomCatalog(backup.data);
+          refreshRoomCatalogViews(backup.lastUpdated);
+          setRoomCatalogStatus(`${roomCatalog.length} rooms loaded from this browser's saved copy. Re-import to restore the backend catalog.`, true);
+          return;
+        }
+        setRoomCatalog(window.ROOM_CATALOG || []);
         refreshRoomCatalogViews(lastUpdated);
       })
       .catch(err => {
+        const backup = readRoomCatalogBackup();
+        if (backup) {
+          setRoomCatalog(backup.data);
+          refreshRoomCatalogViews(backup.lastUpdated);
+          setRoomCatalogStatus(`Using this browser's saved room catalog because backend fetch failed. ${err.message}`, true);
+          return;
+        }
         setRoomCatalog(window.ROOM_CATALOG || []);
         refreshRoomCatalogViews();
         setRoomCatalogStatus(`Using built-in room catalog. ${err.message}`, true);
@@ -977,6 +1022,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (!res.ok) throw new Error(res.status === 403 ? 'Unauthorized' : 'Import failed');
       const payload = await res.json();
       setRoomCatalog(payload.data || rooms);
+      saveRoomCatalogBackup(payload.data || rooms, payload.lastUpdated);
       refreshRoomCatalogViews(payload.lastUpdated);
       alert(`Imported ${payload.count || rooms.length} rooms.`);
     } catch (err) {
