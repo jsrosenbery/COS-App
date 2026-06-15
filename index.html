@@ -53,7 +53,7 @@
       <option value="heatmap">Heatmap</option>
       <option value="utilization">Room Utilization Map</option>
       <option value="modality">Modality Balance</option>
-      <option value="linechart">Line Chart (Course Durations)</option>
+      <option value="linechart">Course Duration Graph</option>
       <option value="fullcalendar">Calendar</option>
     </select>
   </div>
@@ -136,7 +136,13 @@
       <label>Campus:
         <select id="heatmap-campus-select"></select>
       </label>
-      <select id="courseSelect" multiple placeholder="Filter by discipline/course"></select>
+      <label>Division:
+        <select id="heatmap-division-select"></select>
+      </label>
+      <label>Discipline:
+        <select id="heatmap-discipline-select"></select>
+      </label>
+      <select id="courseSelect" multiple placeholder="Filter by course"></select>
       <input type="text" id="textSearch" placeholder="Type to search table…"/>
       <button id="heatmap-clear-btn" type="button">Clear</button>
     </div>
@@ -296,12 +302,18 @@
   </div>
 
   <div id="linechart-tool" style="display:none;">
-    <h2>Course Duration Line Chart</h2>
+    <h2>Course Duration Graph</h2>
     <div id="linechart-controls">
       <label>Campus:
         <select id="linechart-campus-select"></select>
       </label>
-      <select id="lineCourseSelect" multiple placeholder="Filter by discipline/course"></select>
+      <label>Division:
+        <select id="linechart-division-select"></select>
+      </label>
+      <label>Discipline:
+        <select id="linechart-discipline-select"></select>
+      </label>
+      <select id="lineCourseSelect" multiple placeholder="Filter by course"></select>
       <button id="linechart-clear-btn" type="button">Clear</button>
     </div>
     <div id="chart-container">

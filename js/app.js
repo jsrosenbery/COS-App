@@ -515,7 +515,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-campus-select').addEventListener('change', updateAllHeatmap);
+  document.getElementById('heatmap-division-select').addEventListener('change', updateAllHeatmap);
+  document.getElementById('heatmap-discipline-select').addEventListener('change', updateAllHeatmap);
   document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
+  document.getElementById('linechart-division-select').addEventListener('change', renderLineChart);
+  document.getElementById('linechart-discipline-select').addEventListener('change', renderLineChart);
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
   if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
@@ -541,6 +545,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('heatmap-clear-btn').onclick = () => {
     if (hmChoices) hmChoices.removeActiveItems();
+    ['heatmap-campus-select', 'heatmap-division-select', 'heatmap-discipline-select'].forEach(id => {
+      const select = document.getElementById(id);
+      if (select) select.value = '';
+    });
     if (document.getElementById('textSearch')) {
       document.getElementById('textSearch').value = '';
       hmTable.search('').draw();
@@ -548,9 +556,13 @@ document.addEventListener('DOMContentLoaded', () => {
     updateAllHeatmap();
   };
   document.getElementById('linechart-clear-btn').onclick = () => {
-  if (lineCourseChoices) lineCourseChoices.removeActiveItems();
-  renderLineChart();
-};
+    if (lineCourseChoices) lineCourseChoices.removeActiveItems();
+    ['linechart-campus-select', 'linechart-division-select', 'linechart-discipline-select'].forEach(id => {
+      const select = document.getElementById(id);
+      if (select) select.value = '';
+    });
+    renderLineChart();
+  };
 
 // --- Export to PDF ---
 document.getElementById('export-pdf-btn').addEventListener('click', function() {
@@ -1816,7 +1828,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     hmChoices = new Choices('#courseSelect', {
       removeItemButton: true,
       searchEnabled: true,
-      placeholderValue: 'Filter by discipline/course',
+      placeholderValue: 'Filter by course',
       callbackOnCreateTemplates: function(template) {
         return {
           choice: (classNames, data) => {
@@ -1859,7 +1871,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     lineCourseChoices = new Choices('#lineCourseSelect', {
       removeItemButton: true,
       searchEnabled: true,
-      placeholderValue: 'Filter by discipline/course',
+      placeholderValue: 'Filter by course',
       callbackOnCreateTemplates: function(template) {
         return {
           choice: (classNames, data) => {
@@ -1917,7 +1929,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         Start_Date: startDate,
         End_Date: endDate,
         Instructor: instructor,
-        Campus: extractField(r, ['Campus', 'campus', 'CAMPUS'])
+        Campus: extractField(r, ['Campus', 'campus', 'CAMPUS']),
+        Division: getDivision(r),
+        Discipline: getCourseParts(r).discipline
       };
     }).filter(r => {
       // Omit if room is blank, N/A, LIVE, ONLINE
@@ -1934,12 +1948,20 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
 
     const campuses = getUniqueCampuses(hmRaw);
+    const divisions = [...new Set(hmRaw.map(r => r.Division).filter(Boolean))].sort();
+    const disciplines = [...new Set(hmRaw.map(r => r.Discipline).filter(Boolean))].sort();
     const heatmapCampusSelect = document.getElementById('heatmap-campus-select');
+    const heatmapDivisionSelect = document.getElementById('heatmap-division-select');
+    const heatmapDisciplineSelect = document.getElementById('heatmap-discipline-select');
     const linechartCampusSelect = document.getElementById('linechart-campus-select');
-    [heatmapCampusSelect, linechartCampusSelect].forEach(sel => {
-      if (!sel) return;
-      resetSelect(sel, campuses, 'All', '');
-    });
+    const linechartDivisionSelect = document.getElementById('linechart-division-select');
+    const linechartDisciplineSelect = document.getElementById('linechart-discipline-select');
+    if (heatmapCampusSelect) resetSelect(heatmapCampusSelect, campuses, 'All', '');
+    if (linechartCampusSelect) resetSelect(linechartCampusSelect, campuses, 'All', '');
+    if (heatmapDivisionSelect) resetSelect(heatmapDivisionSelect, divisions, 'All', '');
+    if (linechartDivisionSelect) resetSelect(linechartDivisionSelect, divisions, 'All', '');
+    if (heatmapDisciplineSelect) resetSelect(heatmapDisciplineSelect, disciplines, 'All', '');
+    if (linechartDisciplineSelect) resetSelect(linechartDisciplineSelect, disciplines, 'All', '');
 
     // --- CAL-GETC group options at the very bottom (no sorting) ---
     let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
@@ -1979,17 +2001,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     renderLineChart();
   }
 
-  function updateAllHeatmap() {
-    const selectedCampus = document.getElementById('heatmap-campus-select')?.value || '';
-    let filteredCampus = selectedCampus
-      ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
-      : hmRaw;
-
-    const selected = hmChoices.getValue(true);
-
-    // -- CAL-GETC group filtering --
+  function buildCourseFilterSet(selectedCourses) {
     let filterCourseCodes = new Set();
-    selected.forEach(val => {
+    selectedCourses.forEach(val => {
       if (isCALGETCGroup(val)) {
         getCourseCodesFromCALGETC(val).forEach(c => filterCourseCodes.add(c));
       } else {
@@ -2000,21 +2014,44 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         }
       }
     });
+    return filterCourseCodes;
+  }
 
-    const rows = filteredCampus.filter(r => {
-      if(selected.length && !filterCourseCodes.has(window.normalizeCALGETCCode ? window.normalizeCALGETCCode(r.key) : r.key)) return false;
-      if(!isValidRoom(r.Building, r.Room)) return false;
+  function filterAnalysisRows({ campusId, divisionId, disciplineId, courseChoices }) {
+    const selectedCampus = document.getElementById(campusId)?.value || '';
+    const selectedDivision = document.getElementById(divisionId)?.value || '';
+    const selectedDiscipline = document.getElementById(disciplineId)?.value || '';
+    const selectedCourses = courseChoices ? courseChoices.getValue(true) : [];
+    const filterCourseCodes = buildCourseFilterSet(selectedCourses);
+
+    return hmRaw.filter(r => {
+      if (selectedCampus && extractField(r, ['Campus', 'campus', 'CAMPUS']) !== selectedCampus) return false;
+      if (selectedDivision && r.Division !== selectedDivision) return false;
+      if (selectedDiscipline && r.Discipline !== selectedDiscipline) return false;
+      if (selectedCourses.length && !filterCourseCodes.has(window.normalizeCALGETCCode ? window.normalizeCALGETCCode(r.key) : r.key)) return false;
+      if (!isValidRoom(r.Building, r.Room)) return false;
       return true;
+    });
+  }
+
+  function updateAllHeatmap() {
+    const rows = filterAnalysisRows({
+      campusId: 'heatmap-campus-select',
+      divisionId: 'heatmap-division-select',
+      disciplineId: 'heatmap-discipline-select',
+      courseChoices: hmChoices
     }).map(r => [r.key, r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time]);
     hmTable.clear().rows.add(rows).draw();
   }
 
   function updateHeatmap() {
     const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
-    const [minHour, maxHour] = getTimeRangeFromData(filtered.map(row => ({
-      Start_Time: row[4]?.split('-')[0],
-      End_Time: row[4]?.split('-')[1]
-    })));
+    const startHours = filtered
+      .map(row => parseHour(row[4]?.split('-')[0]?.trim()))
+      .filter(hour => Number.isFinite(hour));
+    let minHour = startHours.length ? Math.floor(Math.min(...startHours)) : 6;
+    let maxHour = startHours.length ? Math.ceil(Math.max(...startHours)) + 1 : 22;
+    if (minHour >= maxHour) { minHour = 6; maxHour = 22; }
     const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
     const counts = {};
     hmDays.forEach(d => counts[d] = hours.map(() => 0));
@@ -2028,27 +2065,27 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const startHour = parseHour(st);
       const endHour = parseHour(en);
       if (startHour == null || endHour == null || startHour === endHour) return;
+      const startIndex = hours.indexOf(Math.floor(startHour));
+      if (startIndex < 0) return;
       dayList.forEach(d => {
-        hours.forEach((h, hIndex) => {
-          if (h >= Math.floor(startHour) && h < endHour && counts[d]) counts[d][hIndex]++;
-        });
+        if (counts[d]) counts[d][startIndex]++;
       });
     });
     const maxC = Math.max(...Object.values(counts).flat());
-    let html = '<table class="heatmap" style="border-collapse:collapse; margin-top:20px; width:100%;">';
-    html += '<thead><tr><th style="background:#eee;border:1px solid #ccc;padding:4px;">Day/Time</th>';
+    let html = '<table class="heatmap">';
+    html += '<thead><tr><th>Day/Start Time</th>';
     hours.forEach(h=>{ 
       const ap=h<12?'AM':'PM'; 
       const hh=h%12||12; 
-      html+=`<th style="background:#eee;border:1px solid #ccc;padding:4px;">${hh} ${ap}</th>`; 
+      html+=`<th>${hh} ${ap}</th>`;
     });
     html+='</tr></thead><tbody>';
     hmDays.forEach(d=>{
-      html+=`<tr><th style="background:#eee;border:1px solid #ccc;padding:4px;text-align:left;">${d}</th>`;
+      html+=`<tr><th>${d}</th>`;
       counts[d].forEach(c=>{
         const op=maxC?c/maxC:0;
-        const color = `rgba(255,102,0,${op*0.7+0.02})`;
-        html+=`<td style="border:1px solid #ccc; background:${color}; color:#222; text-align:center;">${c||''}</td>`;
+        const level = op >= 0.8 ? 'high' : op >= 0.45 ? 'medium' : op > 0 ? 'low' : 'empty';
+        html+=`<td class="heatmap-cell heatmap-${level}" style="--heat:${op.toFixed(3)}">${c||''}</td>`;
       });
       html+='</tr>';
     });
@@ -2057,37 +2094,19 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function renderLineChart() {
-    const selectedCampus = document.getElementById('linechart-campus-select')?.value || '';
-    let filteredCampus = selectedCampus
-      ? hmRaw.filter(r => extractField(r, ['Campus', 'campus', 'CAMPUS']) === selectedCampus)
-      : hmRaw;
-
     const chartDiv = document.getElementById('lineChartCanvas');
     if (lineChartInstance) {
       lineChartInstance.destroy();
       lineChartInstance = null;
     }
-    const selectedCourses = lineCourseChoices ? lineCourseChoices.getValue(true) : [];
-
-    // -- CAL-GETC group filtering for line chart --
-    let filterCourseCodes = new Set();
-    selectedCourses.forEach(val => {
-      if (isCALGETCGroup(val)) {
-        getCourseCodesFromCALGETC(val).forEach(c => filterCourseCodes.add(c));
-      } else {
-        if (window.normalizeCALGETCCode) {
-          filterCourseCodes.add(window.normalizeCALGETCCode(val));
-        } else {
-          filterCourseCodes.add(val);
-        }
-      }
-    });
-
-    const filtered = filteredCampus.filter(r => {
-      if(selectedCourses.length && !filterCourseCodes.has(window.normalizeCALGETCCode ? window.normalizeCALGETCCode(r.key) : r.key)) return false;
+    const filtered = filterAnalysisRows({
+      campusId: 'linechart-campus-select',
+      divisionId: 'linechart-division-select',
+      disciplineId: 'linechart-discipline-select',
+      courseChoices: lineCourseChoices
+    }).filter(r => {
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
-      if (!isValidRoom(r.Building, r.Room)) return false;
       return true;
     });
 

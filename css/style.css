@@ -383,6 +383,83 @@ button:hover,
 
 #heatmapContainer {
   min-height: 600px;
+  overflow-x: auto;
+  padding: 0.75rem 0;
+}
+
+.heatmap {
+  width: 100%;
+  min-width: 820px;
+  margin-top: 1rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(16, 32, 51, 0.08);
+}
+
+.heatmap th,
+.heatmap td {
+  padding: 0.65rem 0.55rem;
+  border-right: 1px solid rgba(32, 66, 96, 0.12);
+  border-bottom: 1px solid rgba(32, 66, 96, 0.12);
+  text-align: center;
+}
+
+.heatmap thead th {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  font-size: 0.86rem;
+}
+
+.heatmap tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  color: var(--brand);
+  background: #f8fbff;
+  text-align: left;
+  font-weight: 800;
+}
+
+.heatmap tr:last-child th,
+.heatmap tr:last-child td {
+  border-bottom: 0;
+}
+
+.heatmap th:last-child,
+.heatmap td:last-child {
+  border-right: 0;
+}
+
+.heatmap-cell {
+  color: var(--ink);
+  font-weight: 800;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.heatmap-cell:not(.heatmap-empty):hover {
+  transform: scale(1.04);
+  box-shadow: inset 0 0 0 2px rgba(0, 51, 102, 0.2);
+}
+
+.heatmap-empty {
+  background: #f8fbff;
+}
+
+.heatmap-low {
+  background: rgba(0, 119, 168, calc(0.14 + var(--heat) * 0.22));
+}
+
+.heatmap-medium {
+  background: rgba(245, 158, 11, calc(0.2 + var(--heat) * 0.28));
+}
+
+.heatmap-high {
+  background: rgba(220, 38, 38, calc(0.2 + var(--heat) * 0.35));
+  color: #fff;
 }
 
 #utilization-controls {
