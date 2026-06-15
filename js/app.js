@@ -105,13 +105,30 @@ function getTimeRangeFromData(data) {
   data.forEach(r => {
     const s = parseHour(r.Start_Time);
     const e = parseHour(r.End_Time);
-    if (typeof s === "number" && s < min) min = Math.floor(s);
-    if (typeof e === "number" && e > max) max = Math.ceil(e);
+    if (typeof s === "number" && s < min) min = Math.floor(s * 2) / 2;
+    if (typeof e === "number" && e > max) max = Math.ceil(e * 2) / 2;
   });
   if (min >= max) { min = 6; max = 22; }
   if (max < 22) max = 22;
   if (min > 6) min = 6;
   return [min, max];
+}
+
+function buildHalfHourSlots(minHour, maxHour) {
+  const slots = [];
+  for (let h = minHour; h < maxHour; h += 0.5) {
+    slots.push(Number(h.toFixed(1)));
+  }
+  return slots;
+}
+
+function formatHourLabel(hour) {
+  const totalMinutes = Math.round(hour * 60);
+  const h24 = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const ap = h24 < 12 ? 'AM' : 'PM';
+  const h12 = h24 % 12 || 12;
+  return `${h12}:${String(minutes).padStart(2, '0')} ${ap}`;
 }
 
 function extractField(r, keys) {
@@ -2049,10 +2066,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const startHours = filtered
       .map(row => parseHour(row[4]?.split('-')[0]?.trim()))
       .filter(hour => Number.isFinite(hour));
-    let minHour = startHours.length ? Math.floor(Math.min(...startHours)) : 6;
-    let maxHour = startHours.length ? Math.ceil(Math.max(...startHours)) + 1 : 22;
+    let minHour = startHours.length ? Math.floor(Math.min(...startHours) * 2) / 2 : 6;
+    let maxHour = startHours.length ? (Math.ceil(Math.max(...startHours) * 2) / 2) + 0.5 : 22;
     if (minHour >= maxHour) { minHour = 6; maxHour = 22; }
-    const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
+    const hours = buildHalfHourSlots(minHour, maxHour);
     const counts = {};
     hmDays.forEach(d => counts[d] = hours.map(() => 0));
     filtered.forEach(row => {
@@ -2065,7 +2082,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const startHour = parseHour(st);
       const endHour = parseHour(en);
       if (startHour == null || endHour == null || startHour === endHour) return;
-      const startIndex = hours.indexOf(Math.floor(startHour));
+      const startIndex = hours.indexOf(Math.floor(startHour * 2) / 2);
       if (startIndex < 0) return;
       dayList.forEach(d => {
         if (counts[d]) counts[d][startIndex]++;
@@ -2074,10 +2091,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const maxC = Math.max(...Object.values(counts).flat());
     let html = '<table class="heatmap">';
     html += '<thead><tr><th>Day/Start Time</th>';
-    hours.forEach(h=>{ 
-      const ap=h<12?'AM':'PM'; 
-      const hh=h%12||12; 
-      html+=`<th>${hh} ${ap}</th>`;
+    hours.forEach(h=>{
+      html+=`<th>${formatHourLabel(h)}</th>`;
     });
     html+='</tr></thead><tbody>';
     hmDays.forEach(d=>{
@@ -2111,7 +2126,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
 
     const [minHour, maxHour] = getTimeRangeFromData(filtered);
-    const hours = Array.from({length: maxHour - minHour}, (_,i)=>i + minHour);
+    const hours = buildHalfHourSlots(minHour, maxHour);
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     let counts = {};
     daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
@@ -2124,14 +2139,14 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       recDays.forEach(day => {
         if (!day || !daysOfWeek.includes(day)) return;
         hours.forEach(h => {
-          if (h >= Math.floor(startHour) && h < endHour) {
+          if (h >= Math.floor(startHour * 2) / 2 && h < endHour) {
             counts[day+'-'+h] += 1;
           }
         });
       });
     });
     const ctx = chartDiv.getContext('2d');
-    const labels = hours.map(h => `${h % 12 === 0 ? 12 : h % 12} ${(h < 12 ? 'AM' : 'PM')}`);
+    const labels = hours.map(formatHourLabel);
     const colorList = [
       "#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2"
     ];
