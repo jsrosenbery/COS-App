@@ -114,6 +114,7 @@ function getTimeRangeFromData(data) {
 }
 
 function extractField(r, keys) {
+  if (!r || typeof r !== 'object') return '';
   for (const k of keys) {
     if (r[k] && typeof r[k] === 'string' && r[k].trim()) return r[k].trim();
     if (r[k.toLowerCase()] && typeof r[k.toLowerCase()] === 'string' && r[k.toLowerCase()].trim()) return r[k.toLowerCase()].trim();
@@ -122,7 +123,20 @@ function extractField(r, keys) {
     if (r[k.replace(/\s+/g, '_').toLowerCase()] && typeof r[k.replace(/\s+/g, '_').toLowerCase()] === 'string' && r[k.replace(/\s+/g, '_').toLowerCase()].trim()) return r[k.replace(/\s+/g, '_').toLowerCase()].trim();
     if (r[k.replace(/\s+/g, '_').toUpperCase()] && typeof r[k.replace(/\s+/g, '_').toUpperCase()] === 'string' && r[k.replace(/\s+/g, '_').toUpperCase()].trim()) return r[k.replace(/\s+/g, '_').toUpperCase()].trim();
   }
+  const normalizedLookup = Object.entries(r).reduce((acc, [key, value]) => {
+    const normalizedKey = normalizeHeaderKey(key);
+    if (normalizedKey && acc[normalizedKey] === undefined) acc[normalizedKey] = value;
+    return acc;
+  }, {});
+  for (const k of keys) {
+    const value = normalizedLookup[normalizeHeaderKey(k)];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
   return '';
+}
+
+function normalizeHeaderKey(key) {
+  return String(key || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
 
 function isValidRoom(building, room) {
@@ -232,51 +246,66 @@ function getUniqueRooms(data) {
 function normalizeRow(r) {
   // Convert DAYS like "MW" to ["Monday","Wednesday"]
   const daysMap = {M:"Monday",T:"Tuesday",W:"Wednesday",R:"Thursday",F:"Friday",U:"Sunday",S:"Saturday"};
+  const rawDays = extractField(r, [
+    'DAYS', 'Days', 'Meeting Days', 'Meet Days', 'Day', 'Days Of Week',
+    'Mtg Days', 'Meeting Pattern', 'Meeting_Pattern'
+  ]);
   let daysArr = [];
-  if (typeof r.DAYS === "string") {
-    daysArr = r.DAYS.split('').map(d => daysMap[d] || d);
+  if (rawDays) {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const normalizedDayTokens = rawDays
+      .split(/[,\s/]+/)
+      .map(day => day.trim())
+      .filter(Boolean)
+      .map(day => dayNames.find(name => name.toLowerCase().startsWith(day.toLowerCase())) || day);
+    const hasNamedDay = normalizedDayTokens.some(day => dayNames.includes(day));
+    daysArr = normalizedDayTokens.length > 1 || hasNamedDay
+      ? normalizedDayTokens
+      : rawDays.replace(/TH/gi, 'R').split('').map(d => daysMap[d.toUpperCase()] || d);
   } else if (Array.isArray(r.Days)) {
     daysArr = r.Days;
   }
   // Parse Time to Start_Time and End_Time
   let start24 = "00:00", end24 = "00:00";
-  if (typeof r.Time === "string") {
-    const parts = r.Time.split('-').map(s => s.trim());
-    const to24 = (t) => {
-      const m = t.match(/^(\d{1,2}):?(\d{2})?\s*(AM|PM)/i);
-      if (m) {
-        let h = parseInt(m[1],10);
-        let min = m[2] ? parseInt(m[2],10) : 0;
-        const ap = m[3].toUpperCase();
-        if (ap === 'PM' && h < 12) h += 12;
-        if (ap === 'AM' && h === 12) h = 0;
-        return (h<10? '0'+h : h) + ':' + (min<10? '0'+min : min);
-      }
-      return '00:00';
-    };
+  const to24 = (t) => {
+    const value = String(t || '').trim();
+    const m = value.match(/^(\d{1,2})(?::?(\d{2}))?\s*(AM|PM)?$/i);
+    if (m) {
+      let h = parseInt(m[1],10);
+      let min = m[2] ? parseInt(m[2],10) : 0;
+      const ap = m[3] ? m[3].toUpperCase() : '';
+      if (ap === 'PM' && h < 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return (h<10? '0'+h : h) + ':' + (min<10? '0'+min : min);
+    }
+    return value.match(/^\d{1,2}:\d{2}$/) ? value : '00:00';
+  };
+  const timeRange = extractField(r, ['Time', 'Meeting Time', 'Meet Time', 'Mtg Time', 'Time Range', 'Times']);
+  if (timeRange) {
+    const parts = timeRange.split(/\s*-\s*|\s+to\s+/i).map(s => s.trim());
     if (parts.length === 2) {
       start24 = to24(parts[0]);
       end24 = to24(parts[1]);
     }
-  } else if (typeof r.Start_Time === "string" && typeof r.End_Time === "string") {
-    start24 = r.Start_Time;
-    end24 = r.End_Time;
+  } else {
+    start24 = to24(extractField(r, ['Start_Time', 'Start Time', 'Start', 'Begin Time', 'Begin_Time', 'Class Begin Time', 'Meeting Start', 'Mtg Start']));
+    end24 = to24(extractField(r, ['End_Time', 'End Time', 'End', 'Stop Time', 'Stop_Time', 'Class End Time', 'Meeting End', 'Mtg End']));
   }
 
   return {
     ...r,
-    Subject_Course: r.Subject_Course || "",
-    CRN: r.CRN || "",
-    Title: r.Title || "",
-    Building: r.BUILDING || r.Building || "",
-    Room: r.ROOM || r.Room || "",
+    Subject_Course: extractField(r, ['Subject_Course', 'Subject Course', 'Course', 'Course ID', 'Course Number', 'Subject']),
+    CRN: extractField(r, ['CRN', 'Course Reference Number']),
+    Title: extractField(r, ['Title', 'Course Title', 'Section Title']),
+    Building: extractField(r, ['BUILDING', 'Building', 'Bldg', 'Bldg Code', 'Building Code', 'Facility Building']),
+    Room: extractField(r, ['ROOM', 'Room', 'Room Number', 'Room No', 'Facility Room']),
     Days: daysArr,
     Start_Time: start24,
     End_Time: end24,
-    Start_Date: r.Start_Date || "",
-    End_Date: r.End_Date || "",
-    Instructor: r.Instructor || "",
-    Campus: r.CAMPUS || r.Campus || "",
+    Start_Date: extractField(r, ['Start_Date', 'Start Date', 'Start', 'Section Start Date']),
+    End_Date: extractField(r, ['End_Date', 'End Date', 'End', 'Section End Date']),
+    Instructor: extractField(r, ['Instructor', 'Faculty', 'Primary Instructor']),
+    Campus: extractField(r, ['CAMPUS', 'Campus', 'Campus Code']),
   }
 }
 
@@ -1019,6 +1048,13 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function getUtilizationStatus(room) {
+    if (room.totalMinutes === 0) {
+      return {
+        label: 'Not Utilized',
+        color: '#dc2626',
+        reason: 'No scheduled room use was found in the loaded term data.'
+      };
+    }
     if (room.score < 0.45) {
       return {
         label: 'Under Utilized',
@@ -1116,6 +1152,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     utilizationSummary.replaceChildren();
     [
       `Rooms: ${rooms.length}`,
+      `Not Utilized: ${counts['Not Utilized'] || 0}`,
       `Very Efficient: ${counts['Very Efficient'] || 0}`,
       `Efficient: ${counts.Efficient || 0}`,
       `Moderately Utilized: ${counts['Moderately Utilized'] || 0}`,
