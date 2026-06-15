@@ -9,6 +9,8 @@ let hmChoices;
 let lineCourseChoices;
 let lineChartInstance;
 let fullCalendarInstance;
+let heatmapCellFilter = null;
+let heatmapDataTableFilterRegistered = false;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const ROOM_CATALOG_BACKUP_KEY = 'cos-room-catalog-backup-v1';
@@ -566,6 +568,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const select = document.getElementById(id);
       if (select) select.value = '';
     });
+    clearHeatmapCellFilter(false);
     if (document.getElementById('textSearch')) {
       document.getElementById('textSearch').value = '';
       hmTable.search('').draw();
@@ -1882,6 +1885,66 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       searching: true
     });
     hmTable.on('search.dt', updateHeatmap);
+    registerHeatmapDataTableFilter();
+  }
+
+  function getHeatmapCellFilterNote() {
+    return document.getElementById('heatmap-cell-filter-note');
+  }
+
+  function setHeatmapCellFilterNote() {
+    const note = getHeatmapCellFilterNote();
+    if (!note) return;
+    if (!heatmapCellFilter) {
+      note.hidden = true;
+      note.textContent = '';
+      return;
+    }
+    note.hidden = false;
+    note.textContent = `Table filtered to ${heatmapCellFilter.day} starts at ${formatHourLabel(heatmapCellFilter.hour)}. Use Clear to reset.`;
+  }
+
+  function clearHeatmapCellFilter(redraw = true) {
+    heatmapCellFilter = null;
+    setHeatmapCellFilterNote();
+    document.querySelectorAll('.heatmap-cell.is-selected').forEach(cell => cell.classList.remove('is-selected'));
+    if (redraw && hmTable) hmTable.draw();
+  }
+
+  function rowMatchesHeatmapCell(row, filter) {
+    if (!filter) return true;
+    const days = normalizeMeetingDays(row[3]);
+    if (!days.includes(filter.day)) return false;
+    const startTime = row[4]?.split('-')[0]?.trim();
+    const startHour = parseHour(startTime);
+    if (!Number.isFinite(startHour)) return false;
+    return Math.floor(startHour * 2) / 2 === filter.hour;
+  }
+
+  function registerHeatmapDataTableFilter() {
+    if (heatmapDataTableFilterRegistered || !window.jQuery?.fn?.dataTable?.ext?.search) return;
+    $.fn.dataTable.ext.search.push((settings, row) => {
+      if (settings.nTable?.id !== 'dataTable') return true;
+      return rowMatchesHeatmapCell(row, heatmapCellFilter);
+    });
+    heatmapDataTableFilterRegistered = true;
+  }
+
+  function attachHeatmapCellHandlers() {
+    const container = document.getElementById('heatmapContainer');
+    if (!container) return;
+    container.querySelectorAll('.heatmap-cell:not(.heatmap-empty)').forEach(cell => {
+      cell.addEventListener('click', () => {
+        heatmapCellFilter = {
+          day: cell.dataset.day,
+          hour: Number(cell.dataset.hour)
+        };
+        document.querySelectorAll('.heatmap-cell.is-selected').forEach(el => el.classList.remove('is-selected'));
+        cell.classList.add('is-selected');
+        setHeatmapCellFilterNote();
+        if (hmTable) hmTable.draw();
+      });
+    });
   }
 
   function initLineChartChoices() {
@@ -2052,6 +2115,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function updateAllHeatmap() {
+    clearHeatmapCellFilter(false);
     const rows = filterAnalysisRows({
       campusId: 'heatmap-campus-select',
       divisionId: 'heatmap-division-select',
@@ -2097,15 +2161,19 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     html+='</tr></thead><tbody>';
     hmDays.forEach(d=>{
       html+=`<tr><th>${d}</th>`;
-      counts[d].forEach(c=>{
+      counts[d].forEach((c, i)=>{
+        const h = hours[i];
         const op=maxC?c/maxC:0;
         const level = op >= 0.8 ? 'high' : op >= 0.45 ? 'medium' : op > 0 ? 'low' : 'empty';
-        html+=`<td class="heatmap-cell heatmap-${level}" style="--heat:${op.toFixed(3)}">${c||''}</td>`;
+        const selected = heatmapCellFilter && heatmapCellFilter.day === d && heatmapCellFilter.hour === h ? ' is-selected' : '';
+        html+=`<td class="heatmap-cell heatmap-${level}${selected}" data-day="${escapeHTML(d)}" data-hour="${h}" title="${escapeHTML(d)} ${escapeHTML(formatHourLabel(h))}: ${c} start${c === 1 ? '' : 's'}" style="--heat:${op.toFixed(3)}">${c||''}</td>`;
       });
       html+='</tr>';
     });
     html+='</tbody></table>';
     document.getElementById('heatmapContainer').innerHTML = html;
+    attachHeatmapCellHandlers();
+    setHeatmapCellFilterNote();
   }
 
   function renderLineChart() {

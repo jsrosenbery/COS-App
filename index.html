@@ -132,6 +132,15 @@
 
   <div id="heatmap-tool" style="display:none;">
     <h2>Course Offerings Heatmap & Table</h2>
+    <div class="analysis-explainer">
+      <h3>How to Read This View</h3>
+      <p>
+        The heatmap counts how many classes start in each day and half-hour time slot. Calculation: cell count = sections whose meeting day includes that row and whose start time rounds down into that half-hour column. Darker cells mean more course starts at that moment, which helps identify scheduling pressure points such as too many sections beginning at the same time. Click a non-empty cell to show only the matching sections in the table below.
+      </p>
+      <p>
+        The table supports the heatmap by showing the actual courses behind each count. Used together, the heatmap shows the pattern while the table shows the underlying schedule records, so a busy cell can be investigated immediately instead of treated as an abstract number.
+      </p>
+    </div>
     <div id="controls">
       <label>Campus:
         <select id="heatmap-campus-select"></select>
@@ -147,6 +156,7 @@
       <button id="heatmap-clear-btn" type="button">Clear</button>
     </div>
     <div id="heatmapContainer"></div>
+    <div id="heatmap-cell-filter-note" class="analysis-filter-note" hidden></div>
     <table id="dataTable" class="display"></table>
   </div>
 
@@ -162,7 +172,7 @@
       <button id="utilization-clear-btn" type="button">Clear</button>
     </div>
     <div class="utilization-note">
-      Scores weight room usage between 9:00 AM and 3:00 PM Monday-Thursday more heavily, then adjust expectations by room type and capacity. VISFSC rooms are excluded from this view.
+      Scores weight room usage between 9:00 AM and 3:00 PM Monday-Thursday more heavily, then adjust expectations by room type and capacity. Expected weighted = weekly weighted availability x room-type target x capacity factor. VISFSC rooms are excluded from this view.
     </div>
     <div class="utilization-explainer">
       <h3>Calculation and Designation Guide</h3>
@@ -197,7 +207,7 @@
           </tr>
           <tr>
             <td>Expected weighted</td>
-            <td>Weekly weighted availability multiplied by room-type and capacity factors.</td>
+            <td>Weekly weighted availability x room-type target x capacity factor. Weekly weighted availability is 60.0 hours: Monday-Thursday each have 6 peak hours at 1.5x plus 3 off-peak hours at 1.0x, and Friday has 9 off-peak hours at 1.0x.</td>
             <td>Sets a fair target so specialized rooms and small rooms are not judged like large general classrooms.</td>
           </tr>
           <tr>
@@ -303,6 +313,15 @@
 
   <div id="linechart-tool" style="display:none;">
     <h2>Course Duration Graph</h2>
+    <div class="analysis-explainer">
+      <h3>How to Read This View</h3>
+      <p>
+        The Course Duration Graph counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = sections whose meeting day includes that line and whose meeting time overlaps that half-hour interval. A section contributes to every half-hour slot it overlaps, so this view shows classroom demand across the span of class meetings rather than only the start time.
+      </p>
+      <p>
+        This graph and the heatmap answer different questions. The heatmap shows when classes begin, while the duration graph shows how long demand remains active. Reviewing both together makes it easier to spot whether congestion is caused by many simultaneous starts, long overlapping meetings, or both.
+      </p>
+    </div>
     <div id="linechart-controls">
       <label>Campus:
         <select id="linechart-campus-select"></select>
