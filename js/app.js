@@ -204,8 +204,20 @@ function getCourseParts(section) {
   return {
     subjectCourse,
     discipline: discipline.toUpperCase(),
-    courseNumber
+    courseNumber: normalizeCourseNumber(courseNumber)
   };
+}
+
+function normalizeCourseNumber(courseNumber) {
+  const value = String(courseNumber || '').trim().toUpperCase();
+  const match = value.match(/^(\d{1,2})([A-Z]?)$/);
+  return match ? `${match[1].padStart(3, '0')}${match[2]}` : value;
+}
+
+function getCourseKey(section) {
+  const { subjectCourse, discipline, courseNumber } = getCourseParts(section);
+  if (discipline && courseNumber) return `${discipline} ${courseNumber}`.trim();
+  return String(subjectCourse || '').trim();
 }
 
 function getCourseLevel(courseNumber) {
@@ -1789,6 +1801,17 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return `${h}:${('0'+m).slice(-2)}${ap}`;
   }
 
+  function normalizeMeetingDays(days) {
+    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    let recDays = Array.isArray(days) ? days : (typeof days === 'string' ? days.split(',') : []);
+    recDays = recDays.map(day => String(day || '').trim()).filter(Boolean);
+    if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !dayNames.includes(recDays[0])) {
+      const abbrevDayMap = { U:'Sunday', M:'Monday', T:'Tuesday', W:'Wednesday', R:'Thursday', F:'Friday', S:'Saturday' };
+      recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
+    }
+    return recDays.filter(day => dayNames.includes(day));
+  }
+
   function initHeatmap() {
     hmChoices = new Choices('#courseSelect', {
       removeItemButton: true,
@@ -1860,10 +1883,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function feedHeatmapTool(dataArray) {
     hmRaw = dataArray.map(r => {
-      const parts = (r.Subject_Course || '').trim().split(/\s+/);
-      const key = parts.length >=2 ? (parts[0] + ' ' + parts[1]) : (r.Subject_Course || '').trim();
-      let daysVal = r.Days;
-      if (typeof daysVal === 'string') daysVal = daysVal.split(',').map(s => s.trim());
+      const key = getCourseKey(r);
+      const daysVal = normalizeMeetingDays(r.Days);
 
       const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
       const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
@@ -1889,7 +1910,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         CRN: r.CRN || '',
         Building: building,
         Room: room,
-        Days: daysVal || [],
+        Days: daysVal,
         Start_Time: startTime,
         End_Time: endTime,
         Title: title,
@@ -1901,6 +1922,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }).filter(r => {
       // Omit if room is blank, N/A, LIVE, ONLINE
       if (!isValidRoom(r.Building, r.Room)) return false;
+      if (!Array.isArray(r.Days) || !r.Days.length) return false;
       let dayField = r.Days;
       if (Array.isArray(dayField)) dayField = dayField.join(',');
       if (typeof dayField !== 'string') dayField = '';
@@ -1998,18 +2020,18 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     hmDays.forEach(d => counts[d] = hours.map(() => 0));
     filtered.forEach(row => {
       const [ course, bld, room, daysStr, timeStr ] = row;
-      const dayList = daysStr.split(',');
+      const dayList = normalizeMeetingDays(daysStr);
       const timeParts = timeStr.split('-');
       const st = timeParts[0]?.trim();
       const en = timeParts[1]?.trim();
       if (!st || !en) return;
-      if (parseHour(st) === parseHour(en)) return;
-      const m = st.match(/(\d{2}):(\d{2})/);
-      if(!m) return;
-      const hr = parseInt(m[1],10);
+      const startHour = parseHour(st);
+      const endHour = parseHour(en);
+      if (startHour == null || endHour == null || startHour === endHour) return;
       dayList.forEach(d => {
-        const hIndex = hours.indexOf(hr);
-        if(hIndex>=0 && counts[d]) counts[d][hIndex]++;
+        hours.forEach((h, hIndex) => {
+          if (h >= Math.floor(startHour) && h < endHour && counts[d]) counts[d][hIndex]++;
+        });
       });
     });
     const maxC = Math.max(...Object.values(counts).flat());
@@ -2075,11 +2097,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     let counts = {};
     daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
     filtered.forEach(rec => {
-      let recDays = Array.isArray(rec.Days) ? rec.Days : (typeof rec.Days === "string" ? rec.Days.split(',') : []);
-      if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !daysOfWeek.includes(recDays[0])) {
-        const abbrevDayMap = { 'U':'Sunday','M':'Monday','T':'Tuesday','W':'Wednesday','R':'Thursday','F':'Friday','S':'Saturday' };
-        recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
-      }
+      const recDays = normalizeMeetingDays(rec.Days);
       const startHour = parseHour(rec.Start_Time);
       const endHour = parseHour(rec.End_Time);
       if (startHour == null || endHour == null) return;
