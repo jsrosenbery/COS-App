@@ -565,6 +565,16 @@ button:hover,
   background: linear-gradient(135deg, #f59e0b, #ea580c);
 }
 
+.modality-bar-fill.dual-enrollment,
+.modality-table-fill.dual-enrollment {
+  background: linear-gradient(135deg, #16a34a, #0f766e);
+}
+
+.modality-bar-fill.flex,
+.modality-table-fill.flex {
+  background: linear-gradient(135deg, #db2777, #9333ea);
+}
+
 .modality-bar-fill.other,
 .modality-bar-fill.unspecified,
 .modality-table-fill.other,
@@ -620,6 +630,38 @@ button:hover,
   color: var(--ink);
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+.modality-definitions {
+  margin-top: 1.25rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.modality-definitions h3 {
+  margin: 0 0 0.75rem;
+  color: var(--brand);
+  font-size: 1rem;
+}
+
+.modality-definitions table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.modality-definitions th,
+.modality-definitions td {
+  padding: 0.5rem;
+  border: 1px solid rgba(32, 66, 96, 0.14);
+  text-align: left;
+}
+
+.modality-definitions th {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
 }
 
 .class-block-tooltip {

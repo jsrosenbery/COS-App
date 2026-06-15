@@ -218,6 +218,26 @@ function getCourseLevel(courseNumber) {
   return '400+ Level';
 }
 
+const MODALITY_CODE_DEFINITIONS = {
+  IP: 'In Person',
+  ONL: 'Online',
+  HYB: 'Hybrid',
+  DE: 'Dual Enrollment',
+  FLX: 'Flex',
+  '02S': 'In Person',
+  '022': 'In Person',
+  OL: 'Online',
+  ONN: 'Online',
+  O1: 'Online',
+  ONS: 'Online',
+  '02N': 'In Person'
+};
+const OMITTED_MODALITY_CODES = new Set(['CPL', '20']);
+
+function normalizeModalityCode(method) {
+  return String(method || '').trim().toUpperCase();
+}
+
 function normalizeRoomCatalog(rawRooms) {
   return (rawRooms || [])
     .map(room => ({
@@ -1277,7 +1297,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function getModalityCategory(method) {
     const value = String(method || '').trim();
+    const code = normalizeModalityCode(value);
     const normalized = value.toLowerCase();
+    if (MODALITY_CODE_DEFINITIONS[code]) return MODALITY_CODE_DEFINITIONS[code];
     if (!value) return 'Unspecified';
     if (/(hybrid|blended|partially online|part online|partially distance)/.test(normalized)) return 'Hybrid';
     if (/(online|web|internet|distance|asynchronous|synchronous|remote|virtual)/.test(normalized)) return 'Online';
@@ -1356,6 +1378,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       seenSections.add(identity);
 
       const rawMethod = getInstructionalMethod(section) || 'Unspecified';
+      if (OMITTED_MODALITY_CODES.has(normalizeModalityCode(rawMethod))) return;
       const category = getModalityCategory(rawMethod);
       if (!categories.has(category)) {
         categories.set(category, {
@@ -1370,7 +1393,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
 
     const total = Array.from(categories.values()).reduce((sum, item) => sum + item.count, 0);
-    const order = ['In Person', 'Online', 'Hybrid', 'Other', 'Unspecified'];
+    const order = ['In Person', 'Online', 'Hybrid', 'Dual Enrollment', 'Flex', 'Other', 'Unspecified'];
     return Array.from(categories.values())
       .map(item => ({
         ...item,
@@ -1396,6 +1419,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       `In Person: ${rows.find(row => row.category === 'In Person')?.count || 0}`,
       `Online: ${rows.find(row => row.category === 'Online')?.count || 0}`,
       `Hybrid: ${rows.find(row => row.category === 'Hybrid')?.count || 0}`,
+      `Dual Enrollment: ${rows.find(row => row.category === 'Dual Enrollment')?.count || 0}`,
+      `Flex: ${rows.find(row => row.category === 'Flex')?.count || 0}`,
       `Other/Unspecified: ${rows.filter(row => row.category === 'Other' || row.category === 'Unspecified').reduce((sum, row) => sum + row.count, 0)}`
     ];
     summaryItems.forEach(text => {
