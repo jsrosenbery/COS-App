@@ -194,6 +194,30 @@ function getUniqueCampuses(data) {
   return Array.from(campuses).sort();
 }
 
+function getCourseParts(section) {
+  const subjectCourse = extractField(section, ['Subject_Course', 'Subject Course', 'Course', 'Course ID', 'Course Number']);
+  const discipline = extractField(section, ['Discipline', 'DISCIPLINE', 'Subject', 'SUBJECT', 'Subject Code']) ||
+    (subjectCourse.match(/^([A-Za-z]+)/)?.[1] || '');
+  const courseNumber = extractField(section, ['Course_Number', 'Course Number', 'COURSE', 'Course_No', 'Course No']) ||
+    (subjectCourse.match(/[A-Za-z]+\s*([0-9]{1,4}[A-Za-z]?)/)?.[1] || '');
+  return {
+    subjectCourse,
+    discipline: discipline.toUpperCase(),
+    courseNumber
+  };
+}
+
+function getCourseLevel(courseNumber) {
+  const match = String(courseNumber || '').match(/\d+/);
+  if (!match) return 'Unspecified';
+  const number = Number(match[0]);
+  if (number < 100) return 'Below 100';
+  if (number < 200) return '100 Level';
+  if (number < 300) return '200 Level';
+  if (number < 400) return '300 Level';
+  return '400+ Level';
+}
+
 function normalizeRoomCatalog(rawRooms) {
   return (rawRooms || [])
     .map(room => ({
@@ -297,6 +321,9 @@ function normalizeRow(r) {
     Subject_Course: extractField(r, ['Subject_Course', 'Subject Course', 'Course', 'Course ID', 'Course Number', 'Subject']),
     CRN: extractField(r, ['CRN', 'Course Reference Number']),
     Title: extractField(r, ['Title', 'Course Title', 'Section Title']),
+    Division: extractField(r, ['Division', 'Academic Division', 'Department Division', 'School', 'Area']),
+    Discipline: getCourseParts(r).discipline,
+    Course_Number: getCourseParts(r).courseNumber,
     Instructional_Method: extractField(r, ['Instructional Method', 'Instructional_Method', 'Instr Method', 'Instruction Method', 'Method', 'Modality']),
     Building: extractField(r, ['BUILDING', 'Building', 'Bldg', 'Bldg Code', 'Building Code', 'Facility Building']),
     Room: extractField(r, ['ROOM', 'Room', 'Room Number', 'Room No', 'Facility Room']),
@@ -367,6 +394,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const utilizationSummary = document.getElementById('utilization-summary');
   const utilizationMap = document.getElementById('utilization-map');
   const modalityCampusSelect = document.getElementById('modality-campus-select');
+  const modalityDivisionSelect = document.getElementById('modality-division-select');
+  const modalityDisciplineSelect = document.getElementById('modality-discipline-select');
+  const modalityLevelSelect = document.getElementById('modality-level-select');
   const modalityClearBtn = document.getElementById('modality-clear-btn');
   const modalitySummary = document.getElementById('modality-summary');
   const modalityChart = document.getElementById('modality-chart');
@@ -397,6 +427,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
   if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
+  if (modalityDivisionSelect) modalityDivisionSelect.addEventListener('change', renderModalityTool);
+  if (modalityDisciplineSelect) modalityDisciplineSelect.addEventListener('change', renderModalityTool);
+  if (modalityLevelSelect) modalityLevelSelect.addEventListener('change', renderModalityTool);
   if (utilizationClearBtn) {
     utilizationClearBtn.onclick = () => {
       if (utilizationCampusSelect) utilizationCampusSelect.value = '';
@@ -407,6 +440,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (modalityClearBtn) {
     modalityClearBtn.onclick = () => {
       if (modalityCampusSelect) modalityCampusSelect.value = '';
+      if (modalityDivisionSelect) modalityDivisionSelect.value = '';
+      if (modalityDisciplineSelect) modalityDisciplineSelect.value = '';
+      if (modalityLevelSelect) modalityLevelSelect.value = '';
       renderModalityTool();
     };
   }
@@ -1261,22 +1297,59 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     ].filter(Boolean).join('|') || `ROW:${index}`;
   }
 
+  function getDivision(section) {
+    return extractField(section, ['Division', 'Academic Division', 'Department Division', 'School', 'Area']);
+  }
+
+  function getCourseLevelSort(level) {
+    return {
+      'Below 100': 0,
+      '100 Level': 1,
+      '200 Level': 2,
+      '300 Level': 3,
+      '400+ Level': 4,
+      'Unspecified': 5
+    }[level] ?? 9;
+  }
+
   function initModalityFilters() {
-    if (!modalityCampusSelect) return;
+    if (!modalityCampusSelect || !modalityDivisionSelect || !modalityDisciplineSelect || !modalityLevelSelect) return;
     const campusValue = modalityCampusSelect.value;
+    const divisionValue = modalityDivisionSelect.value;
+    const disciplineValue = modalityDisciplineSelect.value;
+    const levelValue = modalityLevelSelect.value;
     const campuses = getUniqueCampuses(currentData);
+    const divisions = [...new Set(currentData.map(getDivision).filter(Boolean))].sort();
+    const disciplines = [...new Set(currentData.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
+    const levels = [...new Set(currentData.map(section => getCourseLevel(getCourseParts(section).courseNumber)).filter(Boolean))]
+      .sort((a, b) => getCourseLevelSort(a) - getCourseLevelSort(b));
     resetSelect(modalityCampusSelect, campuses, 'All', '');
+    resetSelect(modalityDivisionSelect, divisions, 'All', '');
+    resetSelect(modalityDisciplineSelect, disciplines, 'All', '');
+    resetSelect(modalityLevelSelect, levels, 'All', '');
     if (campuses.includes(campusValue)) modalityCampusSelect.value = campusValue;
+    if (divisions.includes(divisionValue)) modalityDivisionSelect.value = divisionValue;
+    if (disciplines.includes(disciplineValue)) modalityDisciplineSelect.value = disciplineValue;
+    if (levels.includes(levelValue)) modalityLevelSelect.value = levelValue;
   }
 
   function calculateModalityBalance() {
     const selectedCampus = modalityCampusSelect?.value || '';
+    const selectedDivision = modalityDivisionSelect?.value || '';
+    const selectedDiscipline = modalityDisciplineSelect?.value || '';
+    const selectedLevel = modalityLevelSelect?.value || '';
     const seenSections = new Set();
     const categories = new Map();
 
     currentData.forEach((section, index) => {
       const campus = extractField(section, ['Campus', 'campus', 'CAMPUS']);
+      const division = getDivision(section);
+      const courseParts = getCourseParts(section);
+      const courseLevel = getCourseLevel(courseParts.courseNumber);
       if (selectedCampus && campus !== selectedCampus) return;
+      if (selectedDivision && division !== selectedDivision) return;
+      if (selectedDiscipline && courseParts.discipline !== selectedDiscipline) return;
+      if (selectedLevel && courseLevel !== selectedLevel) return;
 
       const identity = getSectionIdentity(section, index);
       if (seenSections.has(identity)) return;
@@ -1354,16 +1427,32 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
       if (tbody) {
         const tr = document.createElement('tr');
-        [
-          row.category,
-          row.count,
-          `${(row.share * 100).toFixed(1)}%`,
-          row.methodDetails.map(([method, count]) => `${method} (${count})`).join(', ')
-        ].forEach(value => {
+        [row.category, row.count, `${(row.share * 100).toFixed(1)}%`].forEach(value => {
           const td = document.createElement('td');
           td.textContent = value;
           tr.appendChild(td);
         });
+        const visualTd = document.createElement('td');
+        const miniTrack = document.createElement('div');
+        miniTrack.className = 'modality-table-track';
+        const miniFill = document.createElement('div');
+        miniFill.className = `modality-table-fill ${row.category.toLowerCase().replace(/\s+/g, '-')}`;
+        miniFill.style.width = `${Math.max(row.share * 100, 2)}%`;
+        miniTrack.appendChild(miniFill);
+        visualTd.appendChild(miniTrack);
+        tr.appendChild(visualTd);
+
+        const detailsTd = document.createElement('td');
+        const methodList = document.createElement('div');
+        methodList.className = 'modality-method-list';
+        row.methodDetails.forEach(([method, count]) => {
+          const chip = document.createElement('span');
+          chip.className = 'modality-method-chip';
+          chip.textContent = `${method} (${count})`;
+          methodList.appendChild(chip);
+        });
+        detailsTd.appendChild(methodList);
+        tr.appendChild(detailsTd);
         tbody.appendChild(tr);
       }
     });
