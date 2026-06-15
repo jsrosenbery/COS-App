@@ -52,6 +52,7 @@
       <option value="calendar">Snapshot</option>
       <option value="heatmap">Heatmap</option>
       <option value="utilization">Room Utilization Map</option>
+      <option value="modality">Modality Balance</option>
       <option value="linechart">Line Chart (Course Durations)</option>
       <option value="fullcalendar">Calendar</option>
     </select>
@@ -244,6 +245,32 @@
     </div>
     <div id="utilization-summary" class="utilization-summary"></div>
     <div id="utilization-map" class="utilization-map"></div>
+  </div>
+
+  <div id="modality-tool" style="display:none;">
+    <h2>Modality Balance</h2>
+    <div id="modality-controls">
+      <label>Campus:
+        <select id="modality-campus-select"></select>
+      </label>
+      <button id="modality-clear-btn" type="button">Clear</button>
+    </div>
+    <div class="modality-note">
+      This view uses the Instructional Method column from the uploaded CSV and counts unique CRNs when available, so multi-meeting sections are not counted more than once.
+    </div>
+    <div id="modality-summary" class="modality-summary"></div>
+    <div id="modality-chart" class="modality-chart"></div>
+    <table id="modality-table" class="modality-table">
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Sections</th>
+          <th>Share</th>
+          <th>Instructional Method Details</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </div>
 
   <div id="linechart-tool" style="display:none;">

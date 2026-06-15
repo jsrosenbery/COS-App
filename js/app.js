@@ -297,6 +297,7 @@ function normalizeRow(r) {
     Subject_Course: extractField(r, ['Subject_Course', 'Subject Course', 'Course', 'Course ID', 'Course Number', 'Subject']),
     CRN: extractField(r, ['CRN', 'Course Reference Number']),
     Title: extractField(r, ['Title', 'Course Title', 'Section Title']),
+    Instructional_Method: extractField(r, ['Instructional Method', 'Instructional_Method', 'Instr Method', 'Instruction Method', 'Method', 'Modality']),
     Building: extractField(r, ['BUILDING', 'Building', 'Bldg', 'Bldg Code', 'Building Code', 'Facility Building']),
     Room: extractField(r, ['ROOM', 'Room', 'Room Number', 'Room No', 'Facility Room']),
     Days: daysArr,
@@ -365,6 +366,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const utilizationClearBtn = document.getElementById('utilization-clear-btn');
   const utilizationSummary = document.getElementById('utilization-summary');
   const utilizationMap = document.getElementById('utilization-map');
+  const modalityCampusSelect = document.getElementById('modality-campus-select');
+  const modalityClearBtn = document.getElementById('modality-clear-btn');
+  const modalitySummary = document.getElementById('modality-summary');
+  const modalityChart = document.getElementById('modality-chart');
+  const modalityTable = document.getElementById('modality-table');
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
   const calendarContainer = document.getElementById('calendar-container');
@@ -390,11 +396,18 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
+  if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
   if (utilizationClearBtn) {
     utilizationClearBtn.onclick = () => {
       if (utilizationCampusSelect) utilizationCampusSelect.value = '';
       if (utilizationTypeSelect) utilizationTypeSelect.value = '';
       renderUtilizationMap();
+    };
+  }
+  if (modalityClearBtn) {
+    modalityClearBtn.onclick = () => {
+      if (modalityCampusSelect) modalityCampusSelect.value = '';
+      renderModalityTool();
     };
   }
 
@@ -469,6 +482,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const view = this.value;
     document.getElementById('heatmap-tool').style.display = (view === 'heatmap') ? 'block' : 'none';
     document.getElementById('utilization-tool').style.display = (view === 'utilization') ? 'block' : 'none';
+    document.getElementById('modality-tool').style.display = (view === 'modality') ? 'block' : 'none';
     document.getElementById('schedule-container').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('availability-ui').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('room-filter').style.display = (view === 'calendar') ? '' : 'none';
@@ -481,6 +495,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
     if (view === 'utilization') {
       renderUtilizationMap();
+    }
+    if (view === 'modality') {
+      renderModalityTool();
     }
     if (view === 'fullcalendar') {
       renderFullCalendar();
@@ -705,8 +722,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         renderSchedule();
         feedHeatmapTool(currentData);
         initUtilizationFilters();
+        initModalityFilters();
         if (document.getElementById('viewSelect').value === 'utilization') {
           renderUtilizationMap();
+        }
+        if (document.getElementById('viewSelect').value === 'modality') {
+          renderModalityTool();
         }
         if (document.getElementById('viewSelect').value === 'fullcalendar') {
           renderFullCalendar();
@@ -1202,6 +1223,149 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       reason.textContent = `${room.status.reason} ${room.capacityLabel}.${room.smallRoomCaution ? ' Small room caution applies because capacity is below 20 and weekly scheduled use is 12+ hours.' : ''}`;
       card.append(title, badge, details, reason);
       utilizationMap.appendChild(card);
+    });
+  }
+
+  function getInstructionalMethod(section) {
+    return extractField(section, [
+      'Instructional_Method',
+      'Instructional Method',
+      'Instr Method',
+      'Instruction Method',
+      'InstructionalMethod',
+      'Method',
+      'Modality',
+      'Schedule Type'
+    ]);
+  }
+
+  function getModalityCategory(method) {
+    const value = String(method || '').trim();
+    const normalized = value.toLowerCase();
+    if (!value) return 'Unspecified';
+    if (/(hybrid|blended|partially online|part online|partially distance)/.test(normalized)) return 'Hybrid';
+    if (/(online|web|internet|distance|asynchronous|synchronous|remote|virtual)/.test(normalized)) return 'Online';
+    if (/(in[ -]?person|face[ -]?to[ -]?face|on[ -]?campus|lecture|lab|activity|clinical|field)/.test(normalized)) return 'In Person';
+    return 'Other';
+  }
+
+  function getSectionIdentity(section, index) {
+    const crn = extractField(section, ['CRN', 'Course Reference Number']);
+    if (crn) return `CRN:${crn}`;
+    return [
+      extractField(section, ['Subject_Course', 'Subject Course', 'Course']),
+      extractField(section, ['Title', 'Course Title']),
+      getInstructionalMethod(section),
+      extractField(section, ['Start_Date', 'Start Date']),
+      extractField(section, ['End_Date', 'End Date'])
+    ].filter(Boolean).join('|') || `ROW:${index}`;
+  }
+
+  function initModalityFilters() {
+    if (!modalityCampusSelect) return;
+    const campusValue = modalityCampusSelect.value;
+    const campuses = getUniqueCampuses(currentData);
+    resetSelect(modalityCampusSelect, campuses, 'All', '');
+    if (campuses.includes(campusValue)) modalityCampusSelect.value = campusValue;
+  }
+
+  function calculateModalityBalance() {
+    const selectedCampus = modalityCampusSelect?.value || '';
+    const seenSections = new Set();
+    const categories = new Map();
+
+    currentData.forEach((section, index) => {
+      const campus = extractField(section, ['Campus', 'campus', 'CAMPUS']);
+      if (selectedCampus && campus !== selectedCampus) return;
+
+      const identity = getSectionIdentity(section, index);
+      if (seenSections.has(identity)) return;
+      seenSections.add(identity);
+
+      const rawMethod = getInstructionalMethod(section) || 'Unspecified';
+      const category = getModalityCategory(rawMethod);
+      if (!categories.has(category)) {
+        categories.set(category, {
+          category,
+          count: 0,
+          methods: new Map()
+        });
+      }
+      const bucket = categories.get(category);
+      bucket.count += 1;
+      bucket.methods.set(rawMethod, (bucket.methods.get(rawMethod) || 0) + 1);
+    });
+
+    const total = Array.from(categories.values()).reduce((sum, item) => sum + item.count, 0);
+    const order = ['In Person', 'Online', 'Hybrid', 'Other', 'Unspecified'];
+    return Array.from(categories.values())
+      .map(item => ({
+        ...item,
+        share: total ? item.count / total : 0,
+        methodDetails: Array.from(item.methods.entries())
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      }))
+      .sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category))
+      .map(item => ({ ...item, total }));
+  }
+
+  function renderModalityTool() {
+    if (!modalitySummary || !modalityChart || !modalityTable) return;
+    const rows = calculateModalityBalance();
+    const total = rows[0]?.total || 0;
+    modalitySummary.replaceChildren();
+    modalityChart.replaceChildren();
+    const tbody = modalityTable.querySelector('tbody');
+    if (tbody) tbody.replaceChildren();
+
+    const summaryItems = [
+      `Sections: ${total}`,
+      `In Person: ${rows.find(row => row.category === 'In Person')?.count || 0}`,
+      `Online: ${rows.find(row => row.category === 'Online')?.count || 0}`,
+      `Hybrid: ${rows.find(row => row.category === 'Hybrid')?.count || 0}`,
+      `Other/Unspecified: ${rows.filter(row => row.category === 'Other' || row.category === 'Unspecified').reduce((sum, row) => sum + row.count, 0)}`
+    ];
+    summaryItems.forEach(text => {
+      const pill = document.createElement('div');
+      pill.className = 'modality-pill';
+      pill.textContent = text;
+      modalitySummary.appendChild(pill);
+    });
+
+    if (!rows.length) {
+      modalityChart.textContent = 'No modality data is available for the selected term.';
+      return;
+    }
+
+    rows.forEach(row => {
+      const bar = document.createElement('div');
+      bar.className = 'modality-bar';
+      const label = document.createElement('div');
+      label.className = 'modality-bar-label';
+      label.textContent = `${row.category} (${row.count}, ${Math.round(row.share * 100)}%)`;
+      const track = document.createElement('div');
+      track.className = 'modality-bar-track';
+      const fill = document.createElement('div');
+      fill.className = `modality-bar-fill ${row.category.toLowerCase().replace(/\s+/g, '-')}`;
+      fill.style.width = `${Math.max(row.share * 100, 2)}%`;
+      track.appendChild(fill);
+      bar.append(label, track);
+      modalityChart.appendChild(bar);
+
+      if (tbody) {
+        const tr = document.createElement('tr');
+        [
+          row.category,
+          row.count,
+          `${(row.share * 100).toFixed(1)}%`,
+          row.methodDetails.map(([method, count]) => `${method} (${count})`).join(', ')
+        ].forEach(value => {
+          const td = document.createElement('td');
+          td.textContent = value;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      }
     });
   }
 
