@@ -438,7 +438,7 @@
     };
   }
 
-async function scfExportDocx(shadow){
+async function scfBuildOfficialDocx(shadow){
   // 1) Where your template lives (keep relative if deploying under a subpath)
   const TEMPLATE_URL = window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_CRN_ONLY_v2.docx';
 
@@ -494,10 +494,9 @@ async function scfExportDocx(shadow){
     doc.setData(data);
     doc.render(); // If template has syntax issues, this will still throw
 
-    // Save
-    const out = doc.getZip().generate({ type:'blob' });
-    const filename = `Change_of_Schedule_${data.year || 'form'}.docx`;
-    window.saveAs(out, filename);
+    const blob = doc.getZip().generate({ type:'blob' });
+    const baseName = `Change_of_Schedule_${data.crn || data.year || 'form'}`;
+    return { blob, data, baseName };
   } catch (e) {
     console.error('[SCF] DOCX export failed:', e);
 
@@ -514,7 +513,7 @@ async function scfExportDocx(shadow){
         '• If the error mentions an unknown tag, open the DOCX and search for that tag.\n' +
         '• Keep the template in compatibility mode (no content controls).'
       );
-      return;
+      throw e;
     }
 
     alert(
@@ -524,186 +523,52 @@ async function scfExportDocx(shadow){
       '• Serve via http:// (not file://) when testing locally.\n' +
       'Check the console for the full stack trace.'
     );
+    throw e;
   }
 }
 
-function getCheckedValues(form, name) {
-  return [...form.querySelectorAll(`[name="${name}"]:checked`)].map(input => input.value).join(', ');
+async function scfExportDocx(shadow){
+  try {
+    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+    window.saveAs(blob, `${baseName}.docx`);
+  } catch (e) {
+    // scfBuildOfficialDocx already alerts with details.
+  }
 }
 
-function scfExportPdf(shadow) {
-  const JsPDF = window.jspdf?.jsPDF;
-  if (!JsPDF) {
-    alert('PDF export is unavailable. Confirm jsPDF is loaded.');
-    return;
-  }
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Could not read generated DOCX.'));
+    reader.readAsDataURL(blob);
+  });
+}
 
-  const form = shadow.getElementById('scf');
-  const fd = new FormData(form);
-  const changes = getChangeFieldData(form);
-  const pdf = new JsPDF({ unit: 'pt', format: 'letter' });
-  const mark = (name, value) => getCheckedValues(form, name).split(', ').includes(value) ? '[x]' : '[ ]';
-  const text = (value) => value == null ? '' : String(value);
-  const writeCell = (value, x, y, w, h, opts = {}) => {
-    const lines = pdf.splitTextToSize(text(value), Math.max(8, w - 8));
-    pdf.text(lines.slice(0, Math.max(1, Math.floor((h - 6) / 8))), x + 4, y + (opts.top || 10));
-  };
-  const rect = (x, y, w, h) => pdf.rect(x, y, w, h);
-  const center = (value, x, y, w) => pdf.text(text(value), x + (w / 2), y, { align: 'center' });
-  const row = (cells, y, h) => {
-    cells.forEach(cell => {
-      rect(cell.x, y, cell.w, h);
-      writeCell(cell.text, cell.x, y, cell.w, h, cell);
+async function scfExportPdf(shadow) {
+  const BACKEND_BASE_URL = window.COS_BACKEND_BASE_URL || 'https://app-backend-pp98.onrender.com';
+  try {
+    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+    const docxBase64 = await blobToBase64(blob);
+    const res = await fetch(`${BACKEND_BASE_URL}/api/convert/docx-to-pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: `${baseName}.docx`, docxBase64 })
     });
-  };
-
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(8);
-  pdf.setLineWidth(0.6);
-
-  const left = 28;
-  const width = 556;
-  let y = 28;
-
-  row([
-    { x: left, w: 135, text: `YEAR ${fd.get('year') || ''}` },
-    { x: left + 135, w: 170, text: 'APPROVAL' },
-    { x: left + 305, w: 155, text: 'DATE SENT TO SCHEDULER' },
-    { x: left + 460, w: 96, text: fd.get('date_sent') || '' }
-  ], y, 24);
-  y += 24;
-  row([
-    { x: left, w: 135, text: `${mark('term','Spring')} SPRING` },
-    { x: left + 135, w: 170, text: `${fd.get('division_chair') || '_______'} DIVISION CHAIR` },
-    { x: left + 305, w: 155, text: 'DATE PROCESSED' },
-    { x: left + 460, w: 96, text: fd.get('date_processed') || '' }
-  ], y, 24);
-  y += 24;
-  row([
-    { x: left, w: 135, text: `${mark('term','Summer')} SUMMER` },
-    { x: left + 135, w: 170, text: `${fd.get('area_dean') || '_______'} AREA DEAN` },
-    { x: left + 305, w: 251, text: '' }
-  ], y, 24);
-  y += 24;
-  row([
-    { x: left, w: 135, text: `${mark('term','Fall')} FALL` },
-    { x: left + 135, w: 421, text: `CAMPUS  ${mark('campus','Visalia')} VISALIA   ${mark('campus','Tulare')} TULARE   ${mark('campus','Hanford')} HANFORD   ${mark('campus','Online')} ONLINE   ${mark('campus','Off-Campus')} OFF-CAMPUS` }
-  ], y, 28);
-  y += 38;
-
-  pdf.setFontSize(7);
-  pdf.setFont('helvetica', 'bold');
-  center('COMPLETE ALL REQUIRED FIELDS     DO NOT LEAVE BLANKS', left, y, width);
-  y += 12;
-
-  const actionW = 145;
-  const fieldW = 136;
-  const currentW = 135;
-  const changedW = 95;
-  const doneW = width - actionW - fieldW - currentW - changedW;
-  const tableTop = y;
-  const headerH = 18;
-  const lineH = 18;
-  const detailRows = [
-    ['CRN', 'crn'],
-    ['SUBJECT & COURSE #', 'subject_course'],
-    ['TIME(S)', 'times'],
-    ['DAY(S)', 'days'],
-    ['SHORT TERM DATES', 'short_dates'],
-    ['# OF WEEKS', 'weeks'],
-    ['UNITS', 'units'],
-    ['CAPACITY', 'capacity'],
-    ['BUILDING(S)', 'building'],
-    ['ROOM(S)', 'room'],
-    ['INSTRUCTOR FULL NAME', 'instructor_full'],
-    ['BANNER ID', 'banner_id'],
-    ['SPLIT LOAD INSTRUCTOR', 'split_instructor'],
-    ['BANNER ID', 'split_banner_id']
-  ].map(([label, key]) => [
-    label,
-    changes[key],
-    changes[`${key}_changed`],
-    changes[`${key}_done`]
-  ]);
-  const tableH = headerH + (detailRows.length * lineH);
-
-  rect(left, tableTop, actionW, tableH);
-  pdf.setFont('helvetica', 'normal');
-  writeCell([
-    `${mark('action','Modification')} MODIFICATION`,
-    `${mark('action','Cancel - Clerical Err.')} CANCEL - CLERICAL ERR.`,
-    `${mark('action','Cancel - Sched. Dev.')} CANCEL - SCHED. DEV.`,
-    `${mark('action','Cancel - Rebuild')} CANCEL - REBUILD`,
-    `${mark('action','Cancel - No Staff')} CANCEL - NO STAFF`,
-    `${mark('action','Cancel - Low Enroll')} CANCEL - LOW ENROLL`,
-    `${fd.get('num_enrolled') || '____'} # ENROLLED`,
-    `${fd.get('adj_canceled') || '____'} ADJ. CANCELED`,
-    `CLASS COMP. FORM SENT: ${getCheckedValues(form, 'class_comp_sent') || '____'}`,
-    `${mark('action','Un-Cancel')} UN-CANCEL`,
-    `${mark('action','Addition')} ADDITION`,
-    `${mark('action','Activation')} ACTIVATION`,
-    `${mark('action','Inactivate')} INACTIVATE`,
-    'VISIBLE IN CLASS SEARCH?',
-    `${mark('visible','Yes')} YES   ${mark('visible','No')} NO`
-  ].join('\n'), left, tableTop, actionW, tableH, { top: 10 });
-
-  pdf.setFont('helvetica', 'bold');
-  row([
-    { x: left + actionW, w: fieldW, text: '' },
-    { x: left + actionW + fieldW, w: currentW, text: 'NEW/CURRENT...' },
-    { x: left + actionW + fieldW + currentW, w: changedW, text: 'CHANGED TO...' },
-    { x: left + actionW + fieldW + currentW + changedW, w: doneW, text: 'DONE' }
-  ], tableTop, headerH);
-  y = tableTop + headerH;
-  pdf.setFont('helvetica', 'normal');
-  detailRows.forEach(([label, value, changed, done]) => {
-    row([
-      { x: left + actionW, w: fieldW, text: label },
-      { x: left + actionW + fieldW, w: currentW, text: value },
-      { x: left + actionW + fieldW + currentW, w: changedW, text: changed },
-      { x: left + actionW + fieldW + currentW + changedW, w: doneW, text: done }
-    ], y, lineH);
-    y += lineH;
-  });
-
-  y += 18;
-  pdf.setFont('helvetica', 'bold');
-  center('FOR ACADEMIC SERVICES USE ONLY', left, y, width);
-  y += 10;
-
-  pdf.setFont('helvetica', 'normal');
-  const col = [left, left + 150, left + 300, left + 385, left + 470];
-  const bottomRows = [
-    ['COURSE OUTLINE TOTALS', '', 'CALCULATIONS', '', ''],
-    [`${fd.get('lecture_hours') || '____'} LECTURE HOURS`, '', 'LECTURE', 'LAB', 'ACTIVITY'],
-    [`${fd.get('lab_hours') || '____'} LAB HOURS`, '# OF DAYS SCHEDULED FOR COURSE', fd.get('days_scheduled_lecture') || '', fd.get('days_scheduled_lab') || '', fd.get('days_scheduled_activity') || ''],
-    [`${fd.get('activity_hours') || '____'} ACTIVITY HOURS`, '# OF CONTACT HOURS PER DAY', fd.get('contact_per_day_lecture') || '', fd.get('contact_per_day_lab') || '', fd.get('contact_per_day_activity') || ''],
-    ['', 'TOTAL', fd.get('total_lecture') || '', fd.get('total_lab') || '', fd.get('total_activity') || ''],
-    ['PAYROLL INFORMATION', 'NOTES/ADDITIONAL CALCULATIONS', '', '', ''],
-    [`${fd.get('sem_lect') || '____'} SEMESTER LECTURE HOURS`, fd.get('notes') || '', '', '', ''],
-    [`${fd.get('sem_lab') || '____'} SEMESTER LAB HOURS`, '', '', '', ''],
-    [`${fd.get('sem_act') || '____'} SEMESTER ACTIVITY HOURS`, '', '', '', ''],
-    [`${fd.get('sick_leave') || '____'} SICK LEAVE HOURS`, '', '', '', ''],
-    ['', '', '', '', ''],
-    ['DATE FORWARDED TO PAYROLL & HR', '', '', '', ''],
-    [fd.get('date_forwarded') || '', '', '', '', ''],
-    ['______________________________', '', '', '', ''],
-    [`DATE AND INITIAL ${fd.get('date_and_initial') || ''}`, '', '', '', '']
-  ];
-  bottomRows.forEach((cells, index) => {
-    const h = index === 6 ? 32 : 17;
-    row([
-      { x: col[0], w: 150, text: cells[0] },
-      { x: col[1], w: 150, text: cells[1] },
-      { x: col[2], w: 85, text: cells[2] },
-      { x: col[3], w: 85, text: cells[3] },
-      { x: col[4], w: 86, text: cells[4] }
-    ], y, h);
-    y += h;
-  });
-
-  const filename = `Change_of_Schedule_${changes.crn || fd.get('year') || 'form'}.pdf`;
-  pdf.save(filename);
+    if (!res.ok) {
+      const message = await res.text();
+      throw new Error(message || `PDF conversion failed (${res.status})`);
+    }
+    const pdfBlob = await res.blob();
+    window.saveAs(pdfBlob, `${baseName}.pdf`);
+  } catch (e) {
+    console.error('[SCF] PDF export failed:', e);
+    alert(
+      'PDF export failed while converting the official DOCX form.\n\n' +
+      `${e.message || e}\n\n` +
+      'The DOCX export still uses the official form template. If this persists, the backend likely needs LibreOffice available for DOCX-to-PDF conversion.'
+    );
+  }
 }
 
   function extractField(row, keys) {
