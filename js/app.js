@@ -218,25 +218,59 @@ function getCourseLevel(courseNumber) {
   return '400+ Level';
 }
 
-const MODALITY_CODE_DEFINITIONS = {
-  IP: 'In Person',
-  ONL: 'Online',
-  HYB: 'Hybrid',
-  DE: 'Dual Enrollment',
-  FLX: 'Flex',
-  '02S': 'In Person',
-  '022': 'In Person',
-  OL: 'Online',
-  ONN: 'Online',
-  O1: 'Online',
-  ONS: 'Online',
-  '02N': 'In Person'
-};
-const OMITTED_MODALITY_CODES = new Set(['CPL', '20']);
+const DEFAULT_MODALITY_DEFINITIONS = [
+  { code: 'IP', modality: 'In Person', omitted: false },
+  { code: 'ONL', modality: 'Online', omitted: false },
+  { code: 'HYB', modality: 'Hybrid', omitted: false },
+  { code: 'DE', modality: 'Dual Enrollment', omitted: false },
+  { code: 'FLX', modality: 'Flex', omitted: false },
+  { code: '02S', modality: 'In Person', omitted: false },
+  { code: '022', modality: 'In Person', omitted: false },
+  { code: 'OL', modality: 'Online', omitted: false },
+  { code: 'ONN', modality: 'Online', omitted: false },
+  { code: 'O1', modality: 'Online', omitted: false },
+  { code: 'ONS', modality: 'Online', omitted: false },
+  { code: '02N', modality: 'In Person', omitted: false },
+  { code: 'CPL', modality: 'Omitted from modality analysis', omitted: true },
+  { code: '20', modality: 'Omitted from modality analysis', omitted: true }
+];
+let modalityDefinitions = normalizeModalityDefinitions(DEFAULT_MODALITY_DEFINITIONS);
+let modalityDefinitionMap = new Map();
+let omittedModalityCodes = new Set();
 
 function normalizeModalityCode(method) {
   return String(method || '').trim().toUpperCase();
 }
+
+function normalizeModalityDefinitions(definitions) {
+  return (definitions || [])
+    .map(item => {
+      const code = normalizeModalityCode(item.code || item.Code || item.instructionalMethod || item['Instructional Method']);
+      const rawOmitted = item.omitted ?? item.Omitted ?? item.omit ?? item.Omit ?? item.exclude ?? item.Exclude;
+      const omitted = rawOmitted === true || String(rawOmitted || '').trim().toLowerCase() === 'true' || String(rawOmitted || '').trim().toLowerCase() === 'yes' || String(rawOmitted || '').trim() === '1';
+      const modality = String(item.modality || item.Modality || item.category || item.Category || '').trim();
+      return {
+        code,
+        modality: omitted ? (modality || 'Omitted from modality analysis') : modality,
+        omitted
+      };
+    })
+    .filter(item => item.code && (item.omitted || item.modality));
+}
+
+function setModalityDefinitions(definitions) {
+  modalityDefinitions = normalizeModalityDefinitions(definitions);
+  modalityDefinitionMap = new Map();
+  omittedModalityCodes = new Set();
+  modalityDefinitions.forEach(definition => {
+    if (definition.omitted) {
+      omittedModalityCodes.add(definition.code);
+    } else {
+      modalityDefinitionMap.set(definition.code, definition.modality);
+    }
+  });
+}
+setModalityDefinitions(modalityDefinitions);
 
 function normalizeRoomCatalog(rawRooms) {
   return (rawRooms || [])
@@ -435,6 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAvailabilityAttributeFilters();
   setupRoomCatalogAdmin();
   loadRoomCatalogFromBackend();
+  loadModalityDefinitionsFromBackend();
 
   window.COSScheduleApp = {
     getCurrentData: () => currentData,
@@ -644,6 +679,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     status.textContent = `${roomCatalog.length} rooms loaded.`;
 
     roomCatalogAdminDiv.append(title, exportBtn, exportJsonBtn, importLabel, status);
+    appendModalityDefinitionsAdmin(roomCatalogAdminDiv);
 
     exportBtn.addEventListener('click', () => exportRoomCatalog('csv'));
     exportJsonBtn.addEventListener('click', () => exportRoomCatalog('json'));
@@ -651,6 +687,47 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const file = e.target.files?.[0];
       if (!file) return;
       importRoomCatalog(file).finally(() => {
+        e.target.value = '';
+      });
+    });
+  }
+
+  function appendModalityDefinitionsAdmin(parent) {
+    const wrap = document.createElement('div');
+    wrap.className = 'modality-admin';
+
+    const title = document.createElement('strong');
+    title.textContent = 'Modality Definitions';
+
+    const exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.textContent = 'Export Modalities CSV';
+
+    const exportJsonBtn = document.createElement('button');
+    exportJsonBtn.type = 'button';
+    exportJsonBtn.textContent = 'Export Modalities JSON';
+
+    const importLabel = document.createElement('label');
+    importLabel.append('Import Modalities:');
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.accept = '.csv,.json,application/json,text/csv';
+    importLabel.appendChild(importInput);
+
+    const status = document.createElement('span');
+    status.id = 'modality-definitions-status';
+    status.className = 'room-catalog-status';
+    status.textContent = `${modalityDefinitions.length} modality definitions loaded.`;
+
+    wrap.append(title, exportBtn, exportJsonBtn, importLabel, status);
+    parent.appendChild(wrap);
+
+    exportBtn.addEventListener('click', () => exportModalityDefinitions('csv'));
+    exportJsonBtn.addEventListener('click', () => exportModalityDefinitions('json'));
+    importInput.addEventListener('change', e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      importModalityDefinitions(file).finally(() => {
         e.target.value = '';
       });
     });
@@ -665,6 +742,15 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return password;
   }
 
+  function getModalityImportPassword() {
+    const password = prompt('Enter upload password to import modality definitions:');
+    if (!password) {
+      alert('Modality import cancelled.');
+      return null;
+    }
+    return password;
+  }
+
   function roomCatalogToCsv(rooms) {
     const rows = normalizeRoomCatalog(rooms).map(room => ({
       Campus: room.campus,
@@ -672,6 +758,15 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       Room: room.room,
       Capacity: room.capacity == null ? '' : room.capacity,
       'Room Type': room.type
+    }));
+    return Papa.unparse(rows);
+  }
+
+  function modalityDefinitionsToCsv(definitions) {
+    const rows = normalizeModalityDefinitions(definitions).map(definition => ({
+      Code: definition.code,
+      Modality: definition.modality,
+      Omit: definition.omitted ? 'TRUE' : 'FALSE'
     }));
     return Papa.unparse(rows);
   }
@@ -713,6 +808,130 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         alert('Room catalog export failed: ' + err.message);
         setRoomCatalogStatus('Room catalog export failed.', true);
       });
+  }
+
+  function setModalityDefinitionsStatus(message, isError = false) {
+    const status = document.getElementById('modality-definitions-status');
+    if (!status) return;
+    status.textContent = message;
+    status.style.color = isError ? '#b91c1c' : '';
+  }
+
+  function refreshModalityDefinitionsViews(lastUpdated = null) {
+    const stamp = lastUpdated ? ` Updated ${new Date(lastUpdated).toLocaleString()}.` : '';
+    setModalityDefinitionsStatus(`${modalityDefinitions.length} modality definitions loaded.${stamp}`);
+    renderModalityDefinitionsTable();
+    if (document.getElementById('viewSelect').value === 'modality') {
+      renderModalityTool();
+    }
+  }
+
+  function renderModalityDefinitionsTable() {
+    const tbody = document.getElementById('modality-definitions-table-body');
+    if (!tbody) return;
+    tbody.replaceChildren();
+    modalityDefinitions
+      .slice()
+      .sort((a, b) => Number(a.omitted) - Number(b.omitted) || a.modality.localeCompare(b.modality) || a.code.localeCompare(b.code))
+      .forEach(definition => {
+        const tr = document.createElement('tr');
+        const code = document.createElement('td');
+        code.textContent = definition.code;
+        const modality = document.createElement('td');
+        modality.textContent = definition.omitted ? `${definition.modality || 'Omitted from modality analysis'} (omitted)` : definition.modality;
+        tr.append(code, modality);
+        tbody.appendChild(tr);
+      });
+  }
+
+  function loadModalityDefinitionsFromBackend() {
+    fetch(`${BACKEND_BASE_URL}/api/modalities`)
+      .then(res => {
+        if (!res.ok) throw new Error('Modality definitions fetch failed');
+        return res.json();
+      })
+      .then(({ data, lastUpdated }) => {
+        const definitions = normalizeModalityDefinitions(data);
+        setModalityDefinitions(definitions.length ? definitions : DEFAULT_MODALITY_DEFINITIONS);
+        refreshModalityDefinitionsViews(lastUpdated);
+      })
+      .catch(err => {
+        setModalityDefinitions(DEFAULT_MODALITY_DEFINITIONS);
+        refreshModalityDefinitionsViews();
+        setModalityDefinitionsStatus(`Using built-in modality definitions. ${err.message}`, true);
+      });
+  }
+
+  function exportModalityDefinitions(format = 'csv') {
+    fetch(`${BACKEND_BASE_URL}/api/modalities`)
+      .then(res => {
+        if (!res.ok) throw new Error('Export failed');
+        return res.json();
+      })
+      .then(({ data }) => {
+        const definitions = normalizeModalityDefinitions(data).length ? normalizeModalityDefinitions(data) : modalityDefinitions;
+        if (format === 'json') {
+          downloadTextFile('cos-modality-definitions.json', JSON.stringify(definitions, null, 2), 'application/json;charset=utf-8');
+        } else {
+          downloadTextFile('cos-modality-definitions.csv', modalityDefinitionsToCsv(definitions), 'text/csv;charset=utf-8');
+        }
+        setModalityDefinitionsStatus(`Exported ${definitions.length} modality definitions.`);
+      })
+      .catch(err => {
+        alert('Modality definitions export failed: ' + err.message);
+        setModalityDefinitionsStatus('Modality definitions export failed.', true);
+      });
+  }
+
+  function parseModalityDefinitionsFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Could not read selected file'));
+      reader.onload = ev => {
+        try {
+          const text = String(ev.target.result || '');
+          if (file.name.toLowerCase().endsWith('.json')) {
+            const parsed = JSON.parse(text);
+            resolve(Array.isArray(parsed) ? parsed : parsed.data || parsed.definitions || []);
+            return;
+          }
+          const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+          if (parsed.errors?.length) {
+            reject(new Error(parsed.errors[0].message || 'CSV parse failed'));
+            return;
+          }
+          resolve(parsed.data || []);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  async function importModalityDefinitions(file) {
+    const password = getModalityImportPassword();
+    if (!password) return;
+    try {
+      const parsedDefinitions = await parseModalityDefinitionsFile(file);
+      const definitions = normalizeModalityDefinitions(parsedDefinitions);
+      if (!definitions.length) {
+        throw new Error('No valid modality definitions found. Include Code and Modality columns, or Code and Omit for omitted values.');
+      }
+      const res = await fetch(`${BACKEND_BASE_URL}/api/modalities/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, definitions })
+      });
+      if (!res.ok) throw new Error(res.status === 403 ? 'Unauthorized' : 'Import failed');
+      const payload = await res.json();
+      setModalityDefinitions(payload.data || definitions);
+      refreshModalityDefinitionsViews(payload.lastUpdated);
+      alert(`Imported ${payload.count || definitions.length} modality definitions.`);
+    } catch (err) {
+      alert('Modality definitions import failed: ' + err.message);
+      setModalityDefinitionsStatus('Modality definitions import failed.', true);
+    }
   }
 
   function parseRoomCatalogFile(file) {
@@ -1299,7 +1518,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const value = String(method || '').trim();
     const code = normalizeModalityCode(value);
     const normalized = value.toLowerCase();
-    if (MODALITY_CODE_DEFINITIONS[code]) return MODALITY_CODE_DEFINITIONS[code];
+    if (modalityDefinitionMap.has(code)) return modalityDefinitionMap.get(code);
     if (!value) return 'Unspecified';
     if (/(hybrid|blended|partially online|part online|partially distance)/.test(normalized)) return 'Hybrid';
     if (/(online|web|internet|distance|asynchronous|synchronous|remote|virtual)/.test(normalized)) return 'Online';
@@ -1378,7 +1597,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       seenSections.add(identity);
 
       const rawMethod = getInstructionalMethod(section) || 'Unspecified';
-      if (OMITTED_MODALITY_CODES.has(normalizeModalityCode(rawMethod))) return;
+      if (omittedModalityCodes.has(normalizeModalityCode(rawMethod))) return;
       const category = getModalityCategory(rawMethod);
       if (!categories.has(category)) {
         categories.set(category, {
