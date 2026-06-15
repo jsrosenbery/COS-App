@@ -14,6 +14,7 @@ let heatmapDataTableFilterRegistered = false;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const ROOM_CATALOG_BACKUP_KEY = 'cos-room-catalog-backup-v1';
+const CAL_GETC_BACKUP_KEY = 'cos-cal-getc-mapping-backup-v1';
 
 // --- Official Term Start Dates ---
 const termStartDates = {
@@ -269,6 +270,8 @@ const DEFAULT_MODALITY_DEFINITIONS = [
 let modalityDefinitions = normalizeModalityDefinitions(DEFAULT_MODALITY_DEFINITIONS);
 let modalityDefinitionMap = new Map();
 let omittedModalityCodes = new Set();
+let calGetcMapping = [];
+let calGetcFilterOptions = [];
 
 function normalizeModalityCode(method) {
   return String(method || '').trim().toUpperCase();
@@ -303,6 +306,38 @@ function setModalityDefinitions(definitions) {
   });
 }
 setModalityDefinitions(modalityDefinitions);
+
+function normalizeCalGetcCode(value) {
+  if (window.normalizeCALGETCCode) return window.normalizeCALGETCCode(value);
+  return String(value || '')
+    .replace(/[\u00A0]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function splitCalGetcList(value) {
+  if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean);
+  return String(value || '').split(/[;,|]/).map(item => item.trim()).filter(Boolean);
+}
+
+function normalizeCalGetcMapping(mapping) {
+  return (mapping || [])
+    .map(item => ({
+      code: normalizeCalGetcCode(item.code || item.Code || item.course || item.Course || item['Course Code']),
+      areas: splitCalGetcList(item.areas || item.Areas || item.area || item.Area || item['CAL-GETC Area']),
+      divisions: splitCalGetcList(item.divisions || item.Divisions || item.division || item.Division || item['CAL-GETC Division'])
+    }))
+    .filter(item => item.code && (item.areas.length || item.divisions.length));
+}
+
+function setCalGetcMapping(mapping) {
+  calGetcMapping = normalizeCalGetcMapping(mapping);
+  window.CAL_GETC_MAPPING = calGetcMapping;
+  calGetcFilterOptions = buildCalGetcFilterOptions();
+}
+
+setCalGetcMapping(window.CAL_GETC_MAPPING || []);
 
 function normalizeRoomCatalog(rawRooms) {
   return (rawRooms || [])
@@ -448,22 +483,69 @@ function normalizeRow(r) {
 }
 
 // -- CAL-GETC Filtering helpers --
+function buildCalGetcFilterOptions() {
+  const areas = [];
+  const divisions = [];
+  calGetcMapping.forEach(row => {
+    (row.areas || []).forEach(area => {
+      if (area && !areas.includes(area)) areas.push(area);
+    });
+    (row.divisions || []).forEach(division => {
+      if (division && !divisions.includes(division)) divisions.push(division);
+    });
+  });
+  return [
+    ...areas.map(area => ({ value: `area:${area}`, label: area })),
+    ...divisions.map(division => ({ value: `division:${division}`, label: division }))
+  ];
+}
+
 function getCourseCodesFromCALGETC(value) {
-  if (!window.CAL_GETC_MAPPING || !window.normalizeCALGETCCode) return [];
-  // Remove 'Z' prefix if present
-  if (value && value.startsWith('Z')) value = value.substring(1);
+  if (!calGetcMapping.length) return [];
+  let type = '';
+  let target = String(value || '');
+  const typed = target.match(/^(area|division):(.*)$/);
+  if (typed) {
+    type = typed[1];
+    target = typed[2];
+  } else if (target.startsWith('Z')) {
+    target = target.substring(1);
+  }
   const codes = [];
-  window.CAL_GETC_MAPPING.forEach(row => {
-    if ((row.areas || []).includes(value) || (row.divisions || []).includes(value)) {
-      codes.push(window.normalizeCALGETCCode(row.code));
+  calGetcMapping.forEach(row => {
+    const areaMatch = (type !== 'division') && (row.areas || []).includes(target);
+    const divisionMatch = (type !== 'area') && (row.divisions || []).includes(target);
+    if (areaMatch || divisionMatch) {
+      codes.push(normalizeCalGetcCode(row.code));
     }
   });
   return codes;
 }
 
 function isCALGETCGroup(value) {
-  // Now checks for 'ZCAL-GETC'
-  return value && value.startsWith("ZCAL-GETC");
+  return value && (/^(area|division):/.test(value) || value.startsWith("ZCAL-GETC"));
+}
+
+function populateCalGetcSelect(selectId) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const currentValue = select.value;
+  resetSelect(select, calGetcFilterOptions, 'All', '');
+  if (calGetcFilterOptions.some(option => option.value === currentValue)) {
+    select.value = currentValue;
+  }
+}
+
+function refreshCalGetcFilterControls() {
+  ['heatmap-calgetc-select', 'modality-calgetc-select', 'linechart-calgetc-select'].forEach(populateCalGetcSelect);
+}
+
+function sectionMatchesCalGetc(section, calGetcValue) {
+  if (!calGetcValue) return true;
+  const codes = getCourseCodesFromCALGETC(calGetcValue);
+  if (!codes.length) return false;
+  const courseCode = normalizeCalGetcCode(section.key || getCourseKey(section));
+  return codes.includes(courseCode);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -486,6 +568,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const uploadDiv    = document.getElementById('upload-container');
   const tsDiv        = document.getElementById('upload-timestamp');
   const roomCatalogAdminDiv = document.getElementById('room-catalog-admin');
+  const calGetcAdminDiv = document.getElementById('cal-getc-admin');
   const roomDiv      = document.getElementById('room-filter');
   const startInput   = document.getElementById('avail-start');
   const endInput     = document.getElementById('avail-end');
@@ -507,6 +590,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalityDivisionSelect = document.getElementById('modality-division-select');
   const modalityDisciplineSelect = document.getElementById('modality-discipline-select');
   const modalityLevelSelect = document.getElementById('modality-level-select');
+  const modalityCalGetcSelect = document.getElementById('modality-calgetc-select');
   const modalityClearBtn = document.getElementById('modality-clear-btn');
   const modalitySummary = document.getElementById('modality-summary');
   const modalityChart = document.getElementById('modality-chart');
@@ -524,8 +608,10 @@ document.addEventListener('DOMContentLoaded', () => {
   initLineChartChoices();
   initAvailabilityAttributeFilters();
   setupRoomCatalogAdmin();
+  setupCalGetcAdmin();
   loadRoomCatalogFromBackend();
   loadModalityDefinitionsFromBackend();
+  loadCalGetcMappingFromBackend();
 
   window.COSScheduleApp = {
     getCurrentData: () => currentData,
@@ -536,15 +622,18 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('heatmap-campus-select').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-division-select').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-discipline-select').addEventListener('change', updateAllHeatmap);
+  document.getElementById('heatmap-calgetc-select').addEventListener('change', updateAllHeatmap);
   document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-division-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-discipline-select').addEventListener('change', renderLineChart);
+  document.getElementById('linechart-calgetc-select').addEventListener('change', renderLineChart);
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
   if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
   if (modalityDivisionSelect) modalityDivisionSelect.addEventListener('change', renderModalityTool);
   if (modalityDisciplineSelect) modalityDisciplineSelect.addEventListener('change', renderModalityTool);
   if (modalityLevelSelect) modalityLevelSelect.addEventListener('change', renderModalityTool);
+  if (modalityCalGetcSelect) modalityCalGetcSelect.addEventListener('change', renderModalityTool);
   if (utilizationClearBtn) {
     utilizationClearBtn.onclick = () => {
       if (utilizationCampusSelect) utilizationCampusSelect.value = '';
@@ -558,13 +647,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (modalityDivisionSelect) modalityDivisionSelect.value = '';
       if (modalityDisciplineSelect) modalityDisciplineSelect.value = '';
       if (modalityLevelSelect) modalityLevelSelect.value = '';
+      if (modalityCalGetcSelect) modalityCalGetcSelect.value = '';
       renderModalityTool();
     };
   }
 
   document.getElementById('heatmap-clear-btn').onclick = () => {
     if (hmChoices) hmChoices.removeActiveItems();
-    ['heatmap-campus-select', 'heatmap-division-select', 'heatmap-discipline-select'].forEach(id => {
+    ['heatmap-campus-select', 'heatmap-division-select', 'heatmap-discipline-select', 'heatmap-calgetc-select'].forEach(id => {
       const select = document.getElementById(id);
       if (select) select.value = '';
     });
@@ -577,7 +667,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   document.getElementById('linechart-clear-btn').onclick = () => {
     if (lineCourseChoices) lineCourseChoices.removeActiveItems();
-    ['linechart-campus-select', 'linechart-division-select', 'linechart-discipline-select'].forEach(id => {
+    ['linechart-campus-select', 'linechart-division-select', 'linechart-discipline-select', 'linechart-calgetc-select'].forEach(id => {
       const select = document.getElementById(id);
       if (select) select.value = '';
     });
@@ -822,6 +912,46 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
   }
 
+  function setupCalGetcAdmin() {
+    if (!calGetcAdminDiv) return;
+    calGetcAdminDiv.replaceChildren();
+
+    const title = document.createElement('strong');
+    title.textContent = 'CAL-GETC Mapping';
+
+    const exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.textContent = 'Export CAL-GETC CSV';
+
+    const exportJsonBtn = document.createElement('button');
+    exportJsonBtn.type = 'button';
+    exportJsonBtn.textContent = 'Export CAL-GETC JSON';
+
+    const importLabel = document.createElement('label');
+    importLabel.append('Import CAL-GETC:');
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.accept = '.csv,.json,application/json,text/csv';
+    importLabel.appendChild(importInput);
+
+    const status = document.createElement('span');
+    status.id = 'cal-getc-status';
+    status.className = 'room-catalog-status';
+    status.textContent = `${calGetcMapping.length} CAL-GETC mappings loaded.`;
+
+    calGetcAdminDiv.append(title, exportBtn, exportJsonBtn, importLabel, status);
+
+    exportBtn.addEventListener('click', () => exportCalGetcMapping('csv'));
+    exportJsonBtn.addEventListener('click', () => exportCalGetcMapping('json'));
+    importInput.addEventListener('change', e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      importCalGetcMapping(file).finally(() => {
+        e.target.value = '';
+      });
+    });
+  }
+
   function getRoomCatalogPassword(action) {
     const password = prompt(`Enter upload password to ${action} room catalog:`);
     if (!password) {
@@ -835,6 +965,15 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const password = prompt('Enter upload password to import modality definitions:');
     if (!password) {
       alert('Modality import cancelled.');
+      return null;
+    }
+    return password;
+  }
+
+  function getCalGetcImportPassword() {
+    const password = prompt('Enter upload password to import CAL-GETC mapping:');
+    if (!password) {
+      alert('CAL-GETC import cancelled.');
       return null;
     }
     return password;
@@ -856,6 +995,15 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       Code: definition.code,
       Modality: definition.modality,
       Omit: definition.omitted ? 'TRUE' : 'FALSE'
+    }));
+    return Papa.unparse(rows);
+  }
+
+  function calGetcMappingToCsv(mapping) {
+    const rows = normalizeCalGetcMapping(mapping).map(item => ({
+      Code: item.code,
+      Areas: item.areas.join('; '),
+      Divisions: item.divisions.join('; ')
     }));
     return Papa.unparse(rows);
   }
@@ -1020,6 +1168,158 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     } catch (err) {
       alert('Modality definitions import failed: ' + err.message);
       setModalityDefinitionsStatus('Modality definitions import failed.', true);
+    }
+  }
+
+  function setCalGetcStatus(message, isError = false) {
+    const status = document.getElementById('cal-getc-status');
+    if (!status) return;
+    status.textContent = message;
+    status.style.color = isError ? '#b91c1c' : '';
+  }
+
+  function saveCalGetcBackup(mapping, lastUpdated = null) {
+    const normalized = normalizeCalGetcMapping(mapping);
+    if (!normalized.length) return;
+    try {
+      localStorage.setItem(CAL_GETC_BACKUP_KEY, JSON.stringify({
+        lastUpdated: lastUpdated || new Date().toISOString(),
+        data: normalized
+      }));
+    } catch (err) {
+      console.warn('CAL-GETC browser backup failed:', err);
+    }
+  }
+
+  function readCalGetcBackup() {
+    try {
+      const payload = JSON.parse(localStorage.getItem(CAL_GETC_BACKUP_KEY) || 'null');
+      const mapping = normalizeCalGetcMapping(payload?.data || []);
+      return mapping.length ? { data: mapping, lastUpdated: payload.lastUpdated || null } : null;
+    } catch (err) {
+      console.warn('CAL-GETC browser backup read failed:', err);
+      return null;
+    }
+  }
+
+  function refreshCalGetcViews(lastUpdated = null) {
+    refreshCalGetcFilterControls();
+    feedHeatmapTool(currentData);
+    initModalityFilters();
+    if (document.getElementById('viewSelect').value === 'modality') {
+      renderModalityTool();
+    }
+    if (document.getElementById('viewSelect').value === 'linechart') {
+      renderLineChart();
+    }
+    const stamp = lastUpdated ? ` Updated ${new Date(lastUpdated).toLocaleString()}.` : '';
+    setCalGetcStatus(`${calGetcMapping.length} CAL-GETC mappings loaded.${stamp}`);
+  }
+
+  function loadCalGetcMappingFromBackend() {
+    fetch(`${BACKEND_BASE_URL}/api/cal-getc`)
+      .then(res => {
+        if (!res.ok) throw new Error('CAL-GETC mapping fetch failed');
+        return res.json();
+      })
+      .then(({ data, lastUpdated }) => {
+        const backendMapping = normalizeCalGetcMapping(data);
+        if (backendMapping.length) {
+          setCalGetcMapping(backendMapping);
+          saveCalGetcBackup(backendMapping, lastUpdated);
+          refreshCalGetcViews(lastUpdated);
+          return;
+        }
+        const fallback = normalizeCalGetcMapping(window.CAL_GETC_MAPPING || []);
+        if (fallback.length) {
+          setCalGetcMapping(fallback);
+          refreshCalGetcViews(lastUpdated);
+        }
+      })
+      .catch(err => {
+        const backup = readCalGetcBackup();
+        if (backup) {
+          setCalGetcMapping(backup.data);
+          refreshCalGetcViews(backup.lastUpdated);
+          setCalGetcStatus(`Using this browser's saved CAL-GETC mapping because backend fetch failed. ${err.message}`, true);
+          return;
+        }
+        setCalGetcMapping(window.CAL_GETC_MAPPING || []);
+        refreshCalGetcViews();
+        setCalGetcStatus(`Using built-in CAL-GETC mapping. ${err.message}`, true);
+      });
+  }
+
+  function exportCalGetcMapping(format = 'csv') {
+    fetch(`${BACKEND_BASE_URL}/api/cal-getc`)
+      .then(res => {
+        if (!res.ok) throw new Error('Export failed');
+        return res.json();
+      })
+      .then(({ data }) => {
+        const mapping = normalizeCalGetcMapping(data).length ? normalizeCalGetcMapping(data) : calGetcMapping;
+        if (format === 'json') {
+          downloadTextFile('cos-cal-getc-mapping.json', JSON.stringify(mapping, null, 2), 'application/json;charset=utf-8');
+        } else {
+          downloadTextFile('cos-cal-getc-mapping.csv', calGetcMappingToCsv(mapping), 'text/csv;charset=utf-8');
+        }
+        setCalGetcStatus(`Exported ${mapping.length} CAL-GETC mappings.`);
+      })
+      .catch(err => {
+        alert('CAL-GETC export failed: ' + err.message);
+        setCalGetcStatus('CAL-GETC export failed.', true);
+      });
+  }
+
+  function parseCalGetcMappingFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Could not read selected file'));
+      reader.onload = ev => {
+        try {
+          const text = String(ev.target.result || '');
+          if (file.name.toLowerCase().endsWith('.json')) {
+            const parsed = JSON.parse(text);
+            resolve(Array.isArray(parsed) ? parsed : parsed.data || parsed.mapping || []);
+            return;
+          }
+          const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+          if (parsed.errors?.length) {
+            reject(new Error(parsed.errors[0].message || 'CSV parse failed'));
+            return;
+          }
+          resolve(parsed.data || []);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  async function importCalGetcMapping(file) {
+    const password = getCalGetcImportPassword();
+    if (!password) return;
+    try {
+      const parsedMapping = await parseCalGetcMappingFile(file);
+      const mapping = normalizeCalGetcMapping(parsedMapping);
+      if (!mapping.length) {
+        throw new Error('No valid CAL-GETC mappings found. Include Code plus Areas and/or Divisions columns.');
+      }
+      const res = await fetch(`${BACKEND_BASE_URL}/api/cal-getc/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, mapping })
+      });
+      if (!res.ok) throw new Error(res.status === 403 ? 'Unauthorized' : 'Import failed');
+      const payload = await res.json();
+      setCalGetcMapping(payload.data || mapping);
+      saveCalGetcBackup(payload.data || mapping, payload.lastUpdated);
+      refreshCalGetcViews(payload.lastUpdated);
+      alert(`Imported ${payload.count || mapping.length} CAL-GETC mappings.`);
+    } catch (err) {
+      alert('CAL-GETC import failed: ' + err.message);
+      setCalGetcStatus('CAL-GETC import failed.', true);
     }
   }
 
@@ -1649,6 +1949,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const divisionValue = modalityDivisionSelect.value;
     const disciplineValue = modalityDisciplineSelect.value;
     const levelValue = modalityLevelSelect.value;
+    const calGetcValue = modalityCalGetcSelect?.value || '';
     const campuses = getUniqueCampuses(currentData);
     const divisions = [...new Set(currentData.map(getDivision).filter(Boolean))].sort();
     const disciplines = [...new Set(currentData.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
@@ -1658,10 +1959,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     resetSelect(modalityDivisionSelect, divisions, 'All', '');
     resetSelect(modalityDisciplineSelect, disciplines, 'All', '');
     resetSelect(modalityLevelSelect, levels, 'All', '');
+    if (modalityCalGetcSelect) resetSelect(modalityCalGetcSelect, calGetcFilterOptions, 'All', '');
     if (campuses.includes(campusValue)) modalityCampusSelect.value = campusValue;
     if (divisions.includes(divisionValue)) modalityDivisionSelect.value = divisionValue;
     if (disciplines.includes(disciplineValue)) modalityDisciplineSelect.value = disciplineValue;
     if (levels.includes(levelValue)) modalityLevelSelect.value = levelValue;
+    if (calGetcFilterOptions.some(option => option.value === calGetcValue) && modalityCalGetcSelect) modalityCalGetcSelect.value = calGetcValue;
   }
 
   function calculateModalityBalance() {
@@ -1669,6 +1972,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const selectedDivision = modalityDivisionSelect?.value || '';
     const selectedDiscipline = modalityDisciplineSelect?.value || '';
     const selectedLevel = modalityLevelSelect?.value || '';
+    const selectedCalGetc = modalityCalGetcSelect?.value || '';
     const seenSections = new Set();
     const categories = new Map();
 
@@ -1681,6 +1985,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (selectedDivision && division !== selectedDivision) return;
       if (selectedDiscipline && courseParts.discipline !== selectedDiscipline) return;
       if (selectedLevel && courseLevel !== selectedLevel) return;
+      if (!sectionMatchesCalGetc(section, selectedCalGetc)) return;
 
       const identity = getSectionIdentity(section, index);
       if (seenSections.has(identity)) return;
@@ -2043,33 +2348,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (heatmapDisciplineSelect) resetSelect(heatmapDisciplineSelect, disciplines, 'All', '');
     if (linechartDisciplineSelect) resetSelect(linechartDisciplineSelect, disciplines, 'All', '');
 
-    // --- CAL-GETC group options at the very bottom (no sorting) ---
     let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
-    let nonCalGetcItems = uniqueKeys
+    let items = uniqueKeys
       .filter(k => !k.startsWith("CAL-GETC"))
       .map(k => ({ value: k, label: k }));
-
-    let calGetcAreaOptions = [];
-    let calGetcDivisionOptions = [];
-    if (window.CAL_GETC_MAPPING) {
-      const calGetcGroups = { areas: [], divisions: [] };
-      window.CAL_GETC_MAPPING.forEach(row => {
-        (row.areas || []).forEach(area => {
-          if (!calGetcGroups.areas.includes(area)) calGetcGroups.areas.push(area);
-        });
-        (row.divisions || []).forEach(div => {
-          if (!calGetcGroups.divisions.includes(div)) calGetcGroups.divisions.push(div);
-        });
-      });
-      calGetcAreaOptions = calGetcGroups.areas;
-      calGetcDivisionOptions = calGetcGroups.divisions;
-    }
-    const calGetcItems = [
-      ...calGetcAreaOptions.map(area => ({ value: 'Z' + area, label: 'Z' + area })),
-      ...calGetcDivisionOptions.map(div => ({ value: 'Z' + div, label: 'Z' + div }))
-    ];
-    // CAL-GETC options always at the bottom, in mapping order:
-    let items = [...nonCalGetcItems, ...calGetcItems];
 
     if (hmChoices) {
       hmChoices.setChoices(items, 'value', 'label', true);
@@ -2077,6 +2359,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (lineCourseChoices) {
       lineCourseChoices.setChoices(items, 'value', 'label', true);
     }
+    refreshCalGetcFilterControls();
     updateAllHeatmap();
     renderLineChart();
   }
@@ -2097,10 +2380,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return filterCourseCodes;
   }
 
-  function filterAnalysisRows({ campusId, divisionId, disciplineId, courseChoices }) {
+  function filterAnalysisRows({ campusId, divisionId, disciplineId, calGetcId, courseChoices }) {
     const selectedCampus = document.getElementById(campusId)?.value || '';
     const selectedDivision = document.getElementById(divisionId)?.value || '';
     const selectedDiscipline = document.getElementById(disciplineId)?.value || '';
+    const selectedCalGetc = document.getElementById(calGetcId)?.value || '';
     const selectedCourses = courseChoices ? courseChoices.getValue(true) : [];
     const filterCourseCodes = buildCourseFilterSet(selectedCourses);
 
@@ -2108,6 +2392,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (selectedCampus && extractField(r, ['Campus', 'campus', 'CAMPUS']) !== selectedCampus) return false;
       if (selectedDivision && r.Division !== selectedDivision) return false;
       if (selectedDiscipline && r.Discipline !== selectedDiscipline) return false;
+      if (!sectionMatchesCalGetc(r, selectedCalGetc)) return false;
       if (selectedCourses.length && !filterCourseCodes.has(window.normalizeCALGETCCode ? window.normalizeCALGETCCode(r.key) : r.key)) return false;
       if (!isValidRoom(r.Building, r.Room)) return false;
       return true;
@@ -2120,6 +2405,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       campusId: 'heatmap-campus-select',
       divisionId: 'heatmap-division-select',
       disciplineId: 'heatmap-discipline-select',
+      calGetcId: 'heatmap-calgetc-select',
       courseChoices: hmChoices
     }).map(r => [r.key, r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time]);
     hmTable.clear().rows.add(rows).draw();
@@ -2186,6 +2472,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       campusId: 'linechart-campus-select',
       divisionId: 'linechart-division-select',
       disciplineId: 'linechart-discipline-select',
+      calGetcId: 'linechart-calgetc-select',
       courseChoices: lineCourseChoices
     }).filter(r => {
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;

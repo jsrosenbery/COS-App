@@ -120,6 +120,7 @@ h1 {
 #upload-container,
 .upload-timestamp,
 #room-catalog-admin,
+#cal-getc-admin,
 #admin-tools,
 #room-filter,
 .availability-ui,
@@ -135,6 +136,7 @@ h1 {
 #view-container,
 #upload-container,
 #room-catalog-admin,
+#cal-getc-admin,
 #admin-tools,
 #room-filter,
 #calendar-room-filter,
@@ -388,7 +390,8 @@ button:hover,
 
 .admin-tools #upload-container,
 .admin-tools .upload-timestamp,
-.admin-tools #room-catalog-admin {
+.admin-tools #room-catalog-admin,
+.admin-tools #cal-getc-admin {
   width: auto;
   margin: 0.75rem 0 0;
 }
