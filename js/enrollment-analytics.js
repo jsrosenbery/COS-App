@@ -6,6 +6,7 @@
     consolidation: 'section-consolidation'
   };
   const state = { enrollment: [], attritionRows: [], consolidationRows: [], attritionRan: false, attritionTerms: [] };
+  const analyticsChoices = new Map();
 
   const fields = {
     term: ['Term', 'TERM', 'term'],
@@ -70,7 +71,7 @@
     const census = censusValue === '' ? null : num(censusValue);
     return {
       raw: row,
-      term: canon(val(row, fields.term) || currentTerm()),
+      term: canon(val(row, fields.term) || row.__sourceTerm || currentTerm()),
       crn: canon(val(row, fields.crn)),
       subject,
       course,
@@ -169,6 +170,19 @@
     return window.COSScheduleApp?.getCurrentTerm?.() || document.getElementById('termSelect')?.value || '';
   }
 
+  function termFromFilename(filename) {
+    const text = String(filename || '');
+    const match = text.match(/\b(20\d{2})(10|20|30|40)\b/);
+    if (!match) return '';
+    const year = Number(match[1]);
+    const code = match[2];
+    if (code === '10') return `FALL ${year - 1}`;
+    if (code === '20') return `SPRING ${year}`;
+    if (code === '30') return `SUMMER ${year}`;
+    if (code === '40') return `WINTER ${year}`;
+    return '';
+  }
+
   function ensureOptions() {
     const select = document.getElementById('viewSelect');
     if (!select) return;
@@ -198,7 +212,7 @@
                 <li>Sections are deduplicated by CRN within term, with subject/course/section used as fallback, so multi-meeting rows are not double counted.</li>
                 <li>Attrition Count = CENSUS_ENROLL - ACTUAL_ENROLL. Attrition Rate = Attrition Count / CENSUS_ENROLL.</li>
                 <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
-                <li>Historical Attrition compares uploaded non-decision terms in aggregate and is intended to show whether the current pattern looks recurring or unusual.</li>
+                <li>All Terms columns include the decision term plus comparison terms. Historical Attrition excludes the decision term and uses comparison terms only.</li>
               </ul>
             </div>
           </div>
@@ -256,12 +270,12 @@
     const includeGroup = typeof options === 'boolean' ? options : Boolean(options.includeGroup);
     const includeCancelled = typeof options === 'boolean' ? true : options.includeCancelled !== false;
     return `
-      <label>Subject <input id="${prefix}Subject" placeholder="All"></label>
-      <label>Course <input id="${prefix}Course" placeholder="All"></label>
-      <label>Campus <input id="${prefix}Campus" placeholder="All"></label>
-      <label>Modality <input id="${prefix}Modality" placeholder="All"></label>
-      <label>Instructor <input id="${prefix}Instructor" placeholder="All"></label>
-      <label>Day <input id="${prefix}Day" placeholder="All"></label>
+      <label>Subject <select id="${prefix}Subject" multiple data-placeholder="All subjects"></select></label>
+      <label>Course <select id="${prefix}Course" multiple data-placeholder="All courses"></select></label>
+      <label>Campus <select id="${prefix}Campus" multiple data-placeholder="All campuses"></select></label>
+      <label>Modality <select id="${prefix}Modality" multiple data-placeholder="All modalities"></select></label>
+      <label>Instructor <select id="${prefix}Instructor" multiple data-placeholder="All instructors"></select></label>
+      <label>Day <select id="${prefix}Day" multiple data-placeholder="All days"></select></label>
       <label>Time block <select id="${prefix}Time"><option value="">All</option><option>MORNING</option><option>AFTERNOON</option><option>EVENING</option><option>ONLINE/TBA</option></select></label>
       ${includeGroup ? '<label>Group by <select id="attrGroup"><option>COURSE</option><option>SUBJECT</option><option>SECTION</option><option>INSTRUCTOR</option><option>CAMPUS</option><option>MODALITY</option><option>DAY PATTERN</option><option>TIME BLOCK</option><option>OVERALL</option></select></label><label>Min sections <input id="attrMinSections" type="number" min="1" value="1"></label>' : ''}
       <label><input id="${prefix}HideOnline" type="checkbox"> hide online</label>
@@ -269,16 +283,72 @@
       <label><input id="${prefix}HideZero" type="checkbox" checked> hide zero cap</label>`;
   }
 
+  function getSelectedValues(id) {
+    const select = document.getElementById(id);
+    if (!select) return [];
+    return Array.from(select.selectedOptions || []).map(option => canon(option.value)).filter(Boolean);
+  }
+
+  function valueMatchesSelection(value, selectedValues) {
+    if (!selectedValues.length) return true;
+    const normalized = canon(value);
+    return selectedValues.some(selected => normalized === selected || normalized.includes(selected));
+  }
+
+  function uniqueOptions(rows, getter) {
+    return [...new Set(rows.map(getter).filter(Boolean).map(canon))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .map(value => ({ value, label: value }));
+  }
+
+  function setSelectOptions(id, options) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const selected = new Set(getSelectedValues(id));
+    const choice = analyticsChoices.get(id);
+    if (choice) choice.destroy();
+    select.replaceChildren();
+    options.forEach(option => {
+      const node = new Option(option.label, option.value, false, selected.has(canon(option.value)));
+      select.appendChild(node);
+    });
+    if (window.Choices) {
+      analyticsChoices.set(id, new Choices(select, {
+        removeItemButton: true,
+        searchEnabled: true,
+        shouldSort: false,
+        placeholderValue: select.dataset.placeholder || 'All'
+      }));
+    }
+  }
+
+  function populateAnalyticsFilters(prefix, rows) {
+    setSelectOptions(prefix + 'Subject', uniqueOptions(rows, row => row.subject));
+    setSelectOptions(prefix + 'Course', uniqueOptions(rows, row => row.course));
+    setSelectOptions(prefix + 'Campus', uniqueOptions(rows, row => row.campus));
+    setSelectOptions(prefix + 'Modality', uniqueOptions(rows, row => row.modality));
+    setSelectOptions(prefix + 'Instructor', uniqueOptions(rows, row => row.instructor));
+    setSelectOptions(prefix + 'Day', uniqueOptions(rows, row => row.dayPattern));
+  }
+
   function applyFilters(rows, prefix) {
-    const f = (id) => canon(document.getElementById(prefix + id)?.value);
+    const selected = {
+      subject: getSelectedValues(prefix + 'Subject'),
+      course: getSelectedValues(prefix + 'Course'),
+      campus: getSelectedValues(prefix + 'Campus'),
+      modality: getSelectedValues(prefix + 'Modality'),
+      instructor: getSelectedValues(prefix + 'Instructor'),
+      day: getSelectedValues(prefix + 'Day'),
+      time: canon(document.getElementById(prefix + 'Time')?.value)
+    };
     return rows.filter((r) => {
-      if (f('Subject') && !r.subject.includes(f('Subject'))) return false;
-      if (f('Course') && !r.course.includes(f('Course'))) return false;
-      if (f('Campus') && !r.campus.includes(f('Campus'))) return false;
-      if (f('Modality') && !r.modality.includes(f('Modality'))) return false;
-      if (f('Instructor') && !r.instructor.includes(f('Instructor'))) return false;
-      if (f('Day') && !r.dayPattern.includes(f('Day'))) return false;
-      if (f('Time') && r.timeBlock !== f('Time')) return false;
+      if (!valueMatchesSelection(r.subject, selected.subject)) return false;
+      if (!valueMatchesSelection(r.course, selected.course)) return false;
+      if (!valueMatchesSelection(r.campus, selected.campus)) return false;
+      if (!valueMatchesSelection(r.modality, selected.modality)) return false;
+      if (!valueMatchesSelection(r.instructor, selected.instructor)) return false;
+      if (!valueMatchesSelection(r.dayPattern, selected.day)) return false;
+      if (selected.time && r.timeBlock !== selected.time) return false;
       if (document.getElementById(prefix + 'HideOnline')?.checked && r.modality === 'ONLINE') return false;
       if (document.getElementById(prefix + 'HideCancelled')?.checked && /CANCEL/.test(r.status)) return false;
       if (document.getElementById(prefix + 'HideZero')?.checked && r.cap <= 0) return false;
@@ -290,7 +360,13 @@
     const files = Array.from(input?.files || []);
     if (!files.length) return [];
     const batches = await Promise.all(files.map(file => new Promise((resolve, reject) => {
-      Papa.parse(file, { header: true, skipEmptyLines: true, complete: (r) => resolve(r.data), error: reject });
+      const sourceTerm = termFromFilename(file.name);
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (r) => resolve((r.data || []).map(row => ({ ...row, __sourceTerm: sourceTerm }))),
+        error: reject
+      });
     })));
     return batches.flat();
   }
@@ -365,6 +441,7 @@
     const allEnrollment = state.enrollment.length ? state.enrollment : fallbackRows;
     state.attritionTerms = collectTerms(allEnrollment);
     updateDecisionTermOptions(state.attritionTerms);
+    populateAnalyticsFilters('attr', allEnrollment);
     return allEnrollment;
   }
 
@@ -464,7 +541,8 @@
   }
 
   async function runConsolidation() {
-    const rows = applyFilters(currentRows(), 'con');
+    const allRows = currentRows();
+    const rows = applyFilters(allRows, 'con');
     const minSections = Number(document.getElementById('conMinSections')?.value || 5);
     const lowFill = Number(document.getElementById('conLowFill')?.value || 50) / 100;
     const sameCampus = document.getElementById('conSameCampus')?.checked;
@@ -589,16 +667,26 @@
     const display = rows.slice(0, 500);
     document.getElementById(id).innerHTML = display.length ? `
       <table><thead><tr>${columns.map((c) => `<th>${label(c)}</th>`).join('')}</tr></thead>
-      <tbody>${display.map((row) => `<tr>${columns.map((c) => `<td>${format(row[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>` :
+      <tbody>${display.map((row) => `<tr>${columns.map((c) => `<td>${format(row[c], c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` :
       '<p class="analytics-empty">No rows match the selected criteria.</p>';
   }
 
   function label(text) {
-    return text.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+    const labels = {
+      sections: 'All Terms Sections',
+      census: 'All Terms Census',
+      final: 'All Terms Final',
+      attritionRate: 'All Terms Attrition Rate',
+      censusFillRate: 'All Terms Census Fill',
+      finalFillRate: 'All Terms Final Fill',
+      availableAtCensus: 'All Terms Available At Census',
+      availableAtEnd: 'All Terms Available At End'
+    };
+    return labels[text] || text.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
   }
 
-  function format(value) {
-    if (typeof value === 'number' && value >= 0 && value <= 1) return pct(value);
+  function format(value, column = '') {
+    if (typeof value === 'number' && value >= 0 && value <= 1 && /(rate|fill)$/i.test(column)) return pct(value);
     return value ?? '';
   }
 
@@ -620,8 +708,13 @@
     document.getElementById('attritionReport').style.display = selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = selected === REPORTS.consolidation ? 'block' : 'none';
     if (selected === REPORTS.attrition && !state.attritionRan) {
-      updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(currentRows()));
+      const rows = state.enrollment.length ? state.enrollment : currentRows();
+      updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(rows));
+      populateAnalyticsFilters('attr', rows);
       document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload enrollment CSV files, then click Run.</p>';
+    }
+    if (selected === REPORTS.consolidation) {
+      populateAnalyticsFilters('con', currentRows());
     }
   }
 
@@ -641,6 +734,9 @@
       .analytics-toolbar input,.analytics-toolbar select{min-height:34px;border:1px solid #ccd6e2;border-radius:6px;padding:6px 8px}
       .analytics-toolbar input[type=checkbox]{min-height:auto}
       .analytics-toolbar button{min-height:36px;border:0;border-radius:18px;padding:0 16px;background:#cdeffc;color:#002b5c;font-weight:700;cursor:pointer}
+      .analytics-toolbar .choices{min-width:170px;margin-bottom:0}
+      .analytics-toolbar .choices__inner{min-height:34px;border:1px solid #ccd6e2;border-radius:6px;background:#fff;padding:3px 6px}
+      .analytics-toolbar .choices__list--multiple .choices__item{background:#174f7d;border-color:#174f7d}
       .analytics-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px}
       .analytics-metrics div{border:1px solid #d8e1ec;border-radius:8px;padding:12px;background:#f8fbff}
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
