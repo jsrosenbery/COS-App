@@ -803,9 +803,50 @@
   function table(id, rows, columns) {
     const display = rows.slice(0, 500);
     document.getElementById(id).innerHTML = display.length ? `
-      <table><thead><tr>${columns.map((c) => `<th>${label(c)}</th>`).join('')}</tr></thead>
-      <tbody>${display.map((row) => `<tr>${columns.map((c) => `<td>${format(row[c], c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` :
+      <table><thead><tr>${columns.map((c, index) => `<th><button type="button" class="analytics-sort" data-column="${index}" aria-label="Sort by ${label(c)}">${label(c)} <span aria-hidden="true"></span></button></th>`).join('')}</tr></thead>
+      <tbody>${display.map((row) => `<tr>${columns.map((c) => `<td data-sort="${escapeAttr(sortValue(row[c], c))}">${format(row[c], c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` :
       '<p class="analytics-empty">No rows match the selected criteria.</p>';
+  }
+
+  function escapeAttr(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function sortValue(value, column = '') {
+    if (typeof value === 'number') return String(value);
+    if (/(rate|fill)$/i.test(column)) return String(num(value) / 100);
+    return String(value ?? '').trim();
+  }
+
+  function sortAnalyticsTable(button) {
+    const tableNode = button.closest('table');
+    const tbody = tableNode?.querySelector('tbody');
+    if (!tableNode || !tbody) return;
+    const column = Number(button.dataset.column);
+    const current = button.dataset.direction || 'none';
+    const direction = current === 'asc' ? 'desc' : 'asc';
+    tableNode.querySelectorAll('.analytics-sort').forEach(sortButton => {
+      sortButton.dataset.direction = '';
+      sortButton.querySelector('span').textContent = '';
+    });
+    button.dataset.direction = direction;
+    button.querySelector('span').textContent = direction === 'asc' ? '^' : 'v';
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const values = rows.map(row => row.children[column]?.dataset.sort ?? '');
+    const numeric = values.filter(Boolean).every(value => Number.isFinite(Number(value)));
+    rows.sort((a, b) => {
+      const left = a.children[column]?.dataset.sort ?? '';
+      const right = b.children[column]?.dataset.sort ?? '';
+      const result = numeric
+        ? Number(left) - Number(right)
+        : left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+      return direction === 'asc' ? result : -result;
+    });
+    rows.forEach(row => tbody.appendChild(row));
   }
 
   function renderAttritionLegend() {
@@ -916,6 +957,8 @@
       .analytics-table{overflow:auto;max-height:620px;border:1px solid #d8e1ec;border-radius:8px}
       .analytics-table table{width:100%;border-collapse:collapse;background:#fff}
       .analytics-table th{position:sticky;top:0;background:#174f7d;color:#fff;text-align:left;padding:9px;font-size:13px}
+      .analytics-table th .analytics-sort{display:flex;align-items:center;gap:5px;width:100%;border:0;background:transparent;color:inherit;font:inherit;font-weight:800;text-align:left;cursor:pointer;padding:0}
+      .analytics-table th .analytics-sort span{min-width:10px;font-size:10px}
       .analytics-table td{border-top:1px solid #e6edf5;padding:8px;font-size:13px}
       .analytics-empty{padding:16px;margin:0;color:#51657c}
       .analytics-legend{margin-top:14px;padding:14px;border:1px solid #d8e1ec;border-radius:12px;background:#f8fbff;color:#51657c}
@@ -940,6 +983,10 @@
     document.getElementById('clearConsolidation')?.addEventListener('click', () => resetAnalyticsControls('con'));
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
+    document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
+      const button = event.target.closest('.analytics-sort');
+      if (button) sortAnalyticsTable(button);
+    });
   }
 
   function init() {
