@@ -322,7 +322,7 @@
                   <li>Low Fill = enrollment divided by capacity below the selected low-fill threshold.</li>
                   <li>Receiving sections are other sections of the same course with enough open seats, optionally constrained by campus, modality, days, and time.</li>
                   <li>Historical matching should be based on a stable section pattern, not CRN, because CRNs change across terms.</li>
-                  <li>Min sections is the minimum number of sections a course must have before it is considered for consolidation review.</li>
+                  <li>Min sections is the minimum number of decision-term in-person sections a course must have before it is considered for in-person flow review. Online reduction rows require at least two online sections and enough historical vacancies to remove one section.</li>
                   <li>Recommendation scores are planning indicators only. They identify candidates for review, not automatic cancellations.</li>
                 </ul>
               </div>
@@ -875,7 +875,7 @@
     const allCourseCount = group(rows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`).size;
     const byCourse = group(inPersonRows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`);
     const history = await historicalPatterns(allRows, decisionTerm, lowFill, lowEnroll);
-    state.consolidationRows = onlineReductionRows(onlineRows, comparisonRows.filter(isOnlineSection), options, minSections);
+    state.consolidationRows = onlineReductionRows(onlineRows, comparisonRows.filter(isOnlineSection), options);
     byCourse.forEach((sections, key) => {
       const course = key.split('||')[1] || key;
       if (sections.length < minSections) return;
@@ -904,7 +904,7 @@
       ['Seats Potentially Freed', sum(state.consolidationRows, 'freedSeats')],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
-    table('consolidationTable', state.consolidationRows.map(flattenOpportunity), ['type', 'score', 'label', 'course', 'sections', 'sourceSection', 'sourceEnroll', 'sourceFill', 'targetSection', 'targetEnroll', 'targetOpenSeats', 'vacancies', 'sectionCap', 'possibleReductions', 'recommendedReductions', 'freedSeats', 'matchReason', 'historicalTerms', 'chronicLowFill']);
+    table('consolidationTable', state.consolidationRows.map(flattenOpportunity), ['type', 'score', 'label', 'course', 'sections', 'sourceSummary', 'targetSummary', 'onlineSummary', 'recommendation', 'freedSeats', 'matchReason', 'historicalTerms', 'chronicLowFill']);
     renderConsolidationLegend();
   }
 
@@ -928,12 +928,13 @@
     return usable.length ? usable.reduce((total, value) => total + value, 0) / usable.length : 0;
   }
 
-  function onlineReductionRows(rows, historicalRows, options, minSections) {
+  function onlineReductionRows(rows, historicalRows, options) {
     const byOnlineCourse = group(rows, row => `${row.term || currentTerm()}||${row.subject} ${row.course}`);
     const historicalByCourse = group(historicalRows, row => `${row.subject} ${row.course}`);
     const output = [];
+    const onlineMinSections = 2;
     byOnlineCourse.forEach((sections, key) => {
-      if (sections.length < minSections) return;
+      if (sections.length < onlineMinSections) return;
       const course = key.split('||')[1] || key;
       const historicalSections = historicalByCourse.get(course) || [];
       const historicalByTerm = group(historicalSections, row => row.term || 'UNKNOWN');
@@ -1103,22 +1104,40 @@
   }
 
   function flattenOpportunity(row) {
+    const isOnline = row.type === 'Online Reduction';
+    const sourceSummary = row.source
+      ? `${describe(row.source)}; enroll ${row.source.actual}; fill ${pct(row.source.fillRate)}`
+      : `Online aggregate; expected enroll ${row.sourceEnroll}; fill ${pct(row.sourceFill)}`;
+    const targetOpenSeats = row.target ? Math.max(0, row.target.cap - row.target.actual) : row.targetOpenSeats;
+    const targetSummary = row.target
+      ? `${describe(row.target)}; enroll ${row.target.actual}; open seats ${targetOpenSeats}`
+      : '';
+    const onlineSummary = isOnline
+      ? `${row.vacancies ?? 0} expected vacancies; median cap ${row.sectionCap ?? 0}; possible reductions ${row.possibleReductions ?? 0}`
+      : '';
+    const recommendation = isOnline
+      ? `${row.recommendedReductions ?? 0} recommended reduction(s)`
+      : 'Review source and receiving section';
     return {
       type: row.type || 'In-Person Flow',
       score: row.score,
       label: row.label,
       course: row.course,
       sections: row.sections || row.sectionCount || '',
+      sourceSummary,
       sourceSection: row.source ? describe(row.source) : 'Online aggregate',
       sourceEnroll: row.source ? row.source.actual : row.sourceEnroll,
       sourceFill: row.source ? pct(row.source.fillRate) : pct(row.sourceFill),
+      targetSummary,
       targetSection: row.target ? describe(row.target) : '',
       targetEnroll: row.target ? row.target.actual : '',
-      targetOpenSeats: row.target ? Math.max(0, row.target.cap - row.target.actual) : row.targetOpenSeats,
+      targetOpenSeats,
+      onlineSummary,
       vacancies: row.vacancies ?? '',
       sectionCap: row.sectionCap ?? '',
       possibleReductions: row.possibleReductions ?? '',
       recommendedReductions: row.recommendedReductions ?? '',
+      recommendation,
       freedSeats: row.freedSeats,
       matchReason: row.matchReason,
       historicalTerms: row.historicalTerms,
@@ -1235,7 +1254,7 @@
       ['Consolidation CSV(s)', 'Optional upload for this report. If no file is uploaded, the report uses the currently loaded dashboard schedule.'],
       ['Instructional methods', 'Online, In Person, and Hybrid are derived from instructional method codes. CPL, DE, CBE, and unmapped archived code 98 are omitted from these analytics datasets.'],
       ['Decision term', 'The term being reviewed for current consolidation opportunities. Uploaded rows from other terms are used only as historical comparison context.'],
-      ['Min sections', 'Minimum number of sections a course must have before it is considered for consolidation review. This prevents one-off courses from being flagged.'],
+      ['Min sections', 'Minimum number of decision-term in-person sections a course must have before in-person flow rows are considered. Online reduction rows use a separate minimum of two online sections, then require enough historical vacancy to remove at least one section.'],
       ['Low enrollment', 'Optional strict enrollment threshold. If entered, a source section is considered low when ACTUAL_ENROLL is at or below this number.'],
       ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. A source section is low-filled when ACTUAL_ENROLL divided by MAX ENROLL is at or below this threshold.'],
       ['Vacancy basis', 'Controls online vacancy math from historical comparison terms. Historical final/current uses ACTUAL_ENROLL. Historical census uses CENSUS_ENROLL when available. The decision term supplies offered sections and capacity, not current in-progress demand.'],
@@ -1284,12 +1303,16 @@
       availableAtEnd: 'All Terms Available At End',
       type: 'Type',
       sections: 'Sections',
+      sourceSummary: 'Source Summary',
       sourceEnroll: 'Source Enroll',
+      targetSummary: 'Target Summary',
       targetEnroll: 'Target Enroll',
       targetOpenSeats: 'Target Open Seats',
+      onlineSummary: 'Online Vacancy Math',
       sectionCap: 'Section Cap',
       possibleReductions: 'Possible Reductions',
       recommendedReductions: 'Recommended Reductions',
+      recommendation: 'Recommendation',
       freedSeats: 'Freed Seats',
       matchReason: 'Match Reason',
       historicalTerms: 'Historical Terms',
@@ -1351,7 +1374,11 @@
       .analytics-toolbar button{min-height:36px;border:0;border-radius:18px;padding:0 16px;background:#cdeffc;color:#002b5c;font-weight:700;cursor:pointer}
       .analytics-toolbar .choices{min-width:170px;margin-bottom:0}
       .analytics-toolbar .choices__inner{min-height:34px;border:1px solid #ccd6e2;border-radius:6px;background:#fff;padding:3px 6px}
-      .analytics-toolbar .choices__list--multiple .choices__item{background:#174f7d;border-color:#174f7d}
+      .analytics-toolbar .choices__list--dropdown .choices__item,.analytics-toolbar .choices__list[aria-expanded] .choices__item{font-size:12px;line-height:1.2;white-space:nowrap}
+      .analytics-toolbar .choices__list--multiple .choices__item{background:#174f7d;border-color:#174f7d;border-radius:18px;font-size:12px;line-height:1.2;margin:2px 3px 2px 0;padding:7px 22px 7px 10px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;position:relative}
+      .analytics-toolbar .choices[data-type*="select-multiple"] .choices__button{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:12px;height:12px;margin:0;padding:0;border:0;background:none!important;text-indent:0;opacity:1;font-size:0;line-height:12px;color:#fff}
+      .analytics-toolbar .choices[data-type*="select-multiple"] .choices__button::before{content:'x';display:block;font-size:12px;font-weight:800;line-height:12px}
+      .analytics-toolbar .choices__placeholder{font-size:12px}
       .analytics-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px}
       .analytics-metrics div{border:1px solid #d8e1ec;border-radius:8px;padding:12px;background:#f8fbff}
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
@@ -1362,6 +1389,11 @@
       .analytics-table th .analytics-sort{display:flex;align-items:center;gap:5px;width:100%;border:0;background:transparent;color:inherit;font:inherit;font-weight:800;text-align:left;cursor:pointer;padding:0}
       .analytics-table th .analytics-sort span{min-width:10px;font-size:10px}
       .analytics-table td{border-top:1px solid #e6edf5;padding:8px;font-size:13px}
+      #consolidationTable{overflow-x:hidden}
+      #consolidationTable table{table-layout:fixed}
+      #consolidationTable th{padding:8px 7px;font-size:12px}
+      #consolidationTable th .analytics-sort{align-items:flex-start;line-height:1.15;white-space:normal}
+      #consolidationTable td{padding:7px;font-size:12px;line-height:1.25;vertical-align:top;white-space:normal;overflow-wrap:anywhere}
       .analytics-empty{padding:16px;margin:0;color:#51657c}
       .analytics-legend{margin-top:14px;padding:14px;border:1px solid #d8e1ec;border-radius:12px;background:#f8fbff;color:#51657c}
       .analytics-legend h3{margin:0 0 6px;color:#123367;font-size:16px}
