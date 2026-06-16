@@ -27,6 +27,12 @@
     TBA: 'TBA'
   };
   const dayOrder = Object.keys(dayLabels);
+  const modalityGroups = {
+    online: new Set(['ONL', '71', '72', 'O1', 'OL', 'ONN', 'ONS', 'OO', 'OS', 'OSS', 'OT', 'OTS', 'ON', 'OSL']),
+    inPerson: new Set(['IP', '02', '22', '022', '02H', '02O', '02S', '02T', '02N', '04', '06', '07', '08', '09', '12', 'XX', 'YY']),
+    hybrid: new Set(['HYB', 'OH', 'OHF', 'FLX', 'OHS']),
+    omitted: new Set(['CPL', 'DE', 'CBE', '98'])
+  };
 
   const fields = {
     term: ['Term', 'TERM', 'term'],
@@ -115,16 +121,20 @@
 
   function normalizeModality(text, row) {
     const raw = canon(text || val(row, fields.room) || val(row, fields.building));
-    if (raw === 'DE' || /DUAL\s*ENROLL/.test(raw)) return 'DE';
+    const code = canon(val(row, ['INSTRUCTIONAL_METHOD_CODE', 'Instructional Method Code', 'Method Code']) || text);
+    if (modalityGroups.omitted.has(code) || /DUAL\s*ENROLL/.test(raw)) return 'OMIT';
+    if (modalityGroups.online.has(code)) return 'ONLINE';
+    if (modalityGroups.inPerson.has(code)) return 'IN PERSON';
+    if (modalityGroups.hybrid.has(code)) return 'HYBRID';
     if (/ONLINE|WEB|ASYNC/.test(raw)) return 'ONLINE';
     if (/HYBRID|PARTIAL/.test(raw)) return 'HYBRID';
     if (/TBA/.test(raw)) return 'TBA';
     return raw || 'IN PERSON';
   }
 
-  function isDualEnrollment(row) {
+  function isOmittedInstructionalMethod(row) {
     const rawMethod = canon(val(row.raw || {}, fields.modality));
-    return row.modality === 'DE' || rawMethod === 'DE' || /DUAL\s*ENROLL/.test(rawMethod);
+    return row.modality === 'OMIT' || modalityGroups.omitted.has(rawMethod) || /DUAL\s*ENROLL/.test(rawMethod);
   }
 
   function normalizeDays(raw, row = {}) {
@@ -665,8 +675,8 @@
 
   async function loadAttritionFiles() {
     state.enrollment = dedupeEnrollmentRows((await readCsv(document.getElementById('enrollmentCsv'))).map(normalize))
-      .filter(row => !isDualEnrollment(row));
-    const fallbackRows = currentRows().filter(row => !isDualEnrollment(row));
+      .filter(row => !isOmittedInstructionalMethod(row));
+    const fallbackRows = currentRows().filter(row => !isOmittedInstructionalMethod(row));
     const allEnrollment = state.enrollment.length ? state.enrollment : fallbackRows;
     state.attritionTerms = collectTerms(allEnrollment);
     updateDecisionTermOptions(state.attritionTerms);
@@ -877,9 +887,10 @@
 
   async function loadConsolidationRows() {
     const saved = captureFilterState('con');
-    const uploaded = dedupeEnrollmentRows((await readCsv(document.getElementById('consolidationCsv'))).map(normalize));
+    const uploaded = dedupeEnrollmentRows((await readCsv(document.getElementById('consolidationCsv'))).map(normalize))
+      .filter(row => !isOmittedInstructionalMethod(row));
     if (uploaded.length) state.consolidationInput = uploaded;
-    const rows = state.consolidationInput.length ? state.consolidationInput : currentRows();
+    const rows = state.consolidationInput.length ? state.consolidationInput : currentRows().filter(row => !isOmittedInstructionalMethod(row));
     state.consolidationTerms = collectRowTerms(rows);
     updateConsolidationTermOptions(state.consolidationTerms);
     refreshAnalyticsFilters('con', rows, saved);
@@ -1126,6 +1137,7 @@
     if (!legend) return;
     const items = [
       ['Consolidation CSV(s)', 'Optional upload for this report. If no file is uploaded, the report uses the currently loaded dashboard schedule.'],
+      ['Instructional methods', 'Online, In Person, and Hybrid are derived from instructional method codes. CPL, DE, CBE, and unmapped archived code 98 are omitted from these analytics datasets.'],
       ['Decision term', 'The term being reviewed for current consolidation opportunities. Uploaded rows from other terms are used only as historical comparison context.'],
       ['Min sections', 'Minimum number of sections a course must have before it is considered for consolidation review. This prevents one-off courses from being flagged.'],
       ['Low enrollment', 'Optional strict enrollment threshold. If entered, a source section is considered low when ACTUAL_ENROLL is at or below this number.'],
@@ -1213,7 +1225,7 @@
     document.getElementById('attritionReport').style.display = selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = selected === REPORTS.consolidation ? 'block' : 'none';
     if (selected === REPORTS.attrition && !state.attritionRan) {
-      const rows = state.enrollment.length ? state.enrollment : currentRows().filter(row => !isDualEnrollment(row));
+      const rows = state.enrollment.length ? state.enrollment : currentRows().filter(row => !isOmittedInstructionalMethod(row));
       updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(rows));
       populateAnalyticsFilters('attr', rows);
       document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload enrollment CSV files, then click Run.</p>';
