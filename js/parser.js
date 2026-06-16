@@ -78,6 +78,23 @@ document.addEventListener('DOMContentLoaded', () => {
 // startup handlers. The module also supports being loaded after DOMContentLoaded.
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
+    window.BACKEND_BASE_URL = window.BACKEND_BASE_URL || 'https://app-backend-pp98.onrender.com/api';
+    if (!window.__cosAnalyticsTermsShim) {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        const url = typeof input === 'string' ? input : input?.url || '';
+        if (url === `${window.BACKEND_BASE_URL}/terms`) {
+          const terms = Array.from(document.querySelectorAll('#term-tabs .tab'))
+            .map(tab => tab.textContent.trim())
+            .filter(Boolean);
+          return Promise.resolve(new Response(JSON.stringify(terms), {
+            headers: { 'Content-Type': 'application/json' }
+          }));
+        }
+        return nativeFetch(input, init);
+      };
+      window.__cosAnalyticsTermsShim = true;
+    }
     if (document.querySelector('script[src="js/enrollment-analytics.js"]')) return;
     const script = document.createElement('script');
     script.src = 'js/enrollment-analytics.js';
