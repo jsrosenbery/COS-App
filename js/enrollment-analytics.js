@@ -334,9 +334,10 @@
             <label>Archived terms <select id="conArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Decision term <select id="conDecisionTerm"></select></label>
             ${filters('con', { includeGroup: false, includeCancelled: true })}
-            <label>Min sections <input id="conMinSections" type="number" min="2" value="5" title="Minimum number of sections a course must have before it is considered for consolidation review."></label>
+            <label>Min sections <input id="conMinSections" type="number" min="2" value="5" title="Minimum number of decision-term in-person sections a course must have before it is considered for in-person flow review."></label>
             <label>Low enrollment <input id="conLowEnroll" type="number" min="0" value="" placeholder="optional"></label>
             <label>Low fill % <input id="conLowFill" type="number" min="0" max="100" value="50"></label>
+            <label>Absorb % <input id="conAbsorbPct" type="number" min="1" max="100" value="60" title="Minimum share of a source section's enrolled students that nearby receiving sections must be able to absorb before the row is flagged."></label>
             <label>Lookback terms <input id="conLookback" type="number" min="0" max="12" value="6"></label>
             <label>Min hist terms <input id="conMinHist" type="number" min="0" max="12" value="3"></label>
             <label>Chronic % <input id="conChronic" type="number" min="0" max="100" value="75"></label>
@@ -477,6 +478,8 @@
       if (lowEnroll) lowEnroll.value = '';
       const lowFill = document.getElementById('conLowFill');
       if (lowFill) lowFill.value = '50';
+      const absorbPct = document.getElementById('conAbsorbPct');
+      if (absorbPct) absorbPct.value = '60';
       const lookback = document.getElementById('conLookback');
       if (lookback) lookback.value = '6';
       const minHist = document.getElementById('conMinHist');
@@ -868,7 +871,8 @@
       sameModality: document.getElementById('conSameModality')?.checked,
       dayMatch: document.getElementById('conDayMatch')?.value || 'exact',
       timeWindowHours: document.getElementById('conTimeWindow')?.value === '' ? null : Number(document.getElementById('conTimeWindow')?.value || 2),
-      vacancyBasis: document.getElementById('conVacancyBasis')?.value || 'actual'
+      vacancyBasis: document.getElementById('conVacancyBasis')?.value || 'actual',
+      absorbPct: Math.max(0.01, Math.min(1, Number(document.getElementById('conAbsorbPct')?.value || 60) / 100))
     };
     const onlineRows = rows.filter(isOnlineSection);
     const inPersonRows = rows.filter(row => !isOnlineSection(row));
@@ -881,15 +885,32 @@
       if (sections.length < minSections) return;
       const low = sections.filter((s) => isLowEnrollmentSection(s, lowFill, lowEnroll));
       low.forEach((source) => {
-        const candidates = sections
-          .filter((target) => target !== source && target.cap - target.actual >= source.actual)
+        const receivingPool = sections
+          .filter((target) => target !== source && target.cap - target.actual > 0)
           .filter((target) => !options.sameCampus || target.campus === source.campus)
           .filter((target) => !options.sameModality || target.modality === source.modality)
           .filter((target) => dayWindowMatches(source, target, options.dayMatch))
-          .filter((target) => timeWindowMatches(source, target, options.timeWindowHours))
+          .filter((target) => timeWindowMatches(source, target, options.timeWindowHours));
+        const requiredSeats = Math.ceil(source.actual * options.absorbPct);
+        const poolOpenSeats = receivingPool.reduce((total, target) => total + Math.max(0, target.cap - target.actual), 0);
+        if (poolOpenSeats < requiredSeats) return;
+        const candidates = receivingPool
           .map((target) => candidate(source, target, history, options))
           .sort((a, b) => b.score - a.score);
-        if (candidates[0]) state.consolidationRows.push({ course, source, ...candidates[0], sectionCount: sections.length });
+        if (candidates[0]) {
+          const best = candidates[0];
+          state.consolidationRows.push({
+            course,
+            source,
+            ...best,
+            matchReason: `${best.matchReason}; ${poolOpenSeats} pooled open seats for ${requiredSeats} required seats`,
+            receivingPool,
+            poolOpenSeats,
+            requiredSeats,
+            absorbPct: options.absorbPct,
+            sectionCount: sections.length
+          });
+        }
       });
     });
     state.consolidationRows.sort((a, b) => b.score - a.score);
@@ -1110,14 +1131,14 @@
       : `Online aggregate; expected enroll ${row.sourceEnroll}; fill ${pct(row.sourceFill)}`;
     const targetOpenSeats = row.target ? Math.max(0, row.target.cap - row.target.actual) : row.targetOpenSeats;
     const targetSummary = row.target
-      ? `${describe(row.target)}; enroll ${row.target.actual}; open seats ${targetOpenSeats}`
+      ? `${describe(row.target)}; enroll ${row.target.actual}; best open ${targetOpenSeats}; pool open ${row.poolOpenSeats ?? targetOpenSeats}; required ${row.requiredSeats ?? row.source?.actual ?? ''}`
       : '';
     const onlineSummary = isOnline
       ? `${row.vacancies ?? 0} expected vacancies; median cap ${row.sectionCap ?? 0}; possible reductions ${row.possibleReductions ?? 0}`
       : '';
     const recommendation = isOnline
       ? `${row.recommendedReductions ?? 0} recommended reduction(s)`
-      : 'Review source and receiving section';
+      : `Review receiving pool for ${Math.round((row.absorbPct || 0.6) * 100)}% absorption`;
     return {
       type: row.type || 'In-Person Flow',
       score: row.score,
@@ -1257,6 +1278,7 @@
       ['Min sections', 'Minimum number of decision-term in-person sections a course must have before in-person flow rows are considered. Online reduction rows use a separate minimum of two online sections, then require enough historical vacancy to remove at least one section.'],
       ['Low enrollment', 'Optional strict enrollment threshold. If entered, a source section is considered low when ACTUAL_ENROLL is at or below this number.'],
       ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. A source section is low-filled when ACTUAL_ENROLL divided by MAX ENROLL is at or below this threshold.'],
+      ['Absorb %', 'Minimum share of the source section enrollment that eligible receiving sections must collectively be able to absorb. The default 60% means a source with 16 students needs at least 10 pooled open seats among matching sections.'],
       ['Vacancy basis', 'Controls online vacancy math from historical comparison terms. Historical final/current uses ACTUAL_ENROLL. Historical census uses CENSUS_ENROLL when available. The decision term supplies offered sections and capacity, not current in-progress demand.'],
       ['Lookback terms', 'Number of prior terms to check for historical low-fill patterns when backend schedule history is available.'],
       ['Min hist terms', 'Minimum number of historical matches needed before a pattern can be labeled chronic.'],
@@ -1268,9 +1290,7 @@
       ['Score', 'In-person flow starts at 25 points, then adds 15 for same campus, 15 for same modality, 20 for same day and start time, or 10 for same day pattern, 10 for same instructor, 5 for same room, and 10 for chronic historical low fill. Online reduction starts at 55 and increases with the number of reducible sections. Scores cap at 100.'],
       ['Source Section', 'The lower-filled section being reviewed as a possible consolidation source.'],
       ['Source Enroll', 'ACTUAL_ENROLL for the lower-filled source section.'],
-      ['Target Section', 'The receiving section with enough open seats to absorb the source section enrollment.'],
-      ['Target Enroll', 'ACTUAL_ENROLL for the receiving section.'],
-      ['Target Open Seats', 'MAX ENROLL minus ACTUAL_ENROLL for the receiving section. It must be at least the source section enrollment.'],
+      ['Target Summary', 'Shows the best matching receiving section for scoring plus the total pooled open seats across all eligible receiving sections. In-person rows are flagged when the pool meets the selected Absorb % threshold, not only when one section can absorb everyone.'],
       ['Vacancies', 'For online reduction rows, expected open seats across decision-term online sections. This compares decision-term capacity to average historical enrollment and historical vacancy patterns.'],
       ['Section Cap', 'For online reduction rows, the median online section cap used as the standard section size.'],
       ['Possible Reductions', 'For online rows, Vacancies divided by Section Cap, rounded down.'],
