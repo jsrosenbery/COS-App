@@ -73,3 +73,14 @@ document.addEventListener('DOMContentLoaded', () => {
     console.warn('Course key patch could not update global bindings:', err);
   }
 });
+
+// Load supplemental report modules after the main app has attached its own
+// startup handlers. The module also supports being loaded after DOMContentLoaded.
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    if (document.querySelector('script[src="js/enrollment-analytics.js"]')) return;
+    const script = document.createElement('script');
+    script.src = 'js/enrollment-analytics.js';
+    document.body.appendChild(script);
+  }, 0);
+});
