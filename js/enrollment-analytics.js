@@ -5,7 +5,7 @@
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation'
   };
-  const state = { enrollment: [], attritionRows: [], consolidationRows: [], attritionRan: false, attritionTerms: [] };
+  const state = { enrollment: [], consolidationInput: [], attritionRows: [], consolidationRows: [], attritionRan: false, attritionTerms: [] };
   const analyticsChoices = new Map();
   const dayLabels = {
     MO: 'M',
@@ -299,21 +299,24 @@
             </div>
           </div>
           <div class="analytics-toolbar">
+            <label>Consolidation CSV(s) <input id="consolidationCsv" type="file" accept=".csv" multiple></label>
             ${filters('con', { includeGroup: false, includeCancelled: true })}
             <label>Min sections <input id="conMinSections" type="number" min="2" value="5" title="Minimum number of sections a course must have before it is considered for consolidation review."></label>
             <label>Low fill % <input id="conLowFill" type="number" min="0" max="100" value="50"></label>
             <label>Lookback terms <input id="conLookback" type="number" min="0" max="12" value="6"></label>
             <label>Min hist terms <input id="conMinHist" type="number" min="0" max="12" value="3"></label>
             <label>Chronic % <input id="conChronic" type="number" min="0" max="100" value="75"></label>
+            <label>Day match <select id="conDayMatch"><option value="exact">same day pattern</option><option value="overlap">shares any day</option><option value="any">any day</option></select></label>
+            <label>Start window <select id="conTimeWindow"><option value="0">same start time</option><option value="1">+/- 1 hour</option><option value="2" selected>+/- 2 hours</option><option value="3">+/- 3 hours</option><option value="4">+/- 4 hours</option><option value="">any time</option></select></label>
             <label><input id="conSameCampus" type="checkbox" checked> same campus</label>
             <label><input id="conSameModality" type="checkbox" checked> same modality</label>
-            <label><input id="conSameTime" type="checkbox"> same time only</label>
             <button id="runConsolidation" type="button">Run</button>
             <button id="clearConsolidation" type="button">Clear</button>
             <button id="exportConsolidation" type="button">Export CSV</button>
           </div>
           <div id="consolidationMetrics" class="analytics-metrics"></div>
           <div id="consolidationTable" class="analytics-table"></div>
+          <div id="consolidationLegend" class="analytics-legend"></div>
         </div>
       </section>`);
   }
@@ -443,12 +446,14 @@
       if (minHist) minHist.value = '3';
       const chronic = document.getElementById('conChronic');
       if (chronic) chronic.value = '75';
+      const dayMatch = document.getElementById('conDayMatch');
+      if (dayMatch) dayMatch.value = 'exact';
+      const timeWindow = document.getElementById('conTimeWindow');
+      if (timeWindow) timeWindow.value = '2';
       const sameCampus = document.getElementById('conSameCampus');
       if (sameCampus) sameCampus.checked = true;
       const sameModality = document.getElementById('conSameModality');
       if (sameModality) sameModality.checked = true;
-      const sameTime = document.getElementById('conSameTime');
-      if (sameTime) sameTime.checked = false;
       if (state.consolidationRows.length) runConsolidation();
     }
   }
@@ -678,26 +683,31 @@
   }
 
   async function runConsolidation() {
-    const allRows = currentRows();
+    const allRows = await loadConsolidationRows();
     const rows = applyFilters(allRows, 'con');
     const minSections = Number(document.getElementById('conMinSections')?.value || 5);
     const lowFill = Number(document.getElementById('conLowFill')?.value || 50) / 100;
-    const sameCampus = document.getElementById('conSameCampus')?.checked;
-    const sameModality = document.getElementById('conSameModality')?.checked;
-    const sameTime = document.getElementById('conSameTime')?.checked;
-    const byCourse = group(rows, (r) => `${r.subject} ${r.course}`);
+    const options = {
+      sameCampus: document.getElementById('conSameCampus')?.checked,
+      sameModality: document.getElementById('conSameModality')?.checked,
+      dayMatch: document.getElementById('conDayMatch')?.value || 'exact',
+      timeWindowHours: document.getElementById('conTimeWindow')?.value === '' ? null : Number(document.getElementById('conTimeWindow')?.value || 2)
+    };
+    const byCourse = group(rows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`);
     const history = await historicalPatterns();
     state.consolidationRows = [];
-    byCourse.forEach((sections, course) => {
+    byCourse.forEach((sections, key) => {
+      const course = key.split('||')[1] || key;
       if (sections.length < minSections) return;
       const low = sections.filter((s) => s.fillRate <= lowFill);
       low.forEach((source) => {
         const candidates = sections
           .filter((target) => target !== source && target.cap - target.actual >= source.actual)
-          .filter((target) => !sameCampus || target.campus === source.campus)
-          .filter((target) => !sameModality || target.modality === source.modality)
-          .filter((target) => !sameTime || (target.dayPattern === source.dayPattern && target.start === source.start))
-          .map((target) => candidate(source, target, history))
+          .filter((target) => !options.sameCampus || target.campus === source.campus)
+          .filter((target) => !options.sameModality || target.modality === source.modality)
+          .filter((target) => dayWindowMatches(source, target, options.dayMatch))
+          .filter((target) => timeWindowMatches(source, target, options.timeWindowHours))
+          .map((target) => candidate(source, target, history, options))
           .sort((a, b) => b.score - a.score);
         if (candidates[0]) state.consolidationRows.push({ course, source, ...candidates[0], sectionCount: sections.length });
       });
@@ -710,15 +720,52 @@
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
     table('consolidationTable', state.consolidationRows.map(flattenOpportunity), ['score', 'label', 'course', 'sourceSection', 'sourceFill', 'targetSection', 'targetOpenSeats', 'freedSeats', 'matchReason', 'historicalTerms', 'chronicLowFill']);
+    renderConsolidationLegend();
   }
 
-  function candidate(source, target, history) {
+  async function loadConsolidationRows() {
+    const uploaded = dedupeEnrollmentRows((await readCsv(document.getElementById('consolidationCsv'))).map(normalize));
+    if (uploaded.length) state.consolidationInput = uploaded;
+    const rows = state.consolidationInput.length ? state.consolidationInput : currentRows();
+    populateAnalyticsFilters('con', rows);
+    return rows;
+  }
+
+  function dayWindowMatches(source, target, mode) {
+    if (mode === 'any') return true;
+    if (mode === 'overlap') {
+      const sourceDays = new Set(source.days || []);
+      return (target.days || []).some(day => sourceDays.has(day));
+    }
+    return source.dayPattern === target.dayPattern;
+  }
+
+  function minutesFromTime(time) {
+    if (!time) return null;
+    const match = String(time).match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+
+  function timeWindowMatches(source, target, windowHours) {
+    if (windowHours == null) return true;
+    const sourceStart = minutesFromTime(source.start);
+    const targetStart = minutesFromTime(target.start);
+    if (sourceStart == null || targetStart == null) return source.timeBlock === target.timeBlock;
+    return Math.abs(sourceStart - targetStart) <= windowHours * 60;
+  }
+
+  function candidate(source, target, history, options = {}) {
     let score = 25;
     const reasons = [];
     if (target.campus === source.campus) { score += 15; reasons.push('same campus'); }
     if (target.modality === source.modality) { score += 15; reasons.push('same modality'); }
-    if (target.dayPattern === source.dayPattern && target.start === source.start) { score += 20; reasons.push('same time pattern'); }
+    if (target.dayPattern === source.dayPattern && target.start === source.start) { score += 20; reasons.push('same day/time pattern'); }
     else if (target.dayPattern === source.dayPattern) { score += 10; reasons.push('same days'); }
+    else if (dayWindowMatches(source, target, options.dayMatch)) reasons.push(options.dayMatch === 'overlap' ? 'shared meeting day' : 'day allowed');
+    if (target.start !== source.start && timeWindowMatches(source, target, options.timeWindowHours)) {
+      reasons.push(options.timeWindowHours == null ? 'time allowed' : `within ${options.timeWindowHours} hour start window`);
+    }
     if (target.instructor && target.instructor === source.instructor) { score += 10; reasons.push('same instructor'); }
     if (target.room && target.room === source.room) { score += 5; reasons.push('same room'); }
     const hist = history.get(patternKey(source)) || { terms: 0, low: 0 };
@@ -740,6 +787,7 @@
   async function historicalPatterns() {
     const map = new Map();
     const lookback = Number(document.getElementById('conLookback')?.value || 0);
+    const lowFill = Number(document.getElementById('conLowFill')?.value || 50) / 100;
     if (!lookback || !window.BACKEND_BASE_URL) return map;
     try {
       const terms = await fetch(`${window.BACKEND_BASE_URL}/terms`).then((r) => r.json());
@@ -749,7 +797,7 @@
         const key = patternKey(row);
         const item = map.get(key) || { terms: 0, low: 0 };
         item.terms += 1;
-        if (row.fillRate <= 0.5) item.low += 1;
+        if (row.fillRate <= lowFill) item.low += 1;
         map.set(key, item);
       });
     } catch (err) {
@@ -876,6 +924,32 @@
       <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
   }
 
+  function renderConsolidationLegend() {
+    const legend = document.getElementById('consolidationLegend');
+    if (!legend) return;
+    const items = [
+      ['Consolidation CSV(s)', 'Optional upload for this report. If no file is uploaded, the report uses the currently loaded dashboard schedule.'],
+      ['Min sections', 'Minimum number of sections a course must have before it is considered for consolidation review. This prevents one-off courses from being flagged.'],
+      ['Low fill %', 'A source section is considered low-filled when ACTUAL_ENROLL divided by MAX ENROLL is at or below this threshold.'],
+      ['Lookback terms', 'Number of prior terms to check for historical low-fill patterns when backend schedule history is available.'],
+      ['Min hist terms', 'Minimum number of historical matches needed before a pattern can be labeled chronic.'],
+      ['Chronic %', 'Historical low-fill share required to mark the source pattern as chronic. Example: 75% means at least three out of four matching historical patterns were low-filled.'],
+      ['Day match', 'Controls which receiving sections can be considered: exact same meeting pattern, any shared meeting day, or any day.'],
+      ['Start window', 'Controls how far apart source and receiving section start times can be. The default +/- 2 hours means a 10:00 source can match starts from 8:00 through 12:00.'],
+      ['Same campus', 'When checked, source and receiving sections must be on the same campus.'],
+      ['Same modality', 'When checked, source and receiving sections must use the same instructional modality.'],
+      ['Score', 'Planning score based on operational similarity such as same campus, modality, days/time, instructor, room, and chronic historical low fill.'],
+      ['Source Section', 'The lower-filled section being reviewed as a possible consolidation source.'],
+      ['Target Section', 'The receiving section with enough open seats to absorb the source section enrollment.'],
+      ['Target Open Seats', 'MAX ENROLL minus ACTUAL_ENROLL for the receiving section. It must be at least the source section enrollment.'],
+      ['Freed Seats', 'The source section capacity that could be freed if the section were consolidated. This is a planning indicator, not an automatic cancellation instruction.']
+    ];
+    legend.innerHTML = `
+      <h3>Control and Column Legend</h3>
+      <p>This report only identifies review candidates. A section appears when a low-filled source section has another section in the same term and course with enough open seats and matching the selected campus, modality, day, and time-window rules.</p>
+      <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
+  }
+
   function label(text) {
     const labels = {
       group: 'Group',
@@ -927,7 +1001,8 @@
       document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload enrollment CSV files, then click Run.</p>';
     }
     if (selected === REPORTS.consolidation) {
-      populateAnalyticsFilters('con', currentRows());
+      populateAnalyticsFilters('con', state.consolidationInput.length ? state.consolidationInput : currentRows());
+      renderConsolidationLegend();
     }
   }
 
@@ -980,6 +1055,7 @@
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
     document.getElementById('clearAttrition')?.addEventListener('click', () => resetAnalyticsControls('attr'));
     document.getElementById('runConsolidation')?.addEventListener('click', runConsolidation);
+    document.getElementById('consolidationCsv')?.addEventListener('change', loadConsolidationRows);
     document.getElementById('clearConsolidation')?.addEventListener('click', () => resetAnalyticsControls('con'));
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
