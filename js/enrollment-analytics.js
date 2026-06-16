@@ -5,7 +5,16 @@
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation'
   };
-  const state = { enrollment: [], consolidationInput: [], attritionRows: [], consolidationRows: [], attritionRan: false, attritionTerms: [] };
+  const state = {
+    enrollment: [],
+    consolidationInput: [],
+    consolidationRows: [],
+    attritionRows: [],
+    attritionRan: false,
+    attritionTerms: [],
+    consolidationRan: false,
+    consolidationTerms: []
+  };
   const analyticsChoices = new Map();
   const dayLabels = {
     MO: 'M',
@@ -300,8 +309,10 @@
           </div>
           <div class="analytics-toolbar">
             <label>Consolidation CSV(s) <input id="consolidationCsv" type="file" accept=".csv" multiple></label>
+            <label>Decision term <select id="conDecisionTerm"></select></label>
             ${filters('con', { includeGroup: false, includeCancelled: true })}
             <label>Min sections <input id="conMinSections" type="number" min="2" value="5" title="Minimum number of sections a course must have before it is considered for consolidation review."></label>
+            <label>Low enrollment <input id="conLowEnroll" type="number" min="0" value="" placeholder="optional"></label>
             <label>Low fill % <input id="conLowFill" type="number" min="0" max="100" value="50"></label>
             <label>Lookback terms <input id="conLookback" type="number" min="0" max="12" value="6"></label>
             <label>Min hist terms <input id="conMinHist" type="number" min="0" max="12" value="3"></label>
@@ -438,6 +449,8 @@
     if (prefix === 'con') {
       const minSections = document.getElementById('conMinSections');
       if (minSections) minSections.value = '5';
+      const lowEnroll = document.getElementById('conLowEnroll');
+      if (lowEnroll) lowEnroll.value = '';
       const lowFill = document.getElementById('conLowFill');
       if (lowFill) lowFill.value = '50';
       const lookback = document.getElementById('conLookback');
@@ -521,6 +534,14 @@
     return [...terms].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }
 
+  function collectRowTerms(rows) {
+    const terms = new Set();
+    rows.forEach(row => {
+      if (row?.term) terms.add(row.term);
+    });
+    return [...terms].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+
   function updateDecisionTermOptions(terms) {
     const select = document.getElementById('attrDecisionTerm');
     if (!select) return '';
@@ -532,6 +553,70 @@
     else if (terms.includes(active)) select.value = active;
     else if (terms.length) select.value = terms[terms.length - 1];
     return select.value;
+  }
+
+  function updateConsolidationTermOptions(terms) {
+    const select = document.getElementById('conDecisionTerm');
+    if (!select) return '';
+    const active = canon(currentTerm());
+    const prior = select.value;
+    select.replaceChildren();
+    terms.forEach(term => select.add(new Option(term, term)));
+    if (terms.includes(prior)) select.value = prior;
+    else if (terms.includes(active)) select.value = active;
+    else if (terms.length) select.value = terms[terms.length - 1];
+    return select.value;
+  }
+
+  function captureFilterState(prefix) {
+    return {
+      subject: getSelectedValues(prefix + 'Subject'),
+      course: getSelectedValues(prefix + 'Course'),
+      campus: getSelectedValues(prefix + 'Campus'),
+      modality: getSelectedValues(prefix + 'Modality'),
+      instructor: getSelectedValues(prefix + 'Instructor'),
+      day: getSelectedValues(prefix + 'Day'),
+      time: getSelectedValues(prefix + 'Time')
+    };
+  }
+
+  function restoreFilterState(prefix, saved) {
+    if (!saved) return;
+    [
+      ['Subject', saved.subject],
+      ['Course', saved.course],
+      ['Campus', saved.campus],
+      ['Modality', saved.modality],
+      ['Instructor', saved.instructor],
+      ['Day', saved.day],
+      ['Time', saved.time]
+    ].forEach(([name, values]) => {
+      const select = document.getElementById(prefix + name);
+      if (!select) return;
+      const allowed = new Set((values || []).map(canon));
+      Array.from(select.options || []).forEach(option => {
+        option.selected = allowed.has(canon(option.value));
+      });
+      const choice = analyticsChoices.get(prefix + name);
+      if (choice) {
+        choice.removeActiveItems();
+        (values || []).forEach(value => {
+          if (Array.from(select.options || []).some(option => canon(option.value) === canon(value))) {
+            choice.setChoiceByValue(value);
+          }
+        });
+      }
+    });
+  }
+
+  function refreshAnalyticsFilters(prefix, rows, saved = null) {
+    populateAnalyticsFilters(prefix, rows);
+    if (!saved) return;
+    restoreFilterState(prefix, saved);
+    updateCourseOptions(prefix, rows);
+    restoreFilterState(prefix, saved);
+    updatePatternOptions(prefix, rows);
+    restoreFilterState(prefix, saved);
   }
 
   function emptyAttritionRecord(group) {
@@ -683,10 +768,13 @@
   }
 
   async function runConsolidation() {
+    state.consolidationRan = true;
     const allRows = await loadConsolidationRows();
-    const rows = applyFilters(allRows, 'con');
+    const decisionTerm = document.getElementById('conDecisionTerm')?.value || updateConsolidationTermOptions(state.consolidationTerms);
+    const rows = applyFilters(allRows.filter(row => !decisionTerm || row.term === decisionTerm), 'con');
     const minSections = Number(document.getElementById('conMinSections')?.value || 5);
     const lowFill = Number(document.getElementById('conLowFill')?.value || 50) / 100;
+    const lowEnroll = lowEnrollmentThreshold();
     const options = {
       sameCampus: document.getElementById('conSameCampus')?.checked,
       sameModality: document.getElementById('conSameModality')?.checked,
@@ -694,12 +782,12 @@
       timeWindowHours: document.getElementById('conTimeWindow')?.value === '' ? null : Number(document.getElementById('conTimeWindow')?.value || 2)
     };
     const byCourse = group(rows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`);
-    const history = await historicalPatterns();
+    const history = await historicalPatterns(allRows, decisionTerm, lowFill, lowEnroll);
     state.consolidationRows = [];
     byCourse.forEach((sections, key) => {
       const course = key.split('||')[1] || key;
       if (sections.length < minSections) return;
-      const low = sections.filter((s) => s.fillRate <= lowFill);
+      const low = sections.filter((s) => isLowEnrollmentSection(s, lowFill, lowEnroll));
       low.forEach((source) => {
         const candidates = sections
           .filter((target) => target !== source && target.cap - target.actual >= source.actual)
@@ -714,21 +802,38 @@
     });
     state.consolidationRows.sort((a, b) => b.score - a.score);
     metric('consolidationMetrics', [
+      ['Decision Term', decisionTerm || 'N/A'],
       ['Courses Reviewed', byCourse.size],
       ['Opportunities', state.consolidationRows.length],
+      ['Low Rule', lowEnroll == null ? `<= ${pct(lowFill)} fill` : `<= ${lowEnroll} enrolled`],
       ['Seats Potentially Freed', sum(state.consolidationRows, 'freedSeats')],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
-    table('consolidationTable', state.consolidationRows.map(flattenOpportunity), ['score', 'label', 'course', 'sourceSection', 'sourceFill', 'targetSection', 'targetOpenSeats', 'freedSeats', 'matchReason', 'historicalTerms', 'chronicLowFill']);
+    table('consolidationTable', state.consolidationRows.map(flattenOpportunity), ['score', 'label', 'course', 'sourceSection', 'sourceEnroll', 'sourceFill', 'targetSection', 'targetEnroll', 'targetOpenSeats', 'freedSeats', 'matchReason', 'historicalTerms', 'chronicLowFill']);
     renderConsolidationLegend();
   }
 
   async function loadConsolidationRows() {
+    const saved = captureFilterState('con');
     const uploaded = dedupeEnrollmentRows((await readCsv(document.getElementById('consolidationCsv'))).map(normalize));
     if (uploaded.length) state.consolidationInput = uploaded;
     const rows = state.consolidationInput.length ? state.consolidationInput : currentRows();
-    populateAnalyticsFilters('con', rows);
+    state.consolidationTerms = collectRowTerms(rows);
+    updateConsolidationTermOptions(state.consolidationTerms);
+    refreshAnalyticsFilters('con', rows, saved);
     return rows;
+  }
+
+  function lowEnrollmentThreshold() {
+    const raw = document.getElementById('conLowEnroll')?.value;
+    if (raw == null || String(raw).trim() === '') return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function isLowEnrollmentSection(section, lowFill, lowEnroll) {
+    if (lowEnroll != null) return section.actual <= lowEnroll;
+    return section.fillRate <= lowFill;
   }
 
   function dayWindowMatches(source, target, mode) {
@@ -784,10 +889,20 @@
     };
   }
 
-  async function historicalPatterns() {
+  async function historicalPatterns(allRows = [], decisionTerm = '', lowFill = 0.5, lowEnroll = null) {
     const map = new Map();
     const lookback = Number(document.getElementById('conLookback')?.value || 0);
-    const lowFill = Number(document.getElementById('conLowFill')?.value || 50) / 100;
+    const comparisonRows = allRows.filter(row => row.term && row.term !== decisionTerm);
+    if (comparisonRows.length) {
+      comparisonRows.forEach((row) => {
+        const key = patternKey(row);
+        const item = map.get(key) || { terms: new Set(), low: new Set() };
+        item.terms.add(row.term || 'UNKNOWN');
+        if (isLowEnrollmentSection(row, lowFill, lowEnroll)) item.low.add(row.term || 'UNKNOWN');
+        map.set(key, item);
+      });
+      return finalizeHistoricalMap(map);
+    }
     if (!lookback || !window.BACKEND_BASE_URL) return map;
     try {
       const terms = await fetch(`${window.BACKEND_BASE_URL}/terms`).then((r) => r.json());
@@ -795,15 +910,26 @@
       const batches = await Promise.all(priorTerms.map((t) => fetch(`${window.BACKEND_BASE_URL}/schedule/${encodeURIComponent(t)}`).then((r) => r.ok ? r.json() : [])));
       batches.flat().map(normalize).forEach((row) => {
         const key = patternKey(row);
-        const item = map.get(key) || { terms: 0, low: 0 };
-        item.terms += 1;
-        if (row.fillRate <= lowFill) item.low += 1;
+        const item = map.get(key) || { terms: new Set(), low: new Set() };
+        item.terms.add(row.term || 'UNKNOWN');
+        if (isLowEnrollmentSection(row, lowFill, lowEnroll)) item.low.add(row.term || 'UNKNOWN');
         map.set(key, item);
       });
     } catch (err) {
       console.warn('Historical consolidation lookup skipped:', err);
     }
-    return map;
+    return finalizeHistoricalMap(map);
+  }
+
+  function finalizeHistoricalMap(map) {
+    const finalized = new Map();
+    map.forEach((item, key) => {
+      finalized.set(key, {
+        terms: item.terms?.size || 0,
+        low: item.low?.size || 0
+      });
+    });
+    return finalized;
   }
 
   function flattenOpportunity(row) {
@@ -812,8 +938,10 @@
       label: row.label,
       course: row.course,
       sourceSection: describe(row.source),
+      sourceEnroll: row.source.actual,
       sourceFill: pct(row.source.fillRate),
       targetSection: describe(row.target),
+      targetEnroll: row.target.actual,
       targetOpenSeats: Math.max(0, row.target.cap - row.target.actual),
       freedSeats: row.freedSeats,
       matchReason: row.matchReason,
@@ -929,8 +1057,10 @@
     if (!legend) return;
     const items = [
       ['Consolidation CSV(s)', 'Optional upload for this report. If no file is uploaded, the report uses the currently loaded dashboard schedule.'],
+      ['Decision term', 'The term being reviewed for current consolidation opportunities. Uploaded rows from other terms are used only as historical comparison context.'],
       ['Min sections', 'Minimum number of sections a course must have before it is considered for consolidation review. This prevents one-off courses from being flagged.'],
-      ['Low fill %', 'A source section is considered low-filled when ACTUAL_ENROLL divided by MAX ENROLL is at or below this threshold.'],
+      ['Low enrollment', 'Optional strict enrollment threshold. If entered, a source section is considered low when ACTUAL_ENROLL is at or below this number.'],
+      ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. A source section is low-filled when ACTUAL_ENROLL divided by MAX ENROLL is at or below this threshold.'],
       ['Lookback terms', 'Number of prior terms to check for historical low-fill patterns when backend schedule history is available.'],
       ['Min hist terms', 'Minimum number of historical matches needed before a pattern can be labeled chronic.'],
       ['Chronic %', 'Historical low-fill share required to mark the source pattern as chronic. Example: 75% means at least three out of four matching historical patterns were low-filled.'],
@@ -938,9 +1068,11 @@
       ['Start window', 'Controls how far apart source and receiving section start times can be. The default +/- 2 hours means a 10:00 source can match starts from 8:00 through 12:00.'],
       ['Same campus', 'When checked, source and receiving sections must be on the same campus.'],
       ['Same modality', 'When checked, source and receiving sections must use the same instructional modality.'],
-      ['Score', 'Planning score based on operational similarity such as same campus, modality, days/time, instructor, room, and chronic historical low fill.'],
+      ['Score', 'Starts at 25 points, then adds 15 for same campus, 15 for same modality, 20 for same day and start time, or 10 for same day pattern, 10 for same instructor, 5 for same room, and 10 for chronic historical low fill. Scores cap at 100.'],
       ['Source Section', 'The lower-filled section being reviewed as a possible consolidation source.'],
+      ['Source Enroll', 'ACTUAL_ENROLL for the lower-filled source section.'],
       ['Target Section', 'The receiving section with enough open seats to absorb the source section enrollment.'],
+      ['Target Enroll', 'ACTUAL_ENROLL for the receiving section.'],
       ['Target Open Seats', 'MAX ENROLL minus ACTUAL_ENROLL for the receiving section. It must be at least the source section enrollment.'],
       ['Freed Seats', 'The source section capacity that could be freed if the section were consolidated. This is a planning indicator, not an automatic cancellation instruction.']
     ];
