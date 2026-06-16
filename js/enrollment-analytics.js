@@ -5,7 +5,7 @@
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation'
   };
-  const state = { census: [], final: [], attritionRows: [], consolidationRows: [] };
+  const state = { census: [], final: [], attritionRows: [], consolidationRows: [], attritionRan: false };
 
   const fields = {
     term: ['Term', 'TERM', 'term'],
@@ -162,10 +162,15 @@
 
   function buildUi() {
     if (document.getElementById('analyticsReports')) return;
-    const anchor = document.getElementById('adminPanel') || document.querySelector('.container') || document.body;
-    anchor.insertAdjacentHTML('beforebegin', `
+    const anchor = document.getElementById('view-container') || document.getElementById('room-filter') || document.body;
+    const position = anchor === document.body ? 'afterbegin' : 'afterend';
+    anchor.insertAdjacentHTML(position, `
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="attritionReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Enrollment Attrition</h2>
+            <p>Upload a census enrollment CSV and an end-of-term enrollment CSV, then run the report to compare enrollment loss, fill rates, and available seats. If either file is not provided, the report will use the currently loaded schedule data as a fallback.</p>
+          </div>
           <div class="analytics-toolbar">
             <label>Census CSV <input id="censusCsv" type="file" accept=".csv"></label>
             <label>Final CSV <input id="finalCsv" type="file" accept=".csv"></label>
@@ -177,6 +182,10 @@
           <div id="attritionTable" class="analytics-table"></div>
         </div>
         <div id="consolidationReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Section Consolidation Opportunities</h2>
+            <p>Use this planning view to identify low-filled sections and possible receiving sections. Recommendations are review prompts, not automatic cancellation decisions.</p>
+          </div>
           <div class="analytics-toolbar">
             ${filters('con', false)}
             <label>Min sections <input id="conMinSections" type="number" min="2" value="5"></label>
@@ -235,6 +244,7 @@
   }
 
   async function runAttrition() {
+    state.attritionRan = true;
     state.census = (await readCsv(document.getElementById('censusCsv'))).map(normalize);
     state.final = (await readCsv(document.getElementById('finalCsv'))).map(normalize);
     const census = applyFilters(state.census.length ? state.census : currentRows(), 'attr');
@@ -441,12 +451,18 @@
     wrap.style.display = [REPORTS.attrition, REPORTS.consolidation].includes(selected) ? 'block' : 'none';
     document.getElementById('attritionReport').style.display = selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = selected === REPORTS.consolidation ? 'block' : 'none';
+    if (selected === REPORTS.attrition && !state.attritionRan) {
+      document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload census and final enrollment CSV files, then click Run.</p>';
+    }
   }
 
   function injectStyle() {
     if (document.getElementById('analyticsReportStyles')) return;
     document.head.insertAdjacentHTML('beforeend', `<style id="analyticsReportStyles">
-      .analytics-reports{margin:24px 0;padding:20px;background:#fff;border:1px solid #d8e1ec;border-radius:8px;box-shadow:0 8px 24px rgba(15,45,75,.08)}
+      .analytics-reports{width:min(1480px,calc(100% - 2rem));margin:16px auto 24px;padding:20px;background:#fff;border:1px solid #d8e1ec;border-radius:16px;box-shadow:0 8px 24px rgba(15,45,75,.08)}
+      .analytics-report-intro{margin-bottom:16px;color:#51657c;line-height:1.45}
+      .analytics-report-intro h2{margin:0 0 6px;color:#123367;font-size:24px}
+      .analytics-report-intro p{margin:0;max-width:980px}
       .analytics-toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:18px}
       .analytics-toolbar label{display:flex;flex-direction:column;gap:4px;font-weight:600;color:#51657c;font-size:13px}
       .analytics-toolbar input,.analytics-toolbar select{min-height:34px;border:1px solid #ccd6e2;border-radius:6px;padding:6px 8px}
