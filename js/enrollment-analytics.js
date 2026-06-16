@@ -335,7 +335,7 @@
             <label>Lookback terms <input id="conLookback" type="number" min="0" max="12" value="6"></label>
             <label>Min hist terms <input id="conMinHist" type="number" min="0" max="12" value="3"></label>
             <label>Chronic % <input id="conChronic" type="number" min="0" max="100" value="75"></label>
-            <label>Vacancy basis <select id="conVacancyBasis"><option value="actual">Actual/current enrollment</option><option value="census">Census enrollment</option></select></label>
+            <label>Vacancy basis <select id="conVacancyBasis"><option value="actual">Historical final/current enrollment</option><option value="census">Historical census enrollment</option></select></label>
             <label>Day match <select id="conDayMatch"><option value="exact">same day pattern</option><option value="overlap">shares any day</option><option value="any">any day</option></select></label>
             <label>Start window <select id="conTimeWindow"><option value="0">same start time</option><option value="1">+/- 1 hour</option><option value="2" selected>+/- 2 hours</option><option value="3">+/- 3 hours</option><option value="4">+/- 4 hours</option><option value="">any time</option></select></label>
             <label><input id="conSameCampus" type="checkbox" checked> same campus</label>
@@ -792,7 +792,9 @@
     state.consolidationRan = true;
     const allRows = await loadConsolidationRows();
     const decisionTerm = document.getElementById('conDecisionTerm')?.value || updateConsolidationTermOptions(state.consolidationTerms);
-    const rows = applyFilters(allRows.filter(row => !decisionTerm || row.term === decisionTerm), 'con');
+    const filteredRows = applyFilters(allRows, 'con');
+    const rows = filteredRows.filter(row => !decisionTerm || row.term === decisionTerm);
+    const comparisonRows = filteredRows.filter(row => row.term && row.term !== decisionTerm);
     const minSections = Number(document.getElementById('conMinSections')?.value || 5);
     const lowFill = Number(document.getElementById('conLowFill')?.value || 50) / 100;
     const lowEnroll = lowEnrollmentThreshold();
@@ -808,7 +810,7 @@
     const allCourseCount = group(rows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`).size;
     const byCourse = group(inPersonRows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`);
     const history = await historicalPatterns(allRows, decisionTerm, lowFill, lowEnroll);
-    state.consolidationRows = onlineReductionRows(onlineRows, options, minSections);
+    state.consolidationRows = onlineReductionRows(onlineRows, comparisonRows.filter(isOnlineSection), options, minSections);
     byCourse.forEach((sections, key) => {
       const course = key.split('||')[1] || key;
       if (sections.length < minSections) return;
@@ -856,15 +858,34 @@
     return sorted[Math.floor(sorted.length / 2)];
   }
 
-  function onlineReductionRows(rows, options, minSections) {
+  function average(values) {
+    const usable = values.filter(value => Number.isFinite(value));
+    return usable.length ? usable.reduce((total, value) => total + value, 0) / usable.length : 0;
+  }
+
+  function onlineReductionRows(rows, historicalRows, options, minSections) {
     const byOnlineCourse = group(rows, row => `${row.term || currentTerm()}||${row.subject} ${row.course}`);
+    const historicalByCourse = group(historicalRows, row => `${row.subject} ${row.course}`);
     const output = [];
     byOnlineCourse.forEach((sections, key) => {
       if (sections.length < minSections) return;
       const course = key.split('||')[1] || key;
+      const historicalSections = historicalByCourse.get(course) || [];
+      const historicalByTerm = group(historicalSections, row => row.term || 'UNKNOWN');
+      if (!historicalByTerm.size) return;
       const totalCap = sum(sections, 'cap');
-      const enrollment = sections.reduce((total, row) => total + enrollmentForBasis(row, options.vacancyBasis), 0);
-      const vacancies = sections.reduce((total, row) => total + Math.max(0, row.cap - enrollmentForBasis(row, options.vacancyBasis)), 0);
+      const historicalEnrollmentValues = [];
+      const historicalVacancyValues = [];
+      historicalByTerm.forEach(termRows => {
+        const termEnrollment = termRows.reduce((total, row) => total + enrollmentForBasis(row, options.vacancyBasis), 0);
+        const termVacancies = termRows.reduce((total, row) => total + Math.max(0, row.cap - enrollmentForBasis(row, options.vacancyBasis)), 0);
+        historicalEnrollmentValues.push(termEnrollment);
+        historicalVacancyValues.push(termVacancies);
+      });
+      const enrollment = Math.round(average(historicalEnrollmentValues));
+      const historicalVacancies = Math.round(average(historicalVacancyValues));
+      const decisionVacancies = Math.max(0, totalCap - enrollment);
+      const vacancies = Math.max(decisionVacancies, historicalVacancies);
       const sectionCap = median(sections.map(row => row.cap));
       const possibleReductions = sectionCap > 0 ? Math.floor(vacancies / sectionCap) : 0;
       if (possibleReductions < 1) return;
@@ -885,8 +906,8 @@
         possibleReductions,
         recommendedReductions,
         freedSeats: recommendedReductions * sectionCap,
-        matchReason: `${vacancies} vacant seats across ${sections.length} online sections using ${options.vacancyBasis === 'census' ? 'census' : 'actual/current'} enrollment`,
-        historicalTerms: '',
+        matchReason: `${vacancies} expected vacant seats across ${sections.length} decision-term online sections using ${historicalByTerm.size} historical term(s) and ${options.vacancyBasis === 'census' ? 'census' : 'final/current'} enrollment`,
+        historicalTerms: historicalByTerm.size,
         chronicLowFill: ''
       });
     });
@@ -1150,7 +1171,7 @@
       ['Min sections', 'Minimum number of sections a course must have before it is considered for consolidation review. This prevents one-off courses from being flagged.'],
       ['Low enrollment', 'Optional strict enrollment threshold. If entered, a source section is considered low when ACTUAL_ENROLL is at or below this number.'],
       ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. A source section is low-filled when ACTUAL_ENROLL divided by MAX ENROLL is at or below this threshold.'],
-      ['Vacancy basis', 'Controls online vacancy math. Actual/current uses MAX ENROLL minus ACTUAL_ENROLL. Census uses MAX ENROLL minus CENSUS_ENROLL when census data is available.'],
+      ['Vacancy basis', 'Controls online vacancy math from historical comparison terms. Historical final/current uses ACTUAL_ENROLL. Historical census uses CENSUS_ENROLL when available. The decision term supplies offered sections and capacity, not current in-progress demand.'],
       ['Lookback terms', 'Number of prior terms to check for historical low-fill patterns when backend schedule history is available.'],
       ['Min hist terms', 'Minimum number of historical matches needed before a pattern can be labeled chronic.'],
       ['Chronic %', 'Historical low-fill share required to mark the source pattern as chronic. Example: 75% means at least three out of four matching historical patterns were low-filled.'],
@@ -1164,7 +1185,7 @@
       ['Target Section', 'The receiving section with enough open seats to absorb the source section enrollment.'],
       ['Target Enroll', 'ACTUAL_ENROLL for the receiving section.'],
       ['Target Open Seats', 'MAX ENROLL minus ACTUAL_ENROLL for the receiving section. It must be at least the source section enrollment.'],
-      ['Vacancies', 'For online reduction rows, the sum of open seats across all online sections of the course using the selected Vacancy basis.'],
+      ['Vacancies', 'For online reduction rows, expected open seats across decision-term online sections. This compares decision-term capacity to average historical enrollment and historical vacancy patterns.'],
       ['Section Cap', 'For online reduction rows, the median online section cap used as the standard section size.'],
       ['Possible Reductions', 'For online rows, Vacancies divided by Section Cap, rounded down.'],
       ['Recommended Reductions', 'A conservative online reduction count. It leaves one reducible section of buffer when Possible Reductions is greater than one.'],
@@ -1172,7 +1193,7 @@
     ];
     legend.innerHTML = `
       <h3>Control and Column Legend</h3>
-      <p>This report separates online reduction math from in-person flow checks. Online rows aggregate vacancies across online sections of the same course. In-person rows flag low-enrolled sections with another same-term section that can absorb the students within the selected day/time rules.</p>
+      <p>This report separates online reduction math from in-person flow checks. Online rows compare historical demand against decision-term online capacity. In-person rows flag low-enrolled decision-term sections with another same-term section that can absorb the students within the selected day/time rules.</p>
       <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
   }
 
