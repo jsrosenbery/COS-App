@@ -5,7 +5,7 @@
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation'
   };
-  const state = { census: [], final: [], attritionRows: [], consolidationRows: [], attritionRan: false };
+  const state = { census: [], final: [], attritionRows: [], consolidationRows: [], attritionRan: false, attritionTerms: [] };
 
   const fields = {
     term: ['Term', 'TERM', 'term'],
@@ -169,11 +169,13 @@
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition</h2>
-            <p>Upload a census enrollment CSV and an end-of-term enrollment CSV, then run the report to compare enrollment loss, fill rates, and available seats. If either file is not provided, the report will use the currently loaded schedule data as a fallback.</p>
+            <p>Upload census and end-of-term enrollment CSV files for the decision term and any comparison terms. The report keeps the selected decision term separate from historical terms so current planning is not based on one semester alone.</p>
           </div>
           <div class="analytics-toolbar">
-            <label>Census CSV <input id="censusCsv" type="file" accept=".csv"></label>
-            <label>Final CSV <input id="finalCsv" type="file" accept=".csv"></label>
+            <label>Census CSV(s) <input id="censusCsv" type="file" accept=".csv" multiple></label>
+            <label>Final CSV(s) <input id="finalCsv" type="file" accept=".csv" multiple></label>
+            <label>Decision term <select id="attrDecisionTerm"></select></label>
+            <label><input id="attrIncludeHistory" type="checkbox" checked> include historical comparison terms</label>
             ${filters('attr', true)}
             <button id="runAttrition" type="button">Run</button>
             <button id="exportAttrition" type="button">Export CSV</button>
@@ -238,46 +240,146 @@
   }
 
   async function readCsv(input) {
-    const file = input?.files?.[0];
-    if (!file) return [];
-    return new Promise((resolve, reject) => Papa.parse(file, { header: true, skipEmptyLines: true, complete: (r) => resolve(r.data), error: reject }));
+    const files = Array.from(input?.files || []);
+    if (!files.length) return [];
+    const batches = await Promise.all(files.map(file => new Promise((resolve, reject) => {
+      Papa.parse(file, { header: true, skipEmptyLines: true, complete: (r) => resolve(r.data), error: reject });
+    })));
+    return batches.flat();
+  }
+
+  function collectTerms(...rowSets) {
+    const terms = new Set();
+    rowSets.flat().forEach(row => {
+      if (row?.term) terms.add(row.term);
+    });
+    const active = canon(currentTerm());
+    if (active) terms.add(active);
+    return [...terms].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  function updateDecisionTermOptions(terms) {
+    const select = document.getElementById('attrDecisionTerm');
+    if (!select) return '';
+    const active = canon(currentTerm());
+    const prior = select.value;
+    select.replaceChildren();
+    terms.forEach(term => select.add(new Option(term, term)));
+    if (terms.includes(prior)) select.value = prior;
+    else if (terms.includes(active)) select.value = active;
+    else if (terms.length) select.value = terms[terms.length - 1];
+    return select.value;
+  }
+
+  function emptyAttritionRecord(group) {
+    return {
+      group,
+      sections: 0,
+      census: 0,
+      final: 0,
+      capacity: 0,
+      terms: new Set(),
+      decisionSections: 0,
+      decisionCensus: 0,
+      decisionFinal: 0,
+      decisionCapacity: 0,
+      historySections: 0,
+      historyCensus: 0,
+      historyFinal: 0,
+      historyCapacity: 0,
+      historyTerms: new Set()
+    };
+  }
+
+  async function loadAttritionFiles() {
+    state.census = (await readCsv(document.getElementById('censusCsv'))).map(normalize);
+    state.final = (await readCsv(document.getElementById('finalCsv'))).map(normalize);
+    const fallbackRows = currentRows();
+    const allCensus = state.census.length ? state.census : fallbackRows;
+    const allFinal = state.final.length ? state.final : fallbackRows;
+    state.attritionTerms = collectTerms(allCensus, allFinal);
+    updateDecisionTermOptions(state.attritionTerms);
+    return { allCensus, allFinal };
   }
 
   async function runAttrition() {
     state.attritionRan = true;
-    state.census = (await readCsv(document.getElementById('censusCsv'))).map(normalize);
-    state.final = (await readCsv(document.getElementById('finalCsv'))).map(normalize);
-    const census = applyFilters(state.census.length ? state.census : currentRows(), 'attr');
-    const finalMap = new Map((state.final.length ? state.final : currentRows()).map((r) => [sectionKey(r), r]));
+    const { allCensus, allFinal } = await loadAttritionFiles();
+    const decisionTerm = document.getElementById('attrDecisionTerm')?.value || updateDecisionTermOptions(state.attritionTerms);
+    const includeHistory = document.getElementById('attrIncludeHistory')?.checked;
+    const census = applyFilters(allCensus, 'attr')
+      .filter(row => includeHistory || row.term === decisionTerm);
+    const finalMap = new Map(allFinal.map((r) => [sectionKey(r), r]));
     const grouped = new Map();
     const groupBy = document.getElementById('attrGroup')?.value || 'COURSE';
     census.forEach((c) => {
       const f = finalMap.get(sectionKey(c)) || c;
       const key = groupKey(c, groupBy);
-      const item = grouped.get(key) || { group: key, sections: 0, census: 0, final: 0, capacity: 0 };
+      const item = grouped.get(key) || emptyAttritionRecord(key);
+      const isDecisionTerm = c.term === decisionTerm;
       item.sections += 1;
       item.census += c.actual;
       item.final += f.actual;
       item.capacity += c.cap || f.cap;
+      item.terms.add(c.term || 'UNKNOWN');
+      if (isDecisionTerm) {
+        item.decisionSections += 1;
+        item.decisionCensus += c.actual;
+        item.decisionFinal += f.actual;
+        item.decisionCapacity += c.cap || f.cap;
+      } else {
+        item.historySections += 1;
+        item.historyCensus += c.actual;
+        item.historyFinal += f.actual;
+        item.historyCapacity += c.cap || f.cap;
+        item.historyTerms.add(c.term || 'UNKNOWN');
+      }
       grouped.set(key, item);
     });
     const min = Number(document.getElementById('attrMinSections')?.value || 1);
     state.attritionRows = [...grouped.values()].filter((r) => r.sections >= min).map((r) => ({
       ...r,
+      terms: r.terms.size,
+      historyTerms: r.historyTerms.size,
+      decisionAttritionCount: Math.max(0, r.decisionCensus - r.decisionFinal),
+      decisionAttritionRate: r.decisionCensus > 0 ? Math.max(0, r.decisionCensus - r.decisionFinal) / r.decisionCensus : 0,
+      historicalAttritionCount: Math.max(0, r.historyCensus - r.historyFinal),
+      historicalAttritionRate: r.historyCensus > 0 ? Math.max(0, r.historyCensus - r.historyFinal) / r.historyCensus : 0,
       attritionCount: Math.max(0, r.census - r.final),
       attritionRate: r.census > 0 ? Math.max(0, r.census - r.final) / r.census : 0,
       censusFillRate: r.capacity > 0 ? r.census / r.capacity : 0,
       finalFillRate: r.capacity > 0 ? r.final / r.capacity : 0,
       availableAtCensus: Math.max(0, r.capacity - r.census),
       availableAtEnd: Math.max(0, r.capacity - r.final)
-    })).sort((a, b) => b.attritionCount - a.attritionCount);
+    })).sort((a, b) => b.decisionAttritionCount - a.decisionAttritionCount || b.attritionCount - a.attritionCount);
+    const decisionRows = state.attritionRows.filter(row => row.decisionSections > 0);
     metric('attritionMetrics', [
-      ['Sections', sum(state.attritionRows, 'sections')],
-      ['Census Enroll', sum(state.attritionRows, 'census')],
-      ['Final Enroll', sum(state.attritionRows, 'final')],
-      ['Attrition Rate', pct(safeDiv(sum(state.attritionRows, 'attritionCount'), sum(state.attritionRows, 'census')))]
+      ['Decision Term', decisionTerm || 'N/A'],
+      ['Terms Included', includeHistory ? state.attritionTerms.length : 1],
+      ['Decision Sections', sum(decisionRows, 'decisionSections')],
+      ['Decision Census', sum(decisionRows, 'decisionCensus')],
+      ['Decision Final', sum(decisionRows, 'decisionFinal')],
+      ['Decision Attrition', pct(safeDiv(sum(decisionRows, 'decisionAttritionCount'), sum(decisionRows, 'decisionCensus')))],
+      ['Historical Attrition', pct(safeDiv(sum(state.attritionRows, 'historicalAttritionCount'), sum(state.attritionRows, 'historyCensus')))]
     ]);
-    table('attritionTable', state.attritionRows, ['group', 'sections', 'census', 'final', 'attritionCount', 'attritionRate', 'censusFillRate', 'finalFillRate', 'availableAtCensus', 'availableAtEnd']);
+    table('attritionTable', state.attritionRows, [
+      'group',
+      'terms',
+      'decisionSections',
+      'decisionCensus',
+      'decisionFinal',
+      'decisionAttritionCount',
+      'decisionAttritionRate',
+      'historicalAttritionRate',
+      'sections',
+      'census',
+      'final',
+      'attritionRate',
+      'censusFillRate',
+      'finalFillRate',
+      'availableAtCensus',
+      'availableAtEnd'
+    ]);
   }
 
   function groupKey(row, groupBy) {
@@ -452,6 +554,7 @@
     document.getElementById('attritionReport').style.display = selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = selected === REPORTS.consolidation ? 'block' : 'none';
     if (selected === REPORTS.attrition && !state.attritionRan) {
+      updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(currentRows()));
       document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload census and final enrollment CSV files, then click Run.</p>';
     }
   }
@@ -486,6 +589,8 @@
       if (document.getElementById('viewSelect')?.value === REPORTS.consolidation) runConsolidation();
     });
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
+    document.getElementById('censusCsv')?.addEventListener('change', loadAttritionFiles);
+    document.getElementById('finalCsv')?.addEventListener('change', loadAttritionFiles);
     document.getElementById('runConsolidation')?.addEventListener('click', runConsolidation);
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
