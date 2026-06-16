@@ -275,6 +275,7 @@
           </div>
           <div id="attritionMetrics" class="analytics-metrics"></div>
           <div id="attritionTable" class="analytics-table"></div>
+          <div id="attritionLegend" class="analytics-legend"></div>
         </div>
         <div id="consolidationReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -658,6 +659,7 @@
       'availableAtCensus',
       'availableAtEnd'
     ]);
+    renderAttritionLegend();
   }
 
   function groupKey(row, groupBy) {
@@ -806,6 +808,33 @@
       '<p class="analytics-empty">No rows match the selected criteria.</p>';
   }
 
+  function renderAttritionLegend() {
+    const legend = document.getElementById('attritionLegend');
+    if (!legend) return;
+    const items = [
+      ['Group', 'The current grouping selected in Group by, usually Discipline + Course.'],
+      ['Terms', 'Number of uploaded terms represented in that row after filters are applied.'],
+      ['Decision Sections', 'Number of sections for the selected decision term only.'],
+      ['Decision Census', 'Sum of CENSUS_ENROLL for the selected decision term only.'],
+      ['Decision Final', 'Sum of ACTUAL_ENROLL for the selected decision term only. If the decision-term file is not final or is a current snapshot, this can match Decision Census.'],
+      ['Decision Attrition Count', 'Decision Census minus Decision Final, floored at zero.'],
+      ['Decision Attrition Rate', 'Decision Attrition Count divided by Decision Census.'],
+      ['Historical Attrition Rate', 'Historical attrition from comparison terms only; it excludes the decision term.'],
+      ['All Terms Sections', 'Section count across the decision term plus included comparison terms.'],
+      ['All Terms Census', 'CENSUS_ENROLL across all included terms.'],
+      ['All Terms Final', 'ACTUAL_ENROLL across all included terms.'],
+      ['All Terms Attrition Rate', 'All Terms Census minus All Terms Final, divided by All Terms Census.'],
+      ['All Terms Census Fill', 'All Terms Census divided by total MAX ENROLL. Values above 100% mean sections exceeded listed capacity.'],
+      ['All Terms Final Fill', 'All Terms Final divided by total MAX ENROLL. Values above 100% mean sections exceeded listed capacity.'],
+      ['All Terms Available At Census', 'MAX ENROLL minus CENSUS_ENROLL across all included terms, floored at zero.'],
+      ['All Terms Available At End', 'MAX ENROLL minus ACTUAL_ENROLL across all included terms, floored at zero.']
+    ];
+    legend.innerHTML = `
+      <h3>Column Legend</h3>
+      <p>Decision columns isolate the selected decision term. All Terms columns combine the decision term with any included comparison terms. Historical columns use comparison terms only.</p>
+      <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
+  }
+
   function label(text) {
     const labels = {
       group: 'Group',
@@ -829,7 +858,7 @@
   }
 
   function format(value, column = '') {
-    if (typeof value === 'number' && value >= 0 && value <= 1 && /(rate|fill)$/i.test(column)) return pct(value);
+    if (typeof value === 'number' && /(rate|fill)$/i.test(column)) return pct(value);
     return value ?? '';
   }
 
@@ -889,6 +918,13 @@
       .analytics-table th{position:sticky;top:0;background:#174f7d;color:#fff;text-align:left;padding:9px;font-size:13px}
       .analytics-table td{border-top:1px solid #e6edf5;padding:8px;font-size:13px}
       .analytics-empty{padding:16px;margin:0;color:#51657c}
+      .analytics-legend{margin-top:14px;padding:14px;border:1px solid #d8e1ec;border-radius:12px;background:#f8fbff;color:#51657c}
+      .analytics-legend h3{margin:0 0 6px;color:#123367;font-size:16px}
+      .analytics-legend p{margin:0 0 10px;max-width:980px}
+      .analytics-legend dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px 16px;margin:0}
+      .analytics-legend div{border-top:1px solid #e2eaf3;padding-top:8px}
+      .analytics-legend dt{font-weight:800;color:#123367}
+      .analytics-legend dd{margin:3px 0 0;line-height:1.35}
     </style>`);
   }
 
