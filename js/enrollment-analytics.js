@@ -7,6 +7,17 @@
   };
   const state = { enrollment: [], attritionRows: [], consolidationRows: [], attritionRan: false, attritionTerms: [] };
   const analyticsChoices = new Map();
+  const dayLabels = {
+    MO: 'Monday',
+    TU: 'Tuesday',
+    WE: 'Wednesday',
+    TH: 'Thursday',
+    FR: 'Friday',
+    SA: 'Saturday',
+    SU: 'Sunday',
+    TBA: 'TBA'
+  };
+  const dayOrder = Object.keys(dayLabels);
 
   const fields = {
     term: ['Term', 'TERM', 'term'],
@@ -95,10 +106,16 @@
 
   function normalizeModality(text, row) {
     const raw = canon(text || val(row, fields.room) || val(row, fields.building));
+    if (raw === 'DE' || /DUAL\s*ENROLL/.test(raw)) return 'DE';
     if (/ONLINE|WEB|ASYNC/.test(raw)) return 'ONLINE';
     if (/HYBRID|PARTIAL/.test(raw)) return 'HYBRID';
     if (/TBA/.test(raw)) return 'TBA';
     return raw || 'IN PERSON';
+  }
+
+  function isDualEnrollment(row) {
+    const rawMethod = canon(val(row.raw || {}, fields.modality));
+    return row.modality === 'DE' || rawMethod === 'DE' || /DUAL\s*ENROLL/.test(rawMethod);
   }
 
   function normalizeDays(raw, row = {}) {
@@ -149,9 +166,8 @@
   function timeBlock(start, modality) {
     if (!start || modality === 'ONLINE' || modality === 'TBA') return 'ONLINE/TBA';
     const hour = Number(start.slice(0, 2));
-    if (hour < 12) return 'MORNING';
-    if (hour < 17) return 'AFTERNOON';
-    return 'EVENING';
+    if (!Number.isFinite(hour)) return 'ONLINE/TBA';
+    return `${String(hour).padStart(2, '0')}:00-${String(hour).padStart(2, '0')}:59`;
   }
 
   function sectionKey(section) {
@@ -206,6 +222,7 @@
                 <li>Upload the decision-term enrollment CSV and any same-season comparison files, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
                 <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
                 <li>Select the decision term before running the report. Historical terms provide context, but the decision-term columns should drive current planning.</li>
+                <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
               </ul>
               <h3>Methodology</h3>
               <ul>
@@ -213,6 +230,7 @@
                 <li>Attrition Count = CENSUS_ENROLL - ACTUAL_ENROLL. Attrition Rate = Attrition Count / CENSUS_ENROLL.</li>
                 <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
                 <li>All Terms columns include the decision term plus comparison terms. Historical Attrition excludes the decision term and uses comparison terms only.</li>
+                <li>Min sections controls the minimum section count a grouped row must have before it appears in the report.</li>
               </ul>
             </div>
           </div>
@@ -222,6 +240,7 @@
             <label><input id="attrIncludeHistory" type="checkbox" checked> include historical comparison terms</label>
             ${filters('attr', { includeGroup: true, includeCancelled: false })}
             <button id="runAttrition" type="button">Run</button>
+            <button id="clearAttrition" type="button">Clear</button>
             <button id="exportAttrition" type="button">Export CSV</button>
           </div>
           <div id="attritionMetrics" class="analytics-metrics"></div>
@@ -243,13 +262,14 @@
                 <li>Low Fill = enrollment divided by capacity below the selected low-fill threshold.</li>
                 <li>Receiving sections are other sections of the same course with enough open seats, optionally constrained by campus, modality, days, and time.</li>
                 <li>Historical matching should be based on a stable section pattern, not CRN, because CRNs change across terms.</li>
+                <li>Min sections is the minimum number of sections a course must have before it is considered for consolidation review.</li>
                 <li>Recommendation scores are planning indicators only. They identify candidates for review, not automatic cancellations.</li>
               </ul>
             </div>
           </div>
           <div class="analytics-toolbar">
             ${filters('con', { includeGroup: false, includeCancelled: true })}
-            <label>Min sections <input id="conMinSections" type="number" min="2" value="5"></label>
+            <label>Min sections <input id="conMinSections" type="number" min="2" value="5" title="Minimum number of sections a course must have before it is considered for consolidation review."></label>
             <label>Low fill % <input id="conLowFill" type="number" min="0" max="100" value="50"></label>
             <label>Lookback terms <input id="conLookback" type="number" min="0" max="12" value="6"></label>
             <label>Min hist terms <input id="conMinHist" type="number" min="0" max="12" value="3"></label>
@@ -258,6 +278,7 @@
             <label><input id="conSameModality" type="checkbox" checked> same modality</label>
             <label><input id="conSameTime" type="checkbox"> same time only</label>
             <button id="runConsolidation" type="button">Run</button>
+            <button id="clearConsolidation" type="button">Clear</button>
             <button id="exportConsolidation" type="button">Export CSV</button>
           </div>
           <div id="consolidationMetrics" class="analytics-metrics"></div>
@@ -270,14 +291,14 @@
     const includeGroup = typeof options === 'boolean' ? options : Boolean(options.includeGroup);
     const includeCancelled = typeof options === 'boolean' ? true : options.includeCancelled !== false;
     return `
-      <label>Subject <select id="${prefix}Subject" multiple data-placeholder="All subjects"></select></label>
+      <label>Discipline <select id="${prefix}Subject" multiple data-placeholder="All disciplines"></select></label>
       <label>Course <select id="${prefix}Course" multiple data-placeholder="All courses"></select></label>
       <label>Campus <select id="${prefix}Campus" multiple data-placeholder="All campuses"></select></label>
       <label>Modality <select id="${prefix}Modality" multiple data-placeholder="All modalities"></select></label>
       <label>Instructor <select id="${prefix}Instructor" multiple data-placeholder="All instructors"></select></label>
       <label>Day <select id="${prefix}Day" multiple data-placeholder="All days"></select></label>
-      <label>Time block <select id="${prefix}Time"><option value="">All</option><option>MORNING</option><option>AFTERNOON</option><option>EVENING</option><option>ONLINE/TBA</option></select></label>
-      ${includeGroup ? '<label>Group by <select id="attrGroup"><option>COURSE</option><option>SUBJECT</option><option>SECTION</option><option>INSTRUCTOR</option><option>CAMPUS</option><option>MODALITY</option><option>DAY PATTERN</option><option>TIME BLOCK</option><option>OVERALL</option></select></label><label>Min sections <input id="attrMinSections" type="number" min="1" value="1"></label>' : ''}
+      <label>Start hour <select id="${prefix}Time" multiple data-placeholder="All start hours"></select></label>
+      ${includeGroup ? '<label>Group by <select id="attrGroup"><option>COURSE</option><option value="SUBJECT">DISCIPLINE</option><option>SECTION</option><option>INSTRUCTOR</option><option>CAMPUS</option><option>MODALITY</option><option>DAY PATTERN</option><option>TIME BLOCK</option><option>OVERALL</option></select></label><label>Min sections <input id="attrMinSections" type="number" min="1" value="1" title="Minimum section count required for a grouped row to appear."></label>' : ''}
       <label><input id="${prefix}HideOnline" type="checkbox"> hide online</label>
       ${includeCancelled ? `<label><input id="${prefix}HideCancelled" type="checkbox" checked> hide cancelled</label>` : ''}
       <label><input id="${prefix}HideZero" type="checkbox" checked> hide zero cap</label>`;
@@ -301,12 +322,34 @@
       .map(value => ({ value, label: value }));
   }
 
+  function uniqueDayOptions(rows) {
+    const values = new Set();
+    rows.forEach(row => {
+      if (row.days?.length) row.days.forEach(day => values.add(day));
+      else values.add('TBA');
+    });
+    return dayOrder
+      .filter(day => values.has(day))
+      .map(day => ({ value: day, label: dayLabels[day] || day }));
+  }
+
+  function updateCourseOptions(prefix, rows) {
+    const selectedSubjects = getSelectedValues(prefix + 'Subject');
+    const courseRows = selectedSubjects.length
+      ? rows.filter(row => valueMatchesSelection(row.subject, selectedSubjects))
+      : rows;
+    setSelectOptions(prefix + 'Course', uniqueOptions(courseRows, row => row.course));
+  }
+
   function setSelectOptions(id, options) {
     const select = document.getElementById(id);
     if (!select) return;
     const selected = new Set(getSelectedValues(id));
     const choice = analyticsChoices.get(id);
-    if (choice) choice.destroy();
+    if (choice) {
+      choice.destroy();
+      analyticsChoices.delete(id);
+    }
     select.replaceChildren();
     options.forEach(option => {
       const node = new Option(option.label, option.value, false, selected.has(canon(option.value)));
@@ -322,13 +365,65 @@
     }
   }
 
+  function clearSelect(id) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const choice = analyticsChoices.get(id);
+    if (choice) choice.removeActiveItems();
+    Array.from(select.options || []).forEach(option => {
+      option.selected = false;
+    });
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function resetAnalyticsControls(prefix) {
+    ['Subject', 'Course', 'Campus', 'Modality', 'Instructor', 'Day', 'Time'].forEach(name => clearSelect(prefix + name));
+    const hideOnline = document.getElementById(prefix + 'HideOnline');
+    if (hideOnline) hideOnline.checked = false;
+    const hideCancelled = document.getElementById(prefix + 'HideCancelled');
+    if (hideCancelled) hideCancelled.checked = true;
+    const hideZero = document.getElementById(prefix + 'HideZero');
+    if (hideZero) hideZero.checked = true;
+    if (prefix === 'attr') {
+      const group = document.getElementById('attrGroup');
+      if (group) group.value = 'COURSE';
+      const minSections = document.getElementById('attrMinSections');
+      if (minSections) minSections.value = '1';
+      const includeHistory = document.getElementById('attrIncludeHistory');
+      if (includeHistory) includeHistory.checked = true;
+      if ((state.enrollment.length || currentRows().length) && state.attritionRan) runAttrition();
+    }
+    if (prefix === 'con') {
+      const minSections = document.getElementById('conMinSections');
+      if (minSections) minSections.value = '5';
+      const lowFill = document.getElementById('conLowFill');
+      if (lowFill) lowFill.value = '50';
+      const lookback = document.getElementById('conLookback');
+      if (lookback) lookback.value = '6';
+      const minHist = document.getElementById('conMinHist');
+      if (minHist) minHist.value = '3';
+      const chronic = document.getElementById('conChronic');
+      if (chronic) chronic.value = '75';
+      const sameCampus = document.getElementById('conSameCampus');
+      if (sameCampus) sameCampus.checked = true;
+      const sameModality = document.getElementById('conSameModality');
+      if (sameModality) sameModality.checked = true;
+      const sameTime = document.getElementById('conSameTime');
+      if (sameTime) sameTime.checked = false;
+      if (state.consolidationRows.length) runConsolidation();
+    }
+  }
+
   function populateAnalyticsFilters(prefix, rows) {
     setSelectOptions(prefix + 'Subject', uniqueOptions(rows, row => row.subject));
-    setSelectOptions(prefix + 'Course', uniqueOptions(rows, row => row.course));
+    updateCourseOptions(prefix, rows);
     setSelectOptions(prefix + 'Campus', uniqueOptions(rows, row => row.campus));
     setSelectOptions(prefix + 'Modality', uniqueOptions(rows, row => row.modality));
     setSelectOptions(prefix + 'Instructor', uniqueOptions(rows, row => row.instructor));
-    setSelectOptions(prefix + 'Day', uniqueOptions(rows, row => row.dayPattern));
+    setSelectOptions(prefix + 'Day', uniqueDayOptions(rows));
+    setSelectOptions(prefix + 'Time', uniqueOptions(rows, row => row.timeBlock));
+    const subjectSelect = document.getElementById(prefix + 'Subject');
+    if (subjectSelect) subjectSelect.onchange = () => updateCourseOptions(prefix, rows);
   }
 
   function applyFilters(rows, prefix) {
@@ -339,7 +434,7 @@
       modality: getSelectedValues(prefix + 'Modality'),
       instructor: getSelectedValues(prefix + 'Instructor'),
       day: getSelectedValues(prefix + 'Day'),
-      time: canon(document.getElementById(prefix + 'Time')?.value)
+      time: getSelectedValues(prefix + 'Time')
     };
     return rows.filter((r) => {
       if (!valueMatchesSelection(r.subject, selected.subject)) return false;
@@ -347,8 +442,11 @@
       if (!valueMatchesSelection(r.campus, selected.campus)) return false;
       if (!valueMatchesSelection(r.modality, selected.modality)) return false;
       if (!valueMatchesSelection(r.instructor, selected.instructor)) return false;
-      if (!valueMatchesSelection(r.dayPattern, selected.day)) return false;
-      if (selected.time && r.timeBlock !== selected.time) return false;
+      if (selected.day.length) {
+        const rowDays = r.days?.length ? r.days.map(canon) : ['TBA'];
+        if (!selected.day.some(day => rowDays.includes(day))) return false;
+      }
+      if (!valueMatchesSelection(r.timeBlock, selected.time)) return false;
       if (document.getElementById(prefix + 'HideOnline')?.checked && r.modality === 'ONLINE') return false;
       if (document.getElementById(prefix + 'HideCancelled')?.checked && /CANCEL/.test(r.status)) return false;
       if (document.getElementById(prefix + 'HideZero')?.checked && r.cap <= 0) return false;
@@ -436,8 +534,9 @@
   }
 
   async function loadAttritionFiles() {
-    state.enrollment = dedupeEnrollmentRows((await readCsv(document.getElementById('enrollmentCsv'))).map(normalize));
-    const fallbackRows = currentRows();
+    state.enrollment = dedupeEnrollmentRows((await readCsv(document.getElementById('enrollmentCsv'))).map(normalize))
+      .filter(row => !isDualEnrollment(row));
+    const fallbackRows = currentRows().filter(row => !isDualEnrollment(row));
     const allEnrollment = state.enrollment.length ? state.enrollment : fallbackRows;
     state.attritionTerms = collectTerms(allEnrollment);
     updateDecisionTermOptions(state.attritionTerms);
@@ -673,6 +772,14 @@
 
   function label(text) {
     const labels = {
+      group: 'Group',
+      subject: 'Discipline',
+      decisionSections: 'Decision Sections',
+      decisionCensus: 'Decision Census',
+      decisionFinal: 'Decision Final',
+      decisionAttritionCount: 'Decision Attrition Count',
+      decisionAttritionRate: 'Decision Attrition Rate',
+      historicalAttritionRate: 'Historical Attrition Rate',
       sections: 'All Terms Sections',
       census: 'All Terms Census',
       final: 'All Terms Final',
@@ -708,7 +815,7 @@
     document.getElementById('attritionReport').style.display = selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = selected === REPORTS.consolidation ? 'block' : 'none';
     if (selected === REPORTS.attrition && !state.attritionRan) {
-      const rows = state.enrollment.length ? state.enrollment : currentRows();
+      const rows = state.enrollment.length ? state.enrollment : currentRows().filter(row => !isDualEnrollment(row));
       updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(rows));
       populateAnalyticsFilters('attr', rows);
       document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload enrollment CSV files, then click Run.</p>';
@@ -756,7 +863,9 @@
     });
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
+    document.getElementById('clearAttrition')?.addEventListener('click', () => resetAnalyticsControls('attr'));
     document.getElementById('runConsolidation')?.addEventListener('click', runConsolidation);
+    document.getElementById('clearConsolidation')?.addEventListener('click', () => resetAnalyticsControls('con'));
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
   }
