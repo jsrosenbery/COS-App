@@ -78,7 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // startup handlers. The module also supports being loaded after DOMContentLoaded.
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
-    window.BACKEND_BASE_URL = window.BACKEND_BASE_URL || 'https://app-backend-pp98.onrender.com/api';
+    window.BACKEND_BASE_URL = window.BACKEND_BASE_URL || 'https://app-backend-pp98.onrender.com';
     if (!window.__cosAnalyticsTermsShim) {
       const nativeFetch = window.fetch.bind(window);
       window.fetch = (input, init) => {
@@ -90,6 +90,14 @@ document.addEventListener('DOMContentLoaded', () => {
           return Promise.resolve(new Response(JSON.stringify(terms), {
             headers: { 'Content-Type': 'application/json' }
           }));
+        }
+        if (url.startsWith(`${window.BACKEND_BASE_URL}/schedule/`)) {
+          const term = url.slice(`${window.BACKEND_BASE_URL}/schedule/`.length);
+          return nativeFetch(`${window.BACKEND_BASE_URL}/api/schedule/${term}`, init)
+            .then(response => response.json())
+            .then(payload => new Response(JSON.stringify(Array.isArray(payload) ? payload : payload.data || []), {
+              headers: { 'Content-Type': 'application/json' }
+            }));
         }
         return nativeFetch(input, init);
       };
