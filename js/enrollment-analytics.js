@@ -317,6 +317,7 @@
             <label>Lookback terms <input id="conLookback" type="number" min="0" max="12" value="6"></label>
             <label>Min hist terms <input id="conMinHist" type="number" min="0" max="12" value="3"></label>
             <label>Chronic % <input id="conChronic" type="number" min="0" max="100" value="75"></label>
+            <label>Vacancy basis <select id="conVacancyBasis"><option value="actual">Actual/current enrollment</option><option value="census">Census enrollment</option></select></label>
             <label>Day match <select id="conDayMatch"><option value="exact">same day pattern</option><option value="overlap">shares any day</option><option value="any">any day</option></select></label>
             <label>Start window <select id="conTimeWindow"><option value="0">same start time</option><option value="1">+/- 1 hour</option><option value="2" selected>+/- 2 hours</option><option value="3">+/- 3 hours</option><option value="4">+/- 4 hours</option><option value="">any time</option></select></label>
             <label><input id="conSameCampus" type="checkbox" checked> same campus</label>
@@ -459,6 +460,8 @@
       if (minHist) minHist.value = '3';
       const chronic = document.getElementById('conChronic');
       if (chronic) chronic.value = '75';
+      const vacancyBasis = document.getElementById('conVacancyBasis');
+      if (vacancyBasis) vacancyBasis.value = 'actual';
       const dayMatch = document.getElementById('conDayMatch');
       if (dayMatch) dayMatch.value = 'exact';
       const timeWindow = document.getElementById('conTimeWindow');
@@ -779,11 +782,15 @@
       sameCampus: document.getElementById('conSameCampus')?.checked,
       sameModality: document.getElementById('conSameModality')?.checked,
       dayMatch: document.getElementById('conDayMatch')?.value || 'exact',
-      timeWindowHours: document.getElementById('conTimeWindow')?.value === '' ? null : Number(document.getElementById('conTimeWindow')?.value || 2)
+      timeWindowHours: document.getElementById('conTimeWindow')?.value === '' ? null : Number(document.getElementById('conTimeWindow')?.value || 2),
+      vacancyBasis: document.getElementById('conVacancyBasis')?.value || 'actual'
     };
-    const byCourse = group(rows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`);
+    const onlineRows = rows.filter(isOnlineSection);
+    const inPersonRows = rows.filter(row => !isOnlineSection(row));
+    const allCourseCount = group(rows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`).size;
+    const byCourse = group(inPersonRows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`);
     const history = await historicalPatterns(allRows, decisionTerm, lowFill, lowEnroll);
-    state.consolidationRows = [];
+    state.consolidationRows = onlineReductionRows(onlineRows, options, minSections);
     byCourse.forEach((sections, key) => {
       const course = key.split('||')[1] || key;
       if (sections.length < minSections) return;
@@ -801,16 +808,71 @@
       });
     });
     state.consolidationRows.sort((a, b) => b.score - a.score);
+    const onlineOpportunities = state.consolidationRows.filter(row => row.type === 'Online Reduction');
+    const flowOpportunities = state.consolidationRows.filter(row => row.type === 'In-Person Flow');
     metric('consolidationMetrics', [
       ['Decision Term', decisionTerm || 'N/A'],
-      ['Courses Reviewed', byCourse.size],
-      ['Opportunities', state.consolidationRows.length],
+      ['Courses Reviewed', allCourseCount],
+      ['Online Reduction Candidates', onlineOpportunities.length],
+      ['In-Person Flow Candidates', flowOpportunities.length],
       ['Low Rule', lowEnroll == null ? `<= ${pct(lowFill)} fill` : `<= ${lowEnroll} enrolled`],
       ['Seats Potentially Freed', sum(state.consolidationRows, 'freedSeats')],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
-    table('consolidationTable', state.consolidationRows.map(flattenOpportunity), ['score', 'label', 'course', 'sourceSection', 'sourceEnroll', 'sourceFill', 'targetSection', 'targetEnroll', 'targetOpenSeats', 'freedSeats', 'matchReason', 'historicalTerms', 'chronicLowFill']);
+    table('consolidationTable', state.consolidationRows.map(flattenOpportunity), ['type', 'score', 'label', 'course', 'sections', 'sourceSection', 'sourceEnroll', 'sourceFill', 'targetSection', 'targetEnroll', 'targetOpenSeats', 'vacancies', 'sectionCap', 'possibleReductions', 'recommendedReductions', 'freedSeats', 'matchReason', 'historicalTerms', 'chronicLowFill']);
     renderConsolidationLegend();
+  }
+
+  function isOnlineSection(row) {
+    return row.modality === 'ONLINE' || row.timeBlock === 'ONLINE/TBA';
+  }
+
+  function enrollmentForBasis(row, basis) {
+    if (basis === 'census' && row.census != null) return row.census;
+    return row.actual;
+  }
+
+  function median(values) {
+    const sorted = values.filter(value => value > 0).sort((a, b) => a - b);
+    if (!sorted.length) return 0;
+    return sorted[Math.floor(sorted.length / 2)];
+  }
+
+  function onlineReductionRows(rows, options, minSections) {
+    const byOnlineCourse = group(rows, row => `${row.term || currentTerm()}||${row.subject} ${row.course}`);
+    const output = [];
+    byOnlineCourse.forEach((sections, key) => {
+      if (sections.length < minSections) return;
+      const course = key.split('||')[1] || key;
+      const totalCap = sum(sections, 'cap');
+      const enrollment = sections.reduce((total, row) => total + enrollmentForBasis(row, options.vacancyBasis), 0);
+      const vacancies = sections.reduce((total, row) => total + Math.max(0, row.cap - enrollmentForBasis(row, options.vacancyBasis)), 0);
+      const sectionCap = median(sections.map(row => row.cap));
+      const possibleReductions = sectionCap > 0 ? Math.floor(vacancies / sectionCap) : 0;
+      if (possibleReductions < 1) return;
+      const recommendedReductions = possibleReductions > 1 ? possibleReductions - 1 : possibleReductions;
+      output.push({
+        type: 'Online Reduction',
+        score: Math.min(100, 55 + Math.min(35, possibleReductions * 10)),
+        label: recommendedReductions >= 2 ? 'High Review Priority' : 'Review Candidate',
+        course,
+        sections: sections.length,
+        source: null,
+        target: null,
+        sourceEnroll: enrollment,
+        sourceFill: totalCap > 0 ? enrollment / totalCap : 0,
+        targetOpenSeats: '',
+        vacancies,
+        sectionCap,
+        possibleReductions,
+        recommendedReductions,
+        freedSeats: recommendedReductions * sectionCap,
+        matchReason: `${vacancies} vacant seats across ${sections.length} online sections using ${options.vacancyBasis === 'census' ? 'census' : 'actual/current'} enrollment`,
+        historicalTerms: '',
+        chronicLowFill: ''
+      });
+    });
+    return output;
   }
 
   async function loadConsolidationRows() {
@@ -880,6 +942,7 @@
     if (chronic) score += 10;
     return {
       target,
+      type: 'In-Person Flow',
       score: Math.min(100, score),
       label: score >= 75 ? 'High Review Priority' : score >= 55 ? 'Review Candidate' : 'Low Priority Review',
       freedSeats: source.cap,
@@ -934,15 +997,21 @@
 
   function flattenOpportunity(row) {
     return {
+      type: row.type || 'In-Person Flow',
       score: row.score,
       label: row.label,
       course: row.course,
-      sourceSection: describe(row.source),
-      sourceEnroll: row.source.actual,
-      sourceFill: pct(row.source.fillRate),
-      targetSection: describe(row.target),
-      targetEnroll: row.target.actual,
-      targetOpenSeats: Math.max(0, row.target.cap - row.target.actual),
+      sections: row.sections || row.sectionCount || '',
+      sourceSection: row.source ? describe(row.source) : 'Online aggregate',
+      sourceEnroll: row.source ? row.source.actual : row.sourceEnroll,
+      sourceFill: row.source ? pct(row.source.fillRate) : pct(row.sourceFill),
+      targetSection: row.target ? describe(row.target) : '',
+      targetEnroll: row.target ? row.target.actual : '',
+      targetOpenSeats: row.target ? Math.max(0, row.target.cap - row.target.actual) : row.targetOpenSeats,
+      vacancies: row.vacancies ?? '',
+      sectionCap: row.sectionCap ?? '',
+      possibleReductions: row.possibleReductions ?? '',
+      recommendedReductions: row.recommendedReductions ?? '',
       freedSeats: row.freedSeats,
       matchReason: row.matchReason,
       historicalTerms: row.historicalTerms,
@@ -1061,6 +1130,7 @@
       ['Min sections', 'Minimum number of sections a course must have before it is considered for consolidation review. This prevents one-off courses from being flagged.'],
       ['Low enrollment', 'Optional strict enrollment threshold. If entered, a source section is considered low when ACTUAL_ENROLL is at or below this number.'],
       ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. A source section is low-filled when ACTUAL_ENROLL divided by MAX ENROLL is at or below this threshold.'],
+      ['Vacancy basis', 'Controls online vacancy math. Actual/current uses MAX ENROLL minus ACTUAL_ENROLL. Census uses MAX ENROLL minus CENSUS_ENROLL when census data is available.'],
       ['Lookback terms', 'Number of prior terms to check for historical low-fill patterns when backend schedule history is available.'],
       ['Min hist terms', 'Minimum number of historical matches needed before a pattern can be labeled chronic.'],
       ['Chronic %', 'Historical low-fill share required to mark the source pattern as chronic. Example: 75% means at least three out of four matching historical patterns were low-filled.'],
@@ -1068,17 +1138,21 @@
       ['Start window', 'Controls how far apart source and receiving section start times can be. The default +/- 2 hours means a 10:00 source can match starts from 8:00 through 12:00.'],
       ['Same campus', 'When checked, source and receiving sections must be on the same campus.'],
       ['Same modality', 'When checked, source and receiving sections must use the same instructional modality.'],
-      ['Score', 'Starts at 25 points, then adds 15 for same campus, 15 for same modality, 20 for same day and start time, or 10 for same day pattern, 10 for same instructor, 5 for same room, and 10 for chronic historical low fill. Scores cap at 100.'],
+      ['Score', 'In-person flow starts at 25 points, then adds 15 for same campus, 15 for same modality, 20 for same day and start time, or 10 for same day pattern, 10 for same instructor, 5 for same room, and 10 for chronic historical low fill. Online reduction starts at 55 and increases with the number of reducible sections. Scores cap at 100.'],
       ['Source Section', 'The lower-filled section being reviewed as a possible consolidation source.'],
       ['Source Enroll', 'ACTUAL_ENROLL for the lower-filled source section.'],
       ['Target Section', 'The receiving section with enough open seats to absorb the source section enrollment.'],
       ['Target Enroll', 'ACTUAL_ENROLL for the receiving section.'],
       ['Target Open Seats', 'MAX ENROLL minus ACTUAL_ENROLL for the receiving section. It must be at least the source section enrollment.'],
+      ['Vacancies', 'For online reduction rows, the sum of open seats across all online sections of the course using the selected Vacancy basis.'],
+      ['Section Cap', 'For online reduction rows, the median online section cap used as the standard section size.'],
+      ['Possible Reductions', 'For online rows, Vacancies divided by Section Cap, rounded down.'],
+      ['Recommended Reductions', 'A conservative online reduction count. It leaves one reducible section of buffer when Possible Reductions is greater than one.'],
       ['Freed Seats', 'The source section capacity that could be freed if the section were consolidated. This is a planning indicator, not an automatic cancellation instruction.']
     ];
     legend.innerHTML = `
       <h3>Control and Column Legend</h3>
-      <p>This report only identifies review candidates. A section appears when a low-filled source section has another section in the same term and course with enough open seats and matching the selected campus, modality, day, and time-window rules.</p>
+      <p>This report separates online reduction math from in-person flow checks. Online rows aggregate vacancies across online sections of the same course. In-person rows flag low-enrolled sections with another same-term section that can absorb the students within the selected day/time rules.</p>
       <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
   }
 
@@ -1099,7 +1173,19 @@
       censusFillRate: 'All Terms Census Fill',
       finalFillRate: 'All Terms Final Fill',
       availableAtCensus: 'All Terms Available At Census',
-      availableAtEnd: 'All Terms Available At End'
+      availableAtEnd: 'All Terms Available At End',
+      type: 'Type',
+      sections: 'Sections',
+      sourceEnroll: 'Source Enroll',
+      targetEnroll: 'Target Enroll',
+      targetOpenSeats: 'Target Open Seats',
+      sectionCap: 'Section Cap',
+      possibleReductions: 'Possible Reductions',
+      recommendedReductions: 'Recommended Reductions',
+      freedSeats: 'Freed Seats',
+      matchReason: 'Match Reason',
+      historicalTerms: 'Historical Terms',
+      chronicLowFill: 'Chronic Low Fill'
     };
     return labels[text] || text.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
   }
