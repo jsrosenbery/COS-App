@@ -13,7 +13,8 @@
     attritionRan: false,
     attritionTerms: [],
     consolidationRan: false,
-    consolidationTerms: []
+    consolidationTerms: [],
+    archivedAnalyticsTerms: []
   };
   const analyticsChoices = new Map();
   const dayLabels = {
@@ -289,6 +290,8 @@
           </div>
           <div class="analytics-toolbar">
             <label>Enrollment CSV(s) <input id="enrollmentCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveAttritionUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="attrArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Decision term <select id="attrDecisionTerm"></select></label>
             <label><input id="attrIncludeHistory" type="checkbox" checked> include historical comparison terms</label>
             ${filters('attr', { includeGroup: true, includeCancelled: false })}
@@ -327,6 +330,8 @@
           </div>
           <div class="analytics-toolbar">
             <label>Consolidation CSV(s) <input id="consolidationCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveConsolidationUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="conArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Decision term <select id="conDecisionTerm"></select></label>
             ${filters('con', { includeGroup: false, includeCancelled: true })}
             <label>Min sections <input id="conMinSections" type="number" min="2" value="5" title="Minimum number of sections a course must have before it is considered for consolidation review."></label>
@@ -545,6 +550,64 @@
     return batches.flat();
   }
 
+  async function readArchivedRows(selectId) {
+    const terms = getSelectedValues(selectId);
+    if (!terms.length || !window.BACKEND_BASE_URL) return [];
+    const batches = await Promise.all(terms.map(term => fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`)
+      .then(response => response.ok ? response.json() : { data: [] })
+      .then(payload => (payload.data || []).map(row => ({ ...row, __sourceTerm: payload.term || term })))));
+    return batches.flat();
+  }
+
+  async function refreshAnalyticsArchiveOptions() {
+    if (!window.BACKEND_BASE_URL) return;
+    try {
+      const payload = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
+      state.archivedAnalyticsTerms = (payload.data || []).map(item => item.term).filter(Boolean);
+      const options = state.archivedAnalyticsTerms.map(term => ({ value: term, label: term }));
+      setSelectOptions('attrArchiveTerms', options);
+      setSelectOptions('conArchiveTerms', options);
+    } catch (err) {
+      console.warn('Analytics archive list skipped:', err);
+    }
+  }
+
+  async function archiveUploads(inputId) {
+    if (!window.BACKEND_BASE_URL) {
+      alert('Backend is not configured, so uploads cannot be archived.');
+      return;
+    }
+    const input = document.getElementById(inputId);
+    const files = Array.from(input?.files || []);
+    if (!files.length) {
+      alert('Choose one or more CSV files before archiving.');
+      return;
+    }
+    const password = prompt('Enter upload password to archive these analytics CSVs:');
+    if (password == null) return;
+    const saved = [];
+    for (const file of files) {
+      const term = termFromFilename(file.name);
+      if (!term) {
+        alert(`Could not infer a term from ${file.name}. Use Banner-style filenames such as 202710.csv.`);
+        continue;
+      }
+      const csv = await file.text();
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, csv })
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `Archive failed for ${term}`);
+      }
+      saved.push(term);
+    }
+    await refreshAnalyticsArchiveOptions();
+    alert(saved.length ? `Archived ${saved.length} term file(s): ${saved.join(', ')}` : 'No files were archived.');
+  }
+
   function collectTerms(...rowSets) {
     const terms = new Set();
     rowSets.flat().forEach(row => {
@@ -682,7 +745,9 @@
   }
 
   async function loadAttritionFiles() {
-    state.enrollment = dedupeEnrollmentRows((await readCsv(document.getElementById('enrollmentCsv'))).map(normalize))
+    const uploaded = await readCsv(document.getElementById('enrollmentCsv'));
+    const archived = await readArchivedRows('attrArchiveTerms');
+    state.enrollment = dedupeEnrollmentRows([...uploaded, ...archived].map(normalize))
       .filter(row => !isOmittedInstructionalMethod(row));
     const fallbackRows = currentRows().filter(row => !isOmittedInstructionalMethod(row));
     const allEnrollment = state.enrollment.length ? state.enrollment : fallbackRows;
@@ -916,10 +981,12 @@
 
   async function loadConsolidationRows() {
     const saved = captureFilterState('con');
-    const uploaded = dedupeEnrollmentRows((await readCsv(document.getElementById('consolidationCsv'))).map(normalize))
+    const uploadedRows = await readCsv(document.getElementById('consolidationCsv'));
+    const archivedRows = await readArchivedRows('conArchiveTerms');
+    const uploaded = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
       .filter(row => !isOmittedInstructionalMethod(row));
-    if (uploaded.length) state.consolidationInput = uploaded;
-    const rows = state.consolidationInput.length ? state.consolidationInput : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+    state.consolidationInput = uploaded;
+    const rows = uploaded.length ? uploaded : currentRows().filter(row => !isOmittedInstructionalMethod(row));
     state.consolidationTerms = collectRowTerms(rows);
     updateConsolidationTermOptions(state.consolidationTerms);
     refreshAnalyticsFilters('con', rows, saved);
@@ -1313,9 +1380,13 @@
     });
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
+    document.getElementById('attrArchiveTerms')?.addEventListener('change', loadAttritionFiles);
+    document.getElementById('archiveAttritionUploads')?.addEventListener('click', () => archiveUploads('enrollmentCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearAttrition')?.addEventListener('click', () => resetAnalyticsControls('attr'));
     document.getElementById('runConsolidation')?.addEventListener('click', runConsolidation);
     document.getElementById('consolidationCsv')?.addEventListener('change', loadConsolidationRows);
+    document.getElementById('conArchiveTerms')?.addEventListener('change', loadConsolidationRows);
+    document.getElementById('archiveConsolidationUploads')?.addEventListener('click', () => archiveUploads('consolidationCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearConsolidation')?.addEventListener('click', () => resetAnalyticsControls('con'));
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
@@ -1330,6 +1401,7 @@
     buildUi();
     injectStyle();
     wire();
+    refreshAnalyticsArchiveOptions();
     updateVisibility();
   }
 
