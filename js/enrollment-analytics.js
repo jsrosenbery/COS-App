@@ -5,25 +5,26 @@
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation'
   };
-  const state = { census: [], final: [], attritionRows: [], consolidationRows: [], attritionRan: false, attritionTerms: [] };
+  const state = { enrollment: [], attritionRows: [], consolidationRows: [], attritionRan: false, attritionTerms: [] };
 
   const fields = {
     term: ['Term', 'TERM', 'term'],
     crn: ['CRN', 'Crn', 'crn'],
     subject: ['Subject', 'SUBJECT', 'Discipline', 'DISCIPLINE'],
     course: ['Course', 'COURSE', 'Course_Number', 'Course Number', 'Course No', 'Catalog', 'CATALOG'],
-    section: ['Section', 'SECTION', 'Sec', 'SEC'],
+    section: ['Section', 'SECTION', 'Sec', 'SEC', 'SECTION_NUMB', 'Section Number'],
     campus: ['Campus', 'CAMPUS', 'Location', 'LOCATION'],
-    modality: ['Modality', 'MODALITY', 'Instruction_Mode', 'Instruction Mode', 'Method'],
-    instructor: ['Instructor', 'INSTRUCTOR', 'Faculty', 'FACULTY'],
+    modality: ['Modality', 'MODALITY', 'Instruction_Mode', 'Instruction Mode', 'Method', 'INSTRUCTIONAL_METHOD_CODE', 'INSTRUCTION_METHOD_DESC'],
+    instructor: ['Instructor', 'INSTRUCTOR', 'Faculty', 'FACULTY', 'FACULTY'],
     days: ['Days', 'DAYS', 'Meeting Days'],
     time: ['Time', 'TIME', 'Meeting Time'],
     start: ['Start_Time', 'Start Time', 'Begin Time', 'Start'],
     end: ['End_Time', 'End Time', 'End'],
     room: ['Room', 'ROOM'],
     building: ['Building', 'BUILDING'],
-    cap: ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment'],
-    actual: ['Actual_Enroll', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment'],
+    cap: ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
+    actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment'],
+    census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment'],
     fill: ['Fill_Rate', 'Fill Rate', 'Percent Full', '% Full'],
     status: ['Status', 'STATUS', 'Section Status']
   };
@@ -51,20 +52,22 @@
   function courseNumber(row) {
     const direct = val(row, fields.course);
     if (direct) return canon(direct).replace(/^([A-Z]+)\s+/, '');
-    const combined = val(row, ['Subject_Course', 'Subject Course', 'Course ID']);
+    const combined = val(row, ['Subject_Course', 'Subject Course', 'Course ID', 'SUBJECT/COURSE']);
     return canon((combined.match(/[A-Z]+\s*([A-Z]?\d{1,4}[A-Z]?)/) || [])[1] || combined);
   }
 
   function normalize(row) {
-    const subjectCourse = val(row, ['Subject_Course', 'Subject Course', 'Course ID']);
+    const subjectCourse = val(row, ['Subject_Course', 'Subject Course', 'Course ID', 'SUBJECT/COURSE']);
     const subject = canon(val(row, fields.subject) || (subjectCourse.match(/^([A-Z]+)/i) || [])[1]);
     const course = courseNumber(row);
     const campus = canon(val(row, fields.campus) || val(row, fields.building));
     const modality = normalizeModality(val(row, fields.modality), row);
-    const days = normalizeDays(val(row, fields.days));
+    const days = normalizeDays(val(row, fields.days), row);
     const times = normalizeTimes(row);
     const cap = num(val(row, fields.cap));
     const actual = num(val(row, fields.actual));
+    const censusValue = val(row, fields.census);
+    const census = censusValue === '' ? null : num(censusValue);
     return {
       raw: row,
       term: canon(val(row, fields.term) || currentTerm()),
@@ -83,6 +86,7 @@
       room: canon([val(row, fields.building), val(row, fields.room)].filter(Boolean).join(' ')),
       cap,
       actual,
+      census,
       fillRate: cap > 0 ? actual / cap : num(val(row, fields.fill)) / 100,
       status: canon(val(row, fields.status))
     };
@@ -96,8 +100,20 @@
     return raw || 'IN PERSON';
   }
 
-  function normalizeDays(raw) {
+  function normalizeDays(raw, row = {}) {
     const text = canon(raw);
+    const dayFlags = [
+      ['MONDAY', 'MO'],
+      ['TUESDAY', 'TU'],
+      ['WEDNESDAY', 'WE'],
+      ['THURSDAY', 'TH'],
+      ['FRIDAY', 'FR'],
+      ['SATURDAY', 'SA'],
+      ['SUNDAY', 'SU']
+    ]
+      .filter(([column]) => String(row[column] || '').trim())
+      .map(([, code]) => code);
+    if (dayFlags.length) return dayFlags;
     if (!text || /ONLINE|TBA/.test(text)) return [];
     const longDays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
     const found = longDays.filter((d) => text.includes(d)).map((d) => d.slice(0, 2));
@@ -169,14 +185,13 @@
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition</h2>
-            <p>Upload census and end-of-term enrollment CSV files for the decision term and any comparison terms. The report keeps the selected decision term separate from historical terms so current planning is not based on one semester alone.</p>
+            <p>Upload enrollment snapshot CSV files for the decision term and any comparison terms. This report uses CENSUS_ENROLL as census enrollment and ACTUAL_ENROLL as end/current enrollment, while keeping the selected decision term separate from historical terms.</p>
           </div>
           <div class="analytics-toolbar">
-            <label>Census CSV(s) <input id="censusCsv" type="file" accept=".csv" multiple></label>
-            <label>Final CSV(s) <input id="finalCsv" type="file" accept=".csv" multiple></label>
+            <label>Enrollment CSV(s) <input id="enrollmentCsv" type="file" accept=".csv" multiple></label>
             <label>Decision term <select id="attrDecisionTerm"></select></label>
             <label><input id="attrIncludeHistory" type="checkbox" checked> include historical comparison terms</label>
-            ${filters('attr', true)}
+            ${filters('attr', { includeGroup: true, includeCancelled: false })}
             <button id="runAttrition" type="button">Run</button>
             <button id="exportAttrition" type="button">Export CSV</button>
           </div>
@@ -189,7 +204,7 @@
             <p>Use this planning view to identify low-filled sections and possible receiving sections. Recommendations are review prompts, not automatic cancellation decisions.</p>
           </div>
           <div class="analytics-toolbar">
-            ${filters('con', false)}
+            ${filters('con', { includeGroup: false, includeCancelled: true })}
             <label>Min sections <input id="conMinSections" type="number" min="2" value="5"></label>
             <label>Low fill % <input id="conLowFill" type="number" min="0" max="100" value="50"></label>
             <label>Lookback terms <input id="conLookback" type="number" min="0" max="12" value="6"></label>
@@ -207,7 +222,9 @@
       </section>`);
   }
 
-  function filters(prefix, includeGroup) {
+  function filters(prefix, options = {}) {
+    const includeGroup = typeof options === 'boolean' ? options : Boolean(options.includeGroup);
+    const includeCancelled = typeof options === 'boolean' ? true : options.includeCancelled !== false;
     return `
       <label>Subject <input id="${prefix}Subject" placeholder="All"></label>
       <label>Course <input id="${prefix}Course" placeholder="All"></label>
@@ -218,7 +235,7 @@
       <label>Time block <select id="${prefix}Time"><option value="">All</option><option>MORNING</option><option>AFTERNOON</option><option>EVENING</option><option>ONLINE/TBA</option></select></label>
       ${includeGroup ? '<label>Group by <select id="attrGroup"><option>COURSE</option><option>SUBJECT</option><option>SECTION</option><option>INSTRUCTOR</option><option>CAMPUS</option><option>MODALITY</option><option>DAY PATTERN</option><option>TIME BLOCK</option><option>OVERALL</option></select></label><label>Min sections <input id="attrMinSections" type="number" min="1" value="1"></label>' : ''}
       <label><input id="${prefix}HideOnline" type="checkbox"> hide online</label>
-      <label><input id="${prefix}HideCancelled" type="checkbox" checked> hide cancelled</label>
+      ${includeCancelled ? `<label><input id="${prefix}HideCancelled" type="checkbox" checked> hide cancelled</label>` : ''}
       <label><input id="${prefix}HideZero" type="checkbox" checked> hide zero cap</label>`;
   }
 
@@ -291,48 +308,67 @@
     };
   }
 
+  function dedupeEnrollmentRows(rows) {
+    const map = new Map();
+    rows.forEach(row => {
+      const key = sectionKey(row);
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { ...row, days: [...row.days], dayPattern: row.dayPattern });
+        return;
+      }
+      const daySet = new Set([...(existing.days || []), ...(row.days || [])]);
+      existing.days = [...daySet];
+      existing.dayPattern = existing.days.join('') || existing.dayPattern || row.dayPattern || 'TBA';
+      if (!existing.start || (row.start && row.start < existing.start)) existing.start = row.start;
+      if (!existing.end || (row.end && row.end > existing.end)) existing.end = row.end;
+      existing.timeBlock = timeBlock(existing.start, existing.modality);
+      existing.room = existing.room || row.room;
+      existing.instructor = existing.instructor || row.instructor;
+    });
+    return [...map.values()];
+  }
+
   async function loadAttritionFiles() {
-    state.census = (await readCsv(document.getElementById('censusCsv'))).map(normalize);
-    state.final = (await readCsv(document.getElementById('finalCsv'))).map(normalize);
+    state.enrollment = dedupeEnrollmentRows((await readCsv(document.getElementById('enrollmentCsv'))).map(normalize));
     const fallbackRows = currentRows();
-    const allCensus = state.census.length ? state.census : fallbackRows;
-    const allFinal = state.final.length ? state.final : fallbackRows;
-    state.attritionTerms = collectTerms(allCensus, allFinal);
+    const allEnrollment = state.enrollment.length ? state.enrollment : fallbackRows;
+    state.attritionTerms = collectTerms(allEnrollment);
     updateDecisionTermOptions(state.attritionTerms);
-    return { allCensus, allFinal };
+    return allEnrollment;
   }
 
   async function runAttrition() {
     state.attritionRan = true;
-    const { allCensus, allFinal } = await loadAttritionFiles();
+    const allEnrollment = await loadAttritionFiles();
     const decisionTerm = document.getElementById('attrDecisionTerm')?.value || updateDecisionTermOptions(state.attritionTerms);
     const includeHistory = document.getElementById('attrIncludeHistory')?.checked;
-    const census = applyFilters(allCensus, 'attr')
+    const enrollment = applyFilters(allEnrollment, 'attr')
       .filter(row => includeHistory || row.term === decisionTerm);
-    const finalMap = new Map(allFinal.map((r) => [sectionKey(r), r]));
     const grouped = new Map();
     const groupBy = document.getElementById('attrGroup')?.value || 'COURSE';
-    census.forEach((c) => {
-      const f = finalMap.get(sectionKey(c)) || c;
-      const key = groupKey(c, groupBy);
+    enrollment.forEach((row) => {
+      const key = groupKey(row, groupBy);
       const item = grouped.get(key) || emptyAttritionRecord(key);
-      const isDecisionTerm = c.term === decisionTerm;
+      const isDecisionTerm = row.term === decisionTerm;
+      const censusEnroll = row.census == null ? row.actual : row.census;
+      const finalEnroll = row.actual;
       item.sections += 1;
-      item.census += c.actual;
-      item.final += f.actual;
-      item.capacity += c.cap || f.cap;
-      item.terms.add(c.term || 'UNKNOWN');
+      item.census += censusEnroll;
+      item.final += finalEnroll;
+      item.capacity += row.cap;
+      item.terms.add(row.term || 'UNKNOWN');
       if (isDecisionTerm) {
         item.decisionSections += 1;
-        item.decisionCensus += c.actual;
-        item.decisionFinal += f.actual;
-        item.decisionCapacity += c.cap || f.cap;
+        item.decisionCensus += censusEnroll;
+        item.decisionFinal += finalEnroll;
+        item.decisionCapacity += row.cap;
       } else {
         item.historySections += 1;
-        item.historyCensus += c.actual;
-        item.historyFinal += f.actual;
-        item.historyCapacity += c.cap || f.cap;
-        item.historyTerms.add(c.term || 'UNKNOWN');
+        item.historyCensus += censusEnroll;
+        item.historyFinal += finalEnroll;
+        item.historyCapacity += row.cap;
+        item.historyTerms.add(row.term || 'UNKNOWN');
       }
       grouped.set(key, item);
     });
@@ -555,7 +591,7 @@
     document.getElementById('consolidationReport').style.display = selected === REPORTS.consolidation ? 'block' : 'none';
     if (selected === REPORTS.attrition && !state.attritionRan) {
       updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(currentRows()));
-      document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload census and final enrollment CSV files, then click Run.</p>';
+      document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload enrollment CSV files, then click Run.</p>';
     }
   }
 
@@ -589,8 +625,7 @@
       if (document.getElementById('viewSelect')?.value === REPORTS.consolidation) runConsolidation();
     });
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
-    document.getElementById('censusCsv')?.addEventListener('change', loadAttritionFiles);
-    document.getElementById('finalCsv')?.addEventListener('change', loadAttritionFiles);
+    document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
     document.getElementById('runConsolidation')?.addEventListener('click', runConsolidation);
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
