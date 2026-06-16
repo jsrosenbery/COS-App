@@ -186,6 +186,21 @@
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition</h2>
             <p>Upload enrollment snapshot CSV files for the decision term and any comparison terms. This report uses CENSUS_ENROLL as census enrollment and ACTUAL_ENROLL as end/current enrollment, while keeping the selected decision term separate from historical terms.</p>
+            <div class="analytics-methodology">
+              <h3>How to Use This Report</h3>
+              <ul>
+                <li>Upload the decision-term enrollment CSV and any same-season comparison files, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
+                <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
+                <li>Select the decision term before running the report. Historical terms provide context, but the decision-term columns should drive current planning.</li>
+              </ul>
+              <h3>Methodology</h3>
+              <ul>
+                <li>Sections are deduplicated by CRN within term, with subject/course/section used as fallback, so multi-meeting rows are not double counted.</li>
+                <li>Attrition Count = CENSUS_ENROLL - ACTUAL_ENROLL. Attrition Rate = Attrition Count / CENSUS_ENROLL.</li>
+                <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
+                <li>Historical Attrition compares uploaded non-decision terms in aggregate and is intended to show whether the current pattern looks recurring or unusual.</li>
+              </ul>
+            </div>
           </div>
           <div class="analytics-toolbar">
             <label>Enrollment CSV(s) <input id="enrollmentCsv" type="file" accept=".csv" multiple></label>
@@ -202,6 +217,21 @@
           <div class="analytics-report-intro">
             <h2>Section Consolidation Opportunities</h2>
             <p>Use this planning view to identify low-filled sections and possible receiving sections. Recommendations are review prompts, not automatic cancellation decisions.</p>
+            <div class="analytics-methodology">
+              <h3>How to Use This Report</h3>
+              <ul>
+                <li>Start with the current decision term, then use historical context to decide whether a low-filled pattern is recurring.</li>
+                <li>Compare like terms where possible: Fall to Fall, Spring to Spring, and Summer to Summer. Limit historical review to 2022 and newer terms.</li>
+                <li>Use the filters and thresholds to create a review list, then evaluate operational constraints before making any schedule decision.</li>
+              </ul>
+              <h3>Methodology</h3>
+              <ul>
+                <li>Low Fill = enrollment divided by capacity below the selected low-fill threshold.</li>
+                <li>Receiving sections are other sections of the same course with enough open seats, optionally constrained by campus, modality, days, and time.</li>
+                <li>Historical matching should be based on a stable section pattern, not CRN, because CRNs change across terms.</li>
+                <li>Recommendation scores are planning indicators only. They identify candidates for review, not automatic cancellations.</li>
+              </ul>
+            </div>
           </div>
           <div class="analytics-toolbar">
             ${filters('con', { includeGroup: false, includeCancelled: true })}
@@ -602,6 +632,10 @@
       .analytics-report-intro{margin-bottom:16px;color:#51657c;line-height:1.45}
       .analytics-report-intro h2{margin:0 0 6px;color:#123367;font-size:24px}
       .analytics-report-intro p{margin:0;max-width:980px}
+      .analytics-methodology{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:14px;padding:14px;border:1px solid #d8e1ec;border-radius:12px;background:#f8fbff}
+      .analytics-methodology h3{margin:0 0 6px;color:#123367;font-size:15px}
+      .analytics-methodology ul{margin:0;padding-left:18px}
+      .analytics-methodology li{margin:4px 0}
       .analytics-toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:18px}
       .analytics-toolbar label{display:flex;flex-direction:column;gap:4px;font-weight:600;color:#51657c;font-size:13px}
       .analytics-toolbar input,.analytics-toolbar select{min-height:34px;border:1px solid #ccd6e2;border-radius:6px;padding:6px 8px}
