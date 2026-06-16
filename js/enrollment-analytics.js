@@ -8,13 +8,13 @@
   const state = { enrollment: [], attritionRows: [], consolidationRows: [], attritionRan: false, attritionTerms: [] };
   const analyticsChoices = new Map();
   const dayLabels = {
-    MO: 'Monday',
-    TU: 'Tuesday',
-    WE: 'Wednesday',
-    TH: 'Thursday',
-    FR: 'Friday',
-    SA: 'Saturday',
-    SU: 'Sunday',
+    MO: 'M',
+    TU: 'T',
+    WE: 'W',
+    TH: 'R',
+    FR: 'F',
+    SA: 'S',
+    SU: 'U',
     TBA: 'TBA'
   };
   const dayOrder = Object.keys(dayLabels);
@@ -28,10 +28,10 @@
     campus: ['Campus', 'CAMPUS', 'Location', 'LOCATION'],
     modality: ['Modality', 'MODALITY', 'Instruction_Mode', 'Instruction Mode', 'Method', 'INSTRUCTIONAL_METHOD_CODE', 'INSTRUCTION_METHOD_DESC'],
     instructor: ['Instructor', 'INSTRUCTOR', 'Faculty', 'FACULTY', 'FACULTY'],
-    days: ['Days', 'DAYS', 'Meeting Days'],
-    time: ['Time', 'TIME', 'Meeting Time'],
-    start: ['Start_Time', 'Start Time', 'Begin Time', 'Start'],
-    end: ['End_Time', 'End Time', 'End'],
+    days: ['Days', 'DAYS', 'Meeting Days', 'Meet Days', 'Day', 'Days Of Week', 'Mtg Days', 'Meeting Pattern', 'Meeting_Pattern'],
+    time: ['Time', 'TIME', 'Meeting Time', 'Meet Time', 'Mtg Time', 'Time Range', 'Times'],
+    start: ['Start_Time', 'START_TIME', 'Start Time', 'START TIME', 'Begin Time', 'BEGIN TIME', 'Begin_Time', 'BEGIN_TIME', 'Class Begin Time', 'Meeting Start', 'Mtg Start', 'Start'],
+    end: ['End_Time', 'END_TIME', 'End Time', 'END TIME', 'Stop Time', 'STOP TIME', 'Stop_Time', 'STOP_TIME', 'Class End Time', 'Meeting End', 'Mtg End', 'End'],
     room: ['Room', 'ROOM'],
     building: ['Building', 'BUILDING'],
     cap: ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
@@ -91,7 +91,7 @@
       modality,
       instructor: canon(val(row, fields.instructor)),
       days,
-      dayPattern: days.join('') || 'TBA',
+      dayPattern: dayPattern(days),
       start: times.start,
       end: times.end,
       timeBlock: timeBlock(times.start, modality),
@@ -119,6 +119,7 @@
   }
 
   function normalizeDays(raw, row = {}) {
+    if (Array.isArray(row.Days) && row.Days.length) return normalizeDayArray(row.Days);
     const text = canon(raw);
     const dayFlags = [
       ['MONDAY', 'MO'],
@@ -138,6 +139,35 @@
     if (found.length) return found;
     const map = { M: 'MO', T: 'TU', W: 'WE', R: 'TH', F: 'FR', S: 'SA', U: 'SU' };
     return text.replace(/[^MTWRFSU]/g, '').split('').map((d) => map[d]).filter(Boolean);
+  }
+
+  function normalizeDayArray(days) {
+    const aliases = {
+      MONDAY: 'MO',
+      TUESDAY: 'TU',
+      WEDNESDAY: 'WE',
+      THURSDAY: 'TH',
+      FRIDAY: 'FR',
+      SATURDAY: 'SA',
+      SUNDAY: 'SU',
+      M: 'MO',
+      T: 'TU',
+      W: 'WE',
+      R: 'TH',
+      F: 'FR',
+      S: 'SA',
+      U: 'SU'
+    };
+    dayOrder.forEach(day => {
+      aliases[day] = day;
+    });
+    const normalized = days.map(day => aliases[canon(day)]).filter(Boolean);
+    return dayOrder.filter(day => normalized.includes(day));
+  }
+
+  function dayPattern(days) {
+    const normalized = normalizeDayArray(days || []);
+    return normalized.length ? normalized.map(day => dayLabels[day]).join('') : 'TBA';
   }
 
   function normalizeTimes(row) {
@@ -313,7 +343,7 @@
   function valueMatchesSelection(value, selectedValues) {
     if (!selectedValues.length) return true;
     const normalized = canon(value);
-    return selectedValues.some(selected => normalized === selected || normalized.includes(selected));
+    return selectedValues.some(selected => normalized === selected);
   }
 
   function uniqueOptions(rows, getter) {
@@ -323,22 +353,30 @@
   }
 
   function uniqueDayOptions(rows) {
-    const values = new Set();
-    rows.forEach(row => {
-      if (row.days?.length) row.days.forEach(day => values.add(day));
-      else values.add('TBA');
+    return uniqueOptions(rows, row => row.dayPattern);
+  }
+
+  function rowsForDependentOptions(prefix, rows) {
+    const selectedSubjects = getSelectedValues(prefix + 'Subject');
+    const selectedCourses = getSelectedValues(prefix + 'Course');
+    return rows.filter(row => {
+      if (!valueMatchesSelection(row.subject, selectedSubjects)) return false;
+      if (!valueMatchesSelection(row.course, selectedCourses)) return false;
+      return true;
     });
-    return dayOrder
-      .filter(day => values.has(day))
-      .map(day => ({ value: day, label: dayLabels[day] || day }));
   }
 
   function updateCourseOptions(prefix, rows) {
     const selectedSubjects = getSelectedValues(prefix + 'Subject');
-    const courseRows = selectedSubjects.length
-      ? rows.filter(row => valueMatchesSelection(row.subject, selectedSubjects))
-      : rows;
+    const courseRows = selectedSubjects.length ? rows.filter(row => valueMatchesSelection(row.subject, selectedSubjects)) : rows;
     setSelectOptions(prefix + 'Course', uniqueOptions(courseRows, row => row.course));
+    updatePatternOptions(prefix, rows);
+  }
+
+  function updatePatternOptions(prefix, rows) {
+    const scopedRows = rowsForDependentOptions(prefix, rows);
+    setSelectOptions(prefix + 'Day', uniqueDayOptions(scopedRows));
+    setSelectOptions(prefix + 'Time', uniqueOptions(scopedRows, row => row.timeBlock));
   }
 
   function setSelectOptions(id, options) {
@@ -420,10 +458,11 @@
     setSelectOptions(prefix + 'Campus', uniqueOptions(rows, row => row.campus));
     setSelectOptions(prefix + 'Modality', uniqueOptions(rows, row => row.modality));
     setSelectOptions(prefix + 'Instructor', uniqueOptions(rows, row => row.instructor));
-    setSelectOptions(prefix + 'Day', uniqueDayOptions(rows));
-    setSelectOptions(prefix + 'Time', uniqueOptions(rows, row => row.timeBlock));
+    updatePatternOptions(prefix, rows);
     const subjectSelect = document.getElementById(prefix + 'Subject');
     if (subjectSelect) subjectSelect.onchange = () => updateCourseOptions(prefix, rows);
+    const courseSelect = document.getElementById(prefix + 'Course');
+    if (courseSelect) courseSelect.onchange = () => updatePatternOptions(prefix, rows);
   }
 
   function applyFilters(rows, prefix) {
@@ -442,10 +481,7 @@
       if (!valueMatchesSelection(r.campus, selected.campus)) return false;
       if (!valueMatchesSelection(r.modality, selected.modality)) return false;
       if (!valueMatchesSelection(r.instructor, selected.instructor)) return false;
-      if (selected.day.length) {
-        const rowDays = r.days?.length ? r.days.map(canon) : ['TBA'];
-        if (!selected.day.some(day => rowDays.includes(day))) return false;
-      }
+      if (!valueMatchesSelection(r.dayPattern, selected.day)) return false;
       if (!valueMatchesSelection(r.timeBlock, selected.time)) return false;
       if (document.getElementById(prefix + 'HideOnline')?.checked && r.modality === 'ONLINE') return false;
       if (document.getElementById(prefix + 'HideCancelled')?.checked && /CANCEL/.test(r.status)) return false;
@@ -523,7 +559,7 @@
       }
       const daySet = new Set([...(existing.days || []), ...(row.days || [])]);
       existing.days = [...daySet];
-      existing.dayPattern = existing.days.join('') || existing.dayPattern || row.dayPattern || 'TBA';
+      existing.dayPattern = dayPattern(existing.days) || existing.dayPattern || row.dayPattern || 'TBA';
       if (!existing.start || (row.start && row.start < existing.start)) existing.start = row.start;
       if (!existing.end || (row.end && row.end > existing.end)) existing.end = row.end;
       existing.timeBlock = timeBlock(existing.start, existing.modality);
