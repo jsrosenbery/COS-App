@@ -59,6 +59,8 @@
     room: ['Room', 'ROOM'],
     building: ['Building', 'BUILDING'],
     cap: ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
+    units: ['Units', 'UNITS', 'Credit Hours', 'CREDIT_HOURS', 'Credits', 'CREDITS'],
+    ftes: ['FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
     actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment'],
     census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment'],
     waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WL Count', 'WAITLISTED'],
@@ -81,6 +83,10 @@
 
   function pct(value) {
     return `${Math.round((value || 0) * 1000) / 10}%`;
+  }
+
+  function round1(value) {
+    return Math.round((value || 0) * 10) / 10;
   }
 
   function canon(value) {
@@ -107,6 +113,9 @@
     const censusValue = val(row, fields.census);
     const census = censusValue === '' ? null : num(censusValue);
     const waitlistValue = val(row, fields.waitlist);
+    const units = num(val(row, fields.units));
+    const ftesValue = val(row, fields.ftes);
+    const enrollmentForFtes = census == null ? actual : census;
     return {
       raw: row,
       term: canon(val(row, fields.term) || row.__sourceTerm || currentTerm()),
@@ -127,6 +136,9 @@
       timeBlock: timeBlock(times.start, modality),
       room: canon([val(row, fields.building), val(row, fields.room)].filter(Boolean).join(' ')),
       cap,
+      units,
+      ftes: ftesValue === '' ? estimatedFtes(enrollmentForFtes, units) : num(ftesValue),
+      hasFtesData: ftesValue !== '' || units > 0,
       actual,
       census,
       waitlist: num(waitlistValue),
@@ -139,6 +151,10 @@
 
   function isTruthy(value) {
     return /^(Y|YES|TRUE|1|CLOSED)$/i.test(String(value || '').trim());
+  }
+
+  function estimatedFtes(enrollment, units) {
+    return units > 0 ? (enrollment * units) / 15 : 0;
   }
 
   function normalizeModality(text, row) {
@@ -283,7 +299,7 @@
     if (!select) return;
     if (!select.querySelector(`[value="${REPORTS.attrition}"]`)) select.add(new Option('Enrollment Attrition - WIP', REPORTS.attrition));
     if (!select.querySelector(`[value="${REPORTS.consolidation}"]`)) select.add(new Option('Section Consolidation Opportunities - WIP', REPORTS.consolidation));
-    if (!select.querySelector(`[value="${REPORTS.demand}"]`)) select.add(new Option('Enrollment Demand Forecast', REPORTS.demand));
+    if (!select.querySelector(`[value="${REPORTS.demand}"]`)) select.add(new Option('Enrollment Demand Forecast - WIP', REPORTS.demand));
   }
 
   function buildUi() {
@@ -391,7 +407,7 @@
         </div>
         <div id="demandReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Demand Forecast</h2>
+            <h2>Enrollment Demand Forecast - WIP</h2>
             <p>Use historical enrollment growth patterns to forecast future student demand by college, division, discipline, and course. This report is a planning forecast, not a cancellation or consolidation recommendation.</p>
             <div class="analytics-methodology">
               <div>
@@ -408,6 +424,7 @@
                 <ul>
                   <li>Forecast Growth blends course-specific growth, discipline growth, division growth, and college-wide growth.</li>
                   <li>The overall enrollment modifier lets you apply a planning assumption, such as an expected 3% college-wide enrollment increase.</li>
+                  <li>FTES uses the uploaded FTES column when present; otherwise it estimates credit FTES as census enrollment x units / 15.</li>
                   <li>Forecasts estimate next-term enrollment, expected fill rate, section need, and confidence from historical behavior.</li>
                   <li>Capacity guidance indicates whether demand is expanding, stable, or softening; it is not a direct section cancellation instruction.</li>
                 </ul>
@@ -1085,18 +1102,17 @@
     const rows = filtered.filter(row => selectedTerms.includes(row.term));
     const growthModifier = Number(document.getElementById('demGrowthModifier')?.value || 0) / 100;
     const context = demandGrowthContext(rows);
-    const courseGroups = group(rows, row => courseKey(row));
-    state.demandRows = [...courseGroups.entries()]
-      .map(([course, courseRows]) => demandForecastRow(course, courseRows, context, growthModifier))
-      .filter(Boolean)
-      .sort((a, b) => b.adjustedForecastGrowth - a.adjustedForecastGrowth);
+    state.demandRows = demandForecastRowsForLevels(rows, context, growthModifier);
     const expanding = state.demandRows.filter(row => /expanding|increase/i.test(row.capacityGuidance));
     const softening = state.demandRows.filter(row => /softening/i.test(row.capacityGuidance));
+    const collegeRow = state.demandRows.find(row => row.forecastLevel === 'College');
     metric('demandMetrics', [
       ['Terms Included', selectedTerms.length],
-      ['Courses Reviewed', state.demandRows.length],
+      ['Courses Reviewed', state.demandRows.filter(row => row.forecastLevel === 'Course').length],
       ['College Growth', pct(context.collegeGrowth)],
       ['Modifier Applied', pct(growthModifier)],
+      ['Historical FTES', round1(collegeRow?.avgFtes || 0)],
+      ['Forecast FTES', round1(collegeRow?.expectedFtesNextTerm || 0)],
       ['Expanding Demand', expanding.length],
       ['Softening Demand', softening.length],
       ['Avg Forecast Growth', pct(safeDiv(sum(state.demandRows, 'adjustedForecastGrowth'), state.demandRows.length))]
@@ -1107,10 +1123,30 @@
   }
 
   function demandColumns() {
-    return ['course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgCensusEnrollment', 'avgFillRate', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'adjustedForecastGrowth', 'expectedEnrollmentNextTerm', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgCensusEnrollment', 'avgFtes', 'avgFillRate', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'adjustedForecastGrowth', 'expectedEnrollmentNextTerm', 'expectedFtesNextTerm', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance'];
   }
 
-  function demandForecastRow(course, rows, context, modifierGrowth = 0) {
+  function demandForecastRowsForLevels(rows, context, modifierGrowth = 0) {
+    const out = [];
+    const college = demandForecastRow('College', 'College', rows, context, modifierGrowth);
+    if (college) out.push(college);
+    group(rows, row => row.division || 'UNKNOWN').forEach((groupRows, key) => {
+      const row = demandForecastRow('Division', key, groupRows, context, modifierGrowth);
+      if (row) out.push(row);
+    });
+    group(rows, row => row.subject || 'UNKNOWN').forEach((groupRows, key) => {
+      const row = demandForecastRow('Discipline', key, groupRows, context, modifierGrowth);
+      if (row) out.push(row);
+    });
+    group(rows, row => courseKey(row)).forEach((groupRows, key) => {
+      const row = demandForecastRow('Course', key, groupRows, context, modifierGrowth);
+      if (row) out.push(row);
+    });
+    const order = { College: 0, Division: 1, Discipline: 2, Course: 3 };
+    return out.sort((a, b) => (order[a.forecastLevel] - order[b.forecastLevel]) || b.adjustedForecastGrowth - a.adjustedForecastGrowth || a.groupName.localeCompare(b.groupName));
+  }
+
+  function demandForecastRow(level, groupName, rows, context, modifierGrowth = 0) {
     const byTerm = group(rows, row => row.term || 'UNKNOWN');
     const termRows = [...byTerm.entries()]
       .map(([term, termSections]) => demandTermStats(term, termSections))
@@ -1119,8 +1155,10 @@
     const subject = rows[0]?.subject || '';
     const courseNumber = rows[0]?.course || '';
     const courseTitle = rows.find(row => row.title)?.title || '';
+    const course = level === 'Course' ? groupName : '';
     const avgCensusEnrollment = Math.round(average(termRows.map(row => row.census)));
     const avgFinalEnrollment = Math.round(average(termRows.map(row => row.final)));
+    const avgFtes = average(termRows.map(row => row.ftes));
     const avgCapacity = average(termRows.map(row => row.capacity));
     const avgCapPerSection = Math.max(1, average(rows.map(row => row.cap).filter(Boolean)));
     const avgFillRate = average(termRows.map(row => row.fillRate));
@@ -1130,10 +1168,12 @@
     const waitlistTerms = termRows.filter(row => row.waitlist > 0).length;
     const trend = demandTrend(termRows.map(row => row.census));
     const hasWaitlistData = rows.some(row => row.hasWaitlistData);
-    const divisionGrowth = context.division.get(rows[0]?.division || 'UNKNOWN') ?? context.collegeGrowth;
+    const divisionGrowth = level === 'Division'
+      ? context.division.get(groupName) ?? context.collegeGrowth
+      : context.division.get(rows[0]?.division || 'UNKNOWN') ?? context.collegeGrowth;
     const disciplineGrowth = context.discipline.get(subject || 'UNKNOWN') ?? divisionGrowth;
     const courseGrowth = trend.rate;
-    const adjustedForecastGrowth = blendedForecastGrowth({
+    const adjustedForecastGrowth = blendedForecastGrowth(level, {
       college: context.collegeGrowth,
       division: divisionGrowth,
       discipline: disciplineGrowth,
@@ -1141,6 +1181,7 @@
       modifier: modifierGrowth
     });
     const expectedEnrollmentNextTerm = Math.max(0, Math.round(avgCensusEnrollment * (1 + adjustedForecastGrowth)));
+    const expectedFtesNextTerm = Math.max(0, avgFtes * (1 + adjustedForecastGrowth));
     const expectedFillRate = safeDiv(expectedEnrollmentNextTerm, avgCapacity);
     const expectedSectionsNeeded = Math.max(1, Math.ceil((expectedEnrollmentNextTerm + avgWaitlistCount) / avgCapPerSection));
     const suggestedSectionCount = Math.max(1, expectedSectionsNeeded);
@@ -1157,6 +1198,8 @@
       hasWaitlistData
     });
     return {
+      forecastLevel: level,
+      groupName,
       course,
       subject,
       courseNumber,
@@ -1165,6 +1208,7 @@
       totalSectionsOffered: sum(termRows, 'sections'),
       avgCensusEnrollment,
       avgFinalEnrollment,
+      avgFtes,
       avgFillRate,
       avgAttritionRate,
       avgWaitlistCount,
@@ -1175,6 +1219,7 @@
       modifierGrowth,
       adjustedForecastGrowth,
       expectedEnrollmentNextTerm,
+      expectedFtesNextTerm,
       expectedFillRate,
       expectedSectionsNeeded,
       suggestedSectionCount,
@@ -1194,6 +1239,7 @@
       sections: rows.length,
       census,
       final,
+      ftes: sum(rows, 'ftes'),
       capacity,
       waitlist: sum(rows, 'waitlist'),
       fillRate: safeDiv(census, capacity),
@@ -1241,8 +1287,12 @@
     return demandTrend(series.map(item => item.census)).rate;
   }
 
-  function blendedForecastGrowth(parts) {
-    const historicalBlend = (parts.course * 0.5) + (parts.discipline * 0.2) + (parts.division * 0.15) + (parts.college * 0.15);
+  function blendedForecastGrowth(level, parts) {
+    let historicalBlend = parts.course;
+    if (level === 'College') historicalBlend = parts.college;
+    else if (level === 'Division') historicalBlend = (parts.division * 0.7) + (parts.college * 0.3);
+    else if (level === 'Discipline') historicalBlend = (parts.discipline * 0.6) + (parts.division * 0.25) + (parts.college * 0.15);
+    else historicalBlend = (parts.course * 0.5) + (parts.discipline * 0.2) + (parts.division * 0.15) + (parts.college * 0.15);
     return clamp(historicalBlend + parts.modifier, -0.75, 1.5);
   }
 
@@ -1312,6 +1362,7 @@
           term,
           census,
           final,
+          ftes: sum(termRows, 'ftes'),
           fillRate: safeDiv(census, capacity),
           waitlist: sum(termRows, 'waitlist'),
           forecast: Math.round(average([census, final]))
@@ -1329,11 +1380,13 @@
     const lowPatterns = patterns.slice(-5).reverse();
     wrap.innerHTML = `
       ${trendPanel('Demand Trend Line', trends, 'census', value => value)}
+      ${trendPanel('FTES Trend', trends, 'ftes', value => round1(value))}
       ${trendPanel('Fill Rate Trend', trends, 'fillRate', value => pct(value))}
       ${trendPanel('Waitlist Trend', trends, 'waitlist', value => value)}
       ${forecastPanel(trends)}
-      ${insightPanel('Top Expanding Demand Forecasts', growth.map(row => `${row.course}: ${pct(row.adjustedForecastGrowth)} forecast growth; ${row.capacityGuidance}`))}
-      ${insightPanel('Top Softening Demand Forecasts', softening.map(row => `${row.course}: ${pct(row.adjustedForecastGrowth)} forecast growth; ${row.capacityGuidance}`))}
+      ${insightPanel('Semester FTES Totals', trends.map(row => `${row.term}: ${round1(row.ftes)} FTES; ${row.census} census enrollment`))}
+      ${insightPanel('Top Expanding Demand Forecasts', growth.map(row => `${row.forecastLevel} - ${row.groupName}: ${pct(row.adjustedForecastGrowth)} forecast growth; ${row.capacityGuidance}`))}
+      ${insightPanel('Top Softening Demand Forecasts', softening.map(row => `${row.forecastLevel} - ${row.groupName}: ${pct(row.adjustedForecastGrowth)} forecast growth; ${row.capacityGuidance}`))}
       ${insightPanel('Highest Demand Day/Time Patterns', highPatterns.map(row => `${row.pattern}: ${pct(row.fillRate)} fill, ${row.waitlist} waitlist`))}
       ${insightPanel('Lowest Demand Day/Time Patterns', lowPatterns.map(row => `${row.pattern}: ${pct(row.fillRate)} fill, ${row.waitlist} waitlist`))}`;
   }
@@ -1799,8 +1852,10 @@
     const legend = document.getElementById('demandLegend');
     if (!legend) return;
     const items = [
-      ['Forecast Growth', 'Weighted growth estimate using 50% course growth, 20% discipline growth, 15% division growth, and 15% college-wide growth, plus the optional overall enrollment modifier.'],
+      ['Forecast Growth', 'Weighted growth estimate plus the optional overall enrollment modifier. Course rows use 50% course growth, 20% discipline growth, 15% division growth, and 15% college-wide growth; aggregate rows use their matching college/division/discipline level.'],
+      ['Forecast Level', 'Rows are generated at College, Division, Discipline, and Course levels so the forecast can be read from broad institutional demand down to specific courses.'],
       ['Overall Enrollment Modifier %', 'Optional planning assumption applied after historical growth. Enter 3 for an expected 3% overall enrollment increase, or -2 for a 2% softening assumption.'],
+      ['FTES', 'Uses the uploaded FTES value when available. If FTES is missing but units are present, estimated credit FTES = census enrollment x units / 15. If neither FTES nor units are present, FTES is shown as 0.'],
       ['Average Fill Rate', 'Historical census enrollment divided by capacity, averaged across the included comparable terms.'],
       ['Average Attrition %', 'Historical CENSUS_ENROLL minus ACTUAL_ENROLL, divided by CENSUS_ENROLL. This remains visible as context for schedule planning.'],
       ['Average Waitlist Count', 'Average waitlisted students across included terms when waitlist columns are present.'],
@@ -1853,10 +1908,13 @@
       matchReason: 'Match Reason',
       historicalTerms: 'Historical Terms',
       chronicLowFill: 'Chronic Low Fill',
+      forecastLevel: 'Forecast Level',
+      groupName: 'Forecast Group',
       courseTitle: 'Course Title',
       totalSectionsOffered: 'Total Sections Offered',
       avgCensusEnrollment: 'Average Census Enrollment',
       avgFinalEnrollment: 'Average Final Enrollment',
+      avgFtes: 'Average FTES',
       avgFillRate: 'Average Fill Rate',
       avgAttritionRate: 'Average Attrition %',
       avgWaitlistCount: 'Average Waitlist Count',
@@ -1876,6 +1934,7 @@
       modifierGrowth: 'Modifier Growth',
       adjustedForecastGrowth: 'Forecast Growth',
       expectedEnrollmentNextTerm: 'Expected Enrollment Next Term',
+      expectedFtesNextTerm: 'Expected FTES Next Term',
       expectedFillRate: 'Expected Fill Rate',
       expectedSectionsNeeded: 'Expected Sections Needed',
       suggestedSectionCount: 'Suggested Section Count',
@@ -1887,6 +1946,7 @@
 
   function format(value, column = '') {
     if (typeof value === 'number' && /(rate|fill|growth)$/i.test(column)) return pct(value);
+    if (typeof value === 'number' && /ftes/i.test(column)) return round1(value);
     return value ?? '';
   }
 
