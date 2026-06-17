@@ -1093,32 +1093,73 @@
 
   async function runDemand() {
     state.demandRan = true;
-    const allRows = await loadDemandRows();
-    const filtered = applyFilters(allRows, 'dem');
-    const windowSize = Number(document.getElementById('demWindow')?.value || 5);
-    const selectedTerms = collectRowTerms(filtered)
-      .sort((a, b) => termSortValue(a) - termSortValue(b))
-      .slice(Math.max(0, collectRowTerms(filtered).length - windowSize));
-    const rows = filtered.filter(row => selectedTerms.includes(row.term));
-    const growthModifier = Number(document.getElementById('demGrowthModifier')?.value || 0) / 100;
-    const context = demandGrowthContext(rows);
-    state.demandRows = demandForecastRowsForLevels(rows, context, growthModifier);
-    const expanding = state.demandRows.filter(row => /expanding|increase/i.test(row.capacityGuidance));
-    const softening = state.demandRows.filter(row => /softening/i.test(row.capacityGuidance));
-    const collegeRow = state.demandRows.find(row => row.forecastLevel === 'College');
+    setDemandMessage('Loading demand forecast...');
+    try {
+      const allRows = await loadDemandRows();
+      if (!allRows.length) {
+        state.demandRows = [];
+        renderEmptyDemand('No enrollment rows were loaded. Select archived terms or upload CSV files, then click Run.');
+        return;
+      }
+      const filtered = applyFilters(allRows, 'dem');
+      if (!filtered.length) {
+        state.demandRows = [];
+        renderEmptyDemand('Rows loaded, but none match the current filters. Clear filters or select different archived terms.');
+        return;
+      }
+      const windowSize = Number(document.getElementById('demWindow')?.value || 5);
+      const filteredTerms = collectRowTerms(filtered);
+      const selectedTerms = filteredTerms
+        .sort((a, b) => termSortValue(a) - termSortValue(b))
+        .slice(Math.max(0, filteredTerms.length - windowSize));
+      const rows = filtered.filter(row => selectedTerms.includes(row.term));
+      if (!rows.length) {
+        state.demandRows = [];
+        renderEmptyDemand('No rows remain after applying the analysis window. Increase the analysis window or choose more terms.');
+        return;
+      }
+      const growthModifier = Number(document.getElementById('demGrowthModifier')?.value || 0) / 100;
+      const context = demandGrowthContext(rows);
+      state.demandRows = demandForecastRowsForLevels(rows, context, growthModifier);
+      const expanding = state.demandRows.filter(row => /expanding|increase/i.test(row.capacityGuidance));
+      const softening = state.demandRows.filter(row => /softening/i.test(row.capacityGuidance));
+      const collegeRow = state.demandRows.find(row => row.forecastLevel === 'College');
+      metric('demandMetrics', [
+        ['Terms Included', selectedTerms.length],
+        ['Courses Reviewed', state.demandRows.filter(row => row.forecastLevel === 'Course').length],
+        ['College Growth', pct(context.collegeGrowth)],
+        ['Modifier Applied', pct(growthModifier)],
+        ['Historical FTES', round1(collegeRow?.avgFtes || 0)],
+        ['Forecast FTES', round1(collegeRow?.expectedFtesNextTerm || 0)],
+        ['Expanding Demand', expanding.length],
+        ['Softening Demand', softening.length],
+        ['Avg Forecast Growth', pct(safeDiv(sum(state.demandRows, 'adjustedForecastGrowth'), state.demandRows.length))]
+      ]);
+      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), demandTrendSeries(rows));
+      table('demandTable', state.demandRows, demandColumns());
+      renderDemandLegend();
+    } catch (err) {
+      console.error('Demand forecast failed:', err);
+      state.demandRows = [];
+      renderEmptyDemand(`Demand forecast failed: ${err.message || err}`);
+    }
+  }
+
+  function setDemandMessage(message) {
+    const tableNode = document.getElementById('demandTable');
+    if (tableNode) tableNode.innerHTML = `<p class="analytics-empty">${message}</p>`;
+  }
+
+  function renderEmptyDemand(message) {
     metric('demandMetrics', [
-      ['Terms Included', selectedTerms.length],
-      ['Courses Reviewed', state.demandRows.filter(row => row.forecastLevel === 'Course').length],
-      ['College Growth', pct(context.collegeGrowth)],
-      ['Modifier Applied', pct(growthModifier)],
-      ['Historical FTES', round1(collegeRow?.avgFtes || 0)],
-      ['Forecast FTES', round1(collegeRow?.expectedFtesNextTerm || 0)],
-      ['Expanding Demand', expanding.length],
-      ['Softening Demand', softening.length],
-      ['Avg Forecast Growth', pct(safeDiv(sum(state.demandRows, 'adjustedForecastGrowth'), state.demandRows.length))]
+      ['Terms Included', 0],
+      ['Courses Reviewed', 0],
+      ['Historical FTES', 0],
+      ['Forecast FTES', 0]
     ]);
-    renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), demandTrendSeries(rows));
-    table('demandTable', state.demandRows, demandColumns());
+    const insights = document.getElementById('demandInsights');
+    if (insights) insights.innerHTML = '';
+    setDemandMessage(message);
     renderDemandLegend();
   }
 
