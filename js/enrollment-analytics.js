@@ -271,6 +271,7 @@
                 <h3>How to Use This Report</h3>
                 <ul>
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
+                  <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
                   <li>Upload the decision-term enrollment CSV and any same-season comparison files, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
                   <li>Select the decision term before running the report. Historical terms provide context, but the decision-term columns should drive current planning.</li>
@@ -313,6 +314,7 @@
                 <h3>How to Use This Report</h3>
                 <ul>
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
+                  <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
                   <li>Start with the current decision term, then use historical context to decide whether a low-filled pattern is recurring.</li>
                   <li>Compare like terms where possible: Fall to Fall, Spring to Spring, and Summer to Summer. Limit historical review to 2022 and newer terms.</li>
                   <li>Use the filters and thresholds to create a review list, then evaluate operational constraints before making any schedule decision.</li>
