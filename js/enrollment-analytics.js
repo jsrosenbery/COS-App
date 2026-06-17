@@ -1226,7 +1226,7 @@
     const expectedFillRate = safeDiv(expectedEnrollmentNextTerm, avgCapacity);
     const expectedSectionsNeeded = Math.max(1, Math.ceil((expectedEnrollmentNextTerm + avgWaitlistCount) / avgCapPerSection));
     const suggestedSectionCount = Math.max(1, expectedSectionsNeeded);
-    const forecastConfidence = forecastConfidence(termRows, avgFillRate);
+    const forecastConfidence = forecastConfidenceLabel(termRows, avgFillRate);
     const capacityGuidance = demandCapacityGuidance({
       avgFillRate,
       waitlistTerms,
@@ -1356,7 +1356,7 @@
     return Math.max(1, expectedNeeded);
   }
 
-  function forecastConfidence(termRows, avgFillRate) {
+  function forecastConfidenceLabel(termRows, avgFillRate) {
     if (termRows.length >= 4 && fillVariance(termRows, avgFillRate) < 0.05) return 'High';
     if (termRows.length >= 3) return 'Medium';
     return 'Low';
