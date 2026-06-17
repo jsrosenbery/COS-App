@@ -308,6 +308,74 @@
     return year * 10 + (seasonOrder[season] || 0);
   }
 
+  function termParts(term) {
+    const text = canon(term);
+    return {
+      season: (text.match(/FALL|SPRING|SUMMER|WINTER/) || [''])[0],
+      year: Number((text.match(/\b(20\d{2})\b/) || [])[1] || 0)
+    };
+  }
+
+  function academicYearStart(term) {
+    const parts = termParts(term);
+    if (!parts.year) return 0;
+    return parts.season === 'SPRING' ? parts.year - 1 : parts.year;
+  }
+
+  function academicYearLabel(startYear) {
+    return `AY ${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+  }
+
+  function demandForecastTarget() {
+    const scope = document.getElementById('demForecastScope')?.value || 'term';
+    const season = canon(document.getElementById('demForecastSeason')?.value || 'FALL');
+    const year = Number(document.getElementById('demForecastYear')?.value || termParts(currentTerm()).year || new Date().getFullYear());
+    if (scope === 'year') {
+      return {
+        scope,
+        label: academicYearLabel(year),
+        year,
+        sortValue: year * 10 + 5
+      };
+    }
+    return {
+      scope,
+      season,
+      year,
+      label: `${season} ${year}`,
+      sortValue: termSortValue(`${season} ${year}`)
+    };
+  }
+
+  function demandTargetSlug() {
+    return demandForecastTarget().label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'forecast';
+  }
+
+  function updateDemandTargetControls() {
+    const scope = document.getElementById('demForecastScope')?.value || 'term';
+    const season = document.getElementById('demForecastSeason');
+    if (season) season.disabled = scope === 'year';
+  }
+
+  function isComparableDemandTerm(row, target) {
+    const parts = termParts(row.term);
+    if (!parts.year) return false;
+    if (target.scope === 'year') {
+      const ayStart = academicYearStart(row.term);
+      return ayStart > 0 && ayStart < target.year && ['SUMMER', 'FALL', 'SPRING'].includes(parts.season);
+    }
+    return parts.season === target.season && termSortValue(row.term) < target.sortValue;
+  }
+
+  function normalizeDemandAnalysisTerms(rows, target) {
+    if (target.scope !== 'year') return rows;
+    return rows.map(row => ({
+      ...row,
+      sourceTerm: row.term,
+      term: academicYearLabel(academicYearStart(row.term))
+    }));
+  }
+
   function ensureOptions() {
     const select = document.getElementById('viewSelect');
     if (!select) return;
@@ -429,14 +497,15 @@
                 <ul>
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
                   <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
-                  <li>Select three to five comparable historical terms where possible, such as Fall to Fall or Spring to Spring.</li>
+                  <li>Select three to five comparable historical terms where possible, such as Fall to Fall or Spring to Spring. For academic-year forecasts, select archived Summer, Fall, and Spring terms for each historical year.</li>
                   <li>Upload or select archived historical terms, then use the filters to isolate discipline, course, division, campus, modality, day pattern, or time range.</li>
-                  <li>Do not include terms that are still enrolling or not yet finalized in the historical baseline. The selected forecast term and future terms are automatically excluded from the calculation.</li>
+                  <li>The forecast target does not need an uploaded section seating report. Select the target season/year or academic year directly, then the report uses only comparable finalized historical rows before that target.</li>
                 </ul>
               </div>
               <div>
                 <h3>Methodology</h3>
                 <ul>
+                  <li>Single-term forecasts compare like terms only. Academic-year forecasts aggregate Summer, Fall, and Spring into annual historical buckets before calculating growth.</li>
                   <li>Forecast Growth blends course-specific growth, discipline growth, division growth, and college-wide growth.</li>
                   <li>The overall enrollment modifier lets you apply a planning assumption, such as an expected 3% college-wide enrollment increase.</li>
                   <li>FTES uses the uploaded FTES column when present; otherwise it estimates credit FTES as census enrollment x units / 15, with a weekly-contact-hour fallback when units are unavailable.</li>
@@ -451,7 +520,9 @@
             <label>Demand CSV(s) <input id="demandCsv" type="file" accept=".csv" multiple></label>
             <button id="archiveDemandUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="demArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
-            <label>Forecast term <select id="demForecastTerm"></select></label>
+            <label>Forecast scope <select id="demForecastScope"><option value="term">Single term</option><option value="year">Academic year</option></select></label>
+            <label>Forecast season <select id="demForecastSeason"><option>FALL</option><option>SPRING</option><option>SUMMER</option></select></label>
+            <label>Forecast year <input id="demForecastYear" type="number" min="2022" max="2040" value=""></label>
             ${filters('dem', { includeGroup: false, includeCancelled: false, includeOrg: true })}
             <label>Analysis window <input id="demWindow" type="number" min="1" max="10" value="5"></label>
             <label>Overall enrollment modifier % <input id="demGrowthModifier" type="number" min="-50" max="100" step="0.1" value="0" title="Optional planning adjustment applied after historical growth, such as 3 for an expected 3% overall enrollment increase."></label>
@@ -624,6 +695,7 @@
       if (state.consolidationRows.length) runConsolidation();
     }
     if (prefix === 'dem') {
+      setDemandTargetDefaults();
       const windowInput = document.getElementById('demWindow');
       if (windowInput) windowInput.value = '5';
       const growthModifier = document.getElementById('demGrowthModifier');
@@ -804,16 +876,25 @@
   }
 
   function updateDemandTermOptions(terms) {
-    const select = document.getElementById('demForecastTerm');
-    if (!select) return '';
-    const active = canon(currentTerm());
-    const prior = select.value;
-    select.replaceChildren();
-    terms.forEach(term => select.add(new Option(term, term)));
-    if (terms.includes(prior)) select.value = prior;
-    else if (terms.includes(active)) select.value = active;
-    else if (terms.length) select.value = terms[terms.length - 1];
-    return select.value;
+    setDemandTargetDefaults(terms);
+    return demandForecastTarget().label;
+  }
+
+  function setDemandTargetDefaults(terms = []) {
+    const yearInput = document.getElementById('demForecastYear');
+    const seasonSelect = document.getElementById('demForecastSeason');
+    if (!yearInput || !seasonSelect) return;
+    updateDemandTargetControls();
+    if (yearInput.value && seasonSelect.value) return;
+    const activeParts = termParts(currentTerm());
+    const latestParts = (terms || [])
+      .map(termParts)
+      .filter(parts => parts.year && ['FALL', 'SPRING', 'SUMMER'].includes(parts.season))
+      .sort((a, b) => termSortValue(`${a.season} ${a.year}`) - termSortValue(`${b.season} ${b.year}`))
+      .pop();
+    const basis = activeParts.year ? activeParts : latestParts || { season: 'FALL', year: new Date().getFullYear() };
+    seasonSelect.value = basis.season || 'FALL';
+    yearInput.value = String((basis.year || new Date().getFullYear()) + 1);
   }
 
   function captureFilterState(prefix) {
@@ -1127,19 +1208,19 @@
         return;
       }
       const windowSize = Number(document.getElementById('demWindow')?.value || 5);
-      const forecastTerm = canon(document.getElementById('demForecastTerm')?.value || currentTerm());
-      const forecastSort = termSortValue(forecastTerm);
-      const finalizedHistorical = filtered.filter(row => !forecastTerm || termSortValue(row.term) < forecastSort);
+      const target = demandForecastTarget();
+      const finalizedHistorical = filtered.filter(row => isComparableDemandTerm(row, target));
       if (!finalizedHistorical.length) {
         state.demandRows = [];
-        renderEmptyDemand('No finalized historical rows are available before the selected forecast term. Select archived completed terms earlier than the forecast term.');
+        renderEmptyDemand(`No comparable finalized historical rows are available before ${target.label}. Select archived completed ${target.scope === 'year' ? 'academic-year' : target.season} terms earlier than the forecast target.`);
         return;
       }
-      const filteredTerms = collectRowTerms(finalizedHistorical);
+      const analysisRows = normalizeDemandAnalysisTerms(finalizedHistorical, target);
+      const filteredTerms = collectRowTerms(analysisRows);
       const selectedTerms = filteredTerms
         .sort((a, b) => termSortValue(a) - termSortValue(b))
         .slice(Math.max(0, filteredTerms.length - windowSize));
-      const rows = finalizedHistorical.filter(row => selectedTerms.includes(row.term));
+      const rows = analysisRows.filter(row => selectedTerms.includes(row.term));
       if (!rows.length) {
         state.demandRows = [];
         renderEmptyDemand('No rows remain after applying the analysis window. Increase the analysis window or choose more terms.');
@@ -1155,7 +1236,8 @@
       const forecastFtes = collegeRow?.expectedFtesNextTerm || 0;
       const ftesCapDelta = ftesCap > 0 ? ftesCap - forecastFtes : null;
       metric('demandMetrics', [
-        ['Forecast Term', forecastTerm || ''],
+        ['Forecast Target', target.label],
+        ['Forecast Scope', target.scope === 'year' ? 'Academic year' : 'Single term'],
         ['Terms Included', selectedTerms.length],
         ['Courses Reviewed', state.demandRows.filter(row => row.forecastLevel === 'Course').length],
         ['College Growth', pct(context.collegeGrowth)],
@@ -1927,8 +2009,9 @@
     if (!legend) return;
     const items = [
       ['Terms Included', 'Metric card. Number of selected historical terms included after filters and the Analysis window are applied.'],
-      ['Forecast Term', 'Metric card and dropdown. The future term being forecast. Rows from this term and any later terms are excluded from historical calculations because in-progress enrollment is not a finalized baseline.'],
-      ['Analysis Window', 'Input. Maximum number of most-recent finalized historical terms to use after filters and forecast-term exclusion. Example: with five archived Fall terms and Analysis window = 4, the report uses the four most recent finalized Fall terms before the forecast term.'],
+      ['Forecast Target', 'Metric card and controls. The future term or academic year being forecast. This does not require an uploaded section seating report. Rows from this target and any later terms are excluded from historical calculations because in-progress enrollment is not a finalized baseline.'],
+      ['Forecast Scope', 'Metric card and control. Single term forecasts compare only the same season before the target, such as prior Fall terms for Fall 2027. Academic year forecasts aggregate Summer, Fall, and Spring rows into annual buckets before calculating growth.'],
+      ['Analysis Window', 'Input. Maximum number of most-recent finalized historical terms or academic-year buckets to use after filters and forecast-target exclusion. Example: with five archived Fall terms and Analysis window = 4, the report uses the four most recent finalized Fall terms before the forecast target.'],
       ['Courses Reviewed', 'Metric card. Number of Course-level forecast rows after filters. College, Division, and Discipline summary rows are not counted here.'],
       ['College Growth', 'Metric card and table column. Growth rate for total college census enrollment across included terms. Formula: average per-term change from first included term to last included term / first included term census enrollment.'],
       ['Modifier Applied', 'Metric card. The manual Overall enrollment modifier converted to a percentage. Formula: entered value / 100.'],
@@ -2179,12 +2262,13 @@
     document.getElementById('runDemand')?.addEventListener('click', runDemand);
     document.getElementById('demandCsv')?.addEventListener('change', loadDemandRows);
     document.getElementById('demArchiveTerms')?.addEventListener('change', loadDemandRows);
+    document.getElementById('demForecastScope')?.addEventListener('change', updateDemandTargetControls);
     document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
-    document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-demand-forecast-${currentTerm() || 'term'}.csv`));
-    document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-demand-forecast-${currentTerm() || 'term'}.xls`));
+    document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-demand-forecast-${demandTargetSlug()}.csv`));
+    document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-demand-forecast-${demandTargetSlug()}.xls`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
       const button = event.target.closest('.analytics-sort');
       if (button) sortAnalyticsTable(button);
