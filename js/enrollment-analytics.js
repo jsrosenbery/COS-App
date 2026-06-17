@@ -3,17 +3,22 @@
 
   const REPORTS = {
     attrition: 'enrollment-attrition',
-    consolidation: 'section-consolidation'
+    consolidation: 'section-consolidation',
+    demand: 'enrollment-demand-forecast'
   };
   const state = {
     enrollment: [],
     consolidationInput: [],
     consolidationRows: [],
+    demandInput: [],
+    demandRows: [],
     attritionRows: [],
     attritionRan: false,
     attritionTerms: [],
     consolidationRan: false,
     consolidationTerms: [],
+    demandRan: false,
+    demandTerms: [],
     archivedAnalyticsTerms: []
   };
   const analyticsChoices = new Map();
@@ -40,6 +45,9 @@
     crn: ['CRN', 'Crn', 'crn'],
     subject: ['Subject', 'SUBJECT', 'Discipline', 'DISCIPLINE'],
     course: ['Course', 'COURSE', 'Course_Number', 'Course Number', 'Course No', 'Catalog', 'CATALOG'],
+    title: ['Course Title', 'COURSE_TITLE', 'Title', 'TITLE', 'Long Title', 'Course_Name', 'Course Name'],
+    division: ['Division', 'DIVISION', 'Division Name', 'DIVISION_NAME'],
+    department: ['Department', 'DEPARTMENT', 'Dept', 'DEPT', 'Department Name', 'DEPARTMENT_NAME'],
     section: ['Section', 'SECTION', 'Sec', 'SEC', 'SECTION_NUMB', 'Section Number'],
     campus: ['Campus', 'CAMPUS', 'Location', 'LOCATION'],
     modality: ['Modality', 'MODALITY', 'Instruction_Mode', 'Instruction Mode', 'Method', 'INSTRUCTIONAL_METHOD_CODE', 'INSTRUCTION_METHOD_DESC'],
@@ -53,7 +61,9 @@
     cap: ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
     actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment'],
     census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment'],
+    waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WL Count', 'WAITLISTED'],
     fill: ['Fill_Rate', 'Fill Rate', 'Percent Full', '% Full'],
+    closed: ['Closed Prior to Census', 'CLOSED_PRIOR_TO_CENSUS', 'Closed Before Census', 'Closed', 'CLOSED'],
     status: ['Status', 'STATUS', 'Section Status']
   };
 
@@ -96,12 +106,16 @@
     const actual = num(val(row, fields.actual));
     const censusValue = val(row, fields.census);
     const census = censusValue === '' ? null : num(censusValue);
+    const waitlistValue = val(row, fields.waitlist);
     return {
       raw: row,
       term: canon(val(row, fields.term) || row.__sourceTerm || currentTerm()),
       crn: canon(val(row, fields.crn)),
       subject,
       course,
+      title: canon(val(row, fields.title)),
+      division: canon(val(row, fields.division)),
+      department: canon(val(row, fields.department)),
       section: canon(val(row, fields.section)),
       campus,
       modality,
@@ -115,9 +129,16 @@
       cap,
       actual,
       census,
+      waitlist: num(waitlistValue),
+      hasWaitlistData: waitlistValue !== '',
+      closedPriorCensus: isTruthy(val(row, fields.closed)),
       fillRate: cap > 0 ? actual / cap : num(val(row, fields.fill)) / 100,
       status: canon(val(row, fields.status))
     };
+  }
+
+  function isTruthy(value) {
+    return /^(Y|YES|TRUE|1|CLOSED)$/i.test(String(value || '').trim());
   }
 
   function normalizeModality(text, row) {
@@ -249,11 +270,20 @@
     return '';
   }
 
+  function termSortValue(term) {
+    const text = canon(term);
+    const year = Number((text.match(/\b(20\d{2})\b/) || [])[1] || 0);
+    const season = (text.match(/FALL|SPRING|SUMMER|WINTER/) || [''])[0];
+    const seasonOrder = { WINTER: 1, SPRING: 2, SUMMER: 3, FALL: 4 };
+    return year * 10 + (seasonOrder[season] || 0);
+  }
+
   function ensureOptions() {
     const select = document.getElementById('viewSelect');
     if (!select) return;
     if (!select.querySelector(`[value="${REPORTS.attrition}"]`)) select.add(new Option('Enrollment Attrition - WIP', REPORTS.attrition));
     if (!select.querySelector(`[value="${REPORTS.consolidation}"]`)) select.add(new Option('Section Consolidation Opportunities - WIP', REPORTS.consolidation));
+    if (!select.querySelector(`[value="${REPORTS.demand}"]`)) select.add(new Option('Enrollment Demand Forecast', REPORTS.demand));
   }
 
   function buildUi() {
@@ -359,13 +389,57 @@
           <div id="consolidationTable" class="analytics-table"></div>
           <div id="consolidationLegend" class="analytics-legend"></div>
         </div>
+        <div id="demandReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Enrollment Demand Forecast</h2>
+            <p>Use historical section seating data to forecast future enrollment demand and identify courses that may need schedule growth, reduction, or monitoring.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
+                  <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
+                  <li>Select three to five comparable historical terms where possible, such as Fall to Fall or Spring to Spring.</li>
+                  <li>Upload or select archived historical terms, then use the filters to isolate discipline, course, division, campus, modality, day pattern, or time range.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Demand Score = 40% fill rate + 30% waitlist activity + 20% retention + 10% enrollment trend.</li>
+                  <li>Growth opportunities are flagged when fill rates are high, waitlists repeat, and retention remains strong.</li>
+                  <li>Reduction risks are flagged when sections repeatedly underfill, waitlists are absent, and enrollment trends decline.</li>
+                  <li>Forecasts estimate next-term enrollment, fill rate, section need, suggested section count, and confidence from historical behavior.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Demand CSV(s) <input id="demandCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveDemandUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="demArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
+            <label>Forecast term <select id="demForecastTerm"></select></label>
+            ${filters('dem', { includeGroup: false, includeCancelled: false, includeOrg: true })}
+            <label>Analysis window <input id="demWindow" type="number" min="1" max="10" value="5"></label>
+            <button id="runDemand" type="button">Run</button>
+            <button id="clearDemand" type="button">Clear</button>
+            <button id="exportDemand" type="button">Export CSV</button>
+            <button id="exportDemandExcel" type="button">Export Excel</button>
+          </div>
+          <div id="demandMetrics" class="analytics-metrics"></div>
+          <div id="demandInsights" class="analytics-insights"></div>
+          <div id="demandTable" class="analytics-table"></div>
+          <div id="demandLegend" class="analytics-legend"></div>
+        </div>
       </section>`);
   }
 
   function filters(prefix, options = {}) {
     const includeGroup = typeof options === 'boolean' ? options : Boolean(options.includeGroup);
     const includeCancelled = typeof options === 'boolean' ? true : options.includeCancelled !== false;
+    const includeOrg = typeof options === 'object' && Boolean(options.includeOrg);
     return `
+      ${includeOrg ? `<label>Division <select id="${prefix}Division" multiple data-placeholder="All divisions"></select></label><label>Department <select id="${prefix}Department" multiple data-placeholder="All departments"></select></label>` : ''}
       <label>Discipline <select id="${prefix}Subject" multiple data-placeholder="All disciplines"></select></label>
       <label>Course <select id="${prefix}Course" multiple data-placeholder="All courses"></select></label>
       <label>Campus <select id="${prefix}Campus" multiple data-placeholder="All campuses"></select></label>
@@ -402,9 +476,13 @@
   }
 
   function rowsForDependentOptions(prefix, rows) {
+    const selectedDivisions = getSelectedValues(prefix + 'Division');
+    const selectedDepartments = getSelectedValues(prefix + 'Department');
     const selectedSubjects = getSelectedValues(prefix + 'Subject');
     const selectedCourses = getSelectedValues(prefix + 'Course');
     return rows.filter(row => {
+      if (!valueMatchesSelection(row.division, selectedDivisions)) return false;
+      if (!valueMatchesSelection(row.department, selectedDepartments)) return false;
       if (!valueMatchesSelection(row.subject, selectedSubjects)) return false;
       if (!valueMatchesSelection(row.course, selectedCourses)) return false;
       return true;
@@ -412,8 +490,15 @@
   }
 
   function updateCourseOptions(prefix, rows) {
+    const selectedDivisions = getSelectedValues(prefix + 'Division');
+    const selectedDepartments = getSelectedValues(prefix + 'Department');
     const selectedSubjects = getSelectedValues(prefix + 'Subject');
-    const courseRows = selectedSubjects.length ? rows.filter(row => valueMatchesSelection(row.subject, selectedSubjects)) : rows;
+    const courseRows = rows.filter(row => {
+      if (!valueMatchesSelection(row.division, selectedDivisions)) return false;
+      if (!valueMatchesSelection(row.department, selectedDepartments)) return false;
+      if (!valueMatchesSelection(row.subject, selectedSubjects)) return false;
+      return true;
+    });
     setSelectOptions(prefix + 'Course', uniqueOptions(courseRows, row => row.course));
     updatePatternOptions(prefix, rows);
   }
@@ -460,7 +545,7 @@
   }
 
   function resetAnalyticsControls(prefix) {
-    ['Subject', 'Course', 'Campus', 'Modality', 'Instructor', 'Day', 'Time'].forEach(name => clearSelect(prefix + name));
+    ['Division', 'Department', 'Subject', 'Course', 'Campus', 'Modality', 'Instructor', 'Day', 'Time'].forEach(name => clearSelect(prefix + name));
     const hideOnline = document.getElementById(prefix + 'HideOnline');
     if (hideOnline) hideOnline.checked = false;
     const hideCancelled = document.getElementById(prefix + 'HideCancelled');
@@ -503,15 +588,29 @@
       if (sameModality) sameModality.checked = true;
       if (state.consolidationRows.length) runConsolidation();
     }
+    if (prefix === 'dem') {
+      const windowInput = document.getElementById('demWindow');
+      if (windowInput) windowInput.value = '5';
+      if (state.demandRows.length) runDemand();
+    }
   }
 
   function populateAnalyticsFilters(prefix, rows) {
+    setSelectOptions(prefix + 'Division', uniqueOptions(rows, row => row.division));
+    setSelectOptions(prefix + 'Department', uniqueOptions(rows, row => row.department));
     setSelectOptions(prefix + 'Subject', uniqueOptions(rows, row => row.subject));
     updateCourseOptions(prefix, rows);
     setSelectOptions(prefix + 'Campus', uniqueOptions(rows, row => row.campus));
     setSelectOptions(prefix + 'Modality', uniqueOptions(rows, row => row.modality));
     setSelectOptions(prefix + 'Instructor', uniqueOptions(rows, row => row.instructor));
     updatePatternOptions(prefix, rows);
+    const divisionSelect = document.getElementById(prefix + 'Division');
+    if (divisionSelect) divisionSelect.onchange = () => {
+      setSelectOptions(prefix + 'Department', uniqueOptions(rows.filter(row => valueMatchesSelection(row.division, getSelectedValues(prefix + 'Division'))), row => row.department));
+      updateCourseOptions(prefix, rows);
+    };
+    const departmentSelect = document.getElementById(prefix + 'Department');
+    if (departmentSelect) departmentSelect.onchange = () => updateCourseOptions(prefix, rows);
     const subjectSelect = document.getElementById(prefix + 'Subject');
     if (subjectSelect) subjectSelect.onchange = () => updateCourseOptions(prefix, rows);
     const courseSelect = document.getElementById(prefix + 'Course');
@@ -520,6 +619,8 @@
 
   function applyFilters(rows, prefix) {
     const selected = {
+      division: getSelectedValues(prefix + 'Division'),
+      department: getSelectedValues(prefix + 'Department'),
       subject: getSelectedValues(prefix + 'Subject'),
       course: getSelectedValues(prefix + 'Course'),
       campus: getSelectedValues(prefix + 'Campus'),
@@ -529,6 +630,8 @@
       time: getSelectedValues(prefix + 'Time')
     };
     return rows.filter((r) => {
+      if (!valueMatchesSelection(r.division, selected.division)) return false;
+      if (!valueMatchesSelection(r.department, selected.department)) return false;
       if (!valueMatchesSelection(r.subject, selected.subject)) return false;
       if (!valueMatchesSelection(r.course, selected.course)) return false;
       if (!valueMatchesSelection(r.campus, selected.campus)) return false;
@@ -575,6 +678,7 @@
       const options = state.archivedAnalyticsTerms.map(term => ({ value: term, label: term }));
       setSelectOptions('attrArchiveTerms', options);
       setSelectOptions('conArchiveTerms', options);
+      setSelectOptions('demArchiveTerms', options);
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
     }
@@ -660,8 +764,23 @@
     return select.value;
   }
 
+  function updateDemandTermOptions(terms) {
+    const select = document.getElementById('demForecastTerm');
+    if (!select) return '';
+    const active = canon(currentTerm());
+    const prior = select.value;
+    select.replaceChildren();
+    terms.forEach(term => select.add(new Option(term, term)));
+    if (terms.includes(prior)) select.value = prior;
+    else if (terms.includes(active)) select.value = active;
+    else if (terms.length) select.value = terms[terms.length - 1];
+    return select.value;
+  }
+
   function captureFilterState(prefix) {
     return {
+      division: getSelectedValues(prefix + 'Division'),
+      department: getSelectedValues(prefix + 'Department'),
       subject: getSelectedValues(prefix + 'Subject'),
       course: getSelectedValues(prefix + 'Course'),
       campus: getSelectedValues(prefix + 'Campus'),
@@ -675,6 +794,8 @@
   function restoreFilterState(prefix, saved) {
     if (!saved) return;
     [
+      ['Division', saved.division],
+      ['Department', saved.department],
       ['Subject', saved.subject],
       ['Course', saved.course],
       ['Campus', saved.campus],
@@ -934,6 +1055,291 @@
     ]);
     table('consolidationTable', state.consolidationRows.map(flattenOpportunity), ['type', 'score', 'label', 'course', 'sections', 'sourceSummary', 'targetSummary', 'onlineSummary', 'recommendation', 'freedSeats', 'matchReason', 'historicalTerms', 'chronicLowFill']);
     renderConsolidationLegend();
+  }
+
+  async function loadDemandRows() {
+    const saved = captureFilterState('dem');
+    const uploadedRows = await readCsv(document.getElementById('demandCsv'));
+    const archivedRows = await readArchivedRows('demArchiveTerms');
+    const uploaded = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
+      .filter(row => !isOmittedInstructionalMethod(row));
+    state.demandInput = uploaded;
+    const rows = uploaded.length ? uploaded : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+    state.demandTerms = collectRowTerms(rows);
+    updateDemandTermOptions(state.demandTerms);
+    refreshAnalyticsFilters('dem', rows, saved);
+    return rows;
+  }
+
+  async function runDemand() {
+    state.demandRan = true;
+    const allRows = await loadDemandRows();
+    const filtered = applyFilters(allRows, 'dem');
+    const windowSize = Number(document.getElementById('demWindow')?.value || 5);
+    const selectedTerms = collectRowTerms(filtered)
+      .sort((a, b) => termSortValue(a) - termSortValue(b))
+      .slice(Math.max(0, collectRowTerms(filtered).length - windowSize));
+    const rows = filtered.filter(row => selectedTerms.includes(row.term));
+    const courseGroups = group(rows, row => courseKey(row));
+    state.demandRows = [...courseGroups.entries()]
+      .map(([course, courseRows]) => demandForecastRow(course, courseRows))
+      .filter(Boolean)
+      .sort((a, b) => b.demandScore - a.demandScore);
+    const growth = state.demandRows.filter(row => /add|growth/i.test(row.recommendation));
+    const reductions = state.demandRows.filter(row => /reduce|review schedule/i.test(row.recommendation));
+    metric('demandMetrics', [
+      ['Terms Included', selectedTerms.length],
+      ['Courses Reviewed', state.demandRows.length],
+      ['Very High Demand', state.demandRows.filter(row => row.demandBand === 'Very High Demand').length],
+      ['Growth Opportunities', growth.length],
+      ['Reduction Risks', reductions.length],
+      ['Avg Demand Score', Math.round(safeDiv(sum(state.demandRows, 'demandScore'), state.demandRows.length))]
+    ]);
+    renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), demandTrendSeries(rows));
+    table('demandTable', state.demandRows, demandColumns());
+    renderDemandLegend();
+  }
+
+  function demandColumns() {
+    return ['course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgCensusEnrollment', 'avgFillRate', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'sectionsFilledAtCensus', 'sectionsClosedPriorToCensus', 'sectionsUnder50', 'sectionsUnder35', 'sectionsCancelled', 'studentsUnableToEnroll', 'demandScore', 'demandBand', 'expectedEnrollmentNextTerm', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'recommendation'];
+  }
+
+  function demandForecastRow(course, rows) {
+    const byTerm = group(rows, row => row.term || 'UNKNOWN');
+    const termRows = [...byTerm.entries()]
+      .map(([term, termSections]) => demandTermStats(term, termSections))
+      .sort((a, b) => termSortValue(a.term) - termSortValue(b.term));
+    if (!termRows.length) return null;
+    const subject = rows[0]?.subject || '';
+    const courseNumber = rows[0]?.course || '';
+    const courseTitle = rows.find(row => row.title)?.title || '';
+    const avgCensusEnrollment = Math.round(average(termRows.map(row => row.census)));
+    const avgFinalEnrollment = Math.round(average(termRows.map(row => row.final)));
+    const avgCapacity = average(termRows.map(row => row.capacity));
+    const avgCapPerSection = Math.max(1, average(rows.map(row => row.cap).filter(Boolean)));
+    const avgFillRate = average(termRows.map(row => row.fillRate));
+    const avgAttritionRate = average(termRows.map(row => row.attritionRate));
+    const avgWaitlistCount = Math.round(average(termRows.map(row => row.waitlist)));
+    const avgSections = average(termRows.map(row => row.sections));
+    const waitlistTerms = termRows.filter(row => row.waitlist > 0).length;
+    const sectionsFilledAtCensus = sum(termRows, 'filledAtCensus');
+    const sectionsClosedPriorToCensus = sum(termRows, 'closedPriorCensus');
+    const sectionsUnder50 = sum(termRows, 'under50');
+    const sectionsUnder35 = sum(termRows, 'under35');
+    const sectionsCancelled = sum(termRows, 'cancelled');
+    const studentsUnableToEnroll = Math.round(avgWaitlistCount + average(termRows.map(row => row.closedPriorCensus)) * avgCapPerSection);
+    const trend = demandTrend(termRows.map(row => row.census));
+    const fillScore = clamp(avgFillRate / 0.95 * 100, 0, 100);
+    const hasWaitlistData = rows.some(row => row.hasWaitlistData);
+    const waitlistScore = hasWaitlistData ? clamp(safeDiv(avgWaitlistCount, Math.max(1, avgSections)) / 5 * 100, 0, 100) : 50;
+    const retentionScore = clamp((1 - avgAttritionRate) * 100, 0, 100);
+    const trendScore = clamp(50 + trend.rate * 100, 0, 100);
+    const demandScore = Math.round(fillScore * 0.4 + waitlistScore * 0.3 + retentionScore * 0.2 + trendScore * 0.1);
+    const demandBand = demandBandForScore(demandScore);
+    const expectedEnrollmentNextTerm = Math.max(0, Math.round(avgCensusEnrollment + trend.delta));
+    const expectedFillRate = safeDiv(expectedEnrollmentNextTerm, avgCapacity);
+    const expectedSectionsNeeded = Math.max(1, Math.ceil((expectedEnrollmentNextTerm + avgWaitlistCount) / avgCapPerSection));
+    const suggestedSectionCount = suggestedDemandSections(expectedSectionsNeeded, Math.round(avgSections), demandScore, avgFillRate, waitlistTerms, sectionsUnder50, sectionsUnder35);
+    const forecastConfidence = forecastConfidence(termRows, avgFillRate);
+    const recommendation = demandRecommendation({
+      avgFillRate,
+      waitlistTerms,
+      avgAttritionRate,
+      sectionsUnder50,
+      sectionsUnder35,
+      sectionsCancelled,
+      trend,
+      avgSections,
+      expectedSectionsNeeded,
+      suggestedSectionCount,
+      hasWaitlistData
+    });
+    return {
+      course,
+      subject,
+      courseNumber,
+      courseTitle,
+      terms: termRows.length,
+      totalSectionsOffered: sum(termRows, 'sections'),
+      avgCensusEnrollment,
+      avgFinalEnrollment,
+      avgFillRate,
+      avgAttritionRate,
+      avgWaitlistCount,
+      sectionsFilledAtCensus,
+      sectionsClosedPriorToCensus,
+      sectionsUnder50,
+      sectionsUnder35,
+      sectionsCancelled,
+      studentsUnableToEnroll,
+      demandScore,
+      demandBand,
+      expectedEnrollmentNextTerm,
+      expectedFillRate,
+      expectedSectionsNeeded,
+      suggestedSectionCount,
+      forecastConfidence,
+      recommendation,
+      hasWaitlistData: hasWaitlistData ? 'Yes' : 'No',
+      enrollmentTrend: trend.label
+    };
+  }
+
+  function demandTermStats(term, rows) {
+    const census = rows.reduce((total, row) => total + (row.census == null ? row.actual : row.census), 0);
+    const final = sum(rows, 'actual');
+    const capacity = sum(rows, 'cap');
+    return {
+      term,
+      sections: rows.length,
+      census,
+      final,
+      capacity,
+      waitlist: sum(rows, 'waitlist'),
+      fillRate: safeDiv(census, capacity),
+      attritionRate: safeDiv(Math.max(0, census - final), census),
+      filledAtCensus: rows.filter(row => row.cap > 0 && (row.census == null ? row.actual : row.census) >= row.cap).length,
+      closedPriorCensus: rows.filter(row => row.closedPriorCensus || /CLOSED/.test(row.status)).length,
+      under50: rows.filter(row => row.cap > 0 && safeDiv(row.census == null ? row.actual : row.census, row.cap) < 0.5).length,
+      under35: rows.filter(row => row.cap > 0 && safeDiv(row.census == null ? row.actual : row.census, row.cap) < 0.35).length,
+      cancelled: rows.filter(row => /CANCEL/.test(row.status)).length
+    };
+  }
+
+  function demandTrend(values) {
+    if (values.length < 2) return { delta: 0, rate: 0, label: 'Flat' };
+    const first = values[0] || 0;
+    const last = values[values.length - 1] || 0;
+    const delta = (last - first) / (values.length - 1);
+    const rate = safeDiv(delta, Math.max(1, first));
+    return { delta, rate, label: delta > 2 ? 'Increasing' : delta < -2 ? 'Declining' : 'Flat' };
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function demandBandForScore(score) {
+    if (score >= 85) return 'Very High Demand';
+    if (score >= 70) return 'High Demand';
+    if (score >= 50) return 'Stable Demand';
+    if (score >= 35) return 'Low Demand';
+    return 'Very Low Demand';
+  }
+
+  function suggestedDemandSections(expectedNeeded, avgSections, score, fillRate, waitlistTerms, under50, under35) {
+    if (score >= 85 && fillRate >= 0.95 && waitlistTerms >= 2) return Math.max(avgSections + 1, expectedNeeded);
+    if (score >= 70 && fillRate >= 0.9 && waitlistTerms >= 1) return Math.max(avgSections, expectedNeeded);
+    if ((under35 >= 2 || under50 >= 3) && score < 50) return Math.max(1, avgSections - (under35 >= 3 ? 2 : 1));
+    return Math.max(1, expectedNeeded);
+  }
+
+  function forecastConfidence(termRows, avgFillRate) {
+    if (termRows.length >= 4 && fillVariance(termRows, avgFillRate) < 0.05) return 'High';
+    if (termRows.length >= 3) return 'Medium';
+    return 'Low';
+  }
+
+  function fillVariance(termRows, averageFill) {
+    return average(termRows.map(row => Math.abs(row.fillRate - averageFill)));
+  }
+
+  function demandRecommendation(row) {
+    const addCount = Math.max(0, row.suggestedSectionCount - Math.round(row.avgSections));
+    const reduceCount = Math.max(0, Math.round(row.avgSections) - row.suggestedSectionCount);
+    if (row.avgFillRate >= 0.95 && row.waitlistTerms >= 2 && row.avgAttritionRate <= 0.15 && addCount >= 2) return 'Consider adding 2 sections.';
+    if (row.avgFillRate >= 0.9 && row.waitlistTerms >= 1 && row.avgAttritionRate <= 0.2 && addCount >= 1) return 'Consider adding 1 section.';
+    if (row.avgFillRate >= 0.85 || row.trend.label === 'Increasing') return 'Monitor for future growth.';
+    if ((row.sectionsUnder35 >= 2 || reduceCount >= 2) && row.waitlistTerms === 0 && row.trend.label === 'Declining') return 'Reduce by 2 sections.';
+    if ((row.sectionsUnder50 >= 2 || reduceCount >= 1) && row.waitlistTerms === 0) return 'Reduce by 1 section.';
+    if (row.sectionsCancelled > 0 || row.sectionsUnder50 > 0) return 'Review schedule.';
+    return 'Maintain current section count.';
+  }
+
+  function dayTimeDemandRows(rows) {
+    return [...group(rows, row => [row.dayPattern, row.start || 'ONLINE/TBA', row.modality, row.campus].join(' | ')).entries()]
+      .map(([key, groupRows]) => {
+        const census = groupRows.reduce((total, row) => total + (row.census == null ? row.actual : row.census), 0);
+        const capacity = sum(groupRows, 'cap');
+        const waitlist = sum(groupRows, 'waitlist');
+        const fillRate = safeDiv(census, capacity);
+        return {
+          pattern: key,
+          sections: groupRows.length,
+          fillRate,
+          waitlist,
+          demandScore: Math.round(clamp(fillRate / 0.95 * 70 + safeDiv(waitlist, Math.max(1, groupRows.length)) * 6, 0, 100))
+        };
+      })
+      .sort((a, b) => b.demandScore - a.demandScore);
+  }
+
+  function demandTrendSeries(rows) {
+    return [...group(rows, row => row.term || 'UNKNOWN').entries()]
+      .map(([term, termRows]) => {
+        const census = termRows.reduce((total, row) => total + (row.census == null ? row.actual : row.census), 0);
+        const final = sum(termRows, 'actual');
+        const capacity = sum(termRows, 'cap');
+        return {
+          term,
+          census,
+          final,
+          fillRate: safeDiv(census, capacity),
+          waitlist: sum(termRows, 'waitlist'),
+          forecast: Math.round(average([census, final]))
+        };
+      })
+      .sort((a, b) => termSortValue(a.term) - termSortValue(b.term));
+  }
+
+  function renderDemandInsights(rows, patterns, trends) {
+    const wrap = document.getElementById('demandInsights');
+    if (!wrap) return;
+    const growth = rows.filter(row => /add|growth/i.test(row.recommendation)).slice(0, 5);
+    const reduction = rows.filter(row => /reduce|review schedule/i.test(row.recommendation)).slice(0, 5);
+    const highPatterns = patterns.slice(0, 5);
+    const lowPatterns = patterns.slice(-5).reverse();
+    wrap.innerHTML = `
+      ${trendPanel('Demand Trend Line', trends, 'census', value => value)}
+      ${trendPanel('Fill Rate Trend', trends, 'fillRate', value => pct(value))}
+      ${trendPanel('Waitlist Trend', trends, 'waitlist', value => value)}
+      ${forecastPanel(trends)}
+      ${insightPanel('Top Growth Opportunities', growth.map(row => `${row.course}: ${row.recommendation} (${row.demandBand}, score ${row.demandScore})`))}
+      ${insightPanel('Top Reduction Opportunities', reduction.map(row => `${row.course}: ${row.recommendation} (${row.demandBand}, score ${row.demandScore})`))}
+      ${insightPanel('Highest Demand Day/Time Patterns', highPatterns.map(row => `${row.pattern}: ${pct(row.fillRate)} fill, ${row.waitlist} waitlist`))}
+      ${insightPanel('Lowest Demand Day/Time Patterns', lowPatterns.map(row => `${row.pattern}: ${pct(row.fillRate)} fill, ${row.waitlist} waitlist`))}`;
+  }
+
+  function trendPanel(title, rows, key, formatter) {
+    const values = rows.map(row => Number(row[key]) || 0);
+    const points = sparklinePoints(values);
+    const latest = rows.length ? formatter(rows[rows.length - 1][key]) : 'N/A';
+    return `<section><h3>${title}</h3><svg class="analytics-sparkline" viewBox="0 0 220 70" preserveAspectRatio="none"><polyline points="${points}" /></svg><p class="analytics-chart-note">Latest: ${latest}</p></section>`;
+  }
+
+  function forecastPanel(rows) {
+    const values = rows.map(row => Math.abs((row.forecast || 0) - (row.census || 0)));
+    const avgError = Math.round(average(values));
+    return `<section><h3>Forecast vs Actual Comparison</h3><p class="analytics-chart-note">Average historical forecast gap: ${avgError} students.</p><p class="analytics-chart-note">Uses final/census midpoint as a simple back-test proxy when no separate forecast file is available.</p></section>`;
+  }
+
+  function sparklinePoints(values) {
+    if (!values.length) return '';
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const width = 220;
+    const height = 60;
+    const spread = max - min || 1;
+    return values.map((value, index) => {
+      const x = values.length === 1 ? width : (index / (values.length - 1)) * width;
+      const y = height - ((value - min) / spread) * height + 5;
+      return `${Math.round(x)},${Math.round(y)}`;
+    }).join(' ');
+  }
+
+  function insightPanel(title, items) {
+    const list = items.length ? items.map(item => `<li>${item}</li>`).join('') : '<li>No matching rows.</li>';
+    return `<section><h3>${title}</h3><ul>${list}</ul></section>`;
   }
 
   function isOnlineSection(row) {
@@ -1361,6 +1767,30 @@
       <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
   }
 
+  function renderDemandLegend() {
+    const legend = document.getElementById('demandLegend');
+    if (!legend) return;
+    const items = [
+      ['Demand Score', 'Composite score from 40% fill rate, 30% waitlist activity, 20% retention, and 10% enrollment trend.'],
+      ['Demand Bands', 'Very High Demand is 85+, High Demand is 70-84, Stable Demand is 50-69, Low Demand is 35-49, and Very Low Demand is below 35.'],
+      ['Average Fill Rate', 'Historical census enrollment divided by capacity, averaged across the included comparable terms.'],
+      ['Average Attrition %', 'Historical CENSUS_ENROLL minus ACTUAL_ENROLL, divided by CENSUS_ENROLL. Lower attrition improves the demand score.'],
+      ['Average Waitlist Count', 'Average waitlisted students across included terms when waitlist columns are present.'],
+      ['Waitlist Data Present', 'Shows whether the uploaded source rows included waitlist data. If no waitlist column exists, the waitlist score component is treated as neutral rather than as no demand.'],
+      ['Sections Filled at Census', 'Count of sections where census enrollment met or exceeded capacity.'],
+      ['Sections Closed Prior to Census', 'Count of sections marked closed before census when that column/status is present.'],
+      ['Sections Under 50% / 35%', 'Count of historical sections below those fill thresholds. These increase reduction-risk signals.'],
+      ['Expected Enrollment Next Term', 'Average historical census enrollment adjusted by the historical enrollment trend.'],
+      ['Expected Sections Needed', 'Expected enrollment plus waitlist demand divided by average section capacity, rounded up.'],
+      ['Suggested Section Count', 'Planning recommendation derived from expected sections needed plus growth/reduction rules.'],
+      ['Forecast Confidence', 'High requires at least four terms with stable fill behavior; Medium requires at least three terms; otherwise confidence is Low.']
+    ];
+    legend.innerHTML = `
+      <h3>Methodology and Column Legend</h3>
+      <p>This report answers what should be scheduled next term based on actual historical student demand. Use comparable terms, preferably three to five same-season terms, for the strongest forecast.</p>
+      <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
+  }
+
   function label(text) {
     const labels = {
       group: 'Group',
@@ -1394,7 +1824,28 @@
       freedSeats: 'Freed Seats',
       matchReason: 'Match Reason',
       historicalTerms: 'Historical Terms',
-      chronicLowFill: 'Chronic Low Fill'
+      chronicLowFill: 'Chronic Low Fill',
+      courseTitle: 'Course Title',
+      totalSectionsOffered: 'Total Sections Offered',
+      avgCensusEnrollment: 'Average Census Enrollment',
+      avgFinalEnrollment: 'Average Final Enrollment',
+      avgFillRate: 'Average Fill Rate',
+      avgAttritionRate: 'Average Attrition %',
+      avgWaitlistCount: 'Average Waitlist Count',
+      hasWaitlistData: 'Waitlist Data Present',
+      sectionsFilledAtCensus: 'Sections Filled at Census',
+      sectionsClosedPriorToCensus: 'Sections Closed Prior to Census',
+      sectionsUnder50: 'Sections Under 50%',
+      sectionsUnder35: 'Sections Under 35%',
+      sectionsCancelled: 'Sections Cancelled',
+      studentsUnableToEnroll: 'Students Unable to Enroll',
+      demandScore: 'Demand Score',
+      demandBand: 'Demand Band',
+      expectedEnrollmentNextTerm: 'Expected Enrollment Next Term',
+      expectedFillRate: 'Expected Fill Rate',
+      expectedSectionsNeeded: 'Expected Sections Needed',
+      suggestedSectionCount: 'Suggested Section Count',
+      forecastConfidence: 'Forecast Confidence'
     };
     return labels[text] || text.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
   }
@@ -1414,13 +1865,24 @@
     URL.revokeObjectURL(link.href);
   }
 
+  function exportRowsExcel(rows, columns, filename) {
+    const html = `<table><thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
   function updateVisibility() {
     const selected = document.getElementById('viewSelect')?.value;
     const wrap = document.getElementById('analyticsReports');
     if (!wrap) return;
-    wrap.style.display = [REPORTS.attrition, REPORTS.consolidation].includes(selected) ? 'block' : 'none';
+    wrap.style.display = [REPORTS.attrition, REPORTS.consolidation, REPORTS.demand].includes(selected) ? 'block' : 'none';
     document.getElementById('attritionReport').style.display = selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = selected === REPORTS.consolidation ? 'block' : 'none';
+    document.getElementById('demandReport').style.display = selected === REPORTS.demand ? 'block' : 'none';
     if (selected === REPORTS.attrition && !state.attritionRan) {
       const rows = state.enrollment.length ? state.enrollment : currentRows().filter(row => !isOmittedInstructionalMethod(row));
       updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(rows));
@@ -1430,6 +1892,13 @@
     if (selected === REPORTS.consolidation) {
       populateAnalyticsFilters('con', state.consolidationInput.length ? state.consolidationInput : currentRows());
       renderConsolidationLegend();
+    }
+    if (selected === REPORTS.demand && !state.demandRan) {
+      const rows = state.demandInput.length ? state.demandInput : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+      updateDemandTermOptions(state.demandTerms.length ? state.demandTerms : collectTerms(rows));
+      populateAnalyticsFilters('dem', rows);
+      document.getElementById('demandTable').innerHTML = '<p class="analytics-empty">Upload or select archived historical CSV files, then click Run.</p>';
+      renderDemandLegend();
     }
   }
 
@@ -1461,6 +1930,14 @@
       .analytics-metrics div{border:1px solid #d8e1ec;border-radius:8px;padding:12px;background:#f8fbff}
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
       .analytics-metrics span{font-size:12px;color:#51657c;text-transform:uppercase}
+      .analytics-insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px}
+      .analytics-insights section{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px}
+      .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
+      .analytics-insights ul{margin:0;padding-left:18px;color:#334862}
+      .analytics-insights li{margin:4px 0;line-height:1.3}
+      .analytics-sparkline{display:block;width:100%;height:74px;margin:6px 0}
+      .analytics-sparkline polyline{fill:none;stroke:#1f7aa8;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+      .analytics-chart-note{margin:4px 0 0;color:#51657c;font-size:12px;line-height:1.3}
       .analytics-table{overflow:auto;max-height:620px;border:1px solid #d8e1ec;border-radius:8px}
       .analytics-table table{width:100%;border-collapse:collapse;background:#fff}
       .analytics-table th{position:sticky;top:0;background:#174f7d;color:#fff;text-align:left;padding:9px;font-size:13px}
@@ -1487,6 +1964,7 @@
     document.getElementById('viewSelect')?.addEventListener('change', updateVisibility);
     document.getElementById('termSelect')?.addEventListener('change', () => {
       if (document.getElementById('viewSelect')?.value === REPORTS.consolidation) runConsolidation();
+      if (document.getElementById('viewSelect')?.value === REPORTS.demand) runDemand();
     });
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
@@ -1498,8 +1976,15 @@
     document.getElementById('conArchiveTerms')?.addEventListener('change', loadConsolidationRows);
     document.getElementById('archiveConsolidationUploads')?.addEventListener('click', () => archiveUploads('consolidationCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearConsolidation')?.addEventListener('click', () => resetAnalyticsControls('con'));
+    document.getElementById('runDemand')?.addEventListener('click', runDemand);
+    document.getElementById('demandCsv')?.addEventListener('change', loadDemandRows);
+    document.getElementById('demArchiveTerms')?.addEventListener('change', loadDemandRows);
+    document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
+    document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
+    document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-demand-forecast-${currentTerm() || 'term'}.csv`));
+    document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-demand-forecast-${currentTerm() || 'term'}.xls`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
       const button = event.target.closest('.analytics-sort');
       if (button) sortAnalyticsTable(button);
