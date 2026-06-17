@@ -59,7 +59,8 @@
     room: ['Room', 'ROOM'],
     building: ['Building', 'BUILDING'],
     cap: ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
-    units: ['Units', 'UNITS', 'Credit Hours', 'CREDIT_HOURS', 'Credits', 'CREDITS'],
+    units: ['Units', 'UNITS', 'Credit Hours', 'CREDIT_HOURS', 'Credits', 'CREDITS', 'SESSION_CREDIT_HOURS', 'Session Credit Hours'],
+    weeklyHours: ['HOURS_PER_WEEK', 'Hours Per Week', 'Weekly Hours', 'WSCH'],
     ftes: ['FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
     actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment'],
     census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment'],
@@ -77,6 +78,15 @@
   }
 
   function num(value) {
+    const text = String(value || '').replace(/[%,$]/g, '').trim();
+    const parsed = Number(text);
+    if (Number.isFinite(parsed)) return parsed;
+    const leading = text.match(/-?\d+(?:\.\d+)?/);
+    if (leading) return Number(leading[0]);
+    return 0;
+  }
+
+  function strictNum(value) {
     const parsed = Number(String(value || '').replace(/[%,$]/g, '').trim());
     return Number.isFinite(parsed) ? parsed : 0;
   }
@@ -114,6 +124,7 @@
     const census = censusValue === '' ? null : num(censusValue);
     const waitlistValue = val(row, fields.waitlist);
     const units = num(val(row, fields.units));
+    const weeklyHours = num(val(row, fields.weeklyHours));
     const ftesValue = val(row, fields.ftes);
     const enrollmentForFtes = census == null ? actual : census;
     return {
@@ -137,14 +148,15 @@
       room: canon([val(row, fields.building), val(row, fields.room)].filter(Boolean).join(' ')),
       cap,
       units,
-      ftes: ftesValue === '' ? estimatedFtes(enrollmentForFtes, units) : num(ftesValue),
-      hasFtesData: ftesValue !== '' || units > 0,
+      weeklyHours,
+      ftes: ftesValue === '' ? estimatedFtes(enrollmentForFtes, units, weeklyHours) : num(ftesValue),
+      hasFtesData: ftesValue !== '' || units > 0 || weeklyHours > 0,
       actual,
       census,
       waitlist: num(waitlistValue),
       hasWaitlistData: waitlistValue !== '',
       closedPriorCensus: isTruthy(val(row, fields.closed)),
-      fillRate: cap > 0 ? actual / cap : num(val(row, fields.fill)) / 100,
+      fillRate: cap > 0 ? actual / cap : strictNum(val(row, fields.fill)) / 100,
       status: canon(val(row, fields.status))
     };
   }
@@ -153,8 +165,10 @@
     return /^(Y|YES|TRUE|1|CLOSED)$/i.test(String(value || '').trim());
   }
 
-  function estimatedFtes(enrollment, units) {
-    return units > 0 ? (enrollment * units) / 15 : 0;
+  function estimatedFtes(enrollment, units, weeklyHours = 0) {
+    if (units > 0) return (enrollment * units) / 15;
+    if (weeklyHours > 0) return (enrollment * weeklyHours * 17.5) / 525;
+    return 0;
   }
 
   function normalizeModality(text, row) {
@@ -417,6 +431,7 @@
                   <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
                   <li>Select three to five comparable historical terms where possible, such as Fall to Fall or Spring to Spring.</li>
                   <li>Upload or select archived historical terms, then use the filters to isolate discipline, course, division, campus, modality, day pattern, or time range.</li>
+                  <li>Do not include terms that are still enrolling or not yet finalized in the historical baseline. The selected forecast term and future terms are automatically excluded from the calculation.</li>
                 </ul>
               </div>
               <div>
@@ -424,8 +439,9 @@
                 <ul>
                   <li>Forecast Growth blends course-specific growth, discipline growth, division growth, and college-wide growth.</li>
                   <li>The overall enrollment modifier lets you apply a planning assumption, such as an expected 3% college-wide enrollment increase.</li>
-                  <li>FTES uses the uploaded FTES column when present; otherwise it estimates credit FTES as census enrollment x units / 15.</li>
+                  <li>FTES uses the uploaded FTES column when present; otherwise it estimates credit FTES as census enrollment x units / 15, with a weekly-contact-hour fallback when units are unavailable.</li>
                   <li>Forecasts estimate next-term enrollment, expected fill rate, section need, and confidence from historical behavior.</li>
+                  <li>Use the optional FTES cap field to compare the forecast against the state-sanctioned FTES cap for planning and apportionment context.</li>
                   <li>Capacity guidance indicates whether demand is expanding, stable, or softening; it is not a direct section cancellation instruction.</li>
                 </ul>
               </div>
@@ -439,6 +455,7 @@
             ${filters('dem', { includeGroup: false, includeCancelled: false, includeOrg: true })}
             <label>Analysis window <input id="demWindow" type="number" min="1" max="10" value="5"></label>
             <label>Overall enrollment modifier % <input id="demGrowthModifier" type="number" min="-50" max="100" step="0.1" value="0" title="Optional planning adjustment applied after historical growth, such as 3 for an expected 3% overall enrollment increase."></label>
+            <label>FTES cap <input id="demFtesCap" type="number" min="0" step="0.1" value="" placeholder="optional" title="Optional state-sanctioned FTES cap used to show forecast room remaining or amount over cap."></label>
             <button id="runDemand" type="button">Run</button>
             <button id="clearDemand" type="button">Clear</button>
             <button id="exportDemand" type="button">Export CSV</button>
@@ -611,6 +628,8 @@
       if (windowInput) windowInput.value = '5';
       const growthModifier = document.getElementById('demGrowthModifier');
       if (growthModifier) growthModifier.value = '0';
+      const ftesCap = document.getElementById('demFtesCap');
+      if (ftesCap) ftesCap.value = '';
       if (state.demandRows.length) runDemand();
     }
   }
@@ -1108,29 +1127,42 @@
         return;
       }
       const windowSize = Number(document.getElementById('demWindow')?.value || 5);
-      const filteredTerms = collectRowTerms(filtered);
+      const forecastTerm = canon(document.getElementById('demForecastTerm')?.value || currentTerm());
+      const forecastSort = termSortValue(forecastTerm);
+      const finalizedHistorical = filtered.filter(row => !forecastTerm || termSortValue(row.term) < forecastSort);
+      if (!finalizedHistorical.length) {
+        state.demandRows = [];
+        renderEmptyDemand('No finalized historical rows are available before the selected forecast term. Select archived completed terms earlier than the forecast term.');
+        return;
+      }
+      const filteredTerms = collectRowTerms(finalizedHistorical);
       const selectedTerms = filteredTerms
         .sort((a, b) => termSortValue(a) - termSortValue(b))
         .slice(Math.max(0, filteredTerms.length - windowSize));
-      const rows = filtered.filter(row => selectedTerms.includes(row.term));
+      const rows = finalizedHistorical.filter(row => selectedTerms.includes(row.term));
       if (!rows.length) {
         state.demandRows = [];
         renderEmptyDemand('No rows remain after applying the analysis window. Increase the analysis window or choose more terms.');
         return;
       }
       const growthModifier = Number(document.getElementById('demGrowthModifier')?.value || 0) / 100;
+      const ftesCap = Number(document.getElementById('demFtesCap')?.value || 0);
       const context = demandGrowthContext(rows);
       state.demandRows = demandForecastRowsForLevels(rows, context, growthModifier);
       const expanding = state.demandRows.filter(row => /expanding|increase/i.test(row.capacityGuidance));
       const softening = state.demandRows.filter(row => /softening/i.test(row.capacityGuidance));
       const collegeRow = state.demandRows.find(row => row.forecastLevel === 'College');
+      const forecastFtes = collegeRow?.expectedFtesNextTerm || 0;
+      const ftesCapDelta = ftesCap > 0 ? ftesCap - forecastFtes : null;
       metric('demandMetrics', [
+        ['Forecast Term', forecastTerm || ''],
         ['Terms Included', selectedTerms.length],
         ['Courses Reviewed', state.demandRows.filter(row => row.forecastLevel === 'Course').length],
         ['College Growth', pct(context.collegeGrowth)],
         ['Modifier Applied', pct(growthModifier)],
         ['Historical FTES', round1(collegeRow?.avgFtes || 0)],
-        ['Forecast FTES', round1(collegeRow?.expectedFtesNextTerm || 0)],
+        ['Forecast FTES', round1(forecastFtes)],
+        ['FTES Cap Position', ftesCapDelta == null ? 'No cap entered' : (ftesCapDelta >= 0 ? `${round1(ftesCapDelta)} under cap` : `${round1(Math.abs(ftesCapDelta))} over cap`)],
         ['Expanding Demand', expanding.length],
         ['Softening Demand', softening.length],
         ['Avg Forecast Growth', pct(safeDiv(sum(state.demandRows, 'adjustedForecastGrowth'), state.demandRows.length))]
@@ -1155,7 +1187,8 @@
       ['Terms Included', 0],
       ['Courses Reviewed', 0],
       ['Historical FTES', 0],
-      ['Forecast FTES', 0]
+      ['Forecast FTES', 0],
+      ['FTES Cap Position', 'No cap entered']
     ]);
     const insights = document.getElementById('demandInsights');
     if (insights) insights.innerHTML = '';
@@ -1894,11 +1927,15 @@
     if (!legend) return;
     const items = [
       ['Terms Included', 'Metric card. Number of selected historical terms included after filters and the Analysis window are applied.'],
+      ['Forecast Term', 'Metric card and dropdown. The future term being forecast. Rows from this term and any later terms are excluded from historical calculations because in-progress enrollment is not a finalized baseline.'],
+      ['Analysis Window', 'Input. Maximum number of most-recent finalized historical terms to use after filters and forecast-term exclusion. Example: with five archived Fall terms and Analysis window = 4, the report uses the four most recent finalized Fall terms before the forecast term.'],
       ['Courses Reviewed', 'Metric card. Number of Course-level forecast rows after filters. College, Division, and Discipline summary rows are not counted here.'],
       ['College Growth', 'Metric card and table column. Growth rate for total college census enrollment across included terms. Formula: average per-term change from first included term to last included term / first included term census enrollment.'],
       ['Modifier Applied', 'Metric card. The manual Overall enrollment modifier converted to a percentage. Formula: entered value / 100.'],
-      ['Historical FTES', 'Metric card. Average FTES for the College-level row across included historical terms.'],
+      ['Historical FTES', 'Metric card. Average FTES for the College-level row across included finalized historical terms.'],
       ['Forecast FTES', 'Metric card. Expected FTES for the next term at the College level. Formula: Historical FTES x (1 + adjusted forecast growth).'],
+      ['FTES Cap', 'Input. Optional state-sanctioned FTES cap used only for comparison against the forecast; it does not change forecast growth or section estimates.'],
+      ['FTES Cap Position', 'Metric card. Formula: FTES cap - Forecast FTES. Positive values are under cap; negative values are over cap.'],
       ['Expanding Demand', 'Metric card. Count of rows whose Capacity Guidance indicates expanding or increasing demand. Includes College, Division, Discipline, and Course rows.'],
       ['Softening Demand', 'Metric card. Count of rows whose Capacity Guidance indicates softening demand. Includes College, Division, Discipline, and Course rows.'],
       ['Average Forecast Growth', 'Metric card. Average adjusted forecast growth across all visible hierarchy rows.'],
@@ -1909,7 +1946,7 @@
       ['Terms', 'Table column. Number of included historical terms represented in that row.'],
       ['Total Sections Offered', 'Table column. Sum of section counts across included historical terms. Sections are deduplicated by CRN, with subject/course/section fallback.'],
       ['Average Census Enrollment', 'Table column. Average historical census enrollment across included terms. Formula: average of term-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
-      ['Average FTES', 'Table column. Average historical FTES across included terms. Uses uploaded FTES when present; otherwise estimated credit FTES = census enrollment x units / 15. If neither FTES nor units are present, FTES is 0.'],
+      ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates credit FTES = census enrollment x units / 15. If units are unavailable but weekly contact hours are present, fallback formula is census enrollment x weekly contact hours x 17.5 / 525. If neither FTES, units, nor weekly hours are present, FTES is 0.'],
       ['Average Fill Rate', 'Table column. Average of term-level census fill rates. Formula per term: sum(census enrollment) / sum(MAX ENROLL).'],
       ['Average Attrition %', 'Table column. Average of term-level attrition rates. Formula per term: max(0, census enrollment - actual enrollment) / census enrollment. This is context only and does not drive cancellation logic.'],
       ['Average Waitlist Count', 'Table column. Average historical waitlisted students across included terms when waitlist columns are present. Formula: average of term-level sum(waitlist).'],
@@ -1920,7 +1957,7 @@
       ['Modifier Growth', 'Table column. Manual enrollment-growth assumption from Overall enrollment modifier %. Formula: entered percentage / 100.'],
       ['Forecast Growth', 'Table column. Adjusted growth used for the forecast. Course rows use 50% course growth + 20% discipline growth + 15% division growth + 15% college growth + modifier. Division rows use 70% division growth + 30% college growth + modifier. Discipline rows use 60% discipline growth + 25% division growth + 15% college growth + modifier. College rows use college growth + modifier. Values are capped between -75% and +150%.'],
       ['Expected Enrollment Next Term', 'Table column. Forecasted census enrollment. Formula: Average Census Enrollment x (1 + Forecast Growth), rounded to the nearest whole student.'],
-      ['Expected FTES Next Term', 'Table column. Forecasted FTES. Formula: Average FTES x (1 + Forecast Growth).'],
+      ['Expected FTES Next Term', 'Table column. Forecasted FTES. Formula: Average FTES x (1 + Forecast Growth). This is the value to compare against an entered FTES cap.'],
       ['Expected Fill Rate', 'Table column. Forecasted utilization of offered capacity. Formula: Expected Enrollment Next Term / average historical capacity.'],
       ['Expected Sections Needed', 'Table column. Forecasted section need based on average section capacity. Formula: ceiling((Expected Enrollment Next Term + Average Waitlist Count) / average section capacity).'],
       ['Suggested Section Count', 'Table column. Planning estimate currently equal to Expected Sections Needed, floored at 1. This is a planning input, not an instruction to add, cancel, or consolidate sections.'],
@@ -1931,14 +1968,14 @@
       ['Fill Rate Trend', 'Insight chart. Term-by-term sum(census enrollment) / sum(MAX ENROLL) for the filtered dataset.'],
       ['Waitlist Trend', 'Insight chart. Term-by-term total waitlist count when waitlist data exists.'],
       ['Forecast vs Actual Comparison', 'Insight card. Shows a simple historical proxy gap using abs((census/final midpoint) - census). This is a rough back-test placeholder because no separate prior forecast file is uploaded.'],
-      ['Semester FTES Totals', 'Insight list. Shows each included term total FTES and census enrollment after filters.'],
+      ['Semester FTES Totals', 'Insight list. Shows each included finalized historical term total FTES and census enrollment after filters.'],
       ['Highest/Lowest Demand Day-Time Patterns', 'Insight lists. Groups filtered rows by day pattern, start time, modality, and campus; ranks by fill rate plus waitlist pressure. This supports placement planning, not section cancellation.'],
       ['Not Included', 'This report does not use applications, registration intent, student education plans, section-level waitlist snapshots over time, room constraints, faculty availability, budget limits, or external labor-market demand. It also excludes rows omitted by instructional-method rules such as CPL, DE, CBE, and unmapped archived code 98, plus any rows removed by active filters.'],
-      ['Data Limitations', 'Forecasts depend on uploaded columns. Missing FTES/units produces 0 FTES. Missing waitlist columns make waitlist demand unknown, not zero. Missing division, department, or course title values appear blank or UNKNOWN.']
+      ['Data Limitations', 'Forecasts depend on uploaded columns. Missing FTES, units, and weekly-contact-hour columns produce 0 FTES. Missing waitlist columns make waitlist demand unknown, not zero. Missing division, department, or course title values appear blank or UNKNOWN. Terms that are still enrolling should not be selected as historical archives unless they are intentionally being reviewed as incomplete scenario data.']
     ];
     legend.innerHTML = `
       <h3>Methodology and Column Legend</h3>
-      <p>This report forecasts future demand from historical growth patterns at the college, division, discipline, and course levels. It is intended for schedule planning and capacity assumptions, not direct cancellation or consolidation decisions.</p>
+      <p>This report forecasts future demand from finalized historical growth patterns at the college, division, discipline, and course levels. It is intended for bigger-picture enrollment growth, apportionment, FTES-cap planning, and capacity assumptions, not direct cancellation or consolidation decisions.</p>
       <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
   }
 
