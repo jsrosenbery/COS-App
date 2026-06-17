@@ -320,7 +320,8 @@
                 <h3>Methodology</h3>
                 <ul>
                   <li>Low Fill = enrollment divided by capacity below the selected low-fill threshold.</li>
-                  <li>Receiving sections are other sections of the same course with enough open seats, optionally constrained by campus, modality, days, and time.</li>
+                  <li>For in-person rows, the decision term supplies the planned section pattern and capacity. Historical comparison terms supply expected enrollment and expected open seats.</li>
+                  <li>Receiving sections are other planned sections of the same course with enough historically expected open seats, optionally constrained by campus, modality, days, and time.</li>
                   <li>Historical matching should be based on a stable section pattern, not CRN, because CRNs change across terms.</li>
                   <li>Min sections is the minimum number of decision-term in-person sections a course must have before it is considered for in-person flow review. Online reduction rows require at least two online sections and enough historical vacancies to remove one section.</li>
                   <li>Recommendation scores are planning indicators only. They identify candidates for review, not automatic cancellations.</li>
@@ -879,13 +880,15 @@
     const allCourseCount = group(rows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`).size;
     const byCourse = group(inPersonRows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`);
     const history = await historicalPatterns(allRows, decisionTerm, lowFill, lowEnroll);
+    const historicalDemand = historicalDemandMap(comparisonRows.filter(row => !isOnlineSection(row)), options.vacancyBasis);
     state.consolidationRows = onlineReductionRows(onlineRows, comparisonRows.filter(isOnlineSection), options);
     byCourse.forEach((sections, key) => {
       const course = key.split('||')[1] || key;
       if (sections.length < minSections) return;
-      const low = sections.filter((s) => isLowEnrollmentSection(s, lowFill, lowEnroll));
+      const estimatedSections = sections.map(section => withHistoricalEstimate(section, historicalDemand)).filter(Boolean);
+      const low = estimatedSections.filter((s) => isLowEnrollmentSection(s, lowFill, lowEnroll));
       low.forEach((source) => {
-        const receivingPool = sections
+        const receivingPool = estimatedSections
           .filter((target) => target !== source && target.cap - target.actual > 0)
           .filter((target) => !options.sameCampus || target.campus === source.campus)
           .filter((target) => !options.sameModality || target.modality === source.modality)
@@ -903,7 +906,7 @@
             course,
             source,
             ...best,
-            matchReason: `${best.matchReason}; ${poolOpenSeats} pooled open seats for ${requiredSeats} required seats`,
+            matchReason: `${best.matchReason}; ${poolOpenSeats} historical-estimated pooled open seats for ${requiredSeats} required seats`,
             receivingPool,
             poolOpenSeats,
             requiredSeats,
@@ -921,7 +924,7 @@
       ['Courses Reviewed', allCourseCount],
       ['Online Reduction Candidates', onlineOpportunities.length],
       ['In-Person Flow Candidates', flowOpportunities.length],
-      ['Low Rule', lowEnroll == null ? `<= ${pct(lowFill)} fill` : `<= ${lowEnroll} enrolled`],
+      ['Historical Low Rule', lowEnroll == null ? `<= ${pct(lowFill)} expected fill` : `<= ${lowEnroll} expected enroll`],
       ['Seats Potentially Freed', sum(state.consolidationRows, 'freedSeats')],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
@@ -947,6 +950,58 @@
   function average(values) {
     const usable = values.filter(value => Number.isFinite(value));
     return usable.length ? usable.reduce((total, value) => total + value, 0) / usable.length : 0;
+  }
+
+  function courseKey(section) {
+    return `${section.subject} ${section.course}`;
+  }
+
+  function historicalDemandMap(rows, basis = 'actual') {
+    const maps = { pattern: new Map(), course: new Map() };
+    rows.forEach(row => {
+      addDemandSample(maps.pattern, patternKey(row), row, basis);
+      addDemandSample(maps.course, courseKey(row), row, basis);
+    });
+    return {
+      pattern: finalizeDemandMap(maps.pattern),
+      course: finalizeDemandMap(maps.course)
+    };
+  }
+
+  function addDemandSample(map, key, row, basis) {
+    const enrollment = enrollmentForBasis(row, basis);
+    const item = map.get(key) || { enrollments: [], fillRates: [], terms: new Set() };
+    item.enrollments.push(enrollment);
+    if (row.cap > 0) item.fillRates.push(enrollment / row.cap);
+    item.terms.add(row.term || 'UNKNOWN');
+    map.set(key, item);
+  }
+
+  function finalizeDemandMap(map) {
+    const finalized = new Map();
+    map.forEach((item, key) => {
+      finalized.set(key, {
+        enrollment: Math.round(average(item.enrollments)),
+        fillRate: average(item.fillRates),
+        terms: item.terms.size
+      });
+    });
+    return finalized;
+  }
+
+  function withHistoricalEstimate(section, demand) {
+    const exact = demand.pattern.get(patternKey(section));
+    const fallback = demand.course.get(courseKey(section));
+    const estimate = exact || fallback;
+    if (!estimate || !estimate.terms) return null;
+    const enrollment = Math.min(section.cap || estimate.enrollment, estimate.enrollment);
+    return {
+      ...section,
+      actual: enrollment,
+      fillRate: section.cap > 0 ? enrollment / section.cap : estimate.fillRate,
+      historicalEstimate: estimate,
+      historicalEstimateType: exact ? 'exact pattern' : 'course average'
+    };
   }
 
   function onlineReductionRows(rows, historicalRows, options) {
@@ -1127,11 +1182,11 @@
   function flattenOpportunity(row) {
     const isOnline = row.type === 'Online Reduction';
     const sourceSummary = row.source
-      ? `${describe(row.source)}; enroll ${row.source.actual}; fill ${pct(row.source.fillRate)}`
+      ? `${describe(row.source)}; historical expected enroll ${row.source.actual}; expected fill ${pct(row.source.fillRate)}; ${row.source.historicalEstimateType || 'historical estimate'}`
       : `Online aggregate; expected enroll ${row.sourceEnroll}; fill ${pct(row.sourceFill)}`;
     const targetOpenSeats = row.target ? Math.max(0, row.target.cap - row.target.actual) : row.targetOpenSeats;
     const targetSummary = row.target
-      ? `${describe(row.target)}; enroll ${row.target.actual}; best open ${targetOpenSeats}; pool open ${row.poolOpenSeats ?? targetOpenSeats}; required ${row.requiredSeats ?? row.source?.actual ?? ''}`
+      ? `${describe(row.target)}; historical expected enroll ${row.target.actual}; best expected open ${targetOpenSeats}; pool expected open ${row.poolOpenSeats ?? targetOpenSeats}; required ${row.requiredSeats ?? row.source?.actual ?? ''}`
       : '';
     const onlineSummary = isOnline
       ? `${row.vacancies ?? 0} expected vacancies; median cap ${row.sectionCap ?? 0}; possible reductions ${row.possibleReductions ?? 0}`
@@ -1274,11 +1329,11 @@
     const items = [
       ['Consolidation CSV(s)', 'Optional upload for this report. If no file is uploaded, the report uses the currently loaded dashboard schedule.'],
       ['Instructional methods', 'Online, In Person, and Hybrid are derived from instructional method codes. CPL, DE, CBE, and unmapped archived code 98 are omitted from these analytics datasets.'],
-      ['Decision term', 'The term being reviewed for current consolidation opportunities. Uploaded rows from other terms are used only as historical comparison context.'],
+      ['Decision term', 'The term being reviewed for planned consolidation opportunities. For in-person rows, the decision term supplies planned sections, meeting patterns, and capacity, not the enrollment demand used to trigger recommendations.'],
       ['Min sections', 'Minimum number of decision-term in-person sections a course must have before in-person flow rows are considered. Online reduction rows use a separate minimum of two online sections, then require enough historical vacancy to remove at least one section.'],
-      ['Low enrollment', 'Optional strict enrollment threshold. If entered, a source section is considered low when ACTUAL_ENROLL is at or below this number.'],
-      ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. A source section is low-filled when ACTUAL_ENROLL divided by MAX ENROLL is at or below this threshold.'],
-      ['Absorb %', 'Minimum share of the source section enrollment that eligible receiving sections must collectively be able to absorb. The default 60% means a source with 16 students needs at least 10 pooled open seats among matching sections.'],
+      ['Low enrollment', 'Optional strict enrollment threshold. If entered, an in-person source section is considered low when its historical expected enrollment is at or below this number.'],
+      ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. An in-person source section is low-filled when historical expected enrollment divided by decision-term capacity is at or below this threshold.'],
+      ['Absorb %', 'Minimum share of the source section historical expected enrollment that eligible receiving sections must collectively be able to absorb. The default 60% means a source expected to draw 16 students needs at least 10 expected pooled open seats among matching sections.'],
       ['Vacancy basis', 'Controls online vacancy math from historical comparison terms. Historical final/current uses ACTUAL_ENROLL. Historical census uses CENSUS_ENROLL when available. The decision term supplies offered sections and capacity, not current in-progress demand.'],
       ['Lookback terms', 'Number of prior terms to check for historical low-fill patterns when backend schedule history is available.'],
       ['Min hist terms', 'Minimum number of historical matches needed before a pattern can be labeled chronic.'],
@@ -1288,9 +1343,8 @@
       ['Same campus', 'When checked, source and receiving sections must be on the same campus.'],
       ['Same modality', 'When checked, source and receiving sections must use the same instructional modality.'],
       ['Score', 'In-person flow starts at 25 points, then adds 15 for same campus, 15 for same modality, 20 for same day and start time, or 10 for same day pattern, 10 for same instructor, 5 for same room, and 10 for chronic historical low fill. Online reduction starts at 55 and increases with the number of reducible sections. Scores cap at 100.'],
-      ['Source Section', 'The lower-filled section being reviewed as a possible consolidation source.'],
-      ['Source Enroll', 'ACTUAL_ENROLL for the lower-filled source section.'],
-      ['Target Summary', 'Shows the best matching receiving section for scoring plus the total pooled open seats across all eligible receiving sections. In-person rows are flagged when the pool meets the selected Absorb % threshold, not only when one section can absorb everyone.'],
+      ['Source Summary', 'The planned in-person section being reviewed, using historical expected enrollment. Exact historical section pattern is used first; if unavailable, course average is used. If no historical basis exists, the section is not flagged.'],
+      ['Target Summary', 'Shows the best matching planned receiving section for scoring plus the total historically expected pooled open seats across all eligible receiving sections. In-person rows are flagged when the pool meets the selected Absorb % threshold.'],
       ['Vacancies', 'For online reduction rows, expected open seats across decision-term online sections. This compares decision-term capacity to average historical enrollment and historical vacancy patterns.'],
       ['Section Cap', 'For online reduction rows, the median online section cap used as the standard section size.'],
       ['Possible Reductions', 'For online rows, Vacancies divided by Section Cap, rounded down.'],
@@ -1299,7 +1353,7 @@
     ];
     legend.innerHTML = `
       <h3>Control and Column Legend</h3>
-      <p>This report separates online reduction math from in-person flow checks. Online rows compare historical demand against decision-term online capacity. In-person rows flag low-enrolled decision-term sections with another same-term section that can absorb the students within the selected day/time rules.</p>
+      <p>This report separates online reduction math from in-person flow checks. Online rows compare historical demand against decision-term online capacity. In-person rows compare historical expected demand against planned decision-term sections, so the subject term's in-progress enrollment does not drive recommendations.</p>
       <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
   }
 
