@@ -316,14 +316,19 @@
     };
   }
 
-  function academicYearStart(term) {
+  function academicYearTrailingYear(term) {
     const parts = termParts(term);
     if (!parts.year) return 0;
-    return parts.season === 'SPRING' ? parts.year - 1 : parts.year;
+    return parts.season === 'SPRING' ? parts.year : parts.year + 1;
   }
 
-  function academicYearLabel(startYear) {
-    return `AY ${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+  function academicYearLabel(trailingYear) {
+    return `FY/AY ${trailingYear}`;
+  }
+
+  function targetTermFromFiscalYear(season, fiscalYear) {
+    const year = season === 'SPRING' ? fiscalYear : fiscalYear - 1;
+    return `${season} ${year}`;
   }
 
   function demandForecastTarget() {
@@ -342,8 +347,9 @@
       scope,
       season,
       year,
-      label: `${season} ${year}`,
-      sortValue: termSortValue(`${season} ${year}`)
+      term: targetTermFromFiscalYear(season, year),
+      label: `${targetTermFromFiscalYear(season, year)} (${academicYearLabel(year)})`,
+      sortValue: termSortValue(targetTermFromFiscalYear(season, year))
     };
   }
 
@@ -357,12 +363,42 @@
     if (season) season.disabled = scope === 'year';
   }
 
+  function demandKnownProjectedFtes() {
+    return {
+      SUMMER: Number(document.getElementById('demKnownSummerFtes')?.value || 0),
+      FALL: Number(document.getElementById('demKnownFallFtes')?.value || 0),
+      SPRING: Number(document.getElementById('demKnownSpringFtes')?.value || 0)
+    };
+  }
+
+  function demandAnnualFtesProjection(target, forecastFtes) {
+    if (target.scope === 'year') {
+      return {
+        companionFtes: 0,
+        annualFtes: forecastFtes,
+        includedTerms: target.label
+      };
+    }
+    const known = demandKnownProjectedFtes();
+    const companionFtes = ['SUMMER', 'FALL', 'SPRING']
+      .filter(season => season !== target.season)
+      .reduce((total, season) => total + (known[season] || 0), 0);
+    const includedTerms = ['SUMMER', 'FALL', 'SPRING']
+      .map(season => season === target.season ? `${target.season} forecast` : `${season} known/projected`)
+      .join(' + ');
+    return {
+      companionFtes,
+      annualFtes: forecastFtes + companionFtes,
+      includedTerms
+    };
+  }
+
   function isComparableDemandTerm(row, target) {
     const parts = termParts(row.term);
     if (!parts.year) return false;
     if (target.scope === 'year') {
-      const ayStart = academicYearStart(row.term);
-      return ayStart > 0 && ayStart < target.year && ['SUMMER', 'FALL', 'SPRING'].includes(parts.season);
+      const trailingYear = academicYearTrailingYear(row.term);
+      return trailingYear > 0 && trailingYear < target.year && ['SUMMER', 'FALL', 'SPRING'].includes(parts.season);
     }
     return parts.season === target.season && termSortValue(row.term) < target.sortValue;
   }
@@ -372,7 +408,7 @@
     return rows.map(row => ({
       ...row,
       sourceTerm: row.term,
-      term: academicYearLabel(academicYearStart(row.term))
+      term: academicYearLabel(academicYearTrailingYear(row.term))
     }));
   }
 
@@ -498,8 +534,10 @@
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
                   <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
                   <li>Select three to five comparable historical terms where possible, such as Fall to Fall or Spring to Spring. For academic-year forecasts, select archived Summer, Fall, and Spring terms for each historical year.</li>
+                  <li>Forecast year uses the trailing fiscal/academic-year convention. FY/AY 2027 means Summer 2026, Fall 2026, and Spring 2027; selecting FY/AY 2027 + Fall targets Fall 2026 / Banner term 202710.</li>
                   <li>Upload or select archived historical terms, then use the filters to isolate discipline, course, division, campus, modality, day pattern, or time range.</li>
                   <li>The forecast target does not need an uploaded section seating report. Select the target season/year or academic year directly, then the report uses only comparable finalized historical rows before that target.</li>
+                  <li>For a single-term forecast, enter known or projected FTES for the other terms in the same FY/AY so the cap comparison reflects the whole year.</li>
                 </ul>
               </div>
               <div>
@@ -510,7 +548,7 @@
                   <li>The overall enrollment modifier lets you apply a planning assumption, such as an expected 3% college-wide enrollment increase.</li>
                   <li>FTES uses the uploaded FTES column when present; otherwise it estimates weekly-census FTES as census enrollment x weekly contact hours x 17.5 / 525, with a conservative census enrollment x units / 30 fallback when weekly hours are unavailable.</li>
                   <li>Forecasts estimate next-term enrollment, expected fill rate, section need, and confidence from historical behavior.</li>
-                  <li>Use the optional FTES cap field to compare the forecast against the state-sanctioned FTES cap for planning and apportionment context.</li>
+                  <li>Use the optional FTES cap field to compare the annual FTES projection against the state-sanctioned FTES cap for planning and apportionment context.</li>
                   <li>Capacity guidance indicates whether demand is expanding, stable, or softening; it is not a direct section cancellation instruction.</li>
                 </ul>
               </div>
@@ -522,11 +560,14 @@
             <label>Archived terms <select id="demArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Forecast scope <select id="demForecastScope"><option value="term">Single term</option><option value="year">Academic year</option></select></label>
             <label>Forecast season <select id="demForecastSeason"><option>FALL</option><option>SPRING</option><option>SUMMER</option></select></label>
-            <label>Forecast year <input id="demForecastYear" type="number" min="2022" max="2040" value=""></label>
+            <label>Forecast FY/AY <input id="demForecastYear" type="number" min="2022" max="2040" value=""></label>
             ${filters('dem', { includeGroup: false, includeCancelled: false, includeOrg: true })}
             <label>Analysis window <input id="demWindow" type="number" min="1" max="10" value="5"></label>
             <label>Overall enrollment modifier % <input id="demGrowthModifier" type="number" min="-50" max="100" step="0.1" value="0" title="Optional planning adjustment applied after historical growth, such as 3 for an expected 3% overall enrollment increase."></label>
             <label>FTES cap <input id="demFtesCap" type="number" min="0" step="0.1" value="" placeholder="optional" title="Optional state-sanctioned FTES cap used to show forecast room remaining or amount over cap."></label>
+            <label>Known/projected Summer FTES <input id="demKnownSummerFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
+            <label>Known/projected Fall FTES <input id="demKnownFallFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
+            <label>Known/projected Spring FTES <input id="demKnownSpringFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
             <button id="runDemand" type="button">Run</button>
             <button id="clearDemand" type="button">Clear</button>
             <button id="exportDemand" type="button">Export CSV</button>
@@ -702,6 +743,10 @@
       if (growthModifier) growthModifier.value = '0';
       const ftesCap = document.getElementById('demFtesCap');
       if (ftesCap) ftesCap.value = '';
+      ['demKnownSummerFtes', 'demKnownFallFtes', 'demKnownSpringFtes'].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.value = '';
+      });
       if (state.demandRows.length) runDemand();
     }
   }
@@ -1234,7 +1279,9 @@
       const softening = state.demandRows.filter(row => /softening/i.test(row.capacityGuidance));
       const collegeRow = state.demandRows.find(row => row.forecastLevel === 'College');
       const forecastFtes = collegeRow?.expectedFtesNextTerm || 0;
-      const ftesCapDelta = ftesCap > 0 ? ftesCap - forecastFtes : null;
+      const annualFtes = demandAnnualFtesProjection(target, forecastFtes);
+      const capComparisonFtes = annualFtes.annualFtes;
+      const ftesCapDelta = ftesCap > 0 ? ftesCap - capComparisonFtes : null;
       metric('demandMetrics', [
         ['Forecast Target', target.label],
         ['Forecast Scope', target.scope === 'year' ? 'Academic year' : 'Single term'],
@@ -1244,6 +1291,8 @@
         ['Modifier Applied', pct(growthModifier)],
         ['Historical FTES', round1(collegeRow?.avgFtes || 0)],
         ['Forecast FTES', round1(forecastFtes)],
+        ['Known/Projected Companion FTES', round1(annualFtes.companionFtes)],
+        ['Annual FTES Projection', round1(capComparisonFtes)],
         ['FTES Cap Position', ftesCapDelta == null ? 'No cap entered' : (ftesCapDelta >= 0 ? `${round1(ftesCapDelta)} under cap` : `${round1(Math.abs(ftesCapDelta))} over cap`)],
         ['Expanding Demand', expanding.length],
         ['Softening Demand', softening.length],
@@ -1270,6 +1319,8 @@
       ['Courses Reviewed', 0],
       ['Historical FTES', 0],
       ['Forecast FTES', 0],
+      ['Known/Projected Companion FTES', 0],
+      ['Annual FTES Projection', 0],
       ['FTES Cap Position', 'No cap entered']
     ]);
     const insights = document.getElementById('demandInsights');
@@ -2009,16 +2060,18 @@
     if (!legend) return;
     const items = [
       ['Terms Included', 'Metric card. Number of selected historical terms included after filters and the Analysis window are applied.'],
-      ['Forecast Target', 'Metric card and controls. The future term or academic year being forecast. This does not require an uploaded section seating report. Rows from this target and any later terms are excluded from historical calculations because in-progress enrollment is not a finalized baseline.'],
-      ['Forecast Scope', 'Metric card and control. Single term forecasts compare only the same season before the target, such as prior Fall terms for Fall 2027. Academic year forecasts aggregate Summer, Fall, and Spring rows into annual buckets before calculating growth.'],
+      ['Forecast Target', 'Metric card and controls. The future term or academic year being forecast. This does not require an uploaded section seating report. Forecast year uses the trailing FY/AY convention: FY/AY 2027 includes Summer 2026, Fall 2026, and Spring 2027, so FY/AY 2027 + Fall targets Fall 2026 / Banner term 202710. Rows from this target and later terms are excluded from historical calculations because in-progress enrollment is not a finalized baseline.'],
+      ['Forecast Scope', 'Metric card and control. Single term forecasts compare only the same season before the target, such as prior Fall terms for a Fall target. Academic year forecasts aggregate Summer, Fall, and Spring rows into annual buckets before calculating growth.'],
       ['Analysis Window', 'Input. Maximum number of most-recent finalized historical terms or academic-year buckets to use after filters and forecast-target exclusion. Example: with five archived Fall terms and Analysis window = 4, the report uses the four most recent finalized Fall terms before the forecast target.'],
       ['Courses Reviewed', 'Metric card. Number of Course-level forecast rows after filters. College, Division, and Discipline summary rows are not counted here.'],
       ['College Growth', 'Metric card and table column. Growth rate for total college census enrollment across included terms. Formula: average per-term change from first included term to last included term / first included term census enrollment.'],
       ['Modifier Applied', 'Metric card. The manual Overall enrollment modifier converted to a percentage. Formula: entered value / 100.'],
       ['Historical FTES', 'Metric card. Average FTES for the College-level row across included finalized historical terms.'],
       ['Forecast FTES', 'Metric card. Expected FTES for the next term at the College level. Formula: Historical FTES x (1 + adjusted forecast growth).'],
-      ['FTES Cap', 'Input. Optional state-sanctioned FTES cap used only for comparison against the forecast; it does not change forecast growth or section estimates.'],
-      ['FTES Cap Position', 'Metric card. Formula: FTES cap - Forecast FTES. Positive values are under cap; negative values are over cap.'],
+      ['Known/Projected Companion FTES', 'Metric card and inputs. For single-term forecasts, sum of the known or projected FTES entered for the other terms in the same FY/AY. Example: when forecasting Spring 2027, enter known/projected Summer 2026 and Fall 2026 FTES so the annual cap comparison is not based on Spring alone. For academic-year forecasts, this is 0 because the forecast row already represents the full FY/AY bucket.'],
+      ['Annual FTES Projection', 'Metric card. For single-term forecasts, Forecast FTES + Known/Projected Companion FTES. For academic-year forecasts, this equals Forecast FTES. This is the value used for the FTES cap comparison.'],
+      ['FTES Cap', 'Input. Optional state-sanctioned FTES cap used only for comparison against the annual FTES projection; it does not change forecast growth or section estimates.'],
+      ['FTES Cap Position', 'Metric card. Formula: FTES cap - Annual FTES Projection. Positive values are under cap; negative values are over cap.'],
       ['Expanding Demand', 'Metric card. Count of rows whose Capacity Guidance indicates expanding or increasing demand. Includes College, Division, Discipline, and Course rows.'],
       ['Softening Demand', 'Metric card. Count of rows whose Capacity Guidance indicates softening demand. Includes College, Division, Discipline, and Course rows.'],
       ['Average Forecast Growth', 'Metric card. Average adjusted forecast growth across all visible hierarchy rows.'],
