@@ -64,7 +64,7 @@
     ftes: ['FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
     actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment'],
     census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment'],
-    waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WL Count', 'WAITLISTED'],
+    waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WAIT COUNT', 'WAIT_COUNT', 'WL Count', 'WAITLISTED'],
     fill: ['Fill_Rate', 'Fill Rate', 'Percent Full', '% Full'],
     closed: ['Closed Prior to Census', 'CLOSED_PRIOR_TO_CENSUS', 'Closed Before Census', 'Closed', 'CLOSED'],
     status: ['Status', 'STATUS', 'Section Status']
@@ -166,8 +166,8 @@
   }
 
   function estimatedFtes(enrollment, units, weeklyHours = 0) {
-    if (units > 0) return (enrollment * units) / 15;
     if (weeklyHours > 0) return (enrollment * weeklyHours * 17.5) / 525;
+    if (units > 0) return (enrollment * units) / 30;
     return 0;
   }
 
@@ -508,7 +508,7 @@
                   <li>Single-term forecasts compare like terms only. Academic-year forecasts aggregate Summer, Fall, and Spring into annual historical buckets before calculating growth.</li>
                   <li>Forecast Growth blends course-specific growth, discipline growth, division growth, and college-wide growth.</li>
                   <li>The overall enrollment modifier lets you apply a planning assumption, such as an expected 3% college-wide enrollment increase.</li>
-                  <li>FTES uses the uploaded FTES column when present; otherwise it estimates credit FTES as census enrollment x units / 15, with a weekly-contact-hour fallback when units are unavailable.</li>
+                  <li>FTES uses the uploaded FTES column when present; otherwise it estimates weekly-census FTES as census enrollment x weekly contact hours x 17.5 / 525, with a conservative census enrollment x units / 30 fallback when weekly hours are unavailable.</li>
                   <li>Forecasts estimate next-term enrollment, expected fill rate, section need, and confidence from historical behavior.</li>
                   <li>Use the optional FTES cap field to compare the forecast against the state-sanctioned FTES cap for planning and apportionment context.</li>
                   <li>Capacity guidance indicates whether demand is expanding, stable, or softening; it is not a direct section cancellation instruction.</li>
@@ -2029,7 +2029,7 @@
       ['Terms', 'Table column. Number of included historical terms represented in that row.'],
       ['Total Sections Offered', 'Table column. Sum of section counts across included historical terms. Sections are deduplicated by CRN, with subject/course/section fallback.'],
       ['Average Census Enrollment', 'Table column. Average historical census enrollment across included terms. Formula: average of term-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
-      ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates credit FTES = census enrollment x units / 15. If units are unavailable but weekly contact hours are present, fallback formula is census enrollment x weekly contact hours x 17.5 / 525. If neither FTES, units, nor weekly hours are present, FTES is 0.'],
+      ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates weekly-census FTES = census enrollment x weekly contact hours x 17.5 / 525. If weekly hours are unavailable but units are present, fallback formula is census enrollment x units / 30. If neither FTES, weekly hours, nor units are present, FTES is 0.'],
       ['Average Fill Rate', 'Table column. Average of term-level census fill rates. Formula per term: sum(census enrollment) / sum(MAX ENROLL).'],
       ['Average Attrition %', 'Table column. Average of term-level attrition rates. Formula per term: max(0, census enrollment - actual enrollment) / census enrollment. This is context only and does not drive cancellation logic.'],
       ['Average Waitlist Count', 'Table column. Average historical waitlisted students across included terms when waitlist columns are present. Formula: average of term-level sum(waitlist).'],
