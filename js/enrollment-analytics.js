@@ -252,8 +252,8 @@
   function ensureOptions() {
     const select = document.getElementById('viewSelect');
     if (!select) return;
-    if (!select.querySelector(`[value="${REPORTS.attrition}"]`)) select.add(new Option('Enrollment Attrition', REPORTS.attrition));
-    if (!select.querySelector(`[value="${REPORTS.consolidation}"]`)) select.add(new Option('Section Consolidation Opportunities', REPORTS.consolidation));
+    if (!select.querySelector(`[value="${REPORTS.attrition}"]`)) select.add(new Option('Enrollment Attrition - WIP', REPORTS.attrition));
+    if (!select.querySelector(`[value="${REPORTS.consolidation}"]`)) select.add(new Option('Section Consolidation Opportunities - WIP', REPORTS.consolidation));
   }
 
   function buildUi() {
@@ -264,7 +264,7 @@
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Attrition</h2>
+            <h2>Enrollment Attrition - WIP</h2>
             <p>Upload enrollment snapshot CSV files for the decision term and any comparison terms. This report uses CENSUS_ENROLL as census enrollment and ACTUAL_ENROLL as end/current enrollment, while keeping the selected decision term separate from historical terms.</p>
             <div class="analytics-methodology">
               <div>
@@ -307,7 +307,7 @@
         </div>
         <div id="consolidationReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Section Consolidation Opportunities</h2>
+            <h2>Section Consolidation Opportunities - WIP</h2>
             <p>Use this planning view to identify low-filled sections and possible receiving sections. Recommendations are review prompts, not automatic cancellation decisions.</p>
             <div class="analytics-methodology">
               <div>
