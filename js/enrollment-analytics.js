@@ -63,7 +63,7 @@
     department: ['Department', 'DEPARTMENT', 'Dept', 'DEPT', 'Department Name', 'DEPARTMENT_NAME'],
     section: ['Section', 'SECTION', 'Sec', 'SEC', 'SECTION_NUMB', 'Section Number'],
     campus: ['Campus', 'CAMPUS', 'Location', 'LOCATION'],
-    modality: ['Modality', 'MODALITY', 'Instruction_Mode', 'Instruction Mode', 'Method', 'INSTRUCTIONAL_METHOD_CODE', 'INSTRUCTION_METHOD_DESC'],
+    modality: ['Modality', 'MODALITY', 'Instructional Method', 'INSTRUCTIONAL METHOD', 'Instruction_Mode', 'Instruction Mode', 'Method', 'INSTRUCTIONAL_METHOD_CODE', 'INSTRUCTION_METHOD_DESC'],
     instructor: ['Instructor', 'INSTRUCTOR', 'Faculty', 'FACULTY', 'FACULTY'],
     days: ['Days', 'DAYS', 'Meeting Days', 'Meet Days', 'Day', 'Days Of Week', 'Mtg Days', 'Meeting Pattern', 'Meeting_Pattern'],
     time: ['Time', 'TIME', 'Meeting Time', 'Meet Time', 'Mtg Time', 'Time Range', 'Times'],
@@ -257,7 +257,7 @@
   }
 
   function normalizeModality(text, row) {
-    const raw = canon(text || val(row, fields.room) || val(row, fields.building));
+    const raw = canon(text);
     const code = canon(val(row, ['INSTRUCTIONAL_METHOD_CODE', 'Instructional Method Code', 'Method Code']) || text);
     if (modalityGroups.omitted.has(code) || /DUAL\s*ENROLL/.test(raw)) return 'OMIT';
     if (modalityGroups.online.has(code)) return 'ONLINE';
