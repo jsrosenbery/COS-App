@@ -5,7 +5,8 @@
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation',
     demand: 'enrollment-demand-forecast',
-    utilization: 'room-utilization'
+    utilization: 'room-utilization',
+    instructorAvailability: 'instructor-availability'
   };
   const ENROLLMENT_MANAGEMENT_PASSWORD = 'Upload2025';
   const ACCOUNTING_METHODS = {
@@ -520,8 +521,55 @@
             <option value="${REPORTS.attrition}">Enrollment Attrition - WIP</option>
             <option value="${REPORTS.consolidation}">Section Consolidation Opportunities - WIP</option>
             <option value="${REPORTS.utilization}">Room Utilization Map</option>
+            <option value="${REPORTS.instructorAvailability}">Instructor Availability - WIP</option>
           </select>
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
+        </div>
+        <div id="instructorAvailabilityReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Instructor Availability - WIP</h2>
+            <p>This first-layer planning view uses the loaded schedule/class data to identify when instructors are already scheduled. It does not prove contractual or personal availability; it only separates known schedule conflicts from open windows where no loaded teaching assignment is found.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Select a day and time window to find instructors with a known teaching conflict and instructors with no loaded conflict.</li>
+                  <li>Use the Instructor filter to inspect one person, or leave it on All instructors for a broad first pass.</li>
+                  <li>Online/TBA rows are excluded from day/time conflict checks because they do not provide a fixed meeting window.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Known Busy means a loaded section for that instructor meets on the selected day and overlaps the selected time range.</li>
+                  <li>Potentially Available means the instructor appears in the loaded schedule but has no overlapping scheduled section in the selected window.</li>
+                  <li>Availability is inferred only from uploaded schedule rows; it does not include faculty preferences, office hours, reassigned time, leave, overload limits, or department-specific rules.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Instructor <select id="iaInstructor"></select></label>
+            <label>Day
+              <select id="iaDay">
+                <option value="MO">Monday</option>
+                <option value="TU">Tuesday</option>
+                <option value="WE">Wednesday</option>
+                <option value="TH">Thursday</option>
+                <option value="FR">Friday</option>
+                <option value="SA">Saturday</option>
+                <option value="SU">Sunday</option>
+              </select>
+            </label>
+            <label>Start <input id="iaStart" type="time" step="300" value="09:00"></label>
+            <label>End <input id="iaEnd" type="time" step="300" value="10:00"></label>
+            <label>Campus <select id="iaCampus"></select></label>
+            <button id="runInstructorAvailability" type="button">Run</button>
+            <button id="clearInstructorAvailability" type="button">Clear</button>
+          </div>
+          <div id="instructorAvailabilityMetrics" class="analytics-metrics"></div>
+          <div id="instructorAvailabilityTable" class="analytics-table"></div>
+          <div id="instructorAvailabilityLegend" class="analytics-legend"></div>
         </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -1277,6 +1325,99 @@
       'TIME BLOCK': row.timeBlock
     };
     return map[groupBy] || map.COURSE;
+  }
+
+  function populateInstructorAvailabilityFilters(rows = currentRows()) {
+    const instructorSelect = document.getElementById('iaInstructor');
+    const campusSelect = document.getElementById('iaCampus');
+    if (!instructorSelect || !campusSelect) return;
+    const instructorPrior = instructorSelect.value;
+    const campusPrior = campusSelect.value;
+    const instructors = [...new Set(rows.map(row => row.instructor).filter(Boolean))].sort();
+    const campuses = [...new Set(rows.map(row => row.campus).filter(Boolean))].sort();
+    instructorSelect.replaceChildren(new Option('All instructors', ''));
+    instructors.forEach(instructor => instructorSelect.add(new Option(instructor, instructor)));
+    campusSelect.replaceChildren(new Option('All campuses', ''));
+    campuses.forEach(campus => campusSelect.add(new Option(campus, campus)));
+    if (instructors.includes(instructorPrior)) instructorSelect.value = instructorPrior;
+    if (campuses.includes(campusPrior)) campusSelect.value = campusPrior;
+  }
+
+  function runInstructorAvailability() {
+    const rows = currentRows().filter(row => row.instructor);
+    populateInstructorAvailabilityFilters(rows);
+    const instructor = document.getElementById('iaInstructor')?.value || '';
+    const day = document.getElementById('iaDay')?.value || 'MO';
+    const start = document.getElementById('iaStart')?.value || '';
+    const end = document.getElementById('iaEnd')?.value || '';
+    const campus = document.getElementById('iaCampus')?.value || '';
+    const startMinutes = minutesFromTime(start);
+    const endMinutes = minutesFromTime(end);
+    if (!start || !end || startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+      metric('instructorAvailabilityMetrics', [
+        ['Status', 'Needs Time'],
+        ['Known Busy', 0],
+        ['Potentially Available', 0]
+      ]);
+      document.getElementById('instructorAvailabilityTable').innerHTML = '<p class="analytics-empty">Enter a valid start and end time, then click Run.</p>';
+      renderInstructorAvailabilityLegend();
+      return;
+    }
+    const scopedRows = rows.filter(row => (!instructor || row.instructor === instructor) && (!campus || row.campus === campus));
+    const instructors = [...new Set(scopedRows.map(row => row.instructor).filter(Boolean))].sort();
+    const conflictsByInstructor = group(scopedRows.filter(row => instructorHasConflict(row, day, startMinutes, endMinutes)), row => row.instructor);
+    const results = instructors.map(name => {
+      const conflicts = conflictsByInstructor.get(name) || [];
+      const status = conflicts.length ? 'Known Busy' : 'Potentially Available';
+      return {
+        instructor: name,
+        status,
+        day: dayLabels[day] || day,
+        requestedWindow: `${start}-${end}`,
+        conflictCount: conflicts.length,
+        conflicts: conflicts.map(row => `${row.subject} ${row.course} ${row.section} / ${row.dayPattern} / ${row.start}-${row.end} / ${row.campus || 'Campus N/A'}`).join('; ') || 'No loaded schedule conflict found',
+        campus: campus || 'All'
+      };
+    }).sort((a, b) => a.status.localeCompare(b.status) || a.instructor.localeCompare(b.instructor));
+    const busy = results.filter(row => row.status === 'Known Busy').length;
+    metric('instructorAvailabilityMetrics', [
+      ['Day/Time Checked', `${dayLabels[day] || day} ${start}-${end}`],
+      ['Known Busy', busy],
+      ['Potentially Available', results.length - busy],
+      ['Instructors Reviewed', results.length]
+    ]);
+    table('instructorAvailabilityTable', results, [
+      'instructor',
+      'status',
+      'day',
+      'requestedWindow',
+      'conflictCount',
+      'conflicts',
+      'campus'
+    ]);
+    renderInstructorAvailabilityLegend();
+  }
+
+  function instructorHasConflict(row, day, startMinutes, endMinutes) {
+    if (!row.days?.includes(day) || !row.start || !row.end) return false;
+    const rowStart = minutesFromTime(row.start);
+    const rowEnd = minutesFromTime(row.end);
+    if (rowStart == null || rowEnd == null) return false;
+    return rowStart < endMinutes && rowEnd > startMinutes;
+  }
+
+  function clearInstructorAvailability() {
+    const instructor = document.getElementById('iaInstructor');
+    const campus = document.getElementById('iaCampus');
+    if (instructor) instructor.value = '';
+    if (campus) campus.value = '';
+    const day = document.getElementById('iaDay');
+    const start = document.getElementById('iaStart');
+    const end = document.getElementById('iaEnd');
+    if (day) day.value = 'MO';
+    if (start) start.value = '09:00';
+    if (end) end.value = '10:00';
+    runInstructorAvailability();
   }
 
   async function runConsolidation() {
@@ -2126,6 +2267,29 @@
     rows.forEach(row => tbody.appendChild(row));
   }
 
+  function renderInstructorAvailabilityLegend() {
+    const legend = document.getElementById('instructorAvailabilityLegend');
+    if (!legend) return;
+    renderMethodologyPanel(legend, {
+      title: 'Instructor Availability Methodology & Data Dictionary',
+      purpose: 'Provides a first-layer schedule-conflict check for instructors using the currently loaded schedule/class data.',
+      methodology: 'The report compares each instructor scheduled in the loaded data against the selected day and time window. A conflict exists when the section meets on the selected day and its meeting time overlaps the requested window.',
+      assumptions: 'Rows without fixed meeting days or fixed meeting times are not treated as conflicts for a specific day/time search. This keeps Online/TBA rows from blocking an instructor in a physical time slot.',
+      limitations: 'This is not a true faculty availability system. It does not include preference forms, office hours, reassigned time, department rules, leave, contractual limits, overload rules, travel time, or unuploaded assignments.',
+      items: [
+        ['Instructor', 'Instructor name from the loaded schedule/class data. Only instructors appearing in the loaded data are reviewed.'],
+        ['Status', 'Known Busy when at least one loaded section overlaps the selected day/time window. Potentially Available when no loaded overlap is found.'],
+        ['Day', 'Selected day used for the schedule-conflict check.'],
+        ['Requested Window', 'Selected start and end time used for the overlap check.'],
+        ['Conflict Count', 'Number of loaded sections for that instructor that overlap the requested day/time window.'],
+        ['Conflicts', 'The overlapping course, section, meeting pattern, time, and campus records. If none are found, the row states that no loaded conflict was found.'],
+        ['Campus', 'Optional campus filter. When All is selected, all loaded campuses are included.'],
+        ['Overlap Formula', 'A conflict is counted when section start is before requested end AND section end is after requested start, and the section includes the selected day.']
+      ],
+      version: 'Methodology v1.0'
+    });
+  }
+
   function renderAttritionLegend() {
     const legend = document.getElementById('attritionLegend');
     if (!legend) return;
@@ -2413,7 +2577,8 @@
     const selected = selectedEnrollmentReport();
     const legendId = selected === REPORTS.attrition ? 'attritionLegend' :
       selected === REPORTS.consolidation ? 'consolidationLegend' :
-      selected === REPORTS.demand ? 'demandLegend' : '';
+      selected === REPORTS.demand ? 'demandLegend' :
+      selected === REPORTS.instructorAvailability ? 'instructorAvailabilityLegend' : '';
     const text = document.getElementById(legendId)?.innerText || '';
     return text.trim();
   }
@@ -2450,6 +2615,7 @@
     document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
     document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
+    document.getElementById('instructorAvailabilityReport').style.display = unlocked && selected === REPORTS.instructorAvailability ? 'block' : 'none';
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = unlocked && selected === REPORTS.utilization ? 'block' : 'none';
     if (!unlocked) return;
@@ -2472,6 +2638,10 @@
     }
     if (selected === REPORTS.utilization) {
       window.COSScheduleApp?.renderUtilizationMap?.();
+    }
+    if (selected === REPORTS.instructorAvailability) {
+      populateInstructorAvailabilityFilters(currentRows());
+      runInstructorAvailability();
     }
   }
 
@@ -2571,6 +2741,8 @@
     document.getElementById('demForecastScope')?.addEventListener('change', updateDemandTargetControls);
     document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
+    document.getElementById('runInstructorAvailability')?.addEventListener('click', runInstructorAvailability);
+    document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-demand-forecast-${demandTargetSlug()}.csv`));
