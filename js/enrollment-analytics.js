@@ -1864,7 +1864,7 @@
   }
 
   function demandColumns() {
-    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgCensusEnrollment', 'avgFtes', 'avgFillRate', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'adjustedForecastGrowth', 'expectedEnrollmentNextTerm', 'expectedFtesNextTerm', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'avgCensusEnrollment', 'avgFtes', 'avgFillRate', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'adjustedForecastGrowth', 'expectedEnrollmentNextTerm', 'expectedFtesNextTerm', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance'];
   }
 
   function demandForecastRowsForLevels(rows, context, modifierGrowth = 0) {
@@ -1947,6 +1947,7 @@
       courseTitle,
       terms: termRows.length,
       totalSectionsOffered: sum(termRows, 'sections'),
+      avgSectionsOffered: round1(avgSections),
       avgCensusEnrollment,
       avgFinalEnrollment,
       avgFtes,
@@ -2682,8 +2683,9 @@
       ['Course', 'Table column. Course-level rows show the discipline/course. Aggregate College, Division, and Discipline rows show All courses because they summarize every matching course in that forecast group.'],
       ['Course Title', 'Table column. Course-level rows use the uploaded course-title field when present. Aggregate College, Division, and Discipline rows show the aggregate level instead of a specific title.'],
       ['Terms', 'Table column. Number of included historical terms represented in that row.'],
-      ['Total Sections Offered', 'Table column. Sum of section counts across included historical terms. Sections are deduplicated by term + CRN when CRN is available, with term + discipline + course + section fallback. This is intended to avoid double-counting multi-meeting rows for the same section.'],
-      ['Average Census Enrollment', 'Table column. Average historical census enrollment across included terms. Formula: average of term-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
+      ['Historical Sections Total', 'Table column. Sum of section counts across included historical terms or FY/AY buckets. Sections are deduplicated by term + CRN when CRN is available, with term + discipline + course + section fallback. This is intended to avoid double-counting multi-meeting rows for the same section.'],
+      ['Average Sections Offered', 'Table column. Average historical sections per included term or FY/AY bucket. For an Academic year forecast, this is the annual average section count across the included historical years.'],
+      ['Average Census Enrollment', 'Table column. Average historical census enrollment across included terms or FY/AY buckets. For an Academic year forecast, this is the annual average census enrollment. Formula: average of bucket-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
       ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates FTES from ACCOUNTING METHOD and available contact-hour fields. W/IW/unknown use census enrollment x weekly hours x 17.5 / 525. D/ID/P/E use census enrollment x TOTAL_CONTACT_HOURS / 525. If contact hours are unavailable but units are present, fallback formula is census enrollment x units / 30. If FTES, contact hours, and units are unavailable, FTES is 0.'],
       ['Average Fill Rate', 'Table column. Average of term-level census fill rates. Formula per term: sum(census enrollment) / sum(MAX ENROLL).'],
       ['Average Attrition %', 'Table column. Average of term-level attrition rates. Formula per term: max(0, census enrollment - actual enrollment) / census enrollment. This is context only and does not drive cancellation logic.'],
@@ -2694,11 +2696,11 @@
       ['Course Growth', 'Table column. Course or group-specific growth rate across included terms. Formula: average per-term change in the row census enrollment / first included census enrollment. For aggregate rows, this represents that aggregate row trend.'],
       ['Modifier Growth', 'Table column. Manual enrollment-growth assumption from Overall enrollment modifier %. Formula: entered percentage / 100.'],
       ['Forecast Growth', 'Table column. Adjusted growth used for the forecast. Course rows use 50% course growth + 20% discipline growth + 15% division growth + 15% college growth + modifier. Division rows use 70% division growth + 30% college growth + modifier. Discipline rows use 60% discipline growth + 25% division growth + 15% college growth + modifier. College rows use college growth + modifier. Values are capped between -75% and +150%.'],
-      ['Expected Enrollment Next Term', 'Table column. Forecasted census enrollment. Formula: Average Census Enrollment x (1 + Forecast Growth), rounded to the nearest whole student.'],
-      ['Expected FTES Next Term', 'Table column. Forecasted FTES. Formula: Average FTES x (1 + Forecast Growth). This is the value to compare against an entered FTES cap.'],
-      ['Expected Fill Rate', 'Table column. Forecasted utilization of offered capacity. Formula: Expected Enrollment Next Term / average historical capacity.'],
-      ['Expected Sections Needed', 'Table column. Forecasted section need based on average section capacity. Formula: ceiling((Expected Enrollment Next Term + Average Waitlist Count) / average section capacity).'],
-      ['Suggested Section Count', 'Table column. Planning estimate currently equal to Expected Sections Needed, floored at 1. This is a planning input, not an instruction to add, cancel, or consolidate sections.'],
+      ['Forecast Enrollment', 'Table column. Forecasted census enrollment for the selected forecast term or FY/AY. Formula: Average Census Enrollment x (1 + Forecast Growth), rounded to the nearest whole student.'],
+      ['Forecast FTES', 'Table column. Forecasted FTES for the selected forecast term or FY/AY. Formula: Average FTES x (1 + Forecast Growth). This is the value to compare against an entered FTES cap.'],
+      ['Expected Fill Rate', 'Table column. Forecasted utilization of offered capacity. Formula: Forecast Enrollment / average historical capacity.'],
+      ['Forecast Sections Needed', 'Table column. Forecasted section need for the selected forecast term or FY/AY based on average section capacity. Formula: ceiling((Forecast Enrollment + Average Waitlist Count) / average section capacity).'],
+      ['Suggested Section Count', 'Table column. Planning estimate currently equal to Forecast Sections Needed, floored at 1. This is a planning input, not an instruction to add, cancel, or consolidate sections.'],
       ['Forecast Confidence', 'Table column. High when at least four terms are included and average fill-rate variance is below 5 percentage points. Medium when at least three terms are included. Otherwise Low.'],
       ['Capacity Guidance', 'Table column. Plain-language interpretation of Forecast Growth and section need: expanding, moderate growth, stable, slight softening, or softening. It is not a direct cancellation or consolidation recommendation.'],
       ['Demand Trend Line', 'Insight chart. Term-by-term total census enrollment for the filtered dataset.'],
@@ -2802,7 +2804,8 @@
       forecastLevel: 'Forecast Level',
       groupName: 'Forecast Group',
       courseTitle: 'Course Title',
-      totalSectionsOffered: 'Total Sections Offered',
+      totalSectionsOffered: 'Historical Sections Total',
+      avgSectionsOffered: 'Average Sections Offered',
       avgCensusEnrollment: 'Average Census Enrollment',
       avgFinalEnrollment: 'Average Final Enrollment',
       avgFtes: 'Average FTES',
@@ -2824,10 +2827,10 @@
       courseGrowth: 'Course Growth',
       modifierGrowth: 'Modifier Growth',
       adjustedForecastGrowth: 'Forecast Growth',
-      expectedEnrollmentNextTerm: 'Expected Enrollment Next Term',
-      expectedFtesNextTerm: 'Expected FTES Next Term',
+      expectedEnrollmentNextTerm: 'Forecast Enrollment',
+      expectedFtesNextTerm: 'Forecast FTES',
       expectedFillRate: 'Expected Fill Rate',
-      expectedSectionsNeeded: 'Expected Sections Needed',
+      expectedSectionsNeeded: 'Forecast Sections Needed',
       suggestedSectionCount: 'Suggested Section Count',
       forecastConfidence: 'Forecast Confidence',
       capacityGuidance: 'Capacity Guidance'
