@@ -1413,11 +1413,21 @@
   }
 
   function instructorHasConflict(row, day, startMinutes, endMinutes) {
-    if (!row.days?.includes(day) || !row.start || !row.end) return false;
+    if (!row.days?.includes(day)) return false;
+    const meeting = instructorMeetingMinutes(row);
+    if (!meeting) return false;
+    const [rowStart, rowEnd] = meeting;
+    return rowStart < endMinutes && rowEnd > startMinutes;
+  }
+
+  function instructorMeetingMinutes(row) {
+    if (!row?.start || !row?.end) return null;
+    if (row.start === '00:00' || row.end === '00:00') return null;
     const rowStart = minutesFromTime(row.start);
     const rowEnd = minutesFromTime(row.end);
-    if (rowStart == null || rowEnd == null) return false;
-    return rowStart < endMinutes && rowEnd > startMinutes;
+    if (rowStart == null || rowEnd == null) return null;
+    if (rowEnd <= rowStart) return null;
+    return [rowStart, rowEnd];
   }
 
   function clearInstructorAvailability() {
@@ -1461,8 +1471,9 @@
       .filter(row => instructors.includes(row.instructor) && (!campus || row.campus === campus))
       .forEach(row => {
         days.filter(day => row.days?.includes(day)).forEach(day => {
-          const start = minutesFromTime(row.start);
-          const end = minutesFromTime(row.end);
+          const meeting = instructorMeetingMinutes(row);
+          if (!meeting) return;
+          const [start, end] = meeting;
           if (start == null || end == null || end <= dayStart || start >= dayEnd) return;
           events.push({
             ...row,
@@ -1533,9 +1544,9 @@
     }
     const dayItems = days.map(day => {
       const busy = rows
-        .filter(row => instructors.includes(row.instructor) && (!campus || row.campus === campus) && row.days?.includes(day) && row.start && row.end)
-        .map(row => [minutesFromTime(row.start), minutesFromTime(row.end)])
-        .filter(([start, end]) => start != null && end != null && end > start)
+        .filter(row => instructors.includes(row.instructor) && (!campus || row.campus === campus) && row.days?.includes(day))
+        .map(row => instructorMeetingMinutes(row))
+        .filter(Boolean)
         .sort((a, b) => a[0] - b[0]);
       const windows = availableWindows(busy, dayStart, dayEnd);
       const text = windows.map(([start, end]) => `${formatMinutes(start)}-${formatMinutes(end)}`).join(', ') || 'No shared open windows in range';
@@ -2432,7 +2443,7 @@
       title: 'Instructor Availability Methodology & Data Dictionary',
       purpose: 'Provides a first-layer schedule-conflict check for instructors using the currently loaded schedule/class data.',
       methodology: 'The report compares each instructor scheduled in the loaded data against the selected day and time window. A conflict exists when the section meets on the selected day and its meeting time overlaps the requested window.',
-      assumptions: 'Rows without fixed meeting days or fixed meeting times are not treated as conflicts for a specific day/time search. This keeps Online/TBA rows from blocking an instructor in a physical time slot.',
+      assumptions: 'Rows without fixed meeting days or fixed meeting times are not treated as conflicts for a specific day/time search. Rows with 00:00 placeholder start or end times are treated as non-fixed. This keeps Online/TBA rows and placeholder records from blocking an instructor in a physical time slot.',
       limitations: 'This is not a true faculty availability system. It does not include preference forms, office hours, reassigned time, department rules, leave, contractual limits, overload rules, travel time, or unuploaded assignments.',
       items: [
         ['Instructor', 'Instructor name from the loaded schedule/class data. Only instructors appearing in the loaded data are reviewed.'],
