@@ -1812,6 +1812,7 @@
       const collegeRow = state.demandRows.find(row => row.forecastLevel === 'College');
       const forecastFtes = collegeRow?.expectedFtesNextTerm || 0;
       const annualFtes = demandAnnualFtesProjection(target, forecastFtes);
+      const yearSeasonForecast = demandYearSeasonForecast(target, rows, annualFtes.annualFtes);
       const capComparisonFtes = annualFtes.annualFtes;
       const ftesCapDelta = ftesCap > 0 ? ftesCap - capComparisonFtes : null;
       metric('demandMetrics', [
@@ -1825,12 +1826,13 @@
         ['Forecast FTES', round1(forecastFtes)],
         ['Known/Projected Companion FTES', round1(annualFtes.companionFtes)],
         ['Annual FTES Projection', round1(capComparisonFtes)],
+        ...(yearSeasonForecast ? yearSeasonForecast.seasons.map(row => [`${row.termLabel} Est. FTES`, round1(row.forecastFtes)]) : []),
         ['FTES Cap Position', ftesCapDelta == null ? 'No cap entered' : (ftesCapDelta >= 0 ? `${round1(ftesCapDelta)} under cap` : `${round1(Math.abs(ftesCapDelta))} over cap`)],
         ['Expanding Demand', expanding.length],
         ['Softening Demand', softening.length],
         ['Avg Forecast Growth', pct(safeDiv(sum(state.demandRows, 'adjustedForecastGrowth'), state.demandRows.length))]
       ]);
-      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), demandTrendSeries(rows));
+      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), demandTrendSeries(rows), yearSeasonForecast);
       table('demandTable', state.demandRows, demandColumns());
       renderDemandLegend();
     } catch (err) {
@@ -2110,7 +2112,39 @@
       .sort((a, b) => termSortValue(a.term) - termSortValue(b.term));
   }
 
-  function renderDemandInsights(rows, patterns, trends) {
+  function demandYearSeasonForecast(target, rows, annualForecastFtes) {
+    if (target.scope !== 'year') return null;
+    const seasons = ['SUMMER', 'FALL', 'SPRING'];
+    const totals = new Map(seasons.map(season => [season, { season, ftes: 0, census: 0 }]));
+    rows.forEach(row => {
+      const sourceTerm = row.sourceTerm || row.term;
+      const season = termParts(sourceTerm).season;
+      if (!totals.has(season)) return;
+      const item = totals.get(season);
+      item.ftes += row.ftes || 0;
+      item.census += row.census == null ? row.actual : row.census;
+    });
+    const totalFtes = [...totals.values()].reduce((total, row) => total + row.ftes, 0);
+    const totalCensus = [...totals.values()].reduce((total, row) => total + row.census, 0);
+    const seasonsOut = seasons.map(season => {
+      const item = totals.get(season);
+      const share = totalFtes > 0 ? safeDiv(item.ftes, totalFtes) : safeDiv(item.census, totalCensus);
+      return {
+        season,
+        termLabel: targetTermFromFiscalYear(season, target.year),
+        historicalFtes: item.ftes,
+        historicalCensus: item.census,
+        share,
+        forecastFtes: annualForecastFtes * share
+      };
+    });
+    return {
+      basis: totalFtes > 0 ? 'historical FTES share' : 'historical census share',
+      seasons: seasonsOut
+    };
+  }
+
+  function renderDemandInsights(rows, patterns, trends, yearSeasonForecast = null) {
     const wrap = document.getElementById('demandInsights');
     if (!wrap) return;
     const growth = rows.filter(row => /expanding|growth/i.test(row.capacityGuidance)).slice(0, 5);
@@ -2124,6 +2158,7 @@
       ${trendPanel('Waitlist Trend', trends, 'waitlist', value => value)}
       ${forecastPanel(trends)}
       ${insightPanel('Semester FTES Totals', trends.map(row => `${row.term}: ${round1(row.ftes)} FTES; ${row.census} census enrollment`))}
+      ${yearSeasonForecast ? insightPanel('Forecast Term FTES Split', yearSeasonForecast.seasons.map(row => `${row.termLabel}: ${round1(row.forecastFtes)} FTES (${pct(row.share)} of annual forecast, based on ${yearSeasonForecast.basis})`)) : ''}
       ${insightPanel('Top Expanding Demand Forecasts', growth.map(row => `${row.forecastLevel} - ${row.groupName}: ${pct(row.adjustedForecastGrowth)} forecast growth; ${row.capacityGuidance}`))}
       ${insightPanel('Top Softening Demand Forecasts', softening.map(row => `${row.forecastLevel} - ${row.groupName}: ${pct(row.adjustedForecastGrowth)} forecast growth; ${row.capacityGuidance}`))}
       ${insightPanel('Highest Demand Day/Time Patterns', highPatterns.map(row => `${row.pattern}: ${pct(row.fillRate)} fill, ${row.waitlist} waitlist`))}
@@ -2636,6 +2671,7 @@
       ['Forecast FTES', 'Metric card. Expected FTES for the next term at the College level. Formula: Historical FTES x (1 + adjusted forecast growth).'],
       ['Known/Projected Companion FTES', 'Metric card and inputs. For single-term forecasts, sum of the known or projected FTES entered for the other terms in the same FY/AY. Example: when forecasting Spring 2027, enter known/projected Summer 2026 and Fall 2026 FTES so the annual cap comparison is not based on Spring alone. For academic-year forecasts, this is 0 because the forecast row already represents the full FY/AY bucket.'],
       ['Annual FTES Projection', 'Metric card. For single-term forecasts, Forecast FTES + Known/Projected Companion FTES. For academic-year forecasts, this equals Forecast FTES. This is the value used for the FTES cap comparison.'],
+      ['Summer/Fall/Spring Estimated FTES', 'Metric cards shown only for Academic year forecasts. Formula: Annual FTES Projection x the selected historical season share. Season share uses historical FTES by season divided by total historical FTES across the selected academic-year buckets; if historical FTES is unavailable, census enrollment share is used as the fallback basis.'],
       ['FTES Cap', 'Input. Optional state-sanctioned FTES cap used only for comparison against the annual FTES projection; it does not change forecast growth or section estimates.'],
       ['FTES Cap Position', 'Metric card. Formula: FTES cap - Annual FTES Projection. Positive values are under cap; negative values are over cap.'],
       ['Expanding Demand', 'Metric card. Count of rows whose Capacity Guidance indicates expanding or increasing demand. Includes College, Division, Discipline, and Course rows.'],
@@ -2671,6 +2707,7 @@
       ['Waitlist Trend', 'Insight chart. Term-by-term total waitlist count when waitlist data exists.'],
       ['Forecast vs Actual Comparison', 'Insight card. Shows a simple historical proxy gap using abs((census/final midpoint) - census). This is a rough back-test placeholder because no separate prior forecast file is uploaded.'],
       ['Semester FTES Totals', 'Insight list. Shows each included finalized historical term total FTES and census enrollment after filters.'],
+      ['Forecast Term FTES Split', 'Insight list shown only for Academic year forecasts. Displays the Summer, Fall, and Spring estimated FTES values that make up the Annual FTES Projection, including the historical share used for each season.'],
       ['Highest/Lowest Demand Day-Time Patterns', 'Insight lists. Groups filtered rows by day pattern, start time, modality, and campus; ranks by fill rate plus waitlist pressure. This supports placement planning, not section cancellation.'],
       ['ACCOUNTING METHOD W', 'Weekly Census. Estimated FTES formula when direct FTES is missing: census enrollment x HOURS_PER_WEEK x 17.5 / 525.'],
       ['ACCOUNTING METHOD D', 'Daily Census. Estimated FTES formula when direct FTES is missing: census enrollment x TOTAL_CONTACT_HOURS / 525.'],
