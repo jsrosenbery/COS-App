@@ -15,6 +15,7 @@ let heatmapDataTableFilterRegistered = false;
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const ROOM_CATALOG_BACKUP_KEY = 'cos-room-catalog-backup-v1';
 const CAL_GETC_BACKUP_KEY = 'cos-cal-getc-mapping-backup-v1';
+const CURRICULUM_CROSSWALK_BACKUP_KEY = 'cos-curriculum-crosswalk-backup-v1';
 
 // --- Official Term Start Dates ---
 const termStartDates = {
@@ -299,6 +300,7 @@ let modalityDefinitionMap = new Map();
 let omittedModalityCodes = new Set();
 let calGetcMapping = [];
 let calGetcFilterOptions = [];
+let curriculumCrosswalk = [];
 
 function normalizeModalityCode(method) {
   return String(method || '').trim().toUpperCase();
@@ -365,6 +367,43 @@ function setCalGetcMapping(mapping) {
 }
 
 setCalGetcMapping(window.CAL_GETC_MAPPING || []);
+
+function normalizeCurriculumCourseCode(value) {
+  return String(value || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function normalizeCurriculumCrosswalk(crosswalk) {
+  return (crosswalk || [])
+    .map(item => {
+      const sourceCourse = normalizeCurriculumCourseCode(item.sourceCourse || item.SourceCourse || item['Source Course'] || item.oldCourse || item['Old Course'] || item.cosCourse || item['COS Course']);
+      const synonymCourse = normalizeCurriculumCourseCode(item.synonymCourse || item.SynonymCourse || item['Synonym Course'] || item.newCourse || item['New Course'] || item.commonCourse || item['Common Course']);
+      if (!sourceCourse || !synonymCourse) return null;
+      return {
+        sourceCourse,
+        synonymCourse,
+        sourceTitle: String(item.sourceTitle || item.SourceTitle || item['Source Title'] || item.cosTitle || item['COS Title'] || '').trim(),
+        synonymTitle: String(item.synonymTitle || item.SynonymTitle || item['Synonym Title'] || item.commonTitle || item['Common Title'] || '').trim(),
+        changeType: String(item.changeType || item.ChangeType || item['Change Type'] || item.type || item.Type || 'Curriculum Crosswalk').trim(),
+        phase: String(item.phase || item.Phase || '').trim(),
+        cid: String(item.cid || item.CID || item['C-ID'] || '').trim(),
+        template: String(item.template || item.Template || '').trim(),
+        effectiveTerm: String(item.effectiveTerm || item.EffectiveTerm || item['Effective Term'] || '').trim(),
+        notes: String(item.notes || item.Notes || '').trim()
+      };
+    })
+    .filter(Boolean);
+}
+
+function setCurriculumCrosswalk(crosswalk) {
+  curriculumCrosswalk = normalizeCurriculumCrosswalk(crosswalk);
+  window.CURRICULUM_CROSSWALK = curriculumCrosswalk;
+}
+
+setCurriculumCrosswalk(window.CURRICULUM_CROSSWALK || []);
 
 function normalizeRoomCatalog(rawRooms) {
   return (rawRooms || [])
@@ -596,6 +635,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const tsDiv        = document.getElementById('upload-timestamp');
   const roomCatalogAdminDiv = document.getElementById('room-catalog-admin');
   const calGetcAdminDiv = document.getElementById('cal-getc-admin');
+  const curriculumCrosswalkAdminDiv = document.getElementById('curriculum-crosswalk-admin');
   const roomDiv      = document.getElementById('room-filter');
   const startInput   = document.getElementById('avail-start');
   const endInput     = document.getElementById('avail-end');
@@ -636,9 +676,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initAvailabilityAttributeFilters();
   setupRoomCatalogAdmin();
   setupCalGetcAdmin();
+  setupCurriculumCrosswalkAdmin();
   loadRoomCatalogFromBackend();
   loadModalityDefinitionsFromBackend();
   loadCalGetcMappingFromBackend();
+  loadCurriculumCrosswalkFromBackend();
 
   window.COSScheduleApp = {
     getCurrentData: () => currentData,
@@ -981,6 +1023,46 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
   }
 
+  function setupCurriculumCrosswalkAdmin() {
+    if (!curriculumCrosswalkAdminDiv) return;
+    curriculumCrosswalkAdminDiv.replaceChildren();
+
+    const title = document.createElement('strong');
+    title.textContent = 'CCN/Curriculum Crosswalk';
+
+    const exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.textContent = 'Export Crosswalk CSV';
+
+    const exportJsonBtn = document.createElement('button');
+    exportJsonBtn.type = 'button';
+    exportJsonBtn.textContent = 'Export Crosswalk JSON';
+
+    const importLabel = document.createElement('label');
+    importLabel.append('Import Crosswalk:');
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.accept = '.csv,.json,application/json,text/csv';
+    importLabel.appendChild(importInput);
+
+    const status = document.createElement('span');
+    status.id = 'curriculum-crosswalk-status';
+    status.className = 'room-catalog-status';
+    status.textContent = `${curriculumCrosswalk.length} crosswalk rows loaded.`;
+
+    curriculumCrosswalkAdminDiv.append(title, exportBtn, exportJsonBtn, importLabel, status);
+
+    exportBtn.addEventListener('click', () => exportCurriculumCrosswalk('csv'));
+    exportJsonBtn.addEventListener('click', () => exportCurriculumCrosswalk('json'));
+    importInput.addEventListener('change', e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      importCurriculumCrosswalk(file).finally(() => {
+        e.target.value = '';
+      });
+    });
+  }
+
   function getRoomCatalogPassword(action) {
     const password = prompt(`Enter upload password to ${action} room catalog:`);
     if (!password) {
@@ -1003,6 +1085,15 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const password = prompt('Enter upload password to import CAL-GETC mapping:');
     if (!password) {
       alert('CAL-GETC import cancelled.');
+      return null;
+    }
+    return password;
+  }
+
+  function getCurriculumCrosswalkImportPassword() {
+    const password = prompt('Enter upload password to import CCN/Curriculum crosswalk:');
+    if (!password) {
+      alert('Curriculum crosswalk import cancelled.');
       return null;
     }
     return password;
@@ -1033,6 +1124,22 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       Code: item.code,
       Areas: item.areas.join('; '),
       Divisions: item.divisions.join('; ')
+    }));
+    return Papa.unparse(rows);
+  }
+
+  function curriculumCrosswalkToCsv(crosswalk) {
+    const rows = normalizeCurriculumCrosswalk(crosswalk).map(item => ({
+      'Source Course': item.sourceCourse,
+      'Synonym Course': item.synonymCourse,
+      'Source Title': item.sourceTitle,
+      'Synonym Title': item.synonymTitle,
+      'Change Type': item.changeType,
+      Phase: item.phase,
+      'C-ID': item.cid,
+      Template: item.template,
+      'Effective Term': item.effectiveTerm,
+      Notes: item.notes
     }));
     return Papa.unparse(rows);
   }
@@ -1349,6 +1456,147 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     } catch (err) {
       alert('CAL-GETC import failed: ' + err.message);
       setCalGetcStatus('CAL-GETC import failed.', true);
+    }
+  }
+
+  function setCurriculumCrosswalkStatus(message, isError = false) {
+    const status = document.getElementById('curriculum-crosswalk-status');
+    if (!status) return;
+    status.textContent = message;
+    status.style.color = isError ? '#b91c1c' : '';
+  }
+
+  function saveCurriculumCrosswalkBackup(crosswalk, lastUpdated = null) {
+    const normalized = normalizeCurriculumCrosswalk(crosswalk);
+    if (!normalized.length) return;
+    try {
+      localStorage.setItem(CURRICULUM_CROSSWALK_BACKUP_KEY, JSON.stringify({
+        lastUpdated: lastUpdated || new Date().toISOString(),
+        data: normalized
+      }));
+    } catch (err) {
+      console.warn('Curriculum crosswalk browser backup failed:', err);
+    }
+  }
+
+  function readCurriculumCrosswalkBackup() {
+    try {
+      const payload = JSON.parse(localStorage.getItem(CURRICULUM_CROSSWALK_BACKUP_KEY) || 'null');
+      const crosswalk = normalizeCurriculumCrosswalk(payload?.data || []);
+      return crosswalk.length ? { data: crosswalk, lastUpdated: payload.lastUpdated || null } : null;
+    } catch (err) {
+      console.warn('Curriculum crosswalk browser backup read failed:', err);
+      return null;
+    }
+  }
+
+  function refreshCurriculumCrosswalkViews(lastUpdated = null) {
+    const stamp = lastUpdated ? ` Updated ${new Date(lastUpdated).toLocaleString()}.` : '';
+    setCurriculumCrosswalkStatus(`${curriculumCrosswalk.length} crosswalk rows loaded.${stamp}`);
+  }
+
+  function loadCurriculumCrosswalkFromBackend() {
+    fetch(`${BACKEND_BASE_URL}/api/curriculum-crosswalk`)
+      .then(res => {
+        if (!res.ok) throw new Error('Curriculum crosswalk fetch failed');
+        return res.json();
+      })
+      .then(({ data, lastUpdated }) => {
+        const backendCrosswalk = normalizeCurriculumCrosswalk(data);
+        if (backendCrosswalk.length) {
+          setCurriculumCrosswalk(backendCrosswalk);
+          saveCurriculumCrosswalkBackup(backendCrosswalk, lastUpdated);
+          refreshCurriculumCrosswalkViews(lastUpdated);
+          return;
+        }
+        const fallback = normalizeCurriculumCrosswalk(window.CURRICULUM_CROSSWALK || []);
+        setCurriculumCrosswalk(fallback);
+        refreshCurriculumCrosswalkViews(lastUpdated);
+      })
+      .catch(err => {
+        const backup = readCurriculumCrosswalkBackup();
+        if (backup) {
+          setCurriculumCrosswalk(backup.data);
+          refreshCurriculumCrosswalkViews(backup.lastUpdated);
+          setCurriculumCrosswalkStatus(`Using this browser's saved curriculum crosswalk because backend fetch failed. ${err.message}`, true);
+          return;
+        }
+        setCurriculumCrosswalk(window.CURRICULUM_CROSSWALK || []);
+        refreshCurriculumCrosswalkViews();
+        setCurriculumCrosswalkStatus(`Using built-in curriculum crosswalk. ${err.message}`, true);
+      });
+  }
+
+  function exportCurriculumCrosswalk(format = 'csv') {
+    fetch(`${BACKEND_BASE_URL}/api/curriculum-crosswalk`)
+      .then(res => {
+        if (!res.ok) throw new Error('Export failed');
+        return res.json();
+      })
+      .then(({ data }) => {
+        const crosswalk = normalizeCurriculumCrosswalk(data).length ? normalizeCurriculumCrosswalk(data) : curriculumCrosswalk;
+        if (format === 'json') {
+          downloadTextFile('cos-curriculum-crosswalk.json', JSON.stringify(crosswalk, null, 2), 'application/json;charset=utf-8');
+        } else {
+          downloadTextFile('cos-curriculum-crosswalk.csv', curriculumCrosswalkToCsv(crosswalk), 'text/csv;charset=utf-8');
+        }
+        setCurriculumCrosswalkStatus(`Exported ${crosswalk.length} crosswalk rows.`);
+      })
+      .catch(err => {
+        alert('Curriculum crosswalk export failed: ' + err.message);
+        setCurriculumCrosswalkStatus('Curriculum crosswalk export failed.', true);
+      });
+  }
+
+  function parseCurriculumCrosswalkFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Could not read selected file'));
+      reader.onload = ev => {
+        try {
+          const text = String(ev.target.result || '');
+          if (file.name.toLowerCase().endsWith('.json')) {
+            const parsed = JSON.parse(text);
+            resolve(Array.isArray(parsed) ? parsed : parsed.data || parsed.crosswalk || []);
+            return;
+          }
+          const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+          if (parsed.errors?.length) {
+            reject(new Error(parsed.errors[0].message || 'CSV parse failed'));
+            return;
+          }
+          resolve(parsed.data || []);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  async function importCurriculumCrosswalk(file) {
+    const password = getCurriculumCrosswalkImportPassword();
+    if (!password) return;
+    try {
+      const parsedCrosswalk = await parseCurriculumCrosswalkFile(file);
+      const crosswalk = normalizeCurriculumCrosswalk(parsedCrosswalk);
+      if (!crosswalk.length) {
+        throw new Error('No valid crosswalk rows found. Include Source Course and Synonym Course columns.');
+      }
+      const res = await fetch(`${BACKEND_BASE_URL}/api/curriculum-crosswalk/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, crosswalk })
+      });
+      if (!res.ok) throw new Error(res.status === 403 ? 'Unauthorized' : 'Import failed');
+      const payload = await res.json();
+      setCurriculumCrosswalk(payload.data || crosswalk);
+      saveCurriculumCrosswalkBackup(payload.data || crosswalk, payload.lastUpdated);
+      refreshCurriculumCrosswalkViews(payload.lastUpdated);
+      alert(`Imported ${payload.count || crosswalk.length} curriculum crosswalk rows.`);
+    } catch (err) {
+      alert('Curriculum crosswalk import failed: ' + err.message);
+      setCurriculumCrosswalkStatus('Curriculum crosswalk import failed.', true);
     }
   }
 

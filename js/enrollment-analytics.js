@@ -533,8 +533,8 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Select a day and time window to find instructors with a known teaching conflict and instructors with no loaded conflict.</li>
-                  <li>Use the Instructor filter to inspect one person, or leave it on All instructors for a broad first pass.</li>
+                  <li>Select one or more instructors, then select a day and time window to find known teaching conflicts and open schedule windows.</li>
+                  <li>Leave all instructors selected for a broad first pass, or select a smaller group to compare schedules side by side.</li>
                   <li>Online/TBA rows are excluded from day/time conflict checks because they do not provide a fixed meeting window.</li>
                 </ul>
               </div>
@@ -543,13 +543,14 @@
                 <ul>
                   <li>Known Busy means a loaded section for that instructor meets on the selected day and overlaps the selected time range.</li>
                   <li>Potentially Available means the instructor appears in the loaded schedule but has no overlapping scheduled section in the selected window.</li>
+                  <li>The weekly grid shows loaded meetings by instructor and day. Available time windows are calculated by subtracting loaded meetings from 8:00 AM-6:00 PM, Monday-Friday.</li>
                   <li>Availability is inferred only from uploaded schedule rows; it does not include faculty preferences, office hours, reassigned time, leave, overload limits, or department-specific rules.</li>
                 </ul>
               </div>
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Instructor <select id="iaInstructor"></select></label>
+            <label>Instructor <select id="iaInstructor" multiple size="4"></select></label>
             <label>Day
               <select id="iaDay">
                 <option value="MO">Monday</option>
@@ -568,6 +569,8 @@
             <button id="clearInstructorAvailability" type="button">Clear</button>
           </div>
           <div id="instructorAvailabilityMetrics" class="analytics-metrics"></div>
+          <div id="instructorAvailabilityCalendar" class="instructor-week-grid"></div>
+          <div id="instructorAvailabilityTimes" class="instructor-available-times"></div>
           <div id="instructorAvailabilityTable" class="analytics-table"></div>
           <div id="instructorAvailabilityLegend" class="analytics-legend"></div>
         </div>
@@ -1331,22 +1334,24 @@
     const instructorSelect = document.getElementById('iaInstructor');
     const campusSelect = document.getElementById('iaCampus');
     if (!instructorSelect || !campusSelect) return;
-    const instructorPrior = instructorSelect.value;
+    const selectedPrior = [...instructorSelect.selectedOptions].map(option => option.value);
     const campusPrior = campusSelect.value;
     const instructors = [...new Set(rows.map(row => row.instructor).filter(Boolean))].sort();
     const campuses = [...new Set(rows.map(row => row.campus).filter(Boolean))].sort();
-    instructorSelect.replaceChildren(new Option('All instructors', ''));
+    instructorSelect.replaceChildren();
     instructors.forEach(instructor => instructorSelect.add(new Option(instructor, instructor)));
+    [...instructorSelect.options].forEach(option => {
+      option.selected = selectedPrior.length ? selectedPrior.includes(option.value) : true;
+    });
     campusSelect.replaceChildren(new Option('All campuses', ''));
     campuses.forEach(campus => campusSelect.add(new Option(campus, campus)));
-    if (instructors.includes(instructorPrior)) instructorSelect.value = instructorPrior;
     if (campuses.includes(campusPrior)) campusSelect.value = campusPrior;
   }
 
   function runInstructorAvailability() {
     const rows = currentRows().filter(row => row.instructor);
     populateInstructorAvailabilityFilters(rows);
-    const instructor = document.getElementById('iaInstructor')?.value || '';
+    const selectedInstructors = selectedInstructorAvailabilityInstructors();
     const day = document.getElementById('iaDay')?.value || 'MO';
     const start = document.getElementById('iaStart')?.value || '';
     const end = document.getElementById('iaEnd')?.value || '';
@@ -1360,11 +1365,13 @@
         ['Potentially Available', 0]
       ]);
       document.getElementById('instructorAvailabilityTable').innerHTML = '<p class="analytics-empty">Enter a valid start and end time, then click Run.</p>';
+      document.getElementById('instructorAvailabilityCalendar').innerHTML = '';
+      document.getElementById('instructorAvailabilityTimes').innerHTML = '';
       renderInstructorAvailabilityLegend();
       return;
     }
-    const scopedRows = rows.filter(row => (!instructor || row.instructor === instructor) && (!campus || row.campus === campus));
-    const instructors = [...new Set(scopedRows.map(row => row.instructor).filter(Boolean))].sort();
+    const scopedRows = rows.filter(row => (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) && (!campus || row.campus === campus));
+    const instructors = selectedInstructors.length ? selectedInstructors : [...new Set(scopedRows.map(row => row.instructor).filter(Boolean))].sort();
     const conflictsByInstructor = group(scopedRows.filter(row => instructorHasConflict(row, day, startMinutes, endMinutes)), row => row.instructor);
     const results = instructors.map(name => {
       const conflicts = conflictsByInstructor.get(name) || [];
@@ -1386,6 +1393,8 @@
       ['Potentially Available', results.length - busy],
       ['Instructors Reviewed', results.length]
     ]);
+    renderInstructorAvailabilityCalendar(instructors, scopedRows, campus);
+    renderInstructorAvailableTimes(instructors, scopedRows, campus);
     table('instructorAvailabilityTable', results, [
       'instructor',
       'status',
@@ -1396,6 +1405,11 @@
       'campus'
     ]);
     renderInstructorAvailabilityLegend();
+  }
+
+  function selectedInstructorAvailabilityInstructors() {
+    const select = document.getElementById('iaInstructor');
+    return select ? [...select.selectedOptions].map(option => option.value).filter(Boolean) : [];
   }
 
   function instructorHasConflict(row, day, startMinutes, endMinutes) {
@@ -1409,7 +1423,7 @@
   function clearInstructorAvailability() {
     const instructor = document.getElementById('iaInstructor');
     const campus = document.getElementById('iaCampus');
-    if (instructor) instructor.value = '';
+    if (instructor) [...instructor.options].forEach(option => { option.selected = true; });
     if (campus) campus.value = '';
     const day = document.getElementById('iaDay');
     const start = document.getElementById('iaStart');
@@ -1418,6 +1432,91 @@
     if (start) start.value = '09:00';
     if (end) end.value = '10:00';
     runInstructorAvailability();
+  }
+
+  function renderInstructorAvailabilityCalendar(instructors, rows, campus) {
+    const node = document.getElementById('instructorAvailabilityCalendar');
+    if (!node) return;
+    const days = ['MO', 'TU', 'WE', 'TH', 'FR'];
+    if (!instructors.length) {
+      node.innerHTML = '<p class="analytics-empty">No instructors are available in the loaded schedule data.</p>';
+      return;
+    }
+    node.innerHTML = instructors.map(instructor => {
+      const instructorRows = rows.filter(row => row.instructor === instructor && (!campus || row.campus === campus));
+      const dayColumns = days.map(day => {
+        const meetings = instructorRows
+          .filter(row => row.days?.includes(day) && row.start && row.end)
+          .sort((a, b) => minutesFromTime(a.start) - minutesFromTime(b.start));
+        const body = meetings.length ? meetings.map(row => `
+          <div class="instructor-meeting">
+            <strong>${escapeAttr(row.start)}-${escapeAttr(row.end)}</strong>
+            <span>${escapeAttr(`${row.subject} ${row.course} ${row.section}`)}</span>
+            <small>${escapeAttr(row.campus || '')}</small>
+          </div>`).join('') : '<div class="instructor-open-day">No loaded meetings</div>';
+        return `<div class="instructor-day"><h4>${escapeAttr(dayLabels[day])}</h4>${body}</div>`;
+      }).join('');
+      return `<section class="instructor-week-card"><h3>${escapeAttr(instructor)}</h3><div class="instructor-days">${dayColumns}</div></section>`;
+    }).join('');
+  }
+
+  function renderInstructorAvailableTimes(instructors, rows, campus) {
+    const node = document.getElementById('instructorAvailabilityTimes');
+    if (!node) return;
+    const days = ['MO', 'TU', 'WE', 'TH', 'FR'];
+    const dayStart = 8 * 60;
+    const dayEnd = 18 * 60;
+    if (!instructors.length) {
+      node.innerHTML = '';
+      return;
+    }
+    node.innerHTML = `
+      <h3>Available Time Windows From Loaded Schedule</h3>
+      <p>Calculated between 8:00 AM and 6:00 PM, Monday-Friday, by subtracting each instructor's loaded meeting times. These are open schedule windows, not confirmed faculty availability.</p>
+      <div class="instructor-availability-list">
+        ${instructors.map(instructor => {
+          const instructorRows = rows.filter(row => row.instructor === instructor && (!campus || row.campus === campus));
+          const dayItems = days.map(day => {
+            const busy = instructorRows
+              .filter(row => row.days?.includes(day) && row.start && row.end)
+              .map(row => [minutesFromTime(row.start), minutesFromTime(row.end)])
+              .filter(([start, end]) => start != null && end != null && end > start)
+              .sort((a, b) => a[0] - b[0]);
+            const windows = availableWindows(busy, dayStart, dayEnd);
+            const text = windows.map(([start, end]) => `${formatMinutes(start)}-${formatMinutes(end)}`).join(', ') || 'No open windows in range';
+            return `<li><strong>${escapeAttr(dayLabels[day])}:</strong> ${escapeAttr(text)}</li>`;
+          }).join('');
+          return `<section><h4>${escapeAttr(instructor)}</h4><ul>${dayItems}</ul></section>`;
+        }).join('')}
+      </div>`;
+  }
+
+  function availableWindows(busy, dayStart, dayEnd) {
+    const merged = [];
+    busy.forEach(([rawStart, rawEnd]) => {
+      const start = Math.max(dayStart, rawStart);
+      const end = Math.min(dayEnd, rawEnd);
+      if (end <= dayStart || start >= dayEnd || end <= start) return;
+      const last = merged[merged.length - 1];
+      if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+      else merged.push([start, end]);
+    });
+    const windows = [];
+    let cursor = dayStart;
+    merged.forEach(([start, end]) => {
+      if (start > cursor) windows.push([cursor, start]);
+      cursor = Math.max(cursor, end);
+    });
+    if (cursor < dayEnd) windows.push([cursor, dayEnd]);
+    return windows;
+  }
+
+  function formatMinutes(minutes) {
+    const hour24 = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+    const suffix = hour24 >= 12 ? 'PM' : 'AM';
+    const hour12 = hour24 % 12 || 12;
+    return `${hour12}:${String(minute).padStart(2, '0')} ${suffix}`;
   }
 
   async function runConsolidation() {
@@ -2284,7 +2383,8 @@
         ['Conflict Count', 'Number of loaded sections for that instructor that overlap the requested day/time window.'],
         ['Conflicts', 'The overlapping course, section, meeting pattern, time, and campus records. If none are found, the row states that no loaded conflict was found.'],
         ['Campus', 'Optional campus filter. When All is selected, all loaded campuses are included.'],
-        ['Overlap Formula', 'A conflict is counted when section start is before requested end AND section end is after requested start, and the section includes the selected day.']
+        ['Overlap Formula', 'A conflict is counted when section start is before requested end AND section end is after requested start, and the section includes the selected day.'],
+        ['Available Time Windows', 'For each instructor/day, loaded busy intervals are merged, then subtracted from the 8:00 AM-6:00 PM planning day. The resulting windows are open schedule windows, not confirmed faculty availability.']
       ],
       version: 'Methodology v1.0'
     });
@@ -2682,6 +2782,26 @@
       .analytics-metrics div{border:1px solid #d8e1ec;border-radius:8px;padding:12px;background:#f8fbff}
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
       .analytics-metrics span{font-size:12px;color:#51657c;text-transform:uppercase}
+      #iaInstructor{min-width:220px;min-height:92px}
+      .instructor-week-grid{display:grid;gap:12px;margin:0 0 14px}
+      .instructor-week-card{border:1px solid #d8e1ec;border-radius:10px;background:#fff;overflow:hidden}
+      .instructor-week-card h3{margin:0;padding:10px 12px;background:#f8fbff;color:#123367;font-size:15px;border-bottom:1px solid #e2eaf3}
+      .instructor-days{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:0}
+      .instructor-day{min-height:110px;border-right:1px solid #e6edf5;padding:8px}
+      .instructor-day:last-child{border-right:0}
+      .instructor-day h4{margin:0 0 8px;color:#51657c;font-size:13px;text-transform:uppercase}
+      .instructor-meeting{display:grid;gap:2px;margin-bottom:6px;padding:7px;border-radius:8px;background:#e8f4fb;border-left:4px solid #1f7aa8;color:#123367}
+      .instructor-meeting strong{font-size:12px}
+      .instructor-meeting span,.instructor-meeting small{font-size:12px;line-height:1.25}
+      .instructor-open-day{padding:7px;border-radius:8px;background:#f1f8f2;color:#2f6b3b;font-size:12px}
+      .instructor-available-times{margin:0 0 14px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;color:#334862}
+      .instructor-available-times h3{margin:0 0 6px;color:#123367;font-size:15px}
+      .instructor-available-times p{margin:0 0 10px;font-size:13px;color:#51657c}
+      .instructor-availability-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+      .instructor-availability-list section{background:#fff;border:1px solid #e2eaf3;border-radius:8px;padding:10px}
+      .instructor-availability-list h4{margin:0 0 6px;color:#123367}
+      .instructor-availability-list ul{margin:0;padding-left:18px}
+      .instructor-availability-list li{margin:4px 0;line-height:1.3}
       .analytics-insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px}
       .analytics-insights section{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px}
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
