@@ -6,6 +6,17 @@
     consolidation: 'section-consolidation',
     demand: 'enrollment-demand-forecast'
   };
+  const ENROLLMENT_MANAGEMENT_PASSWORD = 'Upload2025';
+  const ACCOUNTING_METHODS = {
+    W: { category: 'weekly', label: 'Weekly Census', reportable: true },
+    D: { category: 'daily', label: 'Daily Census', reportable: true },
+    P: { category: 'positive', label: 'Positive Attendance', reportable: true },
+    E: { category: 'positive', label: 'Open Entry/Open Exit - Positive Attendance', reportable: true },
+    IW: { category: 'independentWeekly', label: 'Independent/Alternative Weekly Census', reportable: true },
+    ID: { category: 'independentDaily', label: 'Independent/Alternative Daily Census', reportable: true },
+    I: { category: 'omit', label: 'Independent Study/Work Experience - omitted from reporting', reportable: false },
+    O: { category: 'omit', label: 'Not reportable for 320 - omitted from reporting', reportable: false }
+  };
   const state = {
     enrollment: [],
     consolidationInput: [],
@@ -61,6 +72,9 @@
     cap: ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
     units: ['Units', 'UNITS', 'Credit Hours', 'CREDIT_HOURS', 'Credits', 'CREDITS', 'SESSION_CREDIT_HOURS', 'Session Credit Hours'],
     weeklyHours: ['HOURS_PER_WEEK', 'Hours Per Week', 'Weekly Hours', 'WSCH'],
+    dailyHours: ['HOURS_PER_DAY', 'Hours Per Day', 'Daily Hours'],
+    totalContactHours: ['TOTAL_CONTACT_HOURS', 'Total Contact Hours', 'Contact Hours'],
+    accountingMethod: ['ACCOUNTING METHOD', 'Accounting Method', 'ACCOUNTING_METHOD'],
     ftes: ['FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
     actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment'],
     census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment'],
@@ -125,9 +139,12 @@
     const waitlistValue = val(row, fields.waitlist);
     const units = num(val(row, fields.units));
     const weeklyHours = num(val(row, fields.weeklyHours));
+    const dailyHours = num(val(row, fields.dailyHours));
+    const totalContactHours = num(val(row, fields.totalContactHours));
+    const accountingMethod = canon(val(row, fields.accountingMethod));
     const ftesValue = val(row, fields.ftes);
     const enrollmentForFtes = census == null ? actual : census;
-    return {
+    const normalized = {
       raw: row,
       term: canon(val(row, fields.term) || row.__sourceTerm || currentTerm()),
       crn: canon(val(row, fields.crn)),
@@ -149,8 +166,15 @@
       cap,
       units,
       weeklyHours,
-      ftes: ftesValue === '' ? estimatedFtes(enrollmentForFtes, units, weeklyHours) : num(ftesValue),
-      hasFtesData: ftesValue !== '' || units > 0 || weeklyHours > 0,
+      dailyHours,
+      totalContactHours,
+      accountingMethod,
+      accountingCategory: accountingMethodInfo(accountingMethod).category,
+      accountingMethodLabel: accountingMethodInfo(accountingMethod).label,
+      accountingReportable: accountingMethodInfo(accountingMethod).reportable,
+      ftes: ftesValue === '' ? estimatedFtes(enrollmentForFtes, { units, weeklyHours, dailyHours, totalContactHours, accountingMethod }) : num(ftesValue),
+      hasFtesData: ftesValue !== '' || units > 0 || weeklyHours > 0 || totalContactHours > 0,
+      hasDirectFtesData: ftesValue !== '',
       actual,
       census,
       waitlist: num(waitlistValue),
@@ -159,16 +183,75 @@
       fillRate: cap > 0 ? actual / cap : strictNum(val(row, fields.fill)) / 100,
       status: canon(val(row, fields.status))
     };
+    normalized._meetingRows = [meetingRowForFtes(normalized)];
+    return normalized;
   }
 
   function isTruthy(value) {
     return /^(Y|YES|TRUE|1|CLOSED)$/i.test(String(value || '').trim());
   }
 
-  function estimatedFtes(enrollment, units, weeklyHours = 0) {
-    if (weeklyHours > 0) return (enrollment * weeklyHours * 17.5) / 525;
+  function accountingMethodInfo(method) {
+    return ACCOUNTING_METHODS[canon(method)] || { category: 'unknown', label: canon(method) || 'Unknown', reportable: true };
+  }
+
+  function meetingRowForFtes(row) {
+    return {
+      weeklyHours: row.weeklyHours || 0,
+      dailyHours: row.dailyHours || 0,
+      totalContactHours: row.totalContactHours || 0,
+      sessionCreditHours: row.units || 0,
+      accountingMethod: row.accountingMethod || ''
+    };
+  }
+
+  function bestFtesHours(rows = []) {
+    const sourceRows = rows.length ? rows : [];
+    const creditRows = sourceRows.filter(row => row.sessionCreditHours > 0);
+    const candidates = creditRows.length ? creditRows : sourceRows;
+    return {
+      weeklyHours: Math.max(0, ...candidates.map(row => row.weeklyHours || 0)),
+      dailyHours: Math.max(0, ...candidates.map(row => row.dailyHours || 0)),
+      totalContactHours: Math.max(0, ...candidates.map(row => row.totalContactHours || 0)),
+      sessionCreditHours: Math.max(0, ...candidates.map(row => row.sessionCreditHours || 0))
+    };
+  }
+
+  function estimatedFtes(enrollment, details = {}) {
+    const info = accountingMethodInfo(details.accountingMethod);
+    if (!info.reportable) return 0;
+    const weeklyHours = details.weeklyHours || 0;
+    const totalContactHours = details.totalContactHours || 0;
+    const units = details.units || details.sessionCreditHours || 0;
+    if (['weekly', 'independentWeekly', 'unknown'].includes(info.category) && weeklyHours > 0) {
+      return (enrollment * weeklyHours * 17.5) / 525;
+    }
+    if (['daily', 'independentDaily'].includes(info.category) && totalContactHours > 0) {
+      return (enrollment * totalContactHours) / 525;
+    }
+    if (info.category === 'positive' && totalContactHours > 0) {
+      return (enrollment * totalContactHours) / 525;
+    }
     if (units > 0) return (enrollment * units) / 30;
     return 0;
+  }
+
+  function recalculateEstimatedFtes(row) {
+    if (!row || row.hasDirectFtesData) return row;
+    const hours = bestFtesHours(row._meetingRows || []);
+    row.weeklyHours = hours.weeklyHours || row.weeklyHours || 0;
+    row.dailyHours = hours.dailyHours || row.dailyHours || 0;
+    row.totalContactHours = hours.totalContactHours || row.totalContactHours || 0;
+    row.units = row.units || hours.sessionCreditHours || 0;
+    row.ftes = estimatedFtes(row.census == null ? row.actual : row.census, {
+      units: row.units,
+      weeklyHours: row.weeklyHours,
+      dailyHours: row.dailyHours,
+      totalContactHours: row.totalContactHours,
+      accountingMethod: row.accountingMethod
+    });
+    row.hasFtesData = row.hasFtesData || row.weeklyHours > 0 || row.totalContactHours > 0 || row.units > 0;
+    return row;
   }
 
   function normalizeModality(text, row) {
@@ -186,7 +269,10 @@
 
   function isOmittedInstructionalMethod(row) {
     const rawMethod = canon(val(row.raw || {}, fields.modality));
-    return row.modality === 'OMIT' || modalityGroups.omitted.has(rawMethod) || /DUAL\s*ENROLL/.test(rawMethod);
+    return row.modality === 'OMIT' ||
+      row.accountingReportable === false ||
+      modalityGroups.omitted.has(rawMethod) ||
+      /DUAL\s*ENROLL/.test(rawMethod);
   }
 
   function normalizeDays(raw, row = {}) {
@@ -413,11 +499,7 @@
   }
 
   function ensureOptions() {
-    const select = document.getElementById('viewSelect');
-    if (!select) return;
-    if (!select.querySelector(`[value="${REPORTS.attrition}"]`)) select.add(new Option('Enrollment Attrition - WIP', REPORTS.attrition));
-    if (!select.querySelector(`[value="${REPORTS.consolidation}"]`)) select.add(new Option('Section Consolidation Opportunities - WIP', REPORTS.consolidation));
-    if (!select.querySelector(`[value="${REPORTS.demand}"]`)) select.add(new Option('Enrollment Demand Forecast - WIP', REPORTS.demand));
+    // Enrollment Management reports are intentionally kept out of the main Scheduling view selector.
   }
 
   function buildUi() {
@@ -426,6 +508,19 @@
     const position = anchor === document.body ? 'afterbegin' : 'afterend';
     anchor.insertAdjacentHTML(position, `
       <section id="analyticsReports" class="analytics-reports" style="display:none">
+        <div id="emAccessPanel" class="em-access-panel">
+          <button id="unlockEnrollmentManagement" type="button" class="em-unlock">Enrollment Management</button>
+          <span class="em-access-note">Restricted planning reports are hidden until unlocked.</span>
+        </div>
+        <div id="emReportControls" class="em-report-controls" hidden>
+          <label for="emReportSelect">Enrollment Management Report:</label>
+          <select id="emReportSelect">
+            <option value="${REPORTS.demand}">Enrollment Demand Forecast - WIP</option>
+            <option value="${REPORTS.attrition}">Enrollment Attrition - WIP</option>
+            <option value="${REPORTS.consolidation}">Section Consolidation Opportunities - WIP</option>
+          </select>
+          <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
+        </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition - WIP</h2>
@@ -1023,19 +1118,26 @@
       const key = sectionKey(row);
       const existing = map.get(key);
       if (!existing) {
-        map.set(key, { ...row, days: [...row.days], dayPattern: row.dayPattern });
+        map.set(key, { ...row, days: [...row.days], dayPattern: row.dayPattern, _meetingRows: [...(row._meetingRows || [])] });
         return;
       }
       const daySet = new Set([...(existing.days || []), ...(row.days || [])]);
       existing.days = [...daySet];
       existing.dayPattern = dayPattern(existing.days) || existing.dayPattern || row.dayPattern || 'TBA';
+      existing._meetingRows = [...(existing._meetingRows || []), ...(row._meetingRows || [])];
       if (!existing.start || (row.start && row.start < existing.start)) existing.start = row.start;
       if (!existing.end || (row.end && row.end > existing.end)) existing.end = row.end;
       existing.timeBlock = timeBlock(existing.start, existing.modality);
       existing.room = existing.room || row.room;
       existing.instructor = existing.instructor || row.instructor;
+      existing.waitlist = Math.max(existing.waitlist || 0, row.waitlist || 0);
+      existing.cap = Math.max(existing.cap || 0, row.cap || 0);
+      existing.accountingMethod = existing.accountingMethod || row.accountingMethod;
+      existing.accountingCategory = accountingMethodInfo(existing.accountingMethod).category;
+      existing.accountingMethodLabel = accountingMethodInfo(existing.accountingMethod).label;
+      existing.accountingReportable = accountingMethodInfo(existing.accountingMethod).reportable;
     });
-    return [...map.values()];
+    return [...map.values()].map(recalculateEstimatedFtes);
   }
 
   async function loadAttritionFiles() {
@@ -2015,10 +2117,15 @@
       ['All Terms Available At Census', 'MAX ENROLL minus CENSUS_ENROLL across all included terms, floored at zero.'],
       ['All Terms Available At End', 'MAX ENROLL minus ACTUAL_ENROLL across all included terms, floored at zero.']
     ];
-    legend.innerHTML = `
-      <h3>Column Legend</h3>
-      <p>Decision columns isolate the selected decision term. All Terms columns combine the decision term with any included comparison terms. Historical columns use comparison terms only.</p>
-      <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
+    renderMethodologyPanel(legend, {
+      title: 'Enrollment Attrition Methodology & Data Dictionary',
+      purpose: 'Identifies enrollment loss between census and final/current enrollment and compares decision-term attrition against historical comparison terms.',
+      methodology: 'Decision columns isolate the selected decision term. All Terms columns combine the decision term with any included comparison terms. Historical columns use comparison terms only.',
+      assumptions: 'CENSUS_ENROLL is treated as census enrollment. ACTUAL_ENROLL is treated as final enrollment when the source file is final and as current enrollment when the source file is an in-progress snapshot.',
+      limitations: 'This report does not know why students left, whether a term file is final unless the uploaded source reflects that, or whether external retention interventions occurred.',
+      items,
+      version: 'Methodology v1.0'
+    });
   }
 
   function renderConsolidationLegend() {
@@ -2049,10 +2156,15 @@
       ['Recommended Reductions', 'A conservative online reduction count. It leaves one reducible section of buffer when Possible Reductions is greater than one.'],
       ['Freed Seats', 'The source section capacity that could be freed if the section were consolidated. This is a planning indicator, not an automatic cancellation instruction.']
     ];
-    legend.innerHTML = `
-      <h3>Control and Column Legend</h3>
-      <p>This report separates online reduction math from in-person flow checks. Online rows compare historical demand against decision-term online capacity. In-person rows compare historical expected demand against planned decision-term sections, so the subject term's in-progress enrollment does not drive recommendations.</p>
-      <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
+    renderMethodologyPanel(legend, {
+      title: 'Consolidation Opportunities Methodology & Data Dictionary',
+      purpose: 'Identifies planning candidates where low-filled sections may be reviewed for consolidation with minimal expected enrollment impact.',
+      methodology: 'This report separates online reduction math from in-person flow checks. Online rows compare historical demand against decision-term online capacity. In-person rows compare historical expected demand against planned decision-term sections, so the subject term in-progress enrollment does not drive recommendations.',
+      assumptions: 'The default retention planning assumption is conservative review, not automatic cancellation. In-person rows require pooled receiving capacity based on the selected Absorb % threshold. Online rows use historical vacancy and section-cap math.',
+      limitations: 'This report does not account for equity, program sequencing, instructor load, contractual constraints, room constraints, late enrollment behavior, or leadership decisions that may justify retaining a section.',
+      items,
+      version: 'Methodology v1.0'
+    });
   }
 
   function renderDemandLegend() {
@@ -2082,7 +2194,7 @@
       ['Terms', 'Table column. Number of included historical terms represented in that row.'],
       ['Total Sections Offered', 'Table column. Sum of section counts across included historical terms. Sections are deduplicated by CRN, with subject/course/section fallback.'],
       ['Average Census Enrollment', 'Table column. Average historical census enrollment across included terms. Formula: average of term-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
-      ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates weekly-census FTES = census enrollment x weekly contact hours x 17.5 / 525. If weekly hours are unavailable but units are present, fallback formula is census enrollment x units / 30. If neither FTES, weekly hours, nor units are present, FTES is 0.'],
+      ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates FTES from ACCOUNTING METHOD and available contact-hour fields. W/IW/unknown use census enrollment x weekly hours x 17.5 / 525. D/ID/P/E use census enrollment x TOTAL_CONTACT_HOURS / 525. If contact hours are unavailable but units are present, fallback formula is census enrollment x units / 30. If FTES, contact hours, and units are unavailable, FTES is 0.'],
       ['Average Fill Rate', 'Table column. Average of term-level census fill rates. Formula per term: sum(census enrollment) / sum(MAX ENROLL).'],
       ['Average Attrition %', 'Table column. Average of term-level attrition rates. Formula per term: max(0, census enrollment - actual enrollment) / census enrollment. This is context only and does not drive cancellation logic.'],
       ['Average Waitlist Count', 'Table column. Average historical waitlisted students across included terms when waitlist columns are present. Formula: average of term-level sum(waitlist).'],
@@ -2106,13 +2218,60 @@
       ['Forecast vs Actual Comparison', 'Insight card. Shows a simple historical proxy gap using abs((census/final midpoint) - census). This is a rough back-test placeholder because no separate prior forecast file is uploaded.'],
       ['Semester FTES Totals', 'Insight list. Shows each included finalized historical term total FTES and census enrollment after filters.'],
       ['Highest/Lowest Demand Day-Time Patterns', 'Insight lists. Groups filtered rows by day pattern, start time, modality, and campus; ranks by fill rate plus waitlist pressure. This supports placement planning, not section cancellation.'],
+      ['ACCOUNTING METHOD W', 'Weekly Census. Estimated FTES formula when direct FTES is missing: census enrollment x HOURS_PER_WEEK x 17.5 / 525.'],
+      ['ACCOUNTING METHOD D', 'Daily Census. Estimated FTES formula when direct FTES is missing: census enrollment x TOTAL_CONTACT_HOURS / 525.'],
+      ['ACCOUNTING METHOD P', 'Positive Attendance. Estimated FTES formula when direct FTES is missing: census enrollment x TOTAL_CONTACT_HOURS / 525.'],
+      ['ACCOUNTING METHOD E', 'Open Entry/Open Exit. Tied to Positive Attendance for reporting logic. Estimated FTES formula when direct FTES is missing: census enrollment x TOTAL_CONTACT_HOURS / 525.'],
+      ['ACCOUNTING METHOD IW', 'Independent/Alternative Weekly Census. Estimated FTES formula when direct FTES is missing: census enrollment x HOURS_PER_WEEK x 17.5 / 525.'],
+      ['ACCOUNTING METHOD ID', 'Independent/Alternative Daily Census. Estimated FTES formula when direct FTES is missing: census enrollment x TOTAL_CONTACT_HOURS / 525.'],
+      ['ACCOUNTING METHOD I', 'Independent Study/Work Experience. Omitted from reporting and FTES forecast calculations.'],
+      ['ACCOUNTING METHOD O', 'Not reportable for 320. Omitted from reporting and FTES forecast calculations.'],
       ['Not Included', 'This report does not use applications, registration intent, student education plans, section-level waitlist snapshots over time, room constraints, faculty availability, budget limits, or external labor-market demand. It also excludes rows omitted by instructional-method rules such as CPL, DE, CBE, and unmapped archived code 98, plus any rows removed by active filters.'],
-      ['Data Limitations', 'Forecasts depend on uploaded columns. Missing FTES, units, and weekly-contact-hour columns produce 0 FTES. Missing waitlist columns make waitlist demand unknown, not zero. Missing division, department, or course title values appear blank or UNKNOWN. Terms that are still enrolling should not be selected as historical archives unless they are intentionally being reviewed as incomplete scenario data.']
+      ['Data Limitations', 'Forecasts depend on uploaded columns. Missing FTES, contact-hour, unit, and accounting-method columns produce 0 estimated FTES. Missing waitlist columns make waitlist demand unknown, not zero. Missing division, department, or course title values appear blank or UNKNOWN. Terms that are still enrolling should not be selected as historical archives unless they are intentionally being reviewed as incomplete scenario data.']
     ];
-    legend.innerHTML = `
-      <h3>Methodology and Column Legend</h3>
-      <p>This report forecasts future demand from finalized historical growth patterns at the college, division, discipline, and course levels. It is intended for bigger-picture enrollment growth, apportionment, FTES-cap planning, and capacity assumptions, not direct cancellation or consolidation decisions.</p>
-      <dl>${items.map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join('')}</dl>`;
+    renderMethodologyPanel(legend, {
+      title: 'Enrollment Demand Forecast Methodology & Data Dictionary',
+      purpose: 'Forecasts future enrollment demand from finalized historical growth patterns at the college, division, discipline, and course levels. It supports schedule planning, enrollment growth, apportionment context, FTES cap planning, and capacity assumptions.',
+      methodology: 'Forecast growth blends course, discipline, division, and college trends, then applies the optional modifier. Single-term forecasts compare like terms only. Academic-year forecasts aggregate Summer, Fall, and Spring into FY/AY buckets before calculating growth.',
+      assumptions: 'Forecast growth is capped between -75% and +150%. FTES is direct-upload FTES when present; otherwise it is estimated from ACCOUNTING METHOD, census enrollment, and contact-hour fields. I and O accounting methods are omitted from reporting. E is treated as open-entry/open-exit positive attendance.',
+      limitations: 'Forecasts are planning estimates, not guarantees. Positive attendance FTES is estimated from available section-seating fields unless manual/official production values are entered elsewhere. Missing waitlist, contact-hour, division, department, or title fields reduce reliability.',
+      items,
+      version: 'Methodology v1.1'
+    });
+  }
+
+  function renderMethodologyPanel(node, config) {
+    node.innerHTML = `
+      <details class="methodology-panel">
+        <summary>Methodology & Data Dictionary</summary>
+        <div class="methodology-panel-body">
+          <h3>${escapeAttr(config.title)}</h3>
+          <section>
+            <h4>Report Purpose</h4>
+            <p>${escapeAttr(config.purpose)}</p>
+          </section>
+          <section>
+            <h4>Methodology</h4>
+            <p>${escapeAttr(config.methodology)}</p>
+          </section>
+          <section>
+            <h4>Assumptions</h4>
+            <p>${escapeAttr(config.assumptions)}</p>
+          </section>
+          <section>
+            <h4>Limitations</h4>
+            <p>${escapeAttr(config.limitations)}</p>
+          </section>
+          <section>
+            <h4>Definitions, Calculations, and Headers</h4>
+            <dl>${config.items.map(([term, definition]) => `<div><dt>${escapeAttr(term)}</dt><dd>${escapeAttr(definition)}</dd></div>`).join('')}</dl>
+          </section>
+          <section>
+            <h4>Version Information</h4>
+            <p>${escapeAttr(config.version)}. Last updated: 2026-06-18.</p>
+          </section>
+        </div>
+      </details>`;
   }
 
   function label(text) {
@@ -2192,7 +2351,11 @@
   }
 
   function exportRows(rows, filename) {
-    const csv = Papa.unparse(rows);
+    let csv = Papa.unparse(rows);
+    const methodology = methodologyExportText();
+    if (methodology) {
+      csv += `\r\n\r\n${Papa.unparse([{ Section: 'Methodology & Data Dictionary', Detail: methodology }])}`;
+    }
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -2202,7 +2365,11 @@
   }
 
   function exportRowsExcel(rows, columns, filename) {
-    const html = `<table><thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    const methodology = methodologyExportText();
+    const methodologyTable = methodology
+      ? `<br><table><thead><tr><th colspan="2">Methodology & Data Dictionary</th></tr></thead><tbody><tr><td>Report Methodology</td><td>${escapeAttr(methodology)}</td></tr></tbody></table>`
+      : '';
+    const html = `<table><thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>${methodologyTable}`;
     const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -2211,14 +2378,49 @@
     URL.revokeObjectURL(link.href);
   }
 
+  function methodologyExportText() {
+    if (!document.getElementById('includeMethodologyExport')?.checked) return '';
+    const selected = selectedEnrollmentReport();
+    const legendId = selected === REPORTS.attrition ? 'attritionLegend' :
+      selected === REPORTS.consolidation ? 'consolidationLegend' :
+      selected === REPORTS.demand ? 'demandLegend' : '';
+    const text = document.getElementById(legendId)?.innerText || '';
+    return text.trim();
+  }
+
+  function selectedEnrollmentReport() {
+    return document.getElementById('emReportSelect')?.value || REPORTS.demand;
+  }
+
+  function isEnrollmentManagementUnlocked() {
+    return sessionStorage.getItem('cos-em-unlocked') === 'true';
+  }
+
+  function unlockEnrollmentManagement() {
+    const password = prompt('Enter Enrollment Management password:');
+    if (password == null) return;
+    if (password !== ENROLLMENT_MANAGEMENT_PASSWORD) {
+      alert('Enrollment Management password was not accepted.');
+      return;
+    }
+    sessionStorage.setItem('cos-em-unlocked', 'true');
+    updateVisibility();
+  }
+
   function updateVisibility() {
-    const selected = document.getElementById('viewSelect')?.value;
+    const selected = selectedEnrollmentReport();
     const wrap = document.getElementById('analyticsReports');
     if (!wrap) return;
-    wrap.style.display = [REPORTS.attrition, REPORTS.consolidation, REPORTS.demand].includes(selected) ? 'block' : 'none';
-    document.getElementById('attritionReport').style.display = selected === REPORTS.attrition ? 'block' : 'none';
-    document.getElementById('consolidationReport').style.display = selected === REPORTS.consolidation ? 'block' : 'none';
-    document.getElementById('demandReport').style.display = selected === REPORTS.demand ? 'block' : 'none';
+    const unlocked = isEnrollmentManagementUnlocked();
+    wrap.style.display = 'block';
+    document.getElementById('emReportControls').hidden = !unlocked;
+    document.getElementById('unlockEnrollmentManagement').hidden = unlocked;
+    const note = document.querySelector('.em-access-note');
+    if (note) note.textContent = unlocked ? 'Enrollment Management reports are unlocked for this browser session.' : 'Restricted planning reports are hidden until unlocked.';
+    document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
+    document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
+    document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
+    if (!unlocked) return;
     if (selected === REPORTS.attrition && !state.attritionRan) {
       const rows = state.enrollment.length ? state.enrollment : currentRows().filter(row => !isOmittedInstructionalMethod(row));
       updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(rows));
@@ -2242,6 +2444,14 @@
     if (document.getElementById('analyticsReportStyles')) return;
     document.head.insertAdjacentHTML('beforeend', `<style id="analyticsReportStyles">
       .analytics-reports{width:min(1480px,calc(100% - 2rem));margin:16px auto 24px;padding:20px;background:#fff;border:1px solid #d8e1ec;border-radius:16px;box-shadow:0 8px 24px rgba(15,45,75,.08)}
+      .em-access-panel{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #e2eaf3}
+      .em-unlock{min-height:38px;border:0;border-radius:20px;padding:0 18px;background:#123367;color:#fff;font-weight:800;cursor:pointer;box-shadow:0 8px 18px rgba(18,51,103,.18)}
+      .em-access-note{color:#51657c;font-size:13px}
+      .em-report-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:18px}
+      .em-report-controls label{font-weight:800;color:#123367}
+      .em-report-controls .em-methodology-export{font-weight:700;color:#51657c}
+      .em-report-controls .em-methodology-export input{margin-right:6px}
+      .em-report-controls select{min-height:36px;border:1px solid #ccd6e2;border-radius:8px;padding:6px 10px;background:#fff;color:#123367;font-weight:700}
       .analytics-report-intro{margin-bottom:16px;color:#51657c;line-height:1.45}
       .analytics-report-intro h2{margin:0 0 6px;color:#123367;font-size:24px}
       .analytics-report-intro p{margin:0;max-width:980px}
@@ -2288,19 +2498,26 @@
       .analytics-empty{padding:16px;margin:0;color:#51657c}
       .analytics-legend{margin-top:14px;padding:14px;border:1px solid #d8e1ec;border-radius:12px;background:#f8fbff;color:#51657c}
       .analytics-legend h3{margin:0 0 6px;color:#123367;font-size:16px}
+      .analytics-legend h4{margin:12px 0 4px;color:#123367;font-size:14px}
       .analytics-legend p{margin:0 0 10px;max-width:980px}
       .analytics-legend dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px 16px;margin:0}
       .analytics-legend div{border-top:1px solid #e2eaf3;padding-top:8px}
       .analytics-legend dt{font-weight:800;color:#123367}
       .analytics-legend dd{margin:3px 0 0;line-height:1.35}
+      .methodology-panel summary{cursor:pointer;font-weight:900;color:#123367;font-size:16px}
+      .methodology-panel-body{padding-top:10px}
+      .methodology-panel-body section{margin-top:8px}
     </style>`);
   }
 
   function wire() {
     document.getElementById('viewSelect')?.addEventListener('change', updateVisibility);
+    document.getElementById('emReportSelect')?.addEventListener('change', updateVisibility);
+    document.getElementById('unlockEnrollmentManagement')?.addEventListener('click', unlockEnrollmentManagement);
     document.getElementById('termSelect')?.addEventListener('change', () => {
-      if (document.getElementById('viewSelect')?.value === REPORTS.consolidation) runConsolidation();
-      if (document.getElementById('viewSelect')?.value === REPORTS.demand) runDemand();
+      if (!isEnrollmentManagementUnlocked()) return;
+      if (selectedEnrollmentReport() === REPORTS.consolidation) runConsolidation();
+      if (selectedEnrollmentReport() === REPORTS.demand) runDemand();
     });
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
