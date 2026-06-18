@@ -4,7 +4,8 @@
   const REPORTS = {
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation',
-    demand: 'enrollment-demand-forecast'
+    demand: 'enrollment-demand-forecast',
+    utilization: 'room-utilization'
   };
   const ENROLLMENT_MANAGEMENT_PASSWORD = 'Upload2025';
   const ACCOUNTING_METHODS = {
@@ -504,8 +505,8 @@
 
   function buildUi() {
     if (document.getElementById('analyticsReports')) return;
-    const anchor = document.getElementById('view-container') || document.getElementById('room-filter') || document.body;
-    const position = anchor === document.body ? 'afterbegin' : 'afterend';
+    const anchor = document.getElementById('admin-tools') || document.body;
+    const position = anchor === document.body ? 'beforeend' : 'afterend';
     anchor.insertAdjacentHTML(position, `
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="emAccessPanel" class="em-access-panel">
@@ -518,6 +519,7 @@
             <option value="${REPORTS.demand}">Enrollment Demand Forecast - WIP</option>
             <option value="${REPORTS.attrition}">Enrollment Attrition - WIP</option>
             <option value="${REPORTS.consolidation}">Section Consolidation Opportunities - WIP</option>
+            <option value="${REPORTS.utilization}">Room Utilization Map</option>
           </select>
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
         </div>
@@ -533,7 +535,7 @@
                   <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
                   <li>Upload the decision-term enrollment CSV and any same-season comparison files, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
-                  <li>Select the decision term before running the report. Historical terms provide context, but the decision-term columns should drive current planning.</li>
+                  <li>Enter the decision season and year before running the report. The decision term can be a future term with no uploaded section seating report yet; in that case, decision-term columns will be zero and the report serves as a historical attrition baseline for planning.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
                 </ul>
               </div>
@@ -543,7 +545,7 @@
                   <li>Sections are deduplicated by CRN within term, with subject/course/section used as fallback, so multi-meeting rows are not double counted.</li>
                   <li>Attrition Count = CENSUS_ENROLL - ACTUAL_ENROLL. Attrition Rate = Attrition Count / CENSUS_ENROLL.</li>
                   <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
-                  <li>All Terms columns include the decision term plus comparison terms. Historical Attrition excludes the decision term and uses comparison terms only.</li>
+                  <li>All Terms columns include the decision term plus comparison terms when decision-term rows exist. Historical Attrition excludes the decision term and uses comparison terms only, which is the correct planning view for future terms that have not opened for scheduling/enrollment yet.</li>
                   <li>Min sections controls the minimum section count a grouped row must have before it appears in the report.</li>
                 </ul>
               </div>
@@ -553,7 +555,14 @@
             <label>Enrollment CSV(s) <input id="enrollmentCsv" type="file" accept=".csv" multiple></label>
             <button id="archiveAttritionUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="attrArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
-            <label>Decision term <select id="attrDecisionTerm"></select></label>
+            <label>Decision season
+              <select id="attrDecisionSeason">
+                <option value="SUMMER">Summer</option>
+                <option value="FALL">Fall</option>
+                <option value="SPRING">Spring</option>
+              </select>
+            </label>
+            <label>Decision year <input id="attrDecisionYear" type="number" min="2022" max="2035" step="1"></label>
             <label><input id="attrIncludeHistory" type="checkbox" checked> include historical comparison terms</label>
             ${filters('attr', { includeGroup: true, includeCancelled: false })}
             <button id="runAttrition" type="button">Run</button>
@@ -674,6 +683,12 @@
           <div id="demandLegend" class="analytics-legend"></div>
         </div>
       </section>`);
+    const utilizationTool = document.getElementById('utilization-tool');
+    if (utilizationTool) {
+      utilizationTool.classList.add('analytics-view');
+      utilizationTool.style.display = 'none';
+      document.getElementById('analyticsReports').appendChild(utilizationTool);
+    }
   }
 
   function filters(prefix, options = {}) {
@@ -990,16 +1005,31 @@
   }
 
   function updateDecisionTermOptions(terms) {
-    const select = document.getElementById('attrDecisionTerm');
-    if (!select) return '';
-    const active = canon(currentTerm());
-    const prior = select.value;
-    select.replaceChildren();
-    terms.forEach(term => select.add(new Option(term, term)));
-    if (terms.includes(prior)) select.value = prior;
-    else if (terms.includes(active)) select.value = active;
-    else if (terms.length) select.value = terms[terms.length - 1];
-    return select.value;
+    const seasonSelect = document.getElementById('attrDecisionSeason');
+    const yearInput = document.getElementById('attrDecisionYear');
+    if (!seasonSelect || !yearInput) return '';
+    const prior = seasonSelect.dataset.initialized ? attritionDecisionTerm() : '';
+    const activeParts = termParts(currentTerm());
+    const latestParts = (terms || [])
+      .map(termParts)
+      .filter(parts => parts.year && ['FALL', 'SPRING', 'SUMMER'].includes(parts.season))
+      .sort((a, b) => termSortValue(`${a.season} ${a.year}`) - termSortValue(`${b.season} ${b.year}`))
+      .pop();
+    const basis = termParts(prior).year ? termParts(prior) : activeParts.year ? activeParts : latestParts || { season: 'FALL', year: new Date().getFullYear() };
+    if (!seasonSelect.dataset.initialized) {
+      seasonSelect.value = basis.season || 'FALL';
+      yearInput.value = String(basis.year || new Date().getFullYear());
+      seasonSelect.dataset.initialized = 'true';
+    } else if (!yearInput.value) {
+      yearInput.value = String(basis.year || new Date().getFullYear());
+    }
+    return attritionDecisionTerm();
+  }
+
+  function attritionDecisionTerm() {
+    const season = canon(document.getElementById('attrDecisionSeason')?.value || 'FALL');
+    const year = Number(document.getElementById('attrDecisionYear')?.value || termParts(currentTerm()).year || new Date().getFullYear());
+    return `${season || 'FALL'} ${year}`;
   }
 
   function updateConsolidationTermOptions(terms) {
@@ -1156,7 +1186,7 @@
   async function runAttrition() {
     state.attritionRan = true;
     const allEnrollment = await loadAttritionFiles();
-    const decisionTerm = document.getElementById('attrDecisionTerm')?.value || updateDecisionTermOptions(state.attritionTerms);
+    const decisionTerm = attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms);
     const includeHistory = document.getElementById('attrIncludeHistory')?.checked;
     const enrollment = applyFilters(allEnrollment, 'attr')
       .filter(row => includeHistory || row.term === decisionTerm);
@@ -2420,6 +2450,8 @@
     document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
     document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
+    const utilizationTool = document.getElementById('utilization-tool');
+    if (utilizationTool) utilizationTool.style.display = unlocked && selected === REPORTS.utilization ? 'block' : 'none';
     if (!unlocked) return;
     if (selected === REPORTS.attrition && !state.attritionRan) {
       const rows = state.enrollment.length ? state.enrollment : currentRows().filter(row => !isOmittedInstructionalMethod(row));
@@ -2438,17 +2470,21 @@
       document.getElementById('demandTable').innerHTML = '<p class="analytics-empty">Upload or select archived historical CSV files, then click Run.</p>';
       renderDemandLegend();
     }
+    if (selected === REPORTS.utilization) {
+      window.COSScheduleApp?.renderUtilizationMap?.();
+    }
   }
 
   function injectStyle() {
     if (document.getElementById('analyticsReportStyles')) return;
     document.head.insertAdjacentHTML('beforeend', `<style id="analyticsReportStyles">
-      .analytics-reports{width:min(1480px,calc(100% - 2rem));margin:16px auto 24px;padding:20px;background:#fff;border:1px solid #d8e1ec;border-radius:16px;box-shadow:0 8px 24px rgba(15,45,75,.08)}
-      .em-access-panel{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #e2eaf3}
-      .em-unlock{min-height:38px;border:0;border-radius:20px;padding:0 18px;background:#123367;color:#fff;font-weight:800;cursor:pointer;box-shadow:0 8px 18px rgba(18,51,103,.18)}
-      .em-access-note{color:#51657c;font-size:13px}
+      .analytics-reports{width:min(1480px,calc(100% - 2rem));margin:16px auto 24px;padding:14px;background:rgba(255,255,255,.74);border:1px solid #d8e1ec;border-radius:12px;box-shadow:none}
+      .em-access-panel{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e2eaf3}
+      .em-unlock{min-height:32px;border:1px solid #ccd6e2;border-radius:8px;padding:0 12px;background:#f8fbff;color:#51657c;font-size:13px;font-weight:800;cursor:pointer;box-shadow:none}
+      .em-unlock:hover{color:#123367;border-color:#8ba6c2;background:#fff}
+      .em-access-note{color:#6b7d91;font-size:12px}
       .em-report-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:18px}
-      .em-report-controls label{font-weight:800;color:#123367}
+      .em-report-controls label{font-weight:800;color:#51657c;font-size:13px}
       .em-report-controls .em-methodology-export{font-weight:700;color:#51657c}
       .em-report-controls .em-methodology-export input{margin-right:6px}
       .em-report-controls select{min-height:36px;border:1px solid #ccd6e2;border-radius:8px;padding:6px 10px;background:#fff;color:#123367;font-weight:700}

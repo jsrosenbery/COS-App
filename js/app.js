@@ -642,7 +642,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.COSScheduleApp = {
     getCurrentData: () => currentData,
-    getCurrentTerm: () => currentTerm
+    getCurrentTerm: () => currentTerm,
+    renderUtilizationMap: () => renderUtilizationMap()
   };
 
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
@@ -758,7 +759,6 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   document.getElementById('viewSelect').addEventListener('change', function(){
     const view = this.value;
     document.getElementById('heatmap-tool').style.display = (view === 'heatmap') ? 'block' : 'none';
-    document.getElementById('utilization-tool').style.display = (view === 'utilization') ? 'block' : 'none';
     document.getElementById('modality-tool').style.display = (view === 'modality') ? 'block' : 'none';
     document.getElementById('schedule-container').style.display = (view === 'calendar') ? '' : 'none';
     document.getElementById('availability-ui').style.display = (view === 'calendar') ? '' : 'none';
@@ -769,9 +769,6 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     document.getElementById('selected-room-header').style.display = (view === 'calendar' ? '' : 'none'); // NEW: hide header on non-grid views
     if (view === 'linechart') {
       renderLineChart();
-    }
-    if (view === 'utilization') {
-      renderUtilizationMap();
     }
     if (view === 'modality') {
       renderModalityTool();
@@ -804,6 +801,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     status.style.color = isError ? '#b91c1c' : '';
   }
 
+  function isUtilizationViewActive() {
+    return document.getElementById('viewSelect')?.value === 'utilization' ||
+      document.getElementById('emReportSelect')?.value === 'room-utilization';
+  }
+
   function refreshRoomCatalogViews(lastUpdated = null) {
     initAvailabilityAttributeFilters();
     initUtilizationFilters();
@@ -812,7 +814,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (document.getElementById('viewSelect').value === 'fullcalendar') {
       renderFullCalendar();
     }
-    if (document.getElementById('viewSelect').value === 'utilization') {
+    if (isUtilizationViewActive()) {
       renderUtilizationMap();
     }
     const stamp = lastUpdated ? ` Updated ${new Date(lastUpdated).toLocaleString()}.` : '';
@@ -1415,7 +1417,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         feedHeatmapTool(currentData);
         initUtilizationFilters();
         initModalityFilters();
-        if (document.getElementById('viewSelect').value === 'utilization') {
+        if (isUtilizationViewActive()) {
           renderUtilizationMap();
         }
         if (document.getElementById('viewSelect').value === 'modality') {
