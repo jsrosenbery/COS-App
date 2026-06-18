@@ -1349,7 +1349,7 @@
   }
 
   function runInstructorAvailability() {
-    const rows = currentRows().filter(row => row.instructor);
+    const rows = dedupeEnrollmentRows(currentRows()).filter(row => row.instructor);
     populateInstructorAvailabilityFilters(rows);
     const selectedInstructors = selectedInstructorAvailabilityInstructors();
     const day = document.getElementById('iaDay')?.value || 'MO';
@@ -1438,26 +1438,87 @@
     const node = document.getElementById('instructorAvailabilityCalendar');
     if (!node) return;
     const days = ['MO', 'TU', 'WE', 'TH', 'FR'];
+    const dayStart = 6 * 60;
+    const dayEnd = 22 * 60;
+    const slotMinutes = 30;
     if (!instructors.length) {
       node.innerHTML = '<p class="analytics-empty">No instructors are available in the loaded schedule data.</p>';
       return;
     }
-    node.innerHTML = instructors.map(instructor => {
-      const instructorRows = rows.filter(row => row.instructor === instructor && (!campus || row.campus === campus));
-      const dayColumns = days.map(day => {
-        const meetings = instructorRows
-          .filter(row => row.days?.includes(day) && row.start && row.end)
-          .sort((a, b) => minutesFromTime(a.start) - minutesFromTime(b.start));
-        const body = meetings.length ? meetings.map(row => `
-          <div class="instructor-meeting">
-            <strong>${escapeAttr(row.start)}-${escapeAttr(row.end)}</strong>
-            <span>${escapeAttr(`${row.subject} ${row.course} ${row.section}`)}</span>
-            <small>${escapeAttr(row.campus || '')}</small>
-          </div>`).join('') : '<div class="instructor-open-day">No loaded meetings</div>';
-        return `<div class="instructor-day"><h4>${escapeAttr(dayLabels[day])}</h4>${body}</div>`;
-      }).join('');
-      return `<section class="instructor-week-card"><h3>${escapeAttr(instructor)}</h3><div class="instructor-days">${dayColumns}</div></section>`;
+    const slotCount = (dayEnd - dayStart) / slotMinutes;
+    const headers = ['Time', ...days.map(day => dayLabels[day])].map((label, index) =>
+      `<div class="instructor-grid-header" style="grid-column:${index + 1};grid-row:1">${escapeAttr(label)}</div>`
+    ).join('');
+    const timeLabels = Array.from({ length: slotCount }, (_, index) => {
+      const minutes = dayStart + index * slotMinutes;
+      return `<div class="instructor-grid-time" style="grid-column:1;grid-row:${index + 2}">${escapeAttr(formatMinutes(minutes))}</div>`;
     }).join('');
+    const cells = days.map((day, dayIndex) => Array.from({ length: slotCount }, (_, slotIndex) =>
+      `<div class="instructor-grid-cell" style="grid-column:${dayIndex + 2};grid-row:${slotIndex + 2}"></div>`
+    ).join('')).join('');
+    const events = [];
+    rows
+      .filter(row => instructors.includes(row.instructor) && (!campus || row.campus === campus))
+      .forEach(row => {
+        days.filter(day => row.days?.includes(day)).forEach(day => {
+          const start = minutesFromTime(row.start);
+          const end = minutesFromTime(row.end);
+          if (start == null || end == null || end <= dayStart || start >= dayEnd) return;
+          events.push({
+            ...row,
+            day,
+            startMinutes: Math.max(dayStart, start),
+            endMinutes: Math.min(dayEnd, end)
+          });
+        });
+      });
+    const positioned = positionInstructorEvents(events, days);
+    const blocks = positioned.map(event => {
+      const dayIndex = days.indexOf(event.day);
+      const startRow = Math.floor((event.startMinutes - dayStart) / slotMinutes) + 2;
+      const span = Math.max(1, Math.ceil((event.endMinutes - event.startMinutes) / slotMinutes));
+      const width = `calc(${100 / event.columnCount}% - 5px)`;
+      const left = `calc(${event.column * 100 / event.columnCount}% + 2px)`;
+      return `
+        <div class="instructor-grid-event" style="grid-column:${dayIndex + 2};grid-row:${startRow} / span ${span};width:${width};margin-left:${left}">
+          <strong>${escapeAttr(event.instructor)}</strong>
+          <span>${escapeAttr(`${event.subject} ${event.course} ${event.section}`)}</span>
+          <small>${escapeAttr(`${event.start}-${event.end} ${event.campus || ''}`)}</small>
+        </div>`;
+    }).join('');
+    node.innerHTML = `
+      <div class="instructor-grid-note">Selected instructors share this grid. Overlapping meetings are shown side by side in the same day/time area.</div>
+      <div class="instructor-calendar-grid" style="grid-template-rows:34px repeat(${slotCount},32px)">
+        ${headers}${timeLabels}${cells}${blocks}
+      </div>`;
+  }
+
+  function positionInstructorEvents(events, days) {
+    const positioned = [];
+    days.forEach(day => {
+      const dayEvents = events
+        .filter(event => event.day === day)
+        .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes || a.instructor.localeCompare(b.instructor));
+      const active = [];
+      dayEvents.forEach(event => {
+        for (let i = active.length - 1; i >= 0; i -= 1) {
+          if (active[i].endMinutes <= event.startMinutes) active.splice(i, 1);
+        }
+        const used = new Set(active.map(item => item.column));
+        let column = 0;
+        while (used.has(column)) column += 1;
+        event.column = column;
+        active.push(event);
+        const overlapping = dayEvents.filter(other => other.startMinutes < event.endMinutes && other.endMinutes > event.startMinutes);
+        const columnCount = Math.max(1, ...overlapping.map(other => other.column == null ? 0 : other.column + 1), column + 1);
+        overlapping.forEach(other => {
+          other.columnCount = Math.max(other.columnCount || 1, columnCount);
+        });
+        event.columnCount = Math.max(event.columnCount || 1, columnCount);
+        positioned.push(event);
+      });
+    });
+    return positioned;
   }
 
   function renderInstructorAvailableTimes(instructors, rows, campus) {
@@ -2783,17 +2844,16 @@
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
       .analytics-metrics span{font-size:12px;color:#51657c;text-transform:uppercase}
       #iaInstructor{min-width:220px;min-height:92px}
-      .instructor-week-grid{display:grid;gap:12px;margin:0 0 14px}
-      .instructor-week-card{border:1px solid #d8e1ec;border-radius:10px;background:#fff;overflow:hidden}
-      .instructor-week-card h3{margin:0;padding:10px 12px;background:#f8fbff;color:#123367;font-size:15px;border-bottom:1px solid #e2eaf3}
-      .instructor-days{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:0}
-      .instructor-day{min-height:110px;border-right:1px solid #e6edf5;padding:8px}
-      .instructor-day:last-child{border-right:0}
-      .instructor-day h4{margin:0 0 8px;color:#51657c;font-size:13px;text-transform:uppercase}
-      .instructor-meeting{display:grid;gap:2px;margin-bottom:6px;padding:7px;border-radius:8px;background:#e8f4fb;border-left:4px solid #1f7aa8;color:#123367}
-      .instructor-meeting strong{font-size:12px}
-      .instructor-meeting span,.instructor-meeting small{font-size:12px;line-height:1.25}
-      .instructor-open-day{padding:7px;border-radius:8px;background:#f1f8f2;color:#2f6b3b;font-size:12px}
+      .instructor-week-grid{margin:0 0 14px;overflow:auto;border:1px solid #d8e1ec;border-radius:10px;background:#fff}
+      .instructor-grid-note{padding:10px 12px;color:#51657c;background:#f8fbff;border-bottom:1px solid #d8e1ec;font-size:13px}
+      .instructor-calendar-grid{display:grid;grid-template-columns:96px repeat(5,minmax(160px,1fr));position:relative;min-width:980px}
+      .instructor-grid-header{position:sticky;top:0;z-index:4;background:#eaf1f7;color:#123367;font-weight:800;text-align:center;padding:8px;border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec}
+      .instructor-grid-time{background:#eef5f9;color:#123367;font-weight:800;text-align:center;padding:7px 6px;border-right:1px solid #d8e1ec;border-bottom:1px solid #e6edf5;font-size:12px}
+      .instructor-grid-cell{border-right:1px solid #e1e8f0;border-bottom:1px solid #e6edf5;background:#fff}
+      .instructor-grid-event{align-self:start;z-index:3;box-sizing:border-box;margin-top:2px;min-height:28px;border:1px solid #1f7aa8;border-left:4px solid #1f7aa8;border-radius:8px;background:linear-gradient(135deg,#e8f4fb,#cdeffc);box-shadow:0 4px 10px rgba(15,45,75,.14);padding:6px;color:#123367;overflow:hidden}
+      .instructor-grid-event strong,.instructor-grid-event span,.instructor-grid-event small{display:block;line-height:1.15}
+      .instructor-grid-event strong{font-size:12px}
+      .instructor-grid-event span,.instructor-grid-event small{font-size:11px}
       .instructor-available-times{margin:0 0 14px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;color:#334862}
       .instructor-available-times h3{margin:0 0 6px;color:#123367;font-size:15px}
       .instructor-available-times p{margin:0 0 10px;font-size:13px;color:#51657c}
