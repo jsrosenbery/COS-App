@@ -533,7 +533,7 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Select one or more instructors, then select a day and time window to find known teaching conflicts and open schedule windows.</li>
+                  <li>Select one or more instructors, then select a day and time window to find known teaching conflicts and shared open schedule windows.</li>
                   <li>Leave all instructors selected for a broad first pass, or select a smaller group to compare schedules side by side.</li>
                   <li>Online/TBA rows are excluded from day/time conflict checks because they do not provide a fixed meeting window.</li>
                 </ul>
@@ -543,7 +543,7 @@
                 <ul>
                   <li>Known Busy means a loaded section for that instructor meets on the selected day and overlaps the selected time range.</li>
                   <li>Potentially Available means the instructor appears in the loaded schedule but has no overlapping scheduled section in the selected window.</li>
-                  <li>The weekly grid shows loaded meetings by instructor and day. Available time windows are calculated by subtracting loaded meetings from 8:00 AM-6:00 PM, Monday-Friday.</li>
+                  <li>The weekly grid shows loaded meetings by instructor and day. Shared available time windows are calculated by subtracting the combined loaded meetings for all selected instructors from 8:00 AM-6:00 PM, Monday-Friday.</li>
                   <li>Availability is inferred only from uploaded schedule rows; it does not include faculty preferences, office hours, reassigned time, leave, overload limits, or department-specific rules.</li>
                 </ul>
               </div>
@@ -1531,24 +1531,22 @@
       node.innerHTML = '';
       return;
     }
+    const dayItems = days.map(day => {
+      const busy = rows
+        .filter(row => instructors.includes(row.instructor) && (!campus || row.campus === campus) && row.days?.includes(day) && row.start && row.end)
+        .map(row => [minutesFromTime(row.start), minutesFromTime(row.end)])
+        .filter(([start, end]) => start != null && end != null && end > start)
+        .sort((a, b) => a[0] - b[0]);
+      const windows = availableWindows(busy, dayStart, dayEnd);
+      const text = windows.map(([start, end]) => `${formatMinutes(start)}-${formatMinutes(end)}`).join(', ') || 'No shared open windows in range';
+      return `<li><strong>${escapeAttr(dayLabels[day])}:</strong> ${escapeAttr(text)}</li>`;
+    }).join('');
     node.innerHTML = `
-      <h3>Available Time Windows From Loaded Schedule</h3>
-      <p>Calculated between 8:00 AM and 6:00 PM, Monday-Friday, by subtracting each instructor's loaded meeting times. These are open schedule windows, not confirmed faculty availability.</p>
-      <div class="instructor-availability-list">
-        ${instructors.map(instructor => {
-          const instructorRows = rows.filter(row => row.instructor === instructor && (!campus || row.campus === campus));
-          const dayItems = days.map(day => {
-            const busy = instructorRows
-              .filter(row => row.days?.includes(day) && row.start && row.end)
-              .map(row => [minutesFromTime(row.start), minutesFromTime(row.end)])
-              .filter(([start, end]) => start != null && end != null && end > start)
-              .sort((a, b) => a[0] - b[0]);
-            const windows = availableWindows(busy, dayStart, dayEnd);
-            const text = windows.map(([start, end]) => `${formatMinutes(start)}-${formatMinutes(end)}`).join(', ') || 'No open windows in range';
-            return `<li><strong>${escapeAttr(dayLabels[day])}:</strong> ${escapeAttr(text)}</li>`;
-          }).join('');
-          return `<section><h4>${escapeAttr(instructor)}</h4><ul>${dayItems}</ul></section>`;
-        }).join('')}
+      <h3>Shared Available Time Windows</h3>
+      <p>Calculated between 8:00 AM and 6:00 PM, Monday-Friday, by subtracting the combined loaded meeting times for all selected instructors. These are times that are open for everyone selected, not confirmed faculty availability.</p>
+      <div class="instructor-shared-availability">
+        <h4>${escapeAttr(instructors.length)} selected instructor${instructors.length === 1 ? '' : 's'}</h4>
+        <ul>${dayItems}</ul>
       </div>`;
   }
 
@@ -2445,7 +2443,7 @@
         ['Conflicts', 'The overlapping course, section, meeting pattern, time, and campus records. If none are found, the row states that no loaded conflict was found.'],
         ['Campus', 'Optional campus filter. When All is selected, all loaded campuses are included.'],
         ['Overlap Formula', 'A conflict is counted when section start is before requested end AND section end is after requested start, and the section includes the selected day.'],
-        ['Available Time Windows', 'For each instructor/day, loaded busy intervals are merged, then subtracted from the 8:00 AM-6:00 PM planning day. The resulting windows are open schedule windows, not confirmed faculty availability.']
+        ['Shared Available Time Windows', 'For each day, loaded busy intervals for all selected instructors are merged, then subtracted from the 8:00 AM-6:00 PM planning day. The resulting windows are times that are open for everyone selected, not confirmed faculty availability.']
       ],
       version: 'Methodology v1.0'
     });
@@ -2857,11 +2855,10 @@
       .instructor-available-times{margin:0 0 14px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;color:#334862}
       .instructor-available-times h3{margin:0 0 6px;color:#123367;font-size:15px}
       .instructor-available-times p{margin:0 0 10px;font-size:13px;color:#51657c}
-      .instructor-availability-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
-      .instructor-availability-list section{background:#fff;border:1px solid #e2eaf3;border-radius:8px;padding:10px}
-      .instructor-availability-list h4{margin:0 0 6px;color:#123367}
-      .instructor-availability-list ul{margin:0;padding-left:18px}
-      .instructor-availability-list li{margin:4px 0;line-height:1.3}
+      .instructor-shared-availability{background:#fff;border:1px solid #e2eaf3;border-radius:8px;padding:10px}
+      .instructor-shared-availability h4{margin:0 0 6px;color:#123367}
+      .instructor-shared-availability ul{margin:0;padding-left:18px;columns:2;column-gap:28px}
+      .instructor-shared-availability li{break-inside:avoid;margin:4px 0;line-height:1.3}
       .analytics-insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px}
       .analytics-insights section{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px}
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
