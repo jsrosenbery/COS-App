@@ -1484,14 +1484,14 @@
         });
       });
     const positioned = positionInstructorEvents(events, days);
-    const blocks = positioned.map(event => {
+    const blocks = positioned.map((event, index) => {
       const dayIndex = days.indexOf(event.day);
       const startRow = Math.floor((event.startMinutes - dayStart) / slotMinutes) + 2;
       const span = Math.max(1, Math.ceil((event.endMinutes - event.startMinutes) / slotMinutes));
       const width = `calc(${100 / event.columnCount}% - 5px)`;
       const left = `calc(${event.column * 100 / event.columnCount}% + 2px)`;
       return `
-        <div class="instructor-grid-event" style="grid-column:${dayIndex + 2};grid-row:${startRow} / span ${span};width:${width};margin-left:${left}">
+        <div class="instructor-grid-event" data-instructor-event="${index}" tabindex="0" style="grid-column:${dayIndex + 2};grid-row:${startRow} / span ${span};width:${width};margin-left:${left}">
           <strong>${escapeAttr(event.instructor)}</strong>
           <span>${escapeAttr(`${event.subject} ${event.course} ${event.section}`)}</span>
           <small>${escapeAttr(`${event.start}-${event.end} ${event.campus || ''}`)}</small>
@@ -1502,6 +1502,91 @@
       <div class="instructor-calendar-grid" style="grid-template-rows:34px repeat(${slotCount},32px)">
         ${headers}${timeLabels}${cells}${blocks}
       </div>`;
+    attachInstructorGridTooltips(node, positioned);
+  }
+
+  function attachInstructorGridTooltips(node, events) {
+    const tooltip = document.getElementById('class-block-tooltip');
+    if (!tooltip) return;
+    node.querySelectorAll('[data-instructor-event]').forEach(block => {
+      const event = events[Number(block.dataset.instructorEvent)];
+      if (!event) return;
+      const show = (e) => {
+        setInstructorTooltipLines(tooltip, instructorTooltipLines(event));
+        tooltip.style.display = 'block';
+        positionInstructorTooltip(tooltip, e, block);
+      };
+      const move = (e) => positionInstructorTooltip(tooltip, e, block);
+      const hide = () => { tooltip.style.display = 'none'; };
+      block.addEventListener('mouseenter', show);
+      block.addEventListener('mousemove', move);
+      block.addEventListener('mouseleave', hide);
+      block.addEventListener('focus', show);
+      block.addEventListener('blur', hide);
+    });
+  }
+
+  function positionInstructorTooltip(tooltip, event, block) {
+    if (event?.pageX != null && event?.pageY != null) {
+      tooltip.style.left = `${event.pageX + 12}px`;
+      tooltip.style.top = `${event.pageY + 12}px`;
+      return;
+    }
+    const rect = block.getBoundingClientRect();
+    tooltip.style.left = `${rect.right + window.scrollX + 8}px`;
+    tooltip.style.top = `${rect.top + window.scrollY - 10}px`;
+  }
+
+  function setInstructorTooltipLines(tooltip, lines) {
+    if (typeof window.setTooltipLines === 'function') {
+      window.setTooltipLines(tooltip, lines);
+      return;
+    }
+    tooltip.replaceChildren();
+    lines.forEach(({ text, bold = false }) => {
+      if (text === undefined || text === null || text === '') return;
+      const span = document.createElement('span');
+      span.textContent = text;
+      if (bold) span.style.fontWeight = 'bold';
+      tooltip.appendChild(span);
+      tooltip.appendChild(document.createElement('br'));
+    });
+  }
+
+  function instructorTooltipLines(event) {
+    const course = `${event.subject || ''} ${event.course || ''}`.trim();
+    const section = event.section ? `Section: ${event.section}` : '';
+    const crn = event.crn ? `CRN: ${event.crn}` : '';
+    const time = `Time: ${formatMinutes(event.startMinutes)} - ${formatMinutes(event.endMinutes)}`;
+    const dateRange = instructorDateRange(event);
+    const fill = event.cap > 0 ? `Fill: ${event.actual}/${event.cap} (${pct(event.actual / event.cap)})` : '';
+    return [
+      { text: course, bold: true },
+      { text: event.title },
+      { text: crn },
+      { text: section },
+      { text: event.term ? `Term: ${event.term}` : '' },
+      { text: `Days: ${event.dayPattern || event.day || 'N/A'}` },
+      { text: time },
+      { text: dateRange ? `Date Range: ${dateRange}` : '' },
+      { text: `Instructor: ${event.instructor || 'N/A'}` },
+      { text: event.room ? `Room: ${event.room}` : '' },
+      { text: event.campus ? `Campus: ${event.campus}` : '' },
+      { text: event.modality ? `Modality: ${event.modality}` : '' },
+      { text: event.cap ? `Capacity: ${event.cap}` : '' },
+      { text: event.census != null ? `Census Enrollment: ${event.census}` : '' },
+      { text: `Current/Final Enrollment: ${event.actual || 0}` },
+      { text: event.hasWaitlistData ? `Waitlist: ${event.waitlist || 0}` : '' },
+      { text: fill }
+    ];
+  }
+
+  function instructorDateRange(event) {
+    const raw = event.raw || {};
+    const start = raw['Start_Date'] || raw['Start Date'] || raw.START_DATE || raw.start_date || '';
+    const end = raw['End_Date'] || raw['End Date'] || raw.END_DATE || raw.end_date || '';
+    if (!start && !end) return '';
+    return `${start || 'N/A'} - ${end || 'N/A'}`;
   }
 
   function positionInstructorEvents(events, days) {
