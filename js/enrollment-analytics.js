@@ -1895,8 +1895,8 @@
     if (!termRows.length) return null;
     const subject = rows[0]?.subject || '';
     const courseNumber = rows[0]?.course || '';
-    const courseTitle = level === 'Course' ? rows.find(row => row.title)?.title || '' : '';
-    const course = level === 'Course' ? groupName : '';
+    const courseTitle = level === 'Course' ? rows.find(row => row.title)?.title || '' : `${level} aggregate`;
+    const course = level === 'Course' ? groupName : 'All courses';
     const avgCensusEnrollment = Math.round(average(termRows.map(row => row.census)));
     const avgFinalEnrollment = Math.round(average(termRows.map(row => row.final)));
     const avgFtes = average(termRows.map(row => row.ftes));
@@ -2679,8 +2679,8 @@
       ['Average Forecast Growth', 'Metric card. Average adjusted forecast growth across all visible hierarchy rows.'],
       ['Forecast Level', 'Table column. Shows whether a row is College, Division, Discipline, or Course level.'],
       ['Forecast Group', 'Table column. The name of the level being summarized, such as College, a division name, a discipline code, or a course.'],
-      ['Course', 'Table column. Populated only for Course-level rows. Aggregate College, Division, and Discipline rows intentionally leave Course blank.'],
-      ['Course Title', 'Table column. Uses the uploaded course-title field when present. Blank when the source CSV does not include a title column or for aggregate rows.'],
+      ['Course', 'Table column. Course-level rows show the discipline/course. Aggregate College, Division, and Discipline rows show All courses because they summarize every matching course in that forecast group.'],
+      ['Course Title', 'Table column. Course-level rows use the uploaded course-title field when present. Aggregate College, Division, and Discipline rows show the aggregate level instead of a specific title.'],
       ['Terms', 'Table column. Number of included historical terms represented in that row.'],
       ['Total Sections Offered', 'Table column. Sum of section counts across included historical terms. Sections are deduplicated by term + CRN when CRN is available, with term + discipline + course + section fallback. This is intended to avoid double-counting multi-meeting rows for the same section.'],
       ['Average Census Enrollment', 'Table column. Average historical census enrollment across included terms. Formula: average of term-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
