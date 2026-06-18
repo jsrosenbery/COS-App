@@ -55,7 +55,7 @@
 
   const fields = {
     term: ['Term', 'TERM', 'term'],
-    crn: ['CRN', 'Crn', 'crn'],
+    crn: ['CRN', 'Crn', 'crn', 'Course Reference Number', 'COURSE REFERENCE NUMBER', 'Course Ref Number', 'COURSE_REF_NUMBER', 'CRN_KEY'],
     subject: ['Subject', 'SUBJECT', 'Discipline', 'DISCIPLINE'],
     course: ['Course', 'COURSE', 'Course_Number', 'Course Number', 'Course No', 'Catalog', 'CATALOG'],
     title: ['Course Title', 'COURSE_TITLE', 'Title', 'TITLE', 'Long Title', 'Course_Name', 'Course Name'],
@@ -1895,7 +1895,7 @@
     if (!termRows.length) return null;
     const subject = rows[0]?.subject || '';
     const courseNumber = rows[0]?.course || '';
-    const courseTitle = rows.find(row => row.title)?.title || '';
+    const courseTitle = level === 'Course' ? rows.find(row => row.title)?.title || '' : '';
     const course = level === 'Course' ? groupName : '';
     const avgCensusEnrollment = Math.round(average(termRows.map(row => row.census)));
     const avgFinalEnrollment = Math.round(average(termRows.map(row => row.final)));
@@ -2682,7 +2682,7 @@
       ['Course', 'Table column. Populated only for Course-level rows. Aggregate College, Division, and Discipline rows intentionally leave Course blank.'],
       ['Course Title', 'Table column. Uses the uploaded course-title field when present. Blank when the source CSV does not include a title column or for aggregate rows.'],
       ['Terms', 'Table column. Number of included historical terms represented in that row.'],
-      ['Total Sections Offered', 'Table column. Sum of section counts across included historical terms. Sections are deduplicated by CRN, with subject/course/section fallback.'],
+      ['Total Sections Offered', 'Table column. Sum of section counts across included historical terms. Sections are deduplicated by term + CRN when CRN is available, with term + discipline + course + section fallback. This is intended to avoid double-counting multi-meeting rows for the same section.'],
       ['Average Census Enrollment', 'Table column. Average historical census enrollment across included terms. Formula: average of term-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
       ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates FTES from ACCOUNTING METHOD and available contact-hour fields. W/IW/unknown use census enrollment x weekly hours x 17.5 / 525. D/ID/P/E use census enrollment x TOTAL_CONTACT_HOURS / 525. If contact hours are unavailable but units are present, fallback formula is census enrollment x units / 30. If FTES, contact hours, and units are unavailable, FTES is 0.'],
       ['Average Fill Rate', 'Table column. Average of term-level census fill rates. Formula per term: sum(census enrollment) / sum(MAX ENROLL).'],
