@@ -1486,12 +1486,17 @@
     const positioned = positionInstructorEvents(events, days);
     const blocks = positioned.map((event, index) => {
       const dayIndex = days.indexOf(event.day);
-      const startRow = Math.floor((event.startMinutes - dayStart) / slotMinutes) + 2;
-      const span = Math.max(1, Math.ceil((event.endMinutes - event.startMinutes) / slotMinutes));
+      const rowHeight = 32;
+      const startOffset = event.startMinutes - dayStart;
+      const startRow = Math.floor(startOffset / slotMinutes) + 2;
+      const minuteOffset = startOffset % slotMinutes;
+      const topOffset = Math.max(2, (minuteOffset / slotMinutes) * rowHeight + 2);
+      const eventHeight = Math.max(26, ((event.endMinutes - event.startMinutes) / slotMinutes) * rowHeight - 4);
+      const span = Math.max(1, Math.ceil((minuteOffset + event.endMinutes - event.startMinutes) / slotMinutes));
       const width = `calc(${100 / event.columnCount}% - 5px)`;
       const left = `calc(${event.column * 100 / event.columnCount}% + 2px)`;
       return `
-        <div class="instructor-grid-event" data-instructor-event="${index}" tabindex="0" style="grid-column:${dayIndex + 2};grid-row:${startRow} / span ${span};width:${width};margin-left:${left}">
+        <div class="instructor-grid-event" data-instructor-event="${index}" tabindex="0" style="grid-column:${dayIndex + 2};grid-row:${startRow} / span ${span};width:${width};margin-left:${left};margin-top:${topOffset}px;height:${eventHeight}px">
           <strong>${escapeAttr(event.instructor)}</strong>
           <span>${escapeAttr(`${event.subject} ${event.course} ${event.section}`)}</span>
           <small>${escapeAttr(`${event.start}-${event.end} ${event.campus || ''}`)}</small>
@@ -2944,7 +2949,7 @@
       .instructor-grid-header{position:sticky;top:0;z-index:4;background:#eaf1f7;color:#123367;font-weight:800;text-align:center;padding:8px;border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec}
       .instructor-grid-time{background:#eef5f9;color:#123367;font-weight:800;text-align:center;padding:7px 6px;border-right:1px solid #d8e1ec;border-bottom:1px solid #e6edf5;font-size:12px}
       .instructor-grid-cell{border-right:1px solid #e1e8f0;border-bottom:1px solid #e6edf5;background:#fff}
-      .instructor-grid-event{align-self:start;z-index:3;box-sizing:border-box;margin-top:2px;min-height:28px;border:1px solid #1f7aa8;border-left:4px solid #1f7aa8;border-radius:8px;background:linear-gradient(135deg,#e8f4fb,#cdeffc);box-shadow:0 4px 10px rgba(15,45,75,.14);padding:6px;color:#123367;overflow:hidden}
+      .instructor-grid-event{align-self:start;z-index:3;box-sizing:border-box;min-height:26px;border:1px solid #1f7aa8;border-left:4px solid #1f7aa8;border-radius:8px;background:linear-gradient(135deg,#e8f4fb,#cdeffc);box-shadow:0 4px 10px rgba(15,45,75,.14);padding:6px;color:#123367;overflow:hidden}
       .instructor-grid-event strong,.instructor-grid-event span,.instructor-grid-event small{display:block;line-height:1.15}
       .instructor-grid-event strong{font-size:12px}
       .instructor-grid-event span,.instructor-grid-event small{font-size:11px}
