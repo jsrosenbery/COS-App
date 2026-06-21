@@ -4,12 +4,17 @@
   "description": "Static course scheduling and analytics frontend",
   "main": "js/app.js",
   "scripts": {
-    "start": "live-server"
+    "start": "live-server --host=127.0.0.1 --port=8080",
+    "test": "node --test tests/*.test.js",
+    "smoke": "npm test"
   },
   "dependencies": {
     "papaparse": "^5.3.2",
     "chart.js": "^4.2.0",
     "@fullcalendar/core": "^6.1.4",
     "@fullcalendar/timegrid": "^6.1.4"
+  },
+  "devDependencies": {
+    "live-server": "^1.2.2"
   }
 }

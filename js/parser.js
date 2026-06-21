@@ -103,9 +103,25 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       window.__cosAnalyticsTermsShim = true;
     }
-    if (document.querySelector('script[src="js/enrollment-analytics.js"]')) return;
-    const script = document.createElement('script');
-    script.src = 'js/enrollment-analytics.js';
-    document.body.appendChild(script);
+    const loadScriptOnce = (src) => new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
+        if (existing.dataset.loaded === 'true') resolve();
+        else existing.addEventListener('load', resolve, { once: true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = () => {
+        script.dataset.loaded = 'true';
+        resolve();
+      };
+      script.onerror = () => reject(new Error(`Failed to load ${src}`));
+      document.body.appendChild(script);
+    });
+    loadScriptOnce('js/enrollment/metrics.js')
+      .then(() => loadScriptOnce('js/enrollment/consolidation.js'))
+      .then(() => loadScriptOnce('js/enrollment-analytics.js'))
+      .catch(err => console.error('Enrollment analytics failed to load:', err));
   }, 0);
 });
