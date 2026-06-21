@@ -120,6 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.body.appendChild(script);
     });
     loadScriptOnce('js/enrollment/metrics.js')
+      .then(() => loadScriptOnce('js/enrollment/filters.js'))
       .then(() => loadScriptOnce('js/enrollment/consolidation.js'))
       .then(() => loadScriptOnce('js/enrollment-analytics.js'))
       .catch(err => console.error('Enrollment analytics failed to load:', err));

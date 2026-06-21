@@ -35,8 +35,9 @@
   };
   const analyticsChoices = new Map();
   const metrics = window.COSEnrollmentMetrics;
+  const filterUtils = window.COSEnrollmentFilters;
   const consolidation = window.COSConsolidationAnalytics;
-  if (!metrics || !consolidation) {
+  if (!metrics || !filterUtils || !consolidation) {
     throw new Error('Enrollment analytics modules must load before js/enrollment-analytics.js');
   }
   const {
@@ -636,7 +637,7 @@
             </label>
             <label>Decision year <input id="attrDecisionYear" type="number" min="2022" max="2035" step="1"></label>
             <label><input id="attrIncludeHistory" type="checkbox" checked> include historical comparison terms</label>
-            ${filters('attr', { includeGroup: true, includeCancelled: false })}
+            ${filters('attr', { includeGroup: true, includeCancelled: false, includeDivision: true })}
             <button id="runAttrition" type="button">Run</button>
             <button id="clearAttrition" type="button">Clear</button>
             <button id="exportAttrition" type="button">Export CSV</button>
@@ -678,7 +679,7 @@
             <button id="archiveConsolidationUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="conArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Decision term <select id="conDecisionTerm"></select></label>
-            ${filters('con', { includeGroup: false, includeCancelled: true })}
+            ${filters('con', { includeGroup: false, includeCancelled: true, includeDivision: true })}
             <label>Min sections <input id="conMinSections" type="number" min="2" value="5" title="Minimum number of decision-term in-person sections a course must have before it is considered for in-person flow review."></label>
             <label>Low enrollment <input id="conLowEnroll" type="number" min="0" value="" placeholder="optional"></label>
             <label>Low fill % <input id="conLowFill" type="number" min="0" max="100" value="50"></label>
@@ -767,8 +768,10 @@
     const includeGroup = typeof options === 'boolean' ? options : Boolean(options.includeGroup);
     const includeCancelled = typeof options === 'boolean' ? true : options.includeCancelled !== false;
     const includeOrg = typeof options === 'object' && Boolean(options.includeOrg);
+    const includeDivision = includeOrg || (typeof options === 'object' && Boolean(options.includeDivision));
     return `
-      ${includeOrg ? `<label>Division <select id="${prefix}Division" multiple data-placeholder="All divisions"></select></label><label>Department <select id="${prefix}Department" multiple data-placeholder="All departments"></select></label>` : ''}
+      ${includeDivision ? `<label>Division <select id="${prefix}Division" multiple data-placeholder="All divisions"></select></label>` : ''}
+      ${includeOrg ? `<label>Department <select id="${prefix}Department" multiple data-placeholder="All departments"></select></label>` : ''}
       <label>Discipline <select id="${prefix}Subject" multiple data-placeholder="All disciplines"></select></label>
       <label>Course <select id="${prefix}Course" multiple data-placeholder="All courses"></select></label>
       <label>Campus <select id="${prefix}Campus" multiple data-placeholder="All campuses"></select></label>
@@ -789,9 +792,7 @@
   }
 
   function valueMatchesSelection(value, selectedValues) {
-    if (!selectedValues.length) return true;
-    const normalized = canon(value);
-    return selectedValues.some(selected => normalized === selected);
+    return filterUtils.valueMatchesSelection(value, selectedValues);
   }
 
   function uniqueOptions(rows, getter) {
@@ -2803,7 +2804,15 @@
       selected === REPORTS.demand ? 'demandLegend' :
       selected === REPORTS.instructorAvailability ? 'instructorAvailabilityLegend' : '';
     const text = document.getElementById(legendId)?.innerText || '';
-    return text.trim();
+    return [divisionFilterContextText(selected), text.trim()].filter(Boolean).join('\n\n');
+  }
+
+  function divisionFilterContextText(selectedReport) {
+    const prefix = selectedReport === REPORTS.attrition ? 'attr' :
+      selectedReport === REPORTS.consolidation ? 'con' :
+      selectedReport === REPORTS.demand ? 'dem' : '';
+    if (!prefix || !document.getElementById(prefix + 'Division')) return '';
+    return `Report Context\nDivision filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Division'))}`;
   }
 
   function selectedEnrollmentReport() {
