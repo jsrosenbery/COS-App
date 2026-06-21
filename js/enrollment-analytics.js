@@ -145,6 +145,7 @@
     const accountingMethod = canon(val(row, fields.accountingMethod));
     const ftesValue = val(row, fields.ftes);
     const enrollmentForFtes = census == null ? actual : census;
+    const enrollmentForPlanning = census == null ? actual : census;
     const normalized = {
       raw: row,
       term: canon(val(row, fields.term) || row.__sourceTerm || currentTerm()),
@@ -181,7 +182,7 @@
       waitlist: num(waitlistValue),
       hasWaitlistData: waitlistValue !== '',
       closedPriorCensus: isTruthy(val(row, fields.closed)),
-      fillRate: cap > 0 ? actual / cap : strictNum(val(row, fields.fill)) / 100,
+      fillRate: cap > 0 ? enrollmentForPlanning / cap : strictNum(val(row, fields.fill)) / 100,
       status: canon(val(row, fields.status))
     };
     normalized._meetingRows = [meetingRowForFtes(normalized)];
@@ -662,9 +663,9 @@
             <label>Low fill % <input id="conLowFill" type="number" min="0" max="100" value="50"></label>
             <label>Absorb % <input id="conAbsorbPct" type="number" min="1" max="100" value="60" title="Minimum share of a source section's enrolled students that nearby receiving sections must be able to absorb before the row is flagged."></label>
             <label>Lookback terms <input id="conLookback" type="number" min="0" max="12" value="6"></label>
-            <label>Min hist terms <input id="conMinHist" type="number" min="0" max="12" value="3"></label>
+            <label>Chronic low enrollment threshold <input id="conMinHist" type="number" min="0" max="12" value="3" title="Number of historical terms where this course/pattern was offered that must show low enrollment before it is considered chronically under-enrolled. 1 = low in any offered historical term; 2 = low in at least two; 3 = low in at least three."></label>
             <label>Chronic % <input id="conChronic" type="number" min="0" max="100" value="75"></label>
-            <label>Vacancy basis <select id="conVacancyBasis"><option value="actual">Historical final/current enrollment</option><option value="census">Historical census enrollment</option></select></label>
+            <label>Vacancy basis <select id="conVacancyBasis"><option value="census" selected>Historical census enrollment</option><option value="actual">Historical final/current enrollment</option></select></label>
             <label>Day match <select id="conDayMatch"><option value="exact">same day pattern</option><option value="overlap">shares any day</option><option value="any">any day</option></select></label>
             <label>Start window <select id="conTimeWindow"><option value="0">same start time</option><option value="1">+/- 1 hour</option><option value="2" selected>+/- 2 hours</option><option value="3">+/- 3 hours</option><option value="4">+/- 4 hours</option><option value="">any time</option></select></label>
             <label><input id="conSameCampus" type="checkbox" checked> same campus</label>
@@ -884,7 +885,7 @@
       const chronic = document.getElementById('conChronic');
       if (chronic) chronic.value = '75';
       const vacancyBasis = document.getElementById('conVacancyBasis');
-      if (vacancyBasis) vacancyBasis.value = 'actual';
+      if (vacancyBasis) vacancyBasis.value = 'census';
       const dayMatch = document.getElementById('conDayMatch');
       if (dayMatch) dayMatch.value = 'exact';
       const timeWindow = document.getElementById('conTimeWindow');
@@ -1199,6 +1200,14 @@
     };
   }
 
+  function censusEnrollment(row) {
+    return row.census == null ? row.actual : row.census;
+  }
+
+  function finalEnrollment(row) {
+    return row.actual;
+  }
+
   function dedupeEnrollmentRows(rows) {
     const map = new Map();
     rows.forEach(row => {
@@ -1253,8 +1262,8 @@
       const key = groupKey(row, groupBy);
       const item = grouped.get(key) || emptyAttritionRecord(key);
       const isDecisionTerm = row.term === decisionTerm;
-      const censusEnroll = row.census == null ? row.actual : row.census;
-      const finalEnroll = row.actual;
+      const censusEnroll = censusEnrollment(row);
+      const finalEnroll = finalEnrollment(row);
       item.sections += 1;
       item.census += censusEnroll;
       item.final += finalEnroll;
@@ -1279,6 +1288,11 @@
       ...r,
       terms: r.terms.size,
       historyTerms: r.historyTerms.size,
+      totalSeats: r.capacity,
+      courseHistoricalTermsIncluded: r.historyTerms.size,
+      overallHistoricalTermsIncluded: collectRowTerms(enrollment.filter(row => row.term && row.term !== decisionTerm)).length,
+      decisionTermIncluded: r.decisionSections > 0 ? 1 : 0,
+      totalUploadedTerms: r.terms.size,
       decisionAttritionCount: Math.max(0, r.decisionCensus - r.decisionFinal),
       decisionAttritionRate: r.decisionCensus > 0 ? Math.max(0, r.decisionCensus - r.decisionFinal) / r.decisionCensus : 0,
       historicalAttritionCount: Math.max(0, r.historyCensus - r.historyFinal),
@@ -1287,36 +1301,39 @@
       attritionRate: r.census > 0 ? Math.max(0, r.census - r.final) / r.census : 0,
       censusFillRate: r.capacity > 0 ? r.census / r.capacity : 0,
       finalFillRate: r.capacity > 0 ? r.final / r.capacity : 0,
+      emptySeatsAtCensus: Math.max(0, r.capacity - r.census),
+      emptySeatsAtFinal: Math.max(0, r.capacity - r.final),
       availableAtCensus: Math.max(0, r.capacity - r.census),
       availableAtEnd: Math.max(0, r.capacity - r.final)
-    })).sort((a, b) => b.decisionAttritionCount - a.decisionAttritionCount || b.attritionCount - a.attritionCount);
+    })).sort((a, b) => b.attritionCount - a.attritionCount || b.historicalAttritionCount - a.historicalAttritionCount);
     const decisionRows = state.attritionRows.filter(row => row.decisionSections > 0);
+    const filteredTerms = collectRowTerms(enrollment);
+    const historicalTerms = collectRowTerms(enrollment.filter(row => row.term && row.term !== decisionTerm));
     metric('attritionMetrics', [
       ['Decision Term', decisionTerm || 'N/A'],
-      ['Terms Included', includeHistory ? state.attritionTerms.length : 1],
+      ['Historical Terms Included', historicalTerms.length],
+      ['Decision Term Included', decisionRows.length ? 1 : 0],
+      ['Total Uploaded Terms', filteredTerms.length],
       ['Decision Sections', sum(decisionRows, 'decisionSections')],
-      ['Decision Census', sum(decisionRows, 'decisionCensus')],
-      ['Decision Final', sum(decisionRows, 'decisionFinal')],
-      ['Decision Attrition', pct(safeDiv(sum(decisionRows, 'decisionAttritionCount'), sum(decisionRows, 'decisionCensus')))],
       ['Historical Attrition', pct(safeDiv(sum(state.attritionRows, 'historicalAttritionCount'), sum(state.attritionRows, 'historyCensus')))]
     ]);
     table('attritionTable', state.attritionRows, [
       'group',
-      'terms',
+      'courseHistoricalTermsIncluded',
+      'overallHistoricalTermsIncluded',
+      'totalUploadedTerms',
       'decisionSections',
-      'decisionCensus',
-      'decisionFinal',
-      'decisionAttritionCount',
-      'decisionAttritionRate',
-      'historicalAttritionRate',
       'sections',
+      'totalSeats',
       'census',
       'final',
+      'attritionCount',
       'attritionRate',
+      'historicalAttritionRate',
       'censusFillRate',
       'finalFillRate',
-      'availableAtCensus',
-      'availableAtEnd'
+      'emptySeatsAtCensus',
+      'emptySeatsAtFinal'
     ]);
     renderAttritionLegend();
   }
@@ -1700,7 +1717,7 @@
       sameModality: document.getElementById('conSameModality')?.checked,
       dayMatch: document.getElementById('conDayMatch')?.value || 'exact',
       timeWindowHours: document.getElementById('conTimeWindow')?.value === '' ? null : Number(document.getElementById('conTimeWindow')?.value || 2),
-      vacancyBasis: document.getElementById('conVacancyBasis')?.value || 'actual',
+      vacancyBasis: document.getElementById('conVacancyBasis')?.value || 'census',
       absorbPct: Math.max(0.01, Math.min(1, Number(document.getElementById('conAbsorbPct')?.value || 60) / 100))
     };
     const onlineRows = rows.filter(isOnlineSection);
@@ -1717,13 +1734,13 @@
       const low = estimatedSections.filter((s) => isLowEnrollmentSection(s, lowFill, lowEnroll));
       low.forEach((source) => {
         const receivingPool = estimatedSections
-          .filter((target) => target !== source && target.cap - target.actual > 0)
+          .filter((target) => target !== source && expectedOpenSeats(target) > 0)
           .filter((target) => !options.sameCampus || target.campus === source.campus)
           .filter((target) => !options.sameModality || target.modality === source.modality)
           .filter((target) => dayWindowMatches(source, target, options.dayMatch))
           .filter((target) => timeWindowMatches(source, target, options.timeWindowHours));
-        const requiredSeats = Math.ceil(source.actual * options.absorbPct);
-        const poolOpenSeats = receivingPool.reduce((total, target) => total + Math.max(0, target.cap - target.actual), 0);
+        const requiredSeats = Math.ceil(expectedEnrollment(source) * options.absorbPct);
+        const poolOpenSeats = receivingPool.reduce((total, target) => total + expectedOpenSeats(target), 0);
         if (poolOpenSeats < requiredSeats) return;
         const candidates = receivingPool
           .map((target) => candidate(source, target, history, options))
@@ -1734,7 +1751,7 @@
             course,
             source,
             ...best,
-            matchReason: `${best.matchReason}; ${poolOpenSeats} historical-estimated pooled open seats for ${requiredSeats} required seats`,
+            matchReason: `${best.matchReason}; ${poolOpenSeats} census-based expected pooled open seats for ${requiredSeats} required seats`,
             receivingPool,
             poolOpenSeats,
             requiredSeats,
@@ -1752,7 +1769,7 @@
       ['Courses Reviewed', allCourseCount],
       ['Online Reduction Candidates', onlineOpportunities.length],
       ['In-Person Flow Candidates', flowOpportunities.length],
-      ['Historical Low Rule', lowEnroll == null ? `<= ${pct(lowFill)} expected fill` : `<= ${lowEnroll} expected enroll`],
+      ['Chronic Low Enrollment Threshold', lowEnroll == null ? `<= ${pct(lowFill)} census-based expected fill` : `<= ${lowEnroll} census-based expected enrollment`],
       ['Seats Potentially Freed', sum(state.consolidationRows, 'freedSeats')],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
@@ -1870,7 +1887,7 @@
   }
 
   function demandColumns() {
-    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'avgCensusEnrollment', 'avgFtes', 'avgFillRate', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'adjustedForecastGrowth', 'expectedEnrollmentNextTerm', 'expectedFtesNextTerm', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'adjustedForecastGrowth', 'expectedEnrollmentNextTerm', 'expectedFtesNextTerm', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance'];
   }
 
   function demandForecastRowsForLevels(rows, context, modifierGrowth = 0) {
@@ -1909,6 +1926,8 @@
     const avgCapacity = average(termRows.map(row => row.capacity));
     const avgCapPerSection = Math.max(1, average(rows.map(row => row.cap).filter(Boolean)));
     const avgFillRate = average(termRows.map(row => row.fillRate));
+    const avgFinalFillRate = average(termRows.map(row => row.finalFillRate));
+    const avgAttritionCount = Math.round(average(termRows.map(row => row.attritionCount)));
     const avgAttritionRate = average(termRows.map(row => row.attritionRate));
     const avgWaitlistCount = Math.round(average(termRows.map(row => row.waitlist)));
     const avgSections = average(termRows.map(row => row.sections));
@@ -1958,6 +1977,8 @@
       avgFinalEnrollment,
       avgFtes,
       avgFillRate,
+      avgFinalFillRate,
+      avgAttritionCount,
       avgAttritionRate,
       avgWaitlistCount,
       collegeGrowth: context.collegeGrowth,
@@ -1991,6 +2012,8 @@
       capacity,
       waitlist: sum(rows, 'waitlist'),
       fillRate: safeDiv(census, capacity),
+      finalFillRate: safeDiv(final, capacity),
+      attritionCount: Math.max(0, census - final),
       attritionRate: safeDiv(Math.max(0, census - final), census),
       filledAtCensus: rows.filter(row => row.cap > 0 && (row.census == null ? row.actual : row.census) >= row.cap).length,
       closedPriorCensus: rows.filter(row => row.closedPriorCensus || /CLOSED/.test(row.status)).length,
@@ -2208,9 +2231,21 @@
     return row.modality === 'ONLINE' || row.timeBlock === 'ONLINE/TBA';
   }
 
-  function enrollmentForBasis(row, basis) {
-    if (basis === 'census' && row.census != null) return row.census;
-    return row.actual;
+  function enrollmentForBasis(row, basis = 'census') {
+    if (basis === 'actual') return finalEnrollment(row);
+    return censusEnrollment(row);
+  }
+
+  function expectedEnrollment(row) {
+    return row.expectedEnrollment ?? censusEnrollment(row);
+  }
+
+  function expectedFillRate(row) {
+    return row.expectedFillRate ?? row.fillRate ?? safeDiv(expectedEnrollment(row), row.cap);
+  }
+
+  function expectedOpenSeats(row) {
+    return Math.max(0, (row.cap || 0) - expectedEnrollment(row));
   }
 
   function median(values) {
@@ -2228,7 +2263,7 @@
     return `${section.subject} ${section.course}`;
   }
 
-  function historicalDemandMap(rows, basis = 'actual') {
+  function historicalDemandMap(rows, basis = 'census') {
     const maps = { pattern: new Map(), course: new Map() };
     rows.forEach(row => {
       addDemandSample(maps.pattern, patternKey(row), row, basis);
@@ -2270,7 +2305,12 @@
     return {
       ...section,
       actual: enrollment,
+      finalEnrollment: finalEnrollment(section),
+      expectedEnrollment: enrollment,
+      expectedFinalEnrollment: finalEnrollment(section),
+      expectedFillRate: section.cap > 0 ? enrollment / section.cap : estimate.fillRate,
       fillRate: section.cap > 0 ? enrollment / section.cap : estimate.fillRate,
+      expectedOpenSeats: Math.max(0, (section.cap || 0) - enrollment),
       historicalEstimate: estimate,
       historicalEstimateType: exact ? 'exact pattern' : 'course average'
     };
@@ -2320,7 +2360,7 @@
         possibleReductions,
         recommendedReductions,
         freedSeats: recommendedReductions * sectionCap,
-        matchReason: `${vacancies} expected vacant seats across ${sections.length} decision-term online sections using ${historicalByTerm.size} historical term(s) and ${options.vacancyBasis === 'census' ? 'census' : 'final/current'} enrollment`,
+        matchReason: `${vacancies} expected vacant seats across ${sections.length} decision-term online sections using ${historicalByTerm.size} historical term(s) and ${options.vacancyBasis === 'actual' ? 'final/current' : 'census'} enrollment`,
         historicalTerms: historicalByTerm.size,
         chronicLowFill: ''
       });
@@ -2350,8 +2390,8 @@
   }
 
   function isLowEnrollmentSection(section, lowFill, lowEnroll) {
-    if (lowEnroll != null) return section.actual <= lowEnroll;
-    return section.fillRate <= lowFill;
+    if (lowEnroll != null) return expectedEnrollment(section) <= lowEnroll;
+    return expectedFillRate(section) <= lowFill;
   }
 
   function dayWindowMatches(source, target, mode) {
@@ -2454,11 +2494,11 @@
   function flattenOpportunity(row) {
     const isOnline = row.type === 'Online Reduction';
     const sourceSummary = row.source
-      ? `${describe(row.source)}; historical expected enroll ${row.source.actual}; expected fill ${pct(row.source.fillRate)}; ${row.source.historicalEstimateType || 'historical estimate'}`
-      : `Online aggregate; expected enroll ${row.sourceEnroll}; fill ${pct(row.sourceFill)}`;
-    const targetOpenSeats = row.target ? Math.max(0, row.target.cap - row.target.actual) : row.targetOpenSeats;
+      ? `${describe(row.source)}; census-based expected enroll ${expectedEnrollment(row.source)}; census fill ${pct(expectedFillRate(row.source))}; final enrollment context ${row.source.expectedFinalEnrollment ?? row.source.finalEnrollment ?? ''}; ${row.source.historicalEstimateType || 'historical estimate'}`
+      : `Online aggregate; census-based expected enroll ${row.sourceEnroll}; fill ${pct(row.sourceFill)}`;
+    const targetOpenSeats = row.target ? expectedOpenSeats(row.target) : row.targetOpenSeats;
     const targetSummary = row.target
-      ? `${describe(row.target)}; historical expected enroll ${row.target.actual}; best expected open ${targetOpenSeats}; pool expected open ${row.poolOpenSeats ?? targetOpenSeats}; required ${row.requiredSeats ?? row.source?.actual ?? ''}`
+      ? `${describe(row.target)}; census-based expected enroll ${expectedEnrollment(row.target)}; best expected open ${targetOpenSeats}; pool expected open ${row.poolOpenSeats ?? targetOpenSeats}; required ${row.requiredSeats ?? expectedEnrollment(row.source) ?? ''}`
       : '';
     const onlineSummary = isOnline
       ? `${row.vacancies ?? 0} expected vacancies; median cap ${row.sectionCap ?? 0}; possible reductions ${row.possibleReductions ?? 0}`
@@ -2474,11 +2514,11 @@
       sections: row.sections || row.sectionCount || '',
       sourceSummary,
       sourceSection: row.source ? describe(row.source) : 'Online aggregate',
-      sourceEnroll: row.source ? row.source.actual : row.sourceEnroll,
-      sourceFill: row.source ? pct(row.source.fillRate) : pct(row.sourceFill),
+      sourceEnroll: row.source ? expectedEnrollment(row.source) : row.sourceEnroll,
+      sourceFill: row.source ? pct(expectedFillRate(row.source)) : pct(row.sourceFill),
       targetSummary,
       targetSection: row.target ? describe(row.target) : '',
-      targetEnroll: row.target ? row.target.actual : '',
+      targetEnroll: row.target ? expectedEnrollment(row.target) : '',
       targetOpenSeats,
       onlineSummary,
       vacancies: row.vacancies ?? '',
@@ -2597,26 +2637,26 @@
     if (!legend) return;
     const items = [
       ['Group', 'The current grouping selected in Group by, usually Discipline + Course.'],
-      ['Terms', 'Number of uploaded terms represented in that row after filters are applied.'],
+      ['Course Historical Terms Included', 'Number of historical comparison terms where this specific row grouping appears after filters are applied. The selected decision term is excluded.'],
+      ['Overall Historical Terms Included', 'Number of uploaded historical comparison terms used after filters are applied. The selected decision/future term is excluded.'],
+      ['Total Uploaded Terms', 'Number of distinct uploaded terms represented in that row after filters are applied, including the decision term when present.'],
       ['Decision Sections', 'Number of sections for the selected decision term only.'],
-      ['Decision Census', 'Sum of CENSUS_ENROLL for the selected decision term only.'],
-      ['Decision Final', 'Sum of ACTUAL_ENROLL for the selected decision term only. If the decision-term file is not final or is a current snapshot, this can match Decision Census.'],
-      ['Decision Attrition Count', 'Decision Census minus Decision Final, floored at zero.'],
-      ['Decision Attrition Rate', 'Decision Attrition Count divided by Decision Census.'],
+      ['Total Seats', 'Total MAX ENROLL capacity across the row grouping and included terms.'],
+      ['Census Enrollment', 'CENSUS_ENROLL across included terms. If CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
+      ['Final Enrollment', 'ACTUAL_ENROLL across included terms. This remains visible for attrition/retention context and does not drive consolidation or forecast recommendations.'],
+      ['Attrition Count', 'Census Enrollment minus Final Enrollment, floored at zero.'],
+      ['Attrition Rate', 'Attrition Count divided by Census Enrollment.'],
       ['Historical Attrition Rate', 'Historical attrition from comparison terms only; it excludes the decision term.'],
       ['All Terms Sections', 'Section count across the decision term plus included comparison terms.'],
-      ['All Terms Census', 'CENSUS_ENROLL across all included terms.'],
-      ['All Terms Final', 'ACTUAL_ENROLL across all included terms.'],
-      ['All Terms Attrition Rate', 'All Terms Census minus All Terms Final, divided by All Terms Census.'],
-      ['All Terms Census Fill', 'All Terms Census divided by total MAX ENROLL. Values above 100% mean sections exceeded listed capacity.'],
-      ['All Terms Final Fill', 'All Terms Final divided by total MAX ENROLL. Values above 100% mean sections exceeded listed capacity.'],
-      ['All Terms Available At Census', 'MAX ENROLL minus CENSUS_ENROLL across all included terms, floored at zero.'],
-      ['All Terms Available At End', 'MAX ENROLL minus ACTUAL_ENROLL across all included terms, floored at zero.']
+      ['Census Fill Rate', 'Census Enrollment divided by Total Seats. Values above 100% mean sections exceeded listed capacity.'],
+      ['Final Fill Rate', 'Final Enrollment divided by Total Seats. Values above 100% mean sections exceeded listed capacity.'],
+      ['Empty Seats at Census', 'Total Seats minus Census Enrollment, floored at zero.'],
+      ['Empty Seats at Final', 'Total Seats minus Final Enrollment, floored at zero.']
     ];
     renderMethodologyPanel(legend, {
       title: 'Enrollment Attrition Methodology & Data Dictionary',
       purpose: 'Identifies enrollment loss between census and final/current enrollment and compares decision-term attrition against historical comparison terms.',
-      methodology: 'Decision columns isolate the selected decision term. All Terms columns combine the decision term with any included comparison terms. Historical columns use comparison terms only.',
+      methodology: 'The selected decision term is tracked separately from historical comparison terms. Historical term counts and historical attrition exclude the decision/future term. Census enrollment is the demand basis; final enrollment remains visible as attrition context.',
       assumptions: 'CENSUS_ENROLL is treated as census enrollment. ACTUAL_ENROLL is treated as final enrollment when the source file is final and as current enrollment when the source file is an in-progress snapshot.',
       limitations: 'This report does not know why students left, whether a term file is final unless the uploaded source reflects that, or whether external retention interventions occurred.',
       items,
@@ -2632,20 +2672,20 @@
       ['Instructional methods', 'Online, In Person, and Hybrid are derived from instructional method codes. CPL, DE, CBE, and unmapped archived code 98 are omitted from these analytics datasets.'],
       ['Decision term', 'The term being reviewed for planned consolidation opportunities. For in-person rows, the decision term supplies planned sections, meeting patterns, and capacity, not the enrollment demand used to trigger recommendations.'],
       ['Min sections', 'Minimum number of decision-term in-person sections a course must have before in-person flow rows are considered. Online reduction rows use a separate minimum of two online sections, then require enough historical vacancy to remove at least one section.'],
-      ['Low enrollment', 'Optional strict enrollment threshold. If entered, an in-person source section is considered low when its historical expected enrollment is at or below this number.'],
-      ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. An in-person source section is low-filled when historical expected enrollment divided by decision-term capacity is at or below this threshold.'],
-      ['Absorb %', 'Minimum share of the source section historical expected enrollment that eligible receiving sections must collectively be able to absorb. The default 60% means a source expected to draw 16 students needs at least 10 expected pooled open seats among matching sections.'],
-      ['Vacancy basis', 'Controls online vacancy math from historical comparison terms. Historical final/current uses ACTUAL_ENROLL. Historical census uses CENSUS_ENROLL when available. The decision term supplies offered sections and capacity, not current in-progress demand.'],
+      ['Low enrollment', 'Optional strict enrollment threshold. If entered, an in-person source section is considered low when its census-based historical expected enrollment is at or below this number.'],
+      ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. An in-person source section is low-filled when census-based historical expected enrollment divided by decision-term capacity is at or below this threshold.'],
+      ['Absorb %', 'Minimum share of the source section census-based historical expected enrollment that eligible receiving sections must collectively be able to absorb. The default 60% means a source expected to draw 16 students needs at least 10 expected pooled open seats among matching sections.'],
+      ['Vacancy basis', 'Controls online vacancy math from historical comparison terms. The default Historical census option uses CENSUS_ENROLL when available. Historical final/current uses ACTUAL_ENROLL only when explicitly selected. The decision term supplies offered sections and capacity, not current in-progress demand.'],
       ['Lookback terms', 'Number of prior terms to check for historical low-fill patterns when backend schedule history is available.'],
-      ['Min hist terms', 'Minimum number of historical matches needed before a pattern can be labeled chronic.'],
-      ['Chronic %', 'Historical low-fill share required to mark the source pattern as chronic. Example: 75% means at least three out of four matching historical patterns were low-filled.'],
+      ['Chronic Low Enrollment Threshold', 'Number of historical terms where the course/pattern was actually offered that must show low enrollment before it can be labeled chronically under-enrolled. 1 = low in any offered historical term; 2 = low in at least two; 3 = low in at least three.'],
+      ['Chronic %', 'Historical low-fill share required to mark the source pattern as chronic. Example: 75% means at least three out of four offered matching historical patterns were low-filled.'],
       ['Day match', 'Controls which receiving sections can be considered: exact same meeting pattern, any shared meeting day, or any day.'],
       ['Start window', 'Controls how far apart source and receiving section start times can be. The default +/- 2 hours means a 10:00 source can match starts from 8:00 through 12:00.'],
       ['Same campus', 'When checked, source and receiving sections must be on the same campus.'],
       ['Same modality', 'When checked, source and receiving sections must use the same instructional modality.'],
       ['Score', 'In-person flow starts at 25 points, then adds 15 for same campus, 15 for same modality, 20 for same day and start time, or 10 for same day pattern, 10 for same instructor, 5 for same room, and 10 for chronic historical low fill. Online reduction starts at 55 and increases with the number of reducible sections. Scores cap at 100.'],
-      ['Source Summary', 'The planned in-person section being reviewed, using historical expected enrollment. Exact historical section pattern is used first; if unavailable, course average is used. If no historical basis exists, the section is not flagged.'],
-      ['Target Summary', 'Shows the best matching planned receiving section for scoring plus the total historically expected pooled open seats across all eligible receiving sections. In-person rows are flagged when the pool meets the selected Absorb % threshold.'],
+      ['Source Summary', 'The planned in-person section being reviewed, using census-based historical expected enrollment. Exact historical section pattern is used first; if unavailable, course average is used. If no historical basis exists, the section is not flagged.'],
+      ['Target Summary', 'Shows the best matching planned receiving section for scoring plus the total census-based expected pooled open seats across all eligible receiving sections. In-person rows are flagged when the pool meets the selected Absorb % threshold.'],
       ['Vacancies', 'For online reduction rows, expected open seats across decision-term online sections. This compares decision-term capacity to average historical enrollment and historical vacancy patterns.'],
       ['Section Cap', 'For online reduction rows, the median online section cap used as the standard section size.'],
       ['Possible Reductions', 'For online rows, Vacancies divided by Section Cap, rounded down.'],
@@ -2691,10 +2731,13 @@
       ['Terms', 'Table column. Number of included historical terms represented in that row.'],
       ['Historical Sections Total', 'Table column. Sum of section counts across included historical terms or FY/AY buckets. Sections are deduplicated by term + CRN when CRN is available, with term + discipline + course + section fallback. This is intended to avoid double-counting multi-meeting rows for the same section.'],
       ['Average Sections Offered', 'Table column. Average historical sections per included term or FY/AY bucket. For an Academic year forecast, this is the annual average section count across the included historical years.'],
-      ['Average Census Enrollment', 'Table column. Average historical census enrollment across included terms or FY/AY buckets. For an Academic year forecast, this is the annual average census enrollment. Formula: average of bucket-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
+      ['Historical Avg Census Enrollment', 'Table column. Average historical census enrollment across included terms or FY/AY buckets. For an Academic year forecast, this is the annual average census enrollment. Formula: average of bucket-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
+      ['Historical Avg Final Enrollment', 'Table column. Average historical final/current enrollment across included terms or FY/AY buckets. Formula: average of bucket-level sum(ACTUAL_ENROLL). This is context only and does not drive the forecast.'],
       ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates FTES from ACCOUNTING METHOD and available contact-hour fields. W/IW/unknown use census enrollment x weekly hours x 17.5 / 525. D/ID/P/E use census enrollment x TOTAL_CONTACT_HOURS / 525. If contact hours are unavailable but units are present, fallback formula is census enrollment x units / 30. If FTES, contact hours, and units are unavailable, FTES is 0.'],
-      ['Average Fill Rate', 'Table column. Average of term-level census fill rates. Formula per term: sum(census enrollment) / sum(MAX ENROLL).'],
-      ['Average Attrition %', 'Table column. Average of term-level attrition rates. Formula per term: max(0, census enrollment - actual enrollment) / census enrollment. This is context only and does not drive cancellation logic.'],
+      ['Historical Census Fill Rate', 'Table column. Average of term-level census fill rates. Formula per term: sum(census enrollment) / sum(MAX ENROLL).'],
+      ['Historical Final Fill Rate', 'Table column. Average of term-level final fill rates. Formula per term: sum(ACTUAL_ENROLL) / sum(MAX ENROLL).'],
+      ['Historical Avg Attrition Count', 'Table column. Average of term-level attrition counts. Formula per term: max(0, census enrollment - actual enrollment). This is context only and does not drive cancellation logic.'],
+      ['Historical Avg Attrition Rate', 'Table column. Average of term-level attrition rates. Formula per term: max(0, census enrollment - actual enrollment) / census enrollment. This is context only and does not drive cancellation logic.'],
       ['Average Waitlist Count', 'Table column. Average historical waitlisted students across included terms when waitlist columns are present. Formula: average of term-level sum(waitlist).'],
       ['Waitlist Data Present', 'Table column. Yes when at least one source row for that forecast row includes a waitlist value. If no waitlist column exists, waitlist values remain 0 and should not be interpreted as confirmed no demand.'],
       ['Division Growth', 'Table column. Growth rate for the row division across included terms. Formula: average per-term change in division census enrollment / first included division census enrollment. Falls back to College Growth when division data is unavailable.'],
@@ -2702,10 +2745,10 @@
       ['Course Growth', 'Table column. Course or group-specific growth rate across included terms. Formula: average per-term change in the row census enrollment / first included census enrollment. For aggregate rows, this represents that aggregate row trend.'],
       ['Modifier Growth', 'Table column. Manual enrollment-growth assumption from Overall enrollment modifier %. Formula: entered percentage / 100.'],
       ['Forecast Growth', 'Table column. Adjusted growth used for the forecast. Course rows use 50% course growth + 20% discipline growth + 15% division growth + 15% college growth + modifier. Division rows use 70% division growth + 30% college growth + modifier. Discipline rows use 60% discipline growth + 25% division growth + 15% college growth + modifier. College rows use college growth + modifier. Values are capped between -75% and +150%.'],
-      ['Forecast Enrollment', 'Table column. Forecasted census enrollment for the selected forecast term or FY/AY. Formula: Average Census Enrollment x (1 + Forecast Growth), rounded to the nearest whole student.'],
+      ['Census-Based Expected Enrollment', 'Table column. Forecasted census enrollment for the selected forecast term or FY/AY. Formula: Historical Avg Census Enrollment x (1 + Forecast Growth), rounded to the nearest whole student.'],
       ['Forecast FTES', 'Table column. Forecasted FTES for the selected forecast term or FY/AY. Formula: Average FTES x (1 + Forecast Growth). This is the value to compare against an entered FTES cap.'],
-      ['Expected Fill Rate', 'Table column. Forecasted utilization of offered capacity. Formula: Forecast Enrollment / average historical capacity.'],
-      ['Forecast Sections Needed', 'Table column. Forecasted section need for the selected forecast term or FY/AY based on average section capacity. Formula: ceiling((Forecast Enrollment + Average Waitlist Count) / average section capacity).'],
+      ['Expected Census Fill Rate', 'Table column. Forecasted utilization of offered capacity. Formula: Census-Based Expected Enrollment / average historical capacity.'],
+      ['Forecast Sections Needed', 'Table column. Forecasted section need for the selected forecast term or FY/AY based on average section capacity. Formula: ceiling((Census-Based Expected Enrollment + Average Waitlist Count) / average section capacity).'],
       ['Suggested Section Count', 'Table column. Planning estimate currently equal to Forecast Sections Needed, floored at 1. This is a planning input, not an instruction to add, cancel, or consolidate sections.'],
       ['Forecast Confidence', 'Table column. High when at least four terms are included and average fill-rate variance is below 5 percentage points. Medium when at least three terms are included. Otherwise Low.'],
       ['Capacity Guidance', 'Table column. Plain-language interpretation of Forecast Growth and section need: expanding, moderate growth, stable, slight softening, or softening. It is not a direct cancellation or consolidation recommendation.'],
@@ -2778,25 +2821,30 @@
       group: 'Group',
       subject: 'Discipline',
       decisionSections: 'Decision Sections',
-      decisionCensus: 'Decision Census',
-      decisionFinal: 'Decision Final',
-      decisionAttritionCount: 'Decision Attrition Count',
-      decisionAttritionRate: 'Decision Attrition Rate',
+      totalSeats: 'Total Seats',
+      emptySeatsAtCensus: 'Empty Seats at Census',
+      emptySeatsAtFinal: 'Empty Seats at Final',
+      courseHistoricalTermsIncluded: 'Course Historical Terms Included',
+      overallHistoricalTermsIncluded: 'Overall Historical Terms Included',
+      totalUploadedTerms: 'Total Uploaded Terms',
+      decisionTermIncluded: 'Decision Term Included',
       historicalAttritionRate: 'Historical Attrition Rate',
+      historicalAttritionCount: 'Historical Avg Attrition Count',
       sections: 'All Terms Sections',
-      census: 'All Terms Census',
-      final: 'All Terms Final',
+      census: 'Census Enrollment',
+      final: 'Final Enrollment',
+      attritionCount: 'Attrition Count',
       attritionRate: 'All Terms Attrition Rate',
-      censusFillRate: 'All Terms Census Fill',
-      finalFillRate: 'All Terms Final Fill',
-      availableAtCensus: 'All Terms Available At Census',
-      availableAtEnd: 'All Terms Available At End',
+      censusFillRate: 'Census Fill Rate',
+      finalFillRate: 'Final Fill Rate',
+      availableAtCensus: 'Empty Seats at Census',
+      availableAtEnd: 'Empty Seats at Final',
       type: 'Type',
       sections: 'Sections',
       sourceSummary: 'Source Summary',
-      sourceEnroll: 'Source Enroll',
+      sourceEnroll: 'Source Expected Enrollment',
       targetSummary: 'Target Summary',
-      targetEnroll: 'Target Enroll',
+      targetEnroll: 'Target Expected Enrollment',
       targetOpenSeats: 'Target Open Seats',
       onlineSummary: 'Online Vacancy Math',
       sectionCap: 'Section Cap',
@@ -2805,18 +2853,20 @@
       recommendation: 'Recommendation',
       freedSeats: 'Freed Seats',
       matchReason: 'Match Reason',
-      historicalTerms: 'Historical Terms',
+      historicalTerms: 'Course Historical Terms Included',
       chronicLowFill: 'Chronic Low Fill',
       forecastLevel: 'Forecast Level',
       groupName: 'Forecast Group',
       courseTitle: 'Course Title',
       totalSectionsOffered: 'Historical Sections Total',
       avgSectionsOffered: 'Average Sections Offered',
-      avgCensusEnrollment: 'Average Census Enrollment',
-      avgFinalEnrollment: 'Average Final Enrollment',
+      avgCensusEnrollment: 'Historical Avg Census Enrollment',
+      avgFinalEnrollment: 'Historical Avg Final Enrollment',
       avgFtes: 'Average FTES',
-      avgFillRate: 'Average Fill Rate',
-      avgAttritionRate: 'Average Attrition %',
+      avgFillRate: 'Historical Census Fill Rate',
+      avgFinalFillRate: 'Historical Final Fill Rate',
+      avgAttritionCount: 'Historical Avg Attrition Count',
+      avgAttritionRate: 'Historical Avg Attrition Rate',
       avgWaitlistCount: 'Average Waitlist Count',
       hasWaitlistData: 'Waitlist Data Present',
       sectionsFilledAtCensus: 'Sections Filled at Census',
@@ -2833,9 +2883,9 @@
       courseGrowth: 'Course Growth',
       modifierGrowth: 'Modifier Growth',
       adjustedForecastGrowth: 'Forecast Growth',
-      expectedEnrollmentNextTerm: 'Forecast Enrollment',
+      expectedEnrollmentNextTerm: 'Census-Based Expected Enrollment',
       expectedFtesNextTerm: 'Forecast FTES',
-      expectedFillRate: 'Expected Fill Rate',
+      expectedFillRate: 'Expected Census Fill Rate',
       expectedSectionsNeeded: 'Forecast Sections Needed',
       suggestedSectionCount: 'Suggested Section Count',
       forecastConfidence: 'Forecast Confidence',
