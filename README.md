@@ -9,7 +9,15 @@ npm install
 npm start
 ```
 
-The start script uses `live-server`. The active browser entrypoint is `index.html`, which loads `js/config.js`, `js/parser.js`, mapping/catalog data files, and then `js/app.js`.
+The start script uses the local `live-server` dev dependency on `127.0.0.1:8080`. The active browser entrypoint is `index.html`, which loads `js/config.js`, `js/parser.js`, mapping/catalog data files, and then `js/app.js`.
+
+## Tests
+
+```bash
+npm test
+```
+
+The current smoke tests exercise the extracted Enrollment Management metric and consolidation modules under Node's built-in test runner.
 
 ## Runtime Config
 
@@ -31,7 +39,9 @@ For a different backend, override `window.COS_APP_CONFIG.backendBaseUrl` before 
 - `js/shared/utils.js`: shared browser utilities for gradual extraction from `app.js`.
 - `js/admin.js`, `js/availability.js`, `js/heatmap.js`, `js/modality.js`, `js/utilization.js`: feature namespaces used as landing zones while `app.js` is split.
 - `js/parser.js`: CSV parsing/normalization plus compatibility shims for the enrollment analytics module.
-- `js/enrollment-analytics.js`: supplemental Enrollment Management reports loaded by `parser.js`.
+- `js/enrollment-analytics.js`: supplemental Enrollment Management report UI/orchestration loaded by `parser.js`.
+- `js/enrollment/metrics.js`: shared enrollment metric calculations used by reports and smoke tests.
+- `js/enrollment/consolidation.js`: Section Consolidation recommendation logic used by the report and smoke tests.
 - `js/cal_getc_mapping.js`, `js/curriculum_crosswalk.js`, `js/roomCatalog.js`: bundled fallback data used when backend data is missing.
 
 `js/main.js` was an older modular entrypoint. It expected DOM IDs that are not present in `index.html` and was not loaded by the app shell, so it was removed as orphaned code.
@@ -80,4 +90,4 @@ Developer schema references:
 
 1. Continue moving large report/tool sections out of `js/app.js` only after each extraction has focused browser regression testing.
 2. Convert feature namespaces into deeper modules as local state is untangled from the `DOMContentLoaded` closure.
-3. Add automated browser smoke tests for upload, room availability, heatmap, modality, utilization, and Enrollment Management unlock flows.
+3. Expand automated coverage from enrollment analytics smoke tests into browser smoke tests for upload, room availability, heatmap, modality, utilization, and Enrollment Management unlock flows.
