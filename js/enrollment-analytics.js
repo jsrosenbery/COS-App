@@ -1731,49 +1731,28 @@
       const course = key.split('||')[1] || key;
       if (sections.length < minSections) return;
       const estimatedSections = sections.map(section => withHistoricalEstimate(section, historicalDemand)).filter(Boolean);
-      const low = estimatedSections.filter((s) => isLowEnrollmentSection(s, lowFill, lowEnroll));
-      low.forEach((source) => {
-        const receivingPool = estimatedSections
-          .filter((target) => target !== source && expectedOpenSeats(target) > 0)
-          .filter((target) => !options.sameCampus || target.campus === source.campus)
-          .filter((target) => !options.sameModality || target.modality === source.modality)
-          .filter((target) => dayWindowMatches(source, target, options.dayMatch))
-          .filter((target) => timeWindowMatches(source, target, options.timeWindowHours));
-        const requiredSeats = Math.ceil(expectedEnrollment(source) * options.absorbPct);
-        const poolOpenSeats = receivingPool.reduce((total, target) => total + expectedOpenSeats(target), 0);
-        if (poolOpenSeats < requiredSeats) return;
-        const candidates = receivingPool
-          .map((target) => candidate(source, target, history, options))
-          .sort((a, b) => b.score - a.score);
-        if (candidates[0]) {
-          const best = candidates[0];
-          state.consolidationRows.push({
-            course,
-            source,
-            ...best,
-            matchReason: `${best.matchReason}; ${poolOpenSeats} census-based expected pooled open seats for ${requiredSeats} required seats`,
-            receivingPool,
-            poolOpenSeats,
-            requiredSeats,
-            absorbPct: options.absorbPct,
-            sectionCount: sections.length
-          });
-        }
-      });
+      consolidationGroupRows(course, estimatedSections, history, lowFill, lowEnroll, options)
+        .forEach(row => state.consolidationRows.push(row));
     });
     state.consolidationRows.sort((a, b) => b.score - a.score);
     const onlineOpportunities = state.consolidationRows.filter(row => row.type === 'Online Reduction');
-    const flowOpportunities = state.consolidationRows.filter(row => row.type === 'In-Person Flow');
+    const flowOpportunities = state.consolidationRows.filter(row => row.type !== 'Online Reduction');
+    const potentialSectionReductions = sum(state.consolidationRows, 'potentialSectionsRemoved') || sum(state.consolidationRows, 'recommendedReductions');
+    const seatsRecovered = sum(state.consolidationRows, 'potentialSeatsRecovered') || sum(state.consolidationRows, 'freedSeats');
     metric('consolidationMetrics', [
       ['Decision Term', decisionTerm || 'N/A'],
       ['Courses Reviewed', allCourseCount],
+      ['Potential Consolidations', state.consolidationRows.length],
+      ['Potential Section Reductions', potentialSectionReductions],
+      ['Potential Seats Recovered', seatsRecovered],
+      ['Estimated FTES Impact', state.consolidationRows.length ? 'Neutral if absorbed' : 'N/A'],
       ['Online Reduction Candidates', onlineOpportunities.length],
-      ['In-Person Flow Candidates', flowOpportunities.length],
+      ['In-Person Consolidation Candidates', flowOpportunities.filter(row => row.type === 'In-Person Consolidation').length],
+      ['Hybrid Consolidation Candidates', flowOpportunities.filter(row => row.type === 'Hybrid Consolidation').length],
       ['Chronic Low Enrollment Threshold', lowEnroll == null ? `<= ${pct(lowFill)} census-based expected fill` : `<= ${lowEnroll} census-based expected enrollment`],
-      ['Seats Potentially Freed', sum(state.consolidationRows, 'freedSeats')],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
-    table('consolidationTable', state.consolidationRows.map(flattenOpportunity), ['type', 'score', 'label', 'course', 'sections', 'sourceSummary', 'targetSummary', 'onlineSummary', 'recommendation', 'freedSeats', 'matchReason', 'historicalTerms', 'chronicLowFill']);
+    renderConsolidationTables(state.consolidationRows.map(flattenOpportunity));
     renderConsolidationLegend();
   }
 
@@ -2228,7 +2207,16 @@
   }
 
   function isOnlineSection(row) {
-    return row.modality === 'ONLINE' || row.timeBlock === 'ONLINE/TBA';
+    return row.modality === 'ONLINE';
+  }
+
+  function isTbaSection(row) {
+    return row.dayPattern === 'TBA' || !row.start || row.start === '00:00';
+  }
+
+  function consolidationType(row) {
+    if (row.modality === 'HYBRID') return 'Hybrid Consolidation';
+    return 'In-Person Consolidation';
   }
 
   function enrollmentForBasis(row, basis = 'census') {
@@ -2312,8 +2300,111 @@
       fillRate: section.cap > 0 ? enrollment / section.cap : estimate.fillRate,
       expectedOpenSeats: Math.max(0, (section.cap || 0) - enrollment),
       historicalEstimate: estimate,
-      historicalEstimateType: exact ? 'exact pattern' : 'course average'
+      historicalEstimateType: exact ? 'exact pattern' : 'course average',
+      projectionSource: exact ? `Historical Average (${estimate.terms} terms)` : `Course Historical Average (${estimate.terms} terms)`
     };
+  }
+
+  function consolidationGroupKey(section, options = {}) {
+    return [
+      courseKey(section),
+      section.modality,
+      options.sameCampus ? section.campus : 'ANY CAMPUS',
+      section.dayPattern || 'TBA',
+      section.start || 'TBA',
+      section.end || 'TBA'
+    ].join('|');
+  }
+
+  function consolidationGroupRows(course, sections, history, lowFill, lowEnroll, options) {
+    const output = [];
+    group(sections, section => consolidationGroupKey(section, options)).forEach((groupSections) => {
+      if (groupSections.length < 2) return;
+      const lowSections = groupSections
+        .filter(section => isLowEnrollmentSection(section, lowFill, lowEnroll))
+        .sort((a, b) => expectedEnrollment(a) - expectedEnrollment(b));
+      if (!lowSections.length) return;
+
+      const removalPlans = [];
+      let availableReceivingCapacity = groupSections.reduce((total, section) => total + expectedOpenSeats(section), 0);
+      let requiredSeats = 0;
+      lowSections.forEach((source) => {
+        const receivingPool = groupSections
+          .filter(target => target !== source && !removalPlans.some(plan => plan.section === target))
+          .filter(target => !options.sameCampus || target.campus === source.campus)
+          .filter(target => !options.sameModality || target.modality === source.modality)
+          .filter(target => dayWindowMatches(source, target, options.dayMatch))
+          .filter(target => timeWindowMatches(source, target, options.timeWindowHours));
+        const sourceRequiredSeats = Math.ceil(expectedEnrollment(source) * options.absorbPct);
+        const poolOpenSeats = receivingPool.reduce((total, target) => total + expectedOpenSeats(target), 0);
+        if (poolOpenSeats < sourceRequiredSeats) return;
+        removalPlans.push({ section: source, requiredSeats: sourceRequiredSeats });
+        availableReceivingCapacity = Math.max(0, poolOpenSeats - sourceRequiredSeats);
+        requiredSeats += sourceRequiredSeats;
+      });
+      let removed = removalPlans.map(plan => plan.section);
+      let receivingSections = groupSections.filter(section => !removed.includes(section));
+      let finalReceivingCapacity = receivingSections.reduce((total, section) => total + expectedOpenSeats(section), 0);
+      while (removalPlans.length && finalReceivingCapacity < requiredSeats) {
+        const last = removalPlans.pop();
+        requiredSeats -= last.requiredSeats;
+        removed = removalPlans.map(plan => plan.section);
+        receivingSections = groupSections.filter(section => !removed.includes(section));
+        finalReceivingCapacity = receivingSections.reduce((total, section) => total + expectedOpenSeats(section), 0);
+      }
+      if (!removed.length) return;
+      availableReceivingCapacity = Math.max(0, finalReceivingCapacity - requiredSeats);
+
+      const representative = removed[0];
+      const tba = groupSections.some(isTbaSection);
+      const hist = history.get(patternKey(representative)) || { terms: 0, low: 0 };
+      const score = consolidationGroupScore(groupSections, removed, hist, options, tba);
+      const expectedEnroll = groupSections.reduce((total, section) => total + expectedEnrollment(section), 0);
+      const potentialSeatsRecovered = sum(removed, 'cap');
+      const finalContextValues = removed.map(section => section.expectedFinalEnrollment ?? section.finalEnrollment).filter(value => Number.isFinite(value) && value > 0);
+      output.push({
+        type: consolidationType(representative),
+        score,
+        label: score >= 75 ? 'High Review Priority' : score >= 55 ? 'Review Candidate' : 'Lower Confidence Review',
+        course,
+        sectionsReviewed: groupSections.length,
+        potentialSectionsRemoved: removed.length,
+        availableReceivingCapacity,
+        expectedEnrollment: expectedEnroll,
+        potentialSeatsRecovered,
+        freedSeats: potentialSeatsRecovered,
+        removedSections: removed,
+        receivingSections,
+        requiredSeats,
+        projectionSource: projectionSourceLabel(groupSections),
+        finalEnrollmentContext: finalContextValues.length ? finalContextValues.join(', ') : 'N/A',
+        matchReason: `${removed.length} low-enrollment section(s) can be reviewed as one ${tba ? 'lower-confidence TBA' : 'meeting-pattern'} scenario; ${availableReceivingCapacity} net receiving seats after ${requiredSeats} projected redistribution seats`,
+        historicalTerms: hist.terms || Math.max(0, ...groupSections.map(section => section.historicalEstimate?.terms || 0)),
+        chronicLowFill: hist.terms && safeDiv(hist.low, hist.terms) >= (Number(document.getElementById('conChronic')?.value || 75) / 100) ? 'Yes' : 'No',
+        tba
+      });
+    });
+    return output;
+  }
+
+  function consolidationGroupScore(groupSections, removedSections, hist, options, tba) {
+    let score = 45;
+    if (groupSections.every(section => section.campus === groupSections[0].campus)) score += 10;
+    if (groupSections.every(section => section.modality === groupSections[0].modality)) score += 10;
+    if (groupSections.every(section => section.dayPattern === groupSections[0].dayPattern && section.start === groupSections[0].start)) score += 15;
+    if (removedSections.length > 1) score += 5;
+    const chronicThreshold = Number(document.getElementById('conChronic')?.value || 75) / 100;
+    const minHist = Number(document.getElementById('conMinHist')?.value || 3);
+    if (hist.terms >= minHist && safeDiv(hist.low, hist.terms) >= chronicThreshold) score += 10;
+    if (options.sameCampus) score += 3;
+    if (options.sameModality) score += 2;
+    return Math.min(tba ? 70 : 100, score);
+  }
+
+  function projectionSourceLabel(sections) {
+    const terms = Math.max(0, ...sections.map(section => section.historicalEstimate?.terms || 0));
+    if (terms > 0) return `Historical Average (${terms} terms)`;
+    return 'N/A';
   }
 
   function onlineReductionRows(rows, historicalRows, options) {
@@ -2350,6 +2441,7 @@
         label: recommendedReductions >= 2 ? 'High Review Priority' : 'Review Candidate',
         course,
         sections: sections.length,
+        sectionsReviewed: sections.length,
         source: null,
         target: null,
         sourceEnroll: enrollment,
@@ -2359,6 +2451,12 @@
         sectionCap,
         possibleReductions,
         recommendedReductions,
+        potentialSectionsRemoved: recommendedReductions,
+        availableReceivingCapacity: vacancies,
+        expectedEnrollment: enrollment,
+        potentialSeatsRecovered: recommendedReductions * sectionCap,
+        projectionSource: `Historical Average (${historicalByTerm.size} terms)`,
+        finalEnrollmentContext: 'N/A',
         freedSeats: recommendedReductions * sectionCap,
         matchReason: `${vacancies} expected vacant seats across ${sections.length} decision-term online sections using ${historicalByTerm.size} historical term(s) and ${options.vacancyBasis === 'actual' ? 'final/current' : 'census'} enrollment`,
         historicalTerms: historicalByTerm.size,
@@ -2438,7 +2536,7 @@
     if (chronic) score += 10;
     return {
       target,
-      type: 'In-Person Flow',
+      type: 'In-Person Consolidation',
       score: Math.min(100, score),
       label: score >= 75 ? 'High Review Priority' : score >= 55 ? 'Review Candidate' : 'Low Priority Review',
       freedSeats: source.cap,
@@ -2493,25 +2591,39 @@
 
   function flattenOpportunity(row) {
     const isOnline = row.type === 'Online Reduction';
-    const sourceSummary = row.source
-      ? `${describe(row.source)}; census-based expected enroll ${expectedEnrollment(row.source)}; census fill ${pct(expectedFillRate(row.source))}; final enrollment context ${row.source.expectedFinalEnrollment ?? row.source.finalEnrollment ?? ''}; ${row.source.historicalEstimateType || 'historical estimate'}`
-      : `Online aggregate; census-based expected enroll ${row.sourceEnroll}; fill ${pct(row.sourceFill)}`;
+    const removed = row.removedSections || [];
+    const receiving = row.receivingSections || [];
+    const removedList = removed.map(describe).join('; ');
+    const receivingList = receiving.map(describe).join('; ');
     const targetOpenSeats = row.target ? expectedOpenSeats(row.target) : row.targetOpenSeats;
-    const targetSummary = row.target
-      ? `${describe(row.target)}; census-based expected enroll ${expectedEnrollment(row.target)}; best expected open ${targetOpenSeats}; pool expected open ${row.poolOpenSeats ?? targetOpenSeats}; required ${row.requiredSeats ?? expectedEnrollment(row.source) ?? ''}`
-      : '';
+    const recommendation = isOnline
+      ? `Reduce by ${row.recommendedReductions ?? 0} online section(s); retain buffer after ${row.possibleReductions ?? 0} possible reduction(s).`
+      : `Remove ${removedList || 'selected low-enrollment section(s)'}; redistribute ${row.requiredSeats ?? 0} projected students into remaining sections.`;
+    const projectedRedistribution = isOnline ? '' : `${row.requiredSeats ?? 0} students`;
+    const netAvailableCapacity = isOnline ? row.vacancies : row.availableReceivingCapacity;
+    const sourceSummary = isOnline
+      ? `Online aggregate; census-based expected enrollment ${row.sourceEnroll}; fill ${pct(row.sourceFill)}`
+      : `Remove: ${removedList || 'N/A'}`;
+    const targetSummary = isOnline
+      ? ''
+      : `Receive into: ${receivingList || 'remaining matching sections'}; available receiving capacity ${row.availableReceivingCapacity ?? 0}`;
     const onlineSummary = isOnline
       ? `${row.vacancies ?? 0} expected vacancies; median cap ${row.sectionCap ?? 0}; possible reductions ${row.possibleReductions ?? 0}`
       : '';
-    const recommendation = isOnline
-      ? `${row.recommendedReductions ?? 0} recommended reduction(s)`
-      : `Review receiving pool for ${Math.round((row.absorbPct || 0.6) * 100)}% absorption`;
     return {
-      type: row.type || 'In-Person Flow',
+      type: row.type || 'In-Person Consolidation',
       score: row.score,
       label: row.label,
       course: row.course,
-      sections: row.sections || row.sectionCount || '',
+      sectionsReviewed: row.sectionsReviewed || row.sections || row.sectionCount || '',
+      potentialSectionsRemoved: row.potentialSectionsRemoved || row.recommendedReductions || '',
+      expectedEnrollment: row.expectedEnrollment ?? row.sourceEnroll ?? '',
+      availableReceivingCapacity: row.availableReceivingCapacity ?? row.vacancies ?? targetOpenSeats ?? '',
+      projectedRedistribution,
+      netAvailableCapacity,
+      potentialSeatsRecovered: row.potentialSeatsRecovered ?? row.freedSeats ?? '',
+      projectionSource: row.projectionSource || (row.historicalTerms ? `Historical Average (${row.historicalTerms} terms)` : 'N/A'),
+      finalEnrollmentContext: row.finalEnrollmentContext || 'N/A',
       sourceSummary,
       sourceSection: row.source ? describe(row.source) : 'Online aggregate',
       sourceEnroll: row.source ? expectedEnrollment(row.source) : row.sourceEnroll,
@@ -2529,8 +2641,32 @@
       freedSeats: row.freedSeats,
       matchReason: row.matchReason,
       historicalTerms: row.historicalTerms,
-      chronicLowFill: row.chronicLowFill
+      chronicLowFill: row.chronicLowFill,
+      tbaConfidence: row.tba ? 'Capped at 70' : ''
     };
+  }
+
+  function renderConsolidationTables(rows) {
+    const node = document.getElementById('consolidationTable');
+    if (!node) return;
+    const online = rows.filter(row => row.type === 'Online Reduction');
+    const inPerson = rows.filter(row => row.type !== 'Online Reduction');
+    const columns = ['type', 'score', 'label', 'course', 'sectionsReviewed', 'potentialSectionsRemoved', 'expectedEnrollment', 'availableReceivingCapacity', 'projectedRedistribution', 'netAvailableCapacity', 'potentialSeatsRecovered', 'projectionSource', 'finalEnrollmentContext', 'sourceSummary', 'targetSummary', 'recommendation', 'matchReason', 'historicalTerms', 'chronicLowFill', 'tbaConfidence'];
+    node.innerHTML = [
+      consolidationTableSection('Online Reduction Candidates', online, columns),
+      consolidationTableSection('In-Person and Hybrid Consolidation Candidates', inPerson, columns)
+    ].join('');
+  }
+
+  function consolidationTableSection(title, rows, columns) {
+    const display = rows.slice(0, 500);
+    if (!display.length) return `<section class="consolidation-subtable"><h3>${escapeAttr(title)}</h3><p class="analytics-empty">No rows match the selected criteria.</p></section>`;
+    return `
+      <section class="consolidation-subtable">
+        <h3>${escapeAttr(title)}</h3>
+        <table><thead><tr>${columns.map((c, index) => `<th><button type="button" class="analytics-sort" data-column="${index}" aria-label="Sort by ${label(c)}">${label(c)} <span aria-hidden="true"></span></button></th>`).join('')}</tr></thead>
+        <tbody>${display.map(row => `<tr>${columns.map(c => `<td data-sort="${escapeAttr(sortValue(row[c], c))}">${format(row[c], c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      </section>`;
   }
 
   function describe(row) {
@@ -2671,7 +2807,7 @@
       ['Consolidation CSV(s)', 'Optional upload for this report. If no file is uploaded, the report uses the currently loaded dashboard schedule.'],
       ['Instructional methods', 'Online, In Person, and Hybrid are derived from instructional method codes. CPL, DE, CBE, and unmapped archived code 98 are omitted from these analytics datasets.'],
       ['Decision term', 'The term being reviewed for planned consolidation opportunities. For in-person rows, the decision term supplies planned sections, meeting patterns, and capacity, not the enrollment demand used to trigger recommendations.'],
-      ['Min sections', 'Minimum number of decision-term in-person sections a course must have before in-person flow rows are considered. Online reduction rows use a separate minimum of two online sections, then require enough historical vacancy to remove at least one section.'],
+      ['Min sections', 'Minimum number of decision-term in-person or hybrid sections a course must have before consolidation groups are considered. Online reduction rows use a separate minimum of two online sections, then require enough historical vacancy to remove at least one section.'],
       ['Low enrollment', 'Optional strict enrollment threshold. If entered, an in-person source section is considered low when its census-based historical expected enrollment is at or below this number.'],
       ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. An in-person source section is low-filled when census-based historical expected enrollment divided by decision-term capacity is at or below this threshold.'],
       ['Absorb %', 'Minimum share of the source section census-based historical expected enrollment that eligible receiving sections must collectively be able to absorb. The default 60% means a source expected to draw 16 students needs at least 10 expected pooled open seats among matching sections.'],
@@ -2683,20 +2819,29 @@
       ['Start window', 'Controls how far apart source and receiving section start times can be. The default +/- 2 hours means a 10:00 source can match starts from 8:00 through 12:00.'],
       ['Same campus', 'When checked, source and receiving sections must be on the same campus.'],
       ['Same modality', 'When checked, source and receiving sections must use the same instructional modality.'],
-      ['Score', 'In-person flow starts at 25 points, then adds 15 for same campus, 15 for same modality, 20 for same day and start time, or 10 for same day pattern, 10 for same instructor, 5 for same room, and 10 for chronic historical low fill. Online reduction starts at 55 and increases with the number of reducible sections. Scores cap at 100.'],
-      ['Source Summary', 'The planned in-person section being reviewed, using census-based historical expected enrollment. Exact historical section pattern is used first; if unavailable, course average is used. If no historical basis exists, the section is not flagged.'],
-      ['Target Summary', 'Shows the best matching planned receiving section for scoring plus the total census-based expected pooled open seats across all eligible receiving sections. In-person rows are flagged when the pool meets the selected Absorb % threshold.'],
+      ['Score', 'Consolidation groups score schedule/method consistency, available receiving capacity, chronic low-enrollment history, and confidence. TBA or missing meeting-pattern groups are capped at 70 because they cannot earn high confidence from exact schedule matching. Online reduction starts at 55 and increases with the number of reducible sections.'],
+      ['Sections Reviewed', 'Number of active decision-term sections included in the grouped opportunity. This replaces pairwise source-target counts.'],
+      ['Potential Sections Removed', 'Number of sections that could be reviewed for removal within the grouped opportunity without exceeding projected receiving capacity.'],
+      ['Expected Enrollment', 'Census-based expected enrollment for the grouped course/pattern opportunity.'],
+      ['Available Receiving Capacity', 'Expected remaining open seats in sections that would receive redistributed enrollment.'],
+      ['Projected Redistribution', 'Projected number of students to absorb into remaining sections.'],
+      ['Net Available Capacity', 'Available receiving capacity after projected redistribution.'],
+      ['Potential Seats Recovered', 'Capacity attached to the section(s) recommended for review/removal.'],
+      ['Projection Source', 'The source of expected enrollment, such as Historical Average (4 terms). Rows without a historical basis show N/A rather than implying hidden data.'],
+      ['Final Enrollment Context', 'Final/current enrollment context from removed sections when present. Missing or zero context displays N/A. Final enrollment does not drive recommendations.'],
+      ['Source Summary', 'For consolidation rows, the section(s) recommended for review/removal. For online rows, the course-level online aggregate.'],
+      ['Target Summary', 'For consolidation rows, the remaining matching sections available to receive projected enrollment and the expected receiving capacity.'],
       ['Vacancies', 'For online reduction rows, expected open seats across decision-term online sections. This compares decision-term capacity to average historical enrollment and historical vacancy patterns.'],
       ['Section Cap', 'For online reduction rows, the median online section cap used as the standard section size.'],
       ['Possible Reductions', 'For online rows, Vacancies divided by Section Cap, rounded down.'],
       ['Recommended Reductions', 'A conservative online reduction count. It leaves one reducible section of buffer when Possible Reductions is greater than one.'],
-      ['Freed Seats', 'The source section capacity that could be freed if the section were consolidated. This is a planning indicator, not an automatic cancellation instruction.']
+      ['Recommendation', 'Explicit action text showing what to remove or reduce, projected redistribution, and remaining capacity. This is a planning indicator, not an automatic cancellation instruction.']
     ];
     renderMethodologyPanel(legend, {
       title: 'Consolidation Opportunities Methodology & Data Dictionary',
       purpose: 'Identifies planning candidates where low-filled sections may be reviewed for consolidation with minimal expected enrollment impact.',
-      methodology: 'This report separates online reduction math from in-person flow checks. Online rows compare historical demand against decision-term online capacity. In-person rows compare historical expected demand against planned decision-term sections, so the subject term in-progress enrollment does not drive recommendations.',
-      assumptions: 'The default retention planning assumption is conservative review, not automatic cancellation. In-person rows require pooled receiving capacity based on the selected Absorb % threshold. Online rows use historical vacancy and section-cap math.',
+      methodology: 'This report separates online reduction math from in-person/hybrid consolidation. Online rows are course-level reduction candidates. In-person and hybrid rows are grouped by course, modality, campus, and meeting pattern so reciprocal source-target pairs do not double-count a single opportunity.',
+      assumptions: 'The default retention planning assumption is conservative review, not automatic cancellation. Consolidation rows require pooled receiving capacity based on the selected Absorb % threshold. Online rows use historical vacancy and section-cap math.',
       limitations: 'This report does not account for equity, program sequencing, instructor load, contractual constraints, room constraints, late enrollment behavior, or leadership decisions that may justify retaining a section.',
       items,
       version: 'Methodology v1.0'
@@ -2840,7 +2985,16 @@
       availableAtCensus: 'Empty Seats at Census',
       availableAtEnd: 'Empty Seats at Final',
       type: 'Type',
-      sections: 'Sections',
+      sections: 'Sections Reviewed',
+      sectionsReviewed: 'Sections Reviewed',
+      potentialSectionsRemoved: 'Potential Sections Removed',
+      expectedEnrollment: 'Expected Enrollment',
+      availableReceivingCapacity: 'Available Receiving Capacity',
+      projectedRedistribution: 'Projected Redistribution',
+      netAvailableCapacity: 'Net Available Capacity',
+      potentialSeatsRecovered: 'Potential Seats Recovered',
+      projectionSource: 'Projection Source',
+      finalEnrollmentContext: 'Final Enrollment Context',
       sourceSummary: 'Source Summary',
       sourceEnroll: 'Source Expected Enrollment',
       targetSummary: 'Target Summary',
@@ -2855,6 +3009,7 @@
       matchReason: 'Match Reason',
       historicalTerms: 'Course Historical Terms Included',
       chronicLowFill: 'Chronic Low Fill',
+      tbaConfidence: 'TBA Confidence Note',
       forecastLevel: 'Forecast Level',
       groupName: 'Forecast Group',
       courseTitle: 'Course Title',
