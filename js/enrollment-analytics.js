@@ -8,7 +8,6 @@
     utilization: 'room-utilization',
     instructorAvailability: 'instructor-availability'
   };
-  const ENROLLMENT_MANAGEMENT_PASSWORD = 'Upload2025';
   const ACCOUNTING_METHODS = {
     W: { category: 'weekly', label: 'Weekly Census', reportable: true },
     D: { category: 'daily', label: 'Daily Census', reportable: true },
@@ -512,7 +511,7 @@
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="emAccessPanel" class="em-access-panel">
           <button id="unlockEnrollmentManagement" type="button" class="em-unlock">Enrollment Management</button>
-          <span class="em-access-note">Restricted planning reports are hidden until unlocked.</span>
+          <span class="em-access-note">Planning reports are hidden until opened.</span>
         </div>
         <div id="emReportControls" class="em-report-controls" hidden>
           <label for="emReportSelect">Enrollment Management Report:</label>
@@ -1012,8 +1011,12 @@
       alert('Choose one or more CSV files before archiving.');
       return;
     }
-    const password = prompt('Enter upload password to archive these analytics CSVs:');
-    if (password == null) return;
+    const token = enrollmentManagementToken();
+    if (!token) {
+      alert('Open Enrollment Management before archiving analytics CSVs.');
+      updateVisibility();
+      return;
+    }
     const saved = [];
     for (const file of files) {
       const term = termFromFilename(file.name);
@@ -1024,8 +1027,11 @@
       const csv = await file.text();
       const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, csv })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ csv })
       });
       if (!response.ok) {
         const detail = await response.text();
@@ -2888,17 +2894,40 @@
   }
 
   function isEnrollmentManagementUnlocked() {
-    return sessionStorage.getItem('cos-em-unlocked') === 'true';
+    const expiresAt = Number(sessionStorage.getItem('cos-em-token-expires-at') || 0);
+    if (!expiresAt || expiresAt <= Date.now()) {
+      sessionStorage.removeItem('cos-em-token');
+      sessionStorage.removeItem('cos-em-token-expires-at');
+      sessionStorage.removeItem('cos-em-unlocked');
+      return false;
+    }
+    return Boolean(sessionStorage.getItem('cos-em-token'));
   }
 
-  function unlockEnrollmentManagement() {
+  function enrollmentManagementToken() {
+    return isEnrollmentManagementUnlocked() ? sessionStorage.getItem('cos-em-token') : '';
+  }
+
+  async function unlockEnrollmentManagement() {
+    if (window.COS_APP_CONFIG?.features?.enrollmentManagement === false) return;
+    if (!window.BACKEND_BASE_URL) {
+      alert('Backend is not configured, so Enrollment Management cannot be opened.');
+      return;
+    }
     const password = prompt('Enter Enrollment Management password:');
     if (password == null) return;
-    if (password !== ENROLLMENT_MANAGEMENT_PASSWORD) {
+    const response = await fetch(`${window.BACKEND_BASE_URL}/api/auth/enrollment-management`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    if (!response.ok) {
       alert('Enrollment Management password was not accepted.');
       return;
     }
-    sessionStorage.setItem('cos-em-unlocked', 'true');
+    const payload = await response.json();
+    sessionStorage.setItem('cos-em-token', payload.token || '');
+    sessionStorage.setItem('cos-em-token-expires-at', String(Date.parse(payload.expiresAt || '') || Date.now()));
     updateVisibility();
   }
 
@@ -2911,7 +2940,7 @@
     document.getElementById('emReportControls').hidden = !unlocked;
     document.getElementById('unlockEnrollmentManagement').hidden = unlocked;
     const note = document.querySelector('.em-access-note');
-    if (note) note.textContent = unlocked ? 'Enrollment Management reports are unlocked for this browser session.' : 'Restricted planning reports are hidden until unlocked.';
+    if (note) note.textContent = unlocked ? 'Enrollment Management reports are open for this browser session.' : 'Planning reports are hidden until opened.';
     document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
     document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
