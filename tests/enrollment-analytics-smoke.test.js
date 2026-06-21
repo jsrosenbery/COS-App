@@ -11,7 +11,7 @@ function loadEnrollmentModules() {
   };
   context.window.window = context.window;
   vm.createContext(context);
-  ['js/enrollment/metrics.js', 'js/enrollment/consolidation.js'].forEach(file => {
+  ['js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -117,4 +117,49 @@ test('online reduction candidates stay course-level and census-based', () => {
   assert.equal(rows[0].sectionsReviewed, 3);
   assert.equal(rows[0].expectedEnrollment, 23);
   assert.match(rows[0].projectionSource, /Historical Average \(2 terms\)/);
+});
+
+test('division filter changes consolidation row count and exported rows', () => {
+  const { COSConsolidationAnalytics, COSEnrollmentFilters } = loadEnrollmentModules();
+  const rows = [
+    section({ division: 'Arts', crn: 'A1', expectedEnrollment: 10, census: 10, cap: 30, expectedFillRate: 10 / 30 }),
+    section({ division: 'Arts', crn: 'A2', expectedEnrollment: 19, census: 19, cap: 30, expectedFillRate: 19 / 30 }),
+    section({ division: 'Business', crn: 'B1', subject: 'BUS', course: '101', expectedEnrollment: 10, census: 10, cap: 30, expectedFillRate: 10 / 30 }),
+    section({ division: 'Business', crn: 'B2', subject: 'BUS', course: '101', expectedEnrollment: 19, census: 19, cap: 30, expectedFillRate: 19 / 30 })
+  ];
+  const filtered = COSEnrollmentFilters.filterRowsByDivision(rows, ['Arts']);
+  const opportunities = COSConsolidationAnalytics.consolidationGroupRows('PS 200M', filtered, new Map(), 0.5, null, {
+    sameCampus: true,
+    sameModality: true,
+    dayMatch: 'exact',
+    timeWindowHours: 0,
+    absorbPct: 0.6
+  });
+  const exportedRows = opportunities.map(row => ({ course: row.course, division: filtered[0].division }));
+
+  assert.equal(filtered.length, 2);
+  assert.equal(opportunities.length, 1);
+  assert.equal(exportedRows.length, 1);
+  assert.equal(exportedRows[0].division, 'Arts');
+});
+
+test('division filter changes attrition row count and exported rows', () => {
+  const { COSEnrollmentFilters, COSEnrollmentMetrics } = loadEnrollmentModules();
+  const rows = [
+    section({ division: 'Arts', subject: 'ART', course: '101', census: 20, actual: 15, cap: 30 }),
+    section({ division: 'Business', subject: 'BUS', course: '101', census: 25, actual: 20, cap: 30 })
+  ];
+  const filtered = COSEnrollmentFilters.filterRowsByDivision(rows, ['Arts']);
+  const exportedRows = filtered.map(row => ({
+    course: `${row.subject} ${row.course}`,
+    division: row.division,
+    census: COSEnrollmentMetrics.censusEnrollment(row),
+    final: COSEnrollmentMetrics.finalEnrollment(row),
+    attritionCount: Math.max(0, COSEnrollmentMetrics.censusEnrollment(row) - COSEnrollmentMetrics.finalEnrollment(row))
+  }));
+
+  assert.equal(filtered.length, 1);
+  assert.equal(exportedRows.length, 1);
+  assert.equal(exportedRows[0].division, 'Arts');
+  assert.equal(exportedRows[0].attritionCount, 5);
 });
