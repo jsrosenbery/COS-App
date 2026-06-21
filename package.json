@@ -1,8 +1,8 @@
 {
   "name": "cos-scheduling-app",
   "version": "1.0.0",
-  "description": "Course scheduling visualization app modularized",
-  "main": "js/main.js",
+  "description": "Static course scheduling and analytics frontend",
+  "main": "js/app.js",
   "scripts": {
     "start": "live-server"
   },

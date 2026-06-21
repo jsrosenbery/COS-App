@@ -628,7 +628,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentData = [];
   let currentTerm = '';
 
-  const BACKEND_BASE_URL = "https://app-backend-pp98.onrender.com";
+  const BACKEND_BASE_URL = window.BACKEND_BASE_URL || window.COS_APP_CONFIG?.backendBaseUrl || "https://app-backend-pp98.onrender.com";
+  window.BACKEND_BASE_URL = BACKEND_BASE_URL;
 
   const tabs         = document.getElementById('term-tabs');
   const uploadDiv    = document.getElementById('upload-container');

@@ -78,7 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // startup handlers. The module also supports being loaded after DOMContentLoaded.
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
-    window.BACKEND_BASE_URL = window.BACKEND_BASE_URL || 'https://app-backend-pp98.onrender.com';
+    window.BACKEND_BASE_URL = window.BACKEND_BASE_URL || window.COS_APP_CONFIG?.backendBaseUrl || 'https://app-backend-pp98.onrender.com';
     if (!window.__cosAnalyticsTermsShim) {
       const nativeFetch = window.fetch.bind(window);
       window.fetch = (input, init) => {
