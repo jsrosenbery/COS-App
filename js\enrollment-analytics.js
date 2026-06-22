@@ -92,7 +92,7 @@
     division: ['Division', 'DIVISION', 'Division Name', 'DIVISION_NAME'],
     department: ['Department', 'DEPARTMENT', 'Dept', 'DEPT', 'Department Name', 'DEPARTMENT_NAME'],
     section: ['Section', 'SECTION', 'Sec', 'SEC', 'SECTION_NUMB', 'Section Number'],
-    campus: ['Campus', 'CAMPUS', 'Location', 'LOCATION'],
+    campus: ['Campus', 'CAMPUS', 'Campus Code', 'CAMPUS_CODE', 'Location', 'LOCATION'],
     modality: ['Modality', 'MODALITY', 'Instructional Method', 'INSTRUCTIONAL METHOD', 'Instruction_Mode', 'Instruction Mode', 'Method', 'INSTRUCTIONAL_METHOD_CODE', 'INSTRUCTION_METHOD_DESC'],
     instructor: ['Instructor', 'INSTRUCTOR', 'Faculty', 'FACULTY', 'FACULTY'],
     days: ['Days', 'DAYS', 'Meeting Days', 'Meet Days', 'Day', 'Days Of Week', 'Mtg Days', 'Meeting Pattern', 'Meeting_Pattern'],
@@ -153,6 +153,39 @@
     return String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
   }
 
+  function roomCatalogBuildingCampusMap() {
+    if (roomCatalogBuildingCampusMap.cache) return roomCatalogBuildingCampusMap.cache;
+    const map = new Map();
+    const catalog = Array.isArray(window.ROOM_CATALOG) ? window.ROOM_CATALOG : [];
+    catalog.forEach(room => {
+      const building = canon(room?.building || room?.Building);
+      const campus = canon(room?.campus || room?.Campus);
+      if (building && campus && !map.has(building)) map.set(building, campus);
+    });
+    roomCatalogBuildingCampusMap.cache = map;
+    return map;
+  }
+
+  function campusForBuilding(building) {
+    return roomCatalogBuildingCampusMap().get(canon(building)) || '';
+  }
+
+  function normalizeCampusAndBuilding(row) {
+    const rawBuilding = canon(val(row, fields.building));
+    const rawCampus = canon(val(row, fields.campus));
+    const campusValueAsBuilding = campusForBuilding(rawCampus);
+    let building = rawBuilding || (campusValueAsBuilding ? rawCampus : '');
+    let campus = rawCampus;
+
+    if (campusValueAsBuilding) {
+      campus = campusValueAsBuilding;
+    } else if (!campus) {
+      campus = campusForBuilding(building);
+    }
+
+    return { campus, building };
+  }
+
   function installScheduleHistoryFetchShim() {
     window.BACKEND_BASE_URL = window.BACKEND_BASE_URL || window.COS_APP_CONFIG?.backendBaseUrl || 'https://app-backend-pp98.onrender.com';
     if (window.__cosAnalyticsTermsShim || typeof window.fetch !== 'function') return;
@@ -191,9 +224,10 @@
     const subjectCourse = val(row, ['Subject_Course', 'Subject Course', 'Course ID', 'SUBJECT/COURSE']);
     const subject = canon(val(row, fields.subject) || (subjectCourse.match(/^([A-Z]+)/i) || [])[1]);
     const course = courseNumber(row);
-    const building = canon(val(row, fields.building));
+    const normalizedLocation = normalizeCampusAndBuilding(row);
+    const building = normalizedLocation.building;
     const roomOnly = canon(val(row, fields.room));
-    const campus = canon(val(row, fields.campus));
+    const campus = normalizedLocation.campus;
     const modality = normalizeModality(val(row, fields.modality), row);
     const days = normalizeDays(val(row, fields.days), row);
     const times = normalizeTimes(row);

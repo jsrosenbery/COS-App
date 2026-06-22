@@ -32,7 +32,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  ['js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment-analytics.js'].forEach(file => {
+  ['js/roomCatalog.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -111,7 +111,7 @@ test('current CSV data without milestone fields still normalizes for attrition',
   assert.equal(row.finalEnrollment, null);
 });
 
-test('campus normalization does not backfill from building', () => {
+test('campus normalization maps known building codes to distinct campuses', () => {
   const { COSEnrollmentAnalytics, COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
   const missingCampus = COSEnrollmentAnalytics.normalizeRow({
     Term: 'FALL 2026',
@@ -126,7 +126,33 @@ test('campus normalization does not backfill from building', () => {
     Capacity: '30',
     'Census Enrollment': '20'
   });
-  const campusAndBuilding = COSEnrollmentAnalytics.normalizeRow({
+  const buildingInCampus = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    Subject: 'ART',
+    Course: '110',
+    Campus: 'TCCB',
+    Room: 'B110',
+    Modality: 'In Person',
+    Days: 'MO',
+    'Start Time': '09:00',
+    'End Time': '10:00',
+    Capacity: '30',
+    'Census Enrollment': '20'
+  });
+  const buildingInLocation = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    Subject: 'ART',
+    Course: '110',
+    Location: 'HOSPRK',
+    Room: 'HR108',
+    Modality: 'In Person',
+    Days: 'MO',
+    'Start Time': '09:00',
+    'End Time': '10:00',
+    Capacity: '30',
+    'Census Enrollment': '20'
+  });
+  const explicitCampus = COSEnrollmentAnalytics.normalizeRow({
     Term: 'FALL 2026',
     Subject: 'ART',
     Course: '110',
@@ -143,13 +169,17 @@ test('campus normalization does not backfill from building', () => {
   const campusPresence = COSEnrollmentDashboard.studentPresenceReport([missingCampus], 'campus');
   const buildingPresence = COSEnrollmentDashboard.studentPresenceReport([missingCampus], 'building');
 
-  assert.equal(missingCampus.campus, '');
+  assert.equal(missingCampus.campus, 'COS');
   assert.equal(missingCampus.building, 'KERN');
   assert.equal(missingCampus.roomOnly, '101');
   assert.equal(missingCampus.room, 'KERN 101');
-  assert.equal(campusAndBuilding.campus, 'VIS');
-  assert.equal(campusAndBuilding.building, 'KERN');
-  assert.equal(campusPresence.rows[0].group, 'UNKNOWN');
+  assert.equal(buildingInCampus.campus, 'TCC');
+  assert.equal(buildingInCampus.building, 'TCCB');
+  assert.equal(buildingInLocation.campus, 'COS');
+  assert.equal(buildingInLocation.building, 'HOSPRK');
+  assert.equal(explicitCampus.campus, 'VIS');
+  assert.equal(explicitCampus.building, 'KERN');
+  assert.equal(campusPresence.rows[0].group, 'COS');
   assert.equal(buildingPresence.rows[0].group, 'KERN');
 });
 
