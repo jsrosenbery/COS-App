@@ -1333,7 +1333,7 @@
   function miniTable(rows, columns) {
     const display = (rows || []).slice(0, 12);
     if (!display.length) return '<p class="analytics-empty">No rows match the selected criteria.</p>';
-    return `<table><thead><tr>${columns.map(column => `<th>${label(column)}</th>`).join('')}</tr></thead><tbody>${display.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    return `<div class="dashboard-table-wrap"><table><thead><tr>${columns.map(column => `<th>${label(column)}</th>`).join('')}</tr></thead><tbody>${display.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
 
   function presenceExtremes(presence) {
@@ -3175,12 +3175,14 @@
       .dashboard-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
       .dashboard-actions button,.dashboard-panel button{min-height:32px;border:1px solid #ccd6e2;border-radius:8px;padding:0 12px;background:#fff;color:#123367;font-weight:800;cursor:pointer}
       .dashboard-actions button:hover,.dashboard-panel button:hover{border-color:#8ba6c2;background:#f8fbff}
-      .dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:14px}
-      .dashboard-panel{min-width:0;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;padding:12px;overflow:auto}
+      .dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px;margin-bottom:14px}
+      .dashboard-panel{min-width:0;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;padding:12px;overflow:hidden}
       .dashboard-panel h3{margin:0 0 8px;color:#123367;font-size:15px}
+      .dashboard-table-wrap{overflow:auto;max-height:460px}
       .dashboard-panel table{width:100%;border-collapse:collapse;background:#fff}
       .dashboard-panel th{background:#eaf1f7;color:#123367;text-align:left;padding:7px;font-size:12px}
       .dashboard-panel td{border-top:1px solid #e6edf5;padding:7px;font-size:12px;vertical-align:top}
+      .dashboard-panel th,.dashboard-panel td{overflow-wrap:anywhere}
       .dashboard-note{margin:0 0 8px;color:#334862;font-size:13px;line-height:1.35}
       .analytics-sparkline{display:block;width:100%;height:74px;margin:6px 0}
       .analytics-sparkline polyline{fill:none;stroke:#1f7aa8;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
