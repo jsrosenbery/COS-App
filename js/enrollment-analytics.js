@@ -1490,11 +1490,11 @@
     const presence = summary.presence || { rows: [] };
     const structure = summary.structure || { modality: [] };
     document.getElementById('dashboardInsights').innerHTML = [
-      dashboardPanel('Registration Pace Monitor', miniTable(summary.pace || [], ['dimension', 'name', 'currentEnrollment', 'expectedEnrollment', 'variance', 'variancePct', 'status'])),
-      dashboardPanel('Growth Opportunities', miniTable(summary.growth || [], ['course', 'waitlist', 'openSeats', 'viableOpenSeats', 'sameModalitySeats', 'onlineSeats', 'sameCampusSeats', 'timeWindowSeats', 'fillRate', 'recommendation'])),
-      dashboardPanel('Reduction Opportunities', `${miniTable(summary.reduction || [], ['type', 'course', 'potentialSectionsRemoved', 'availableReceivingCapacity', 'recommendation'])}<button type="button" data-report-target="${REPORTS.consolidation}">Open Consolidation Report</button>`),
-      dashboardPanel('Student Presence Analytics', `${presenceExtremes(presence)}${miniTable(presence.rows || [], ['campus', 'day', 'hour', 'studentsPresent', 'sectionsActive', 'availableRoomCapacity'])}`),
-      dashboardPanel('Schedule Structure', `${structureSummary(structure)}${miniTable(structure.modality || [], ['modality', 'sections', 'enrollment'])}`)
+      dashboardPanel('Registration Pace Monitor', miniTable(summary.pace || [], ['dimension', 'name', 'currentEnrollment', 'expectedEnrollment', 'variance', 'variancePct', 'status'], 'pace')),
+      dashboardPanel('Growth Opportunities', miniTable(summary.growth || [], ['course', 'waitlist', 'openSeats', 'viableOpenSeats', 'sameModalitySeats', 'onlineSeats', 'sameCampusSeats', 'timeWindowSeats', 'fillRate', 'recommendation'], 'growth')),
+      dashboardPanel('Reduction Opportunities', `${miniTable(summary.reduction || [], ['type', 'course', 'potentialSectionsRemoved', 'availableReceivingCapacity', 'recommendation'], 'reduction')}<button type="button" data-report-target="${REPORTS.consolidation}">Open Consolidation Report</button>`),
+      dashboardPanel('Student Presence Analytics', `${presenceExtremes(presence)}${miniTable(presence.rows || [], ['campus', 'day', 'hour', 'studentsPresent', 'sectionsActive', 'availableRoomCapacity'], 'presence')}`),
+      dashboardPanel('Schedule Structure', `${structureSummary(structure)}${miniTable(structure.modality || [], ['modality', 'sections', 'enrollment'], 'structure')}`)
     ].join('');
 
     table('dashboardRotationTable', state.rotationRows, [
@@ -1517,10 +1517,67 @@
     return `<section class="dashboard-panel"><h3>${escapeAttr(title)}</h3>${body}</section>`;
   }
 
-  function miniTable(rows, columns) {
+  function miniTable(rows, columns, tableType = '') {
     const display = (rows || []).slice(0, 12);
     if (!display.length) return '<p class="analytics-empty">No rows match the selected criteria.</p>';
-    return `<div class="dashboard-table-wrap"><table><thead><tr>${columns.map(column => `<th>${label(column)}</th>`).join('')}</tr></thead><tbody>${display.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    return `<div class="dashboard-table-wrap"><table class="dashboard-mini-table dashboard-mini-table-${escapeAttr(tableType)}"><thead><tr>${columns.map(column => dashboardMiniHeader(column, tableType)).join('')}</tr></thead><tbody>${display.map(row => `<tr>${columns.map(column => `<td class="${dashboardCellClass(column)}">${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+
+  function dashboardMiniHeader(column, tableType) {
+    const full = label(column);
+    const compact = dashboardCompactLabel(column, tableType);
+    return `<th title="${escapeAttr(full)}" aria-label="${escapeAttr(full)}"><span>${escapeAttr(compact)}</span></th>`;
+  }
+
+  function dashboardCompactLabel(column, tableType) {
+    const labels = {
+      pace: {
+        dimension: 'Type',
+        name: 'Group',
+        currentEnrollment: 'Current',
+        expectedEnrollment: 'Expected',
+        variance: 'Var.',
+        variancePct: 'Var. %',
+        status: 'Status'
+      },
+      growth: {
+        course: 'Course',
+        waitlist: 'WL',
+        openSeats: 'Open',
+        viableOpenSeats: 'Viable',
+        sameModalitySeats: 'Same Mod.',
+        onlineSeats: 'Online',
+        sameCampusSeats: 'Campus',
+        timeWindowSeats: '+/-Hr',
+        fillRate: 'Fill',
+        recommendation: 'Rec.'
+      },
+      reduction: {
+        type: 'Type',
+        course: 'Course',
+        potentialSectionsRemoved: 'Reductions',
+        availableReceivingCapacity: 'Receiving Cap.',
+        recommendation: 'Recommendation'
+      },
+      presence: {
+        campus: 'Campus',
+        day: 'Day',
+        hour: 'Hour',
+        studentsPresent: 'Students',
+        sectionsActive: 'Sections',
+        availableRoomCapacity: 'Open Cap.'
+      },
+      structure: {
+        modality: 'Modality',
+        sections: 'Sections',
+        enrollment: 'Enrollment'
+      }
+    };
+    return labels[tableType]?.[column] || label(column);
+  }
+
+  function dashboardCellClass(column) {
+    return column === 'recommendation' || column === 'status' ? 'dashboard-cell-text' : '';
   }
 
   function presenceExtremes(presence) {
@@ -3393,11 +3450,15 @@
       .dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px;margin-bottom:14px}
       .dashboard-panel{min-width:0;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;padding:12px;overflow:hidden}
       .dashboard-panel h3{margin:0 0 8px;color:#123367;font-size:15px}
-      .dashboard-table-wrap{overflow:auto;max-height:460px}
-      .dashboard-panel table{width:100%;border-collapse:collapse;background:#fff}
-      .dashboard-panel th{background:#eaf1f7;color:#123367;text-align:left;padding:7px;font-size:12px}
-      .dashboard-panel td{border-top:1px solid #e6edf5;padding:7px;font-size:12px;vertical-align:top}
-      .dashboard-panel th,.dashboard-panel td{overflow-wrap:anywhere}
+      .dashboard-table-wrap{overflow-x:auto;overflow-y:auto;max-height:460px}
+      .dashboard-panel table{width:100%;min-width:520px;border-collapse:collapse;background:#fff}
+      .dashboard-mini-table-growth{min-width:760px}
+      .dashboard-mini-table-reduction{min-width:680px}
+      .dashboard-mini-table-presence{min-width:560px}
+      .dashboard-panel th{background:#eaf1f7;color:#123367;text-align:left;padding:7px;font-size:12px;white-space:nowrap;word-break:normal}
+      .dashboard-panel th span{white-space:nowrap}
+      .dashboard-panel td{border-top:1px solid #e6edf5;padding:7px;font-size:12px;vertical-align:top;word-break:normal;overflow-wrap:normal}
+      .dashboard-panel td.dashboard-cell-text{white-space:normal;overflow-wrap:break-word;min-width:120px}
       .dashboard-note{margin:0 0 8px;color:#334862;font-size:13px;line-height:1.35}
       .analytics-sparkline{display:block;width:100%;height:74px;margin:6px 0}
       .analytics-sparkline polyline{fill:none;stroke:#1f7aa8;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}

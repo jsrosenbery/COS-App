@@ -575,6 +575,22 @@ test('enrollment analytics report labels are operational', () => {
   assert.match(text, /Instructor Availability - Planning View/);
 });
 
+test('dashboard compact tables use short headers and nowrap CSS', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /currentEnrollment: 'Current'/);
+  assert.match(text, /expectedEnrollment: 'Expected'/);
+  assert.match(text, /sameModalitySeats: 'Same Mod\.'/);
+  assert.match(text, /availableReceivingCapacity: 'Receiving Cap\.'/);
+  assert.match(text, /studentsPresent: 'Students'/);
+  assert.match(text, /availableRoomCapacity: 'Open Cap\.'/);
+  assert.match(text, /title="\$\{escapeAttr\(full\)\}"/);
+  assert.match(text, /aria-label="\$\{escapeAttr\(full\)\}"/);
+  assert.match(text, /white-space:nowrap/);
+  assert.match(text, /overflow-x:auto/);
+  assert.doesNotMatch(text, /dashboard-panel th,\\.dashboard-panel td\\{overflow-wrap:anywhere/);
+});
+
 test('index owns enrollment analytics script order', () => {
   const root = path.join(__dirname, '..');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
