@@ -635,6 +635,7 @@
             <button type="button" data-report-target="${REPORTS.dashboard}" data-scroll-target="dashboardRotationTable">Course Rotation Analysis</button>
             <button type="button" data-scroll-target="dashboardLegend">Methodology</button>
           </div>
+          <div id="dashboardScopePanel" class="dashboard-scope-panel"></div>
           <div id="dashboardMetrics" class="analytics-metrics"></div>
           <div id="dashboardInsights" class="dashboard-grid"></div>
           <div id="dashboardRotationTable" class="analytics-table"></div>
@@ -1380,7 +1381,7 @@
     state.dashboardRows = currentRows;
     state.dashboardSummary = summary;
     state.rotationRows = summary.rotation || [];
-    renderDashboard(summary);
+    renderDashboard(summary, dashboardScopeContext(currentRows, historicalRows, selectedFocusTerm));
   }
 
   function exportDashboardSummary() {
@@ -1411,7 +1412,69 @@
     };
   }
 
-  function renderDashboard(summary) {
+  function dashboardScopeContext(currentRows, historicalRows, focusTerm) {
+    const currentTerms = collectRowTerms(currentRows);
+    const historicalTerms = collectRowTerms(historicalRows);
+    const lifecycle = summaryLifecycleAvailability(currentRows);
+    return {
+      focusTerm,
+      focusLabel: focusTerm || 'All Loaded Terms',
+      currentRowsCount: currentRows.length,
+      historicalRowsCount: historicalRows.length,
+      historicalTerms,
+      currentTerms,
+      comparableBasis: focusTerm ? `${termParts(focusTerm).season || 'Same-season'} historical terms before ${focusTerm}` : 'All loaded terms selected',
+      missingMilestones: lifecycle.missing,
+      warnings: dashboardScopeWarnings({ focusTerm, currentRows, historicalRows, currentTerms, lifecycle })
+    };
+  }
+
+  function summaryLifecycleAvailability(rows) {
+    const milestones = [
+      ['First Day', 'firstDay'],
+      ['Census 1', 'census1'],
+      ['Census 2', 'census2'],
+      ['Final', 'finalEnrollment']
+    ];
+    const missing = milestones
+      .filter(([, key]) => !rows.some(row => Number.isFinite(Number(row?.[key]))))
+      .map(([label]) => label);
+    return { missing };
+  }
+
+  function dashboardScopeWarnings(context) {
+    const warnings = [];
+    if (!context.focusTerm) warnings.push('All Loaded Terms shows gross totals and should not be used as a decision-term dashboard.');
+    if (!context.focusTerm) warnings.push('No focus term selected. Select a decision/focus term for decision-term metrics.');
+    if (context.focusTerm && !context.historicalRows.length) warnings.push('Expected enrollment has no historical comparison terms for the selected focus term.');
+    if (context.currentTerms.length > 1) warnings.push('Current rows include multiple terms. Confirm All Loaded Terms was selected intentionally.');
+    if (context.lifecycle.missing.length) warnings.push('Lifecycle milestone data unavailable in current upload.');
+    return warnings;
+  }
+
+  function renderDashboardScopePanel(context) {
+    const node = document.getElementById('dashboardScopePanel');
+    if (!node) return;
+    const missing = context.missingMilestones.length ? context.missingMilestones.join(', ') : 'None';
+    const historicalTerms = context.historicalTerms.length ? context.historicalTerms.join(', ') : 'None';
+    const warnings = context.warnings.length
+      ? `<div class="dashboard-scope-warnings">${context.warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('')}</div>`
+      : '<div class="dashboard-scope-ok">No scope warnings detected.</div>';
+    node.innerHTML = `
+      <h3>Dashboard Scope &amp; Data Quality</h3>
+      ${warnings}
+      <dl>
+        <div><dt>Focus Term</dt><dd>${escapeAttr(context.focusLabel)}</dd></div>
+        <div><dt>Current Rows Included</dt><dd>${context.currentRowsCount}</dd></div>
+        <div><dt>Historical Rows Included</dt><dd>${context.historicalRowsCount}</dd></div>
+        <div><dt>Historical Terms Used</dt><dd>${escapeAttr(historicalTerms)}</dd></div>
+        <div><dt>Comparable Term Basis</dt><dd>${escapeAttr(context.comparableBasis)}</dd></div>
+        <div><dt>Missing Milestone Fields</dt><dd>${escapeAttr(missing)}</dd></div>
+      </dl>`;
+  }
+
+  function renderDashboard(summary, scopeContext = null) {
+    if (scopeContext) renderDashboardScopePanel(scopeContext);
     const health = summary.health || {};
     const lifecycle = health.lifecycle || [];
     metric('dashboardMetrics', [
@@ -3318,6 +3381,15 @@
       .dashboard-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
       .dashboard-actions button,.dashboard-panel button{min-height:32px;border:1px solid #ccd6e2;border-radius:8px;padding:0 12px;background:#fff;color:#123367;font-weight:800;cursor:pointer}
       .dashboard-actions button:hover,.dashboard-panel button:hover{border-color:#8ba6c2;background:#f8fbff}
+      .dashboard-scope-panel{margin:0 0 14px;padding:12px;border:1px solid #d8e1ec;border-radius:8px;background:#fff}
+      .dashboard-scope-panel h3{margin:0 0 8px;color:#123367;font-size:15px}
+      .dashboard-scope-panel dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin:10px 0 0}
+      .dashboard-scope-panel dl div{border:1px solid #e2eaf3;border-radius:8px;background:#f8fbff;padding:8px}
+      .dashboard-scope-panel dt{font-size:11px;text-transform:uppercase;color:#51657c;font-weight:800}
+      .dashboard-scope-panel dd{margin:3px 0 0;color:#123367;font-weight:800;line-height:1.25}
+      .dashboard-scope-warnings{display:grid;gap:6px}
+      .dashboard-scope-warnings p{margin:0;padding:8px 10px;border:1px solid #f0c36d;border-radius:8px;background:#fff7dc;color:#6d4c00;font-weight:800;line-height:1.3}
+      .dashboard-scope-ok{padding:8px 10px;border:1px solid #b9ddc3;border-radius:8px;background:#eef9f1;color:#245f37;font-weight:800}
       .dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px;margin-bottom:14px}
       .dashboard-panel{min-width:0;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;padding:12px;overflow:hidden}
       .dashboard-panel h3{margin:0 0 8px;color:#123367;font-size:15px}
@@ -3423,7 +3495,10 @@
     normalizeRow: normalize,
     dashboardAvailableTerms,
     dashboardCurrentRows,
-    dashboardHistoricalRows
+    dashboardHistoricalRows,
+    dashboardScopeContext,
+    dashboardScopeWarnings,
+    summaryLifecycleAvailability
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

@@ -196,6 +196,47 @@ test('dashboard all loaded terms is explicit gross-total mode', () => {
   assert.equal(summary.health.sectionsReviewed, 2);
 });
 
+test('dashboard scope panel warns on all loaded terms and multiple current terms', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'SPRING 2025', subject: 'BUS', course: '050', crn: '1' }),
+    section({ term: 'SPRING 2027', subject: 'BUS', course: '050', crn: '2' })
+  ];
+  const context = COSEnrollmentAnalytics.dashboardScopeContext(rows, rows, '');
+
+  assert.equal(context.focusLabel, 'All Loaded Terms');
+  assert.equal(context.currentRowsCount, 2);
+  assert.deepEqual(Array.from(context.currentTerms), ['SPRING 2025', 'SPRING 2027']);
+  assert.ok(context.warnings.includes('All Loaded Terms shows gross totals and should not be used as a decision-term dashboard.'));
+  assert.ok(context.warnings.includes('No focus term selected. Select a decision/focus term for decision-term metrics.'));
+  assert.ok(context.warnings.includes('Current rows include multiple terms. Confirm All Loaded Terms was selected intentionally.'));
+});
+
+test('dashboard scope panel warns when comparable history is unavailable', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const currentRows = [section({ term: 'SPRING 2027', subject: 'BUS', course: '050' })];
+  const context = COSEnrollmentAnalytics.dashboardScopeContext(currentRows, [], 'SPRING 2027');
+
+  assert.equal(context.focusTerm, 'SPRING 2027');
+  assert.equal(context.historicalRowsCount, 0);
+  assert.deepEqual(Array.from(context.historicalTerms), []);
+  assert.ok(context.warnings.includes('Expected enrollment has no historical comparison terms for the selected focus term.'));
+});
+
+test('dashboard scope panel reports lifecycle milestone availability', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const missingContext = COSEnrollmentAnalytics.dashboardScopeContext([
+    section({ term: 'SPRING 2027', subject: 'BUS', course: '050' })
+  ], [], 'SPRING 2027');
+  const available = COSEnrollmentAnalytics.summaryLifecycleAvailability([
+    section({ firstDay: 10, census1: 9, census2: 8, finalEnrollment: 7 })
+  ]);
+
+  assert.deepEqual(Array.from(missingContext.missingMilestones), ['First Day', 'Census 1', 'Census 2', 'Final']);
+  assert.ok(missingContext.warnings.includes('Lifecycle milestone data unavailable in current upload.'));
+  assert.deepEqual(Array.from(available.missing), []);
+});
+
 test('grouped consolidation returns one opportunity for reciprocal section matches', () => {
   const { COSConsolidationAnalytics } = loadEnrollmentModules();
   const sections = [
