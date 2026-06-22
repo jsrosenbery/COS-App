@@ -300,3 +300,34 @@ test('user-facing terminology uses Part-Time Faculty wording', () => {
   assert.match(text, /Part-Time Faculty/);
   assert.equal(new RegExp(legacyWord, 'i').test(text), false);
 });
+
+test('index owns enrollment analytics script order', () => {
+  const root = path.join(__dirname, '..');
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const parser = fs.readFileSync(path.join(root, 'js/parser.js'), 'utf8');
+  const expectedOrder = [
+    'js/config.js',
+    'js/shared/utils.js',
+    'js/admin.js',
+    'js/availability.js',
+    'js/heatmap.js',
+    'js/modality.js',
+    'js/utilization.js',
+    'js/parser.js',
+    'js/cal_getc_mapping.js',
+    'js/curriculum_crosswalk.js',
+    'js/roomCatalog.js',
+    'js/app.js',
+    'js/enrollment/metrics.js',
+    'js/enrollment/filters.js',
+    'js/enrollment/consolidation.js',
+    'js/enrollment/dashboard.js',
+    'js/enrollment-analytics.js'
+  ];
+  const positions = expectedOrder.map(script => index.indexOf(`src="${script}"`));
+
+  assert.equal(positions.every(position => position >= 0), true);
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions);
+  assert.equal(parser.includes('loadScriptOnce'), false);
+  assert.equal(parser.includes('js/enrollment-analytics.js'), false);
+});

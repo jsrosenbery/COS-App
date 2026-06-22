@@ -61,6 +61,7 @@
     consolidationGroupRows,
     onlineReductionRows
   } = consolidation;
+  installScheduleHistoryFetchShim();
   const dayLabels = {
     MO: 'M',
     TU: 'T',
@@ -143,6 +144,33 @@
 
   function canon(value) {
     return String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  }
+
+  function installScheduleHistoryFetchShim() {
+    window.BACKEND_BASE_URL = window.BACKEND_BASE_URL || window.COS_APP_CONFIG?.backendBaseUrl || 'https://app-backend-pp98.onrender.com';
+    if (window.__cosAnalyticsTermsShim || typeof window.fetch !== 'function') return;
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === 'string' ? input : input?.url || '';
+      if (url === `${window.BACKEND_BASE_URL}/terms`) {
+        const terms = Array.from(document.querySelectorAll('#term-tabs .tab'))
+          .map(tab => tab.textContent.trim())
+          .filter(Boolean);
+        return Promise.resolve(new Response(JSON.stringify(terms), {
+          headers: { 'Content-Type': 'application/json' }
+        }));
+      }
+      if (url.startsWith(`${window.BACKEND_BASE_URL}/schedule/`)) {
+        const term = url.slice(`${window.BACKEND_BASE_URL}/schedule/`.length);
+        return nativeFetch(`${window.BACKEND_BASE_URL}/api/schedule/${term}`, init)
+          .then(response => response.json())
+          .then(payload => new Response(JSON.stringify(Array.isArray(payload) ? payload : payload.data || []), {
+            headers: { 'Content-Type': 'application/json' }
+          }));
+      }
+      return nativeFetch(input, init);
+    };
+    window.__cosAnalyticsTermsShim = true;
   }
 
   function courseNumber(row) {
