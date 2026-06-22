@@ -139,18 +139,109 @@
     return 'On Pace';
   }
 
-  function growthOpportunities(rows) {
+  function growthOpportunities(rows, options = {}) {
+    const timeWindowHours = Number.isFinite(Number(options.timeWindowHours)) ? Number(options.timeWindowHours) : 2;
     const byCourse = group(rows, courseKey);
     return [...byCourse.entries()].map(([course, courseRows]) => {
       const waitlist = sum(courseRows, 'waitlist');
-      const openSeats = courseRows.reduce((total, row) => total + Math.max(0, (row.cap || 0) - enrollment(row)), 0);
+      const demandSections = courseRows.filter(isDemandPressureSection);
+      const openSeatRows = courseRows
+        .map(row => ({ row, openSeats: openSeatsForRow(row) }))
+        .filter(item => item.openSeats > 0);
+      const openSeats = openSeatRows.reduce((total, item) => total + item.openSeats, 0);
+      const sameModalitySeats = seatsMatching(openSeatRows, demandSections, sameModality);
+      const onlineSeats = openSeatRows
+        .filter(item => isOnline(item.row))
+        .reduce((total, item) => total + item.openSeats, 0);
+      const sameCampusSeats = seatsMatching(openSeatRows, demandSections, sameCampus);
+      const timeWindowSeats = seatsMatching(openSeatRows, demandSections, (open, demand) => withinTimeWindow(open, demand, timeWindowHours));
+      const compatibleDaySeats = seatsMatching(openSeatRows, demandSections, compatibleDays);
+      const viableOpenSeats = seatsMatching(openSeatRows, demandSections, (open, demand) => viableOpenSection(open, demand, timeWindowHours));
       const enrollmentTotal = courseRows.reduce((total, row) => total + enrollment(row), 0);
       const fillRate = safeDiv(enrollmentTotal, sum(courseRows, 'cap'));
-      const action = waitlist > 0 && openSeats < waitlist ? 'Consider Added Capacity' : 'Use Existing Seats First';
-      return { course, waitlist, openSeats, enrollment: enrollmentTotal, fillRate, action };
+      const demandNeed = waitlist || (demandSections.length ? 1 : 0);
+      const recommendation = demandNeed > 0 && viableOpenSeats < demandNeed ? 'Consider Added Capacity' : 'Use Existing Seats First';
+      return {
+        course,
+        waitlist,
+        openSeats,
+        viableOpenSeats,
+        sameModalitySeats,
+        onlineSeats,
+        sameCampusSeats,
+        timeWindowSeats,
+        compatibleDaySeats,
+        enrollment: enrollmentTotal,
+        fillRate,
+        recommendation
+      };
     }).filter(row => row.waitlist > 0 || row.fillRate >= 0.95)
-      .sort((a, b) => (b.waitlist - b.openSeats) - (a.waitlist - a.openSeats))
+      .sort((a, b) => (b.waitlist - b.viableOpenSeats) - (a.waitlist - a.viableOpenSeats))
       .slice(0, 8);
+  }
+
+  function isDemandPressureSection(row) {
+    return (Number(row?.waitlist) || 0) > 0 || safeDiv(enrollment(row), Number(row?.cap) || 0) >= 0.95;
+  }
+
+  function openSeatsForRow(row) {
+    return Math.max(0, (Number(row?.cap) || 0) - enrollment(row));
+  }
+
+  function seatsMatching(openSeatRows, demandSections, matcher) {
+    const counted = new Set();
+    return openSeatRows.reduce((total, item, index) => {
+      if (!demandSections.some(demand => matcher(item.row, demand))) return total;
+      if (counted.has(index)) return total;
+      counted.add(index);
+      return total + item.openSeats;
+    }, 0);
+  }
+
+  function viableOpenSection(open, demand, timeWindowHours) {
+    if (isOnline(demand)) return isOnline(open);
+    return !isOnline(open) &&
+      sameModality(open, demand) &&
+      sameCampus(open, demand) &&
+      withinTimeWindow(open, demand, timeWindowHours) &&
+      compatibleDays(open, demand);
+  }
+
+  function sameModality(open, demand) {
+    return String(open?.modality || '') === String(demand?.modality || '');
+  }
+
+  function isOnline(row) {
+    return String(row?.modality || '').toUpperCase() === 'ONLINE';
+  }
+
+  function sameCampus(open, demand) {
+    return String(open?.campus || '') === String(demand?.campus || '');
+  }
+
+  function withinTimeWindow(open, demand, hours) {
+    if (isOnline(open) && isOnline(demand)) return true;
+    const openMinutes = minutesFromTime(open?.start);
+    const demandMinutes = minutesFromTime(demand?.start);
+    if (openMinutes == null || demandMinutes == null) return false;
+    return Math.abs(openMinutes - demandMinutes) <= hours * 60;
+  }
+
+  function compatibleDays(open, demand) {
+    if (isOnline(open) && isOnline(demand)) return true;
+    const openDays = new Set((open?.days || []).filter(day => dayOrder.includes(day)));
+    const demandDays = (demand?.days || []).filter(day => dayOrder.includes(day));
+    if (!openDays.size || !demandDays.length) return false;
+    return demandDays.some(day => openDays.has(day));
+  }
+
+  function minutesFromTime(value) {
+    const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour === 0 && minute === 0) return null;
+    return hour * 60 + minute;
   }
 
   function studentPresence(rows) {
