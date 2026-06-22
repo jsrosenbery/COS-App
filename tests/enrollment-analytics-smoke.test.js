@@ -152,8 +152,34 @@ test('dashboard focus term scopes current metrics and excludes focus from histor
   assert.equal(summary.health.coursesReviewed, 1);
   assert.equal(summary.health.ftes, 0);
   assert.equal(summary.health.expectedEnrollment, 90);
+  const coursePace = summary.pace.find(row => row.dimension === 'Course' && row.name === 'BUS 050');
+  assert.equal(coursePace.currentEnrollment, 0);
+  assert.equal(coursePace.expectedEnrollment, 90);
+  assert.equal(coursePace.variance, -90);
+  assert.equal(coursePace.variancePct, -1);
+  assert.equal(coursePace.status, 'Behind Pace');
   assert.equal(historicalRows.some(row => row.term === 'SPRING 2027'), false);
   assert.equal(historicalRows.some(row => row.term === 'FALL 2026'), false);
+});
+
+test('dashboard expected enrollment is N/A without comparable same-season history', () => {
+  const { COSEnrollmentAnalytics, COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2026', subject: 'BUS', course: '050', crn: '1', census: 999, actual: 999, cap: 1000 }),
+    section({ term: 'SPRING 2027', subject: 'BUS', course: '050', crn: '2', census: 12, actual: 12, cap: 30 })
+  ];
+
+  const currentRows = COSEnrollmentAnalytics.dashboardCurrentRows(rows, 'SPRING 2027');
+  const historicalRows = COSEnrollmentAnalytics.dashboardHistoricalRows(rows, 'SPRING 2027');
+  const summary = COSEnrollmentDashboard.dashboardSummary(currentRows, historicalRows, []);
+  const coursePace = summary.pace.find(row => row.dimension === 'Course' && row.name === 'BUS 050');
+
+  assert.equal(historicalRows.length, 0);
+  assert.equal(summary.health.expectedEnrollment, null);
+  assert.equal(coursePace.expectedEnrollment, null);
+  assert.equal(coursePace.variance, null);
+  assert.equal(coursePace.variancePct, null);
+  assert.equal(coursePace.status, 'N/A');
 });
 
 test('dashboard all loaded terms is explicit gross-total mode', () => {
