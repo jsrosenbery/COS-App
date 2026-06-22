@@ -2,6 +2,7 @@
   'use strict';
 
   const REPORTS = {
+    dashboard: 'enrollment-dashboard',
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation',
     demand: 'enrollment-demand-forecast',
@@ -24,6 +25,9 @@
     consolidationRows: [],
     demandInput: [],
     demandRows: [],
+    dashboardRows: [],
+    rotationRows: [],
+    dashboardRan: false,
     attritionRows: [],
     attritionRan: false,
     attritionTerms: [],
@@ -37,7 +41,8 @@
   const metrics = window.COSEnrollmentMetrics;
   const filterUtils = window.COSEnrollmentFilters;
   const consolidation = window.COSConsolidationAnalytics;
-  if (!metrics || !filterUtils || !consolidation) {
+  const dashboard = window.COSEnrollmentDashboard;
+  if (!metrics || !filterUtils || !consolidation || !dashboard) {
     throw new Error('Enrollment analytics modules must load before js/enrollment-analytics.js');
   }
   const {
@@ -539,6 +544,7 @@
         <div id="emReportControls" class="em-report-controls" hidden>
           <label for="emReportSelect">Enrollment Management Report:</label>
           <select id="emReportSelect">
+            <option value="${REPORTS.dashboard}">Enrollment Analytics Dashboard</option>
             <option value="${REPORTS.demand}">Enrollment Demand Forecast - WIP</option>
             <option value="${REPORTS.attrition}">Enrollment Attrition - WIP</option>
             <option value="${REPORTS.consolidation}">Section Consolidation Opportunities - WIP</option>
@@ -546,6 +552,48 @@
             <option value="${REPORTS.instructorAvailability}">Instructor Availability - WIP</option>
           </select>
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
+        </div>
+        <div id="dashboardReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Enrollment Analytics Dashboard</h2>
+            <p>A compact decision-support view for enrollment health, registration pace, growth pressure, reduction opportunities, physical student presence, schedule structure, and course rotation health.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Dashboard</h3>
+                <ul>
+                  <li>Use the filters to focus the summary by division, campus, modality, discipline, course, instructor, day, or start hour.</li>
+                  <li>Review the top cards first, then use the drill-down buttons for the detailed demand, attrition, consolidation, rotation, room, and methodology views.</li>
+                  <li>Growth prompts check existing open seats before suggesting added capacity. Reduction prompts summarize the existing consolidation report output rather than creating separate cancellation logic.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Prepared using TIMBER Enrollment Analytics. Methodology Version 1.2.</li>
+                  <li>Part-Time Faculty terminology is used for part-time instructional staffing references.</li>
+                  <li>Student Presence Analytics excludes online rows and summarizes in-person/hybrid sections by campus, day, and hour.</li>
+                  <li>Dashboard exports include the selected term, division, campus, modality, data source, and methodology version when methodology export is enabled.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar dashboard-toolbar">
+            ${filters('dash', { includeGroup: false, includeCancelled: false, includeDivision: true })}
+            <button id="runDashboard" type="button">Refresh Dashboard</button>
+            <button id="exportRotation" type="button">Export Course Rotation CSV</button>
+          </div>
+          <div class="dashboard-actions">
+            <button type="button" data-report-target="${REPORTS.demand}">Demand Forecast</button>
+            <button type="button" data-report-target="${REPORTS.attrition}">Enrollment Lifecycle/Attrition</button>
+            <button type="button" data-report-target="${REPORTS.consolidation}">Consolidation</button>
+            <button type="button" data-report-target="${REPORTS.utilization}">Room Utilization</button>
+            <button type="button" data-report-target="${REPORTS.dashboard}" data-scroll-target="dashboardRotationTable">Course Rotation Analysis</button>
+            <button type="button" data-scroll-target="dashboardLegend">Methodology</button>
+          </div>
+          <div id="dashboardMetrics" class="analytics-metrics"></div>
+          <div id="dashboardInsights" class="dashboard-grid"></div>
+          <div id="dashboardRotationTable" class="analytics-table"></div>
+          <div id="dashboardLegend" class="analytics-legend"></div>
         </div>
         <div id="instructorAvailabilityReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -932,6 +980,9 @@
       });
       if (state.demandRows.length) runDemand();
     }
+    if (prefix === 'dash') {
+      runDashboard();
+    }
   }
 
   function populateAnalyticsFilters(prefix, rows) {
@@ -1200,6 +1251,99 @@
     restoreFilterState(prefix, saved);
     updatePatternOptions(prefix, rows);
     restoreFilterState(prefix, saved);
+  }
+
+  function dashboardSourceRows() {
+    const rows = [
+      ...(state.enrollment || []),
+      ...(state.demandInput || []),
+      ...(state.consolidationInput || [])
+    ].filter(Boolean);
+    return rows.length ? dedupeEnrollmentRows(rows) : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+  }
+
+  function dashboardHistoricalRows(rows) {
+    const current = currentTerm();
+    const pool = [
+      ...(state.enrollment || []),
+      ...(state.demandInput || []),
+      ...(state.consolidationInput || []),
+      ...(rows || [])
+    ].filter(row => row && !isOmittedInstructionalMethod(row));
+    return dedupeEnrollmentRows(pool).filter(row => !current || row.term !== current);
+  }
+
+  function runDashboard() {
+    state.dashboardRan = true;
+    const saved = captureFilterState('dash');
+    const sourceRows = dashboardSourceRows().filter(row => !isOmittedInstructionalMethod(row));
+    refreshAnalyticsFilters('dash', sourceRows, saved);
+    const filteredRows = applyFilters(sourceRows, 'dash');
+    const historicalRows = applyFilters(dashboardHistoricalRows(sourceRows), 'dash');
+    const reductionRows = (state.consolidationRows || []).map(flattenOpportunity);
+    const summary = dashboard.dashboardSummary(filteredRows, historicalRows, reductionRows);
+    state.dashboardRows = filteredRows;
+    state.rotationRows = summary.rotation || [];
+    renderDashboard(summary);
+  }
+
+  function renderDashboard(summary) {
+    const health = summary.health || {};
+    const lifecycle = health.lifecycle || [];
+    metric('dashboardMetrics', [
+      ['Current Enrollment', health.currentEnrollment ?? 0],
+      ['Expected Enrollment', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment],
+      ['Variance', health.variance == null ? 'N/A' : health.variance],
+      ['Courses Reviewed', health.coursesReviewed ?? 0],
+      ['Sections Reviewed', health.sectionsReviewed ?? 0],
+      ['FTES', round1(health.ftes || 0)],
+      ...lifecycle.map(item => [item.label, item.value == null ? 'N/A' : item.value])
+    ]);
+
+    const presence = summary.presence || { rows: [] };
+    const structure = summary.structure || { modality: [] };
+    document.getElementById('dashboardInsights').innerHTML = [
+      dashboardPanel('Registration Pace Monitor', miniTable(summary.pace || [], ['dimension', 'name', 'currentEnrollment', 'expectedEnrollment', 'variance', 'variancePct', 'status'])),
+      dashboardPanel('Growth Opportunities', miniTable(summary.growth || [], ['course', 'waitlist', 'openSeats', 'enrollment', 'fillRate', 'action'])),
+      dashboardPanel('Reduction Opportunities', `${miniTable(summary.reduction || [], ['type', 'course', 'potentialSectionsRemoved', 'availableReceivingCapacity', 'recommendation'])}<button type="button" data-report-target="${REPORTS.consolidation}">Open Consolidation Report</button>`),
+      dashboardPanel('Student Presence Analytics', `${presenceExtremes(presence)}${miniTable(presence.rows || [], ['campus', 'day', 'hour', 'studentsPresent', 'sectionsActive', 'availableRoomCapacity'])}`),
+      dashboardPanel('Schedule Structure', `${structureSummary(structure)}${miniTable(structure.modality || [], ['modality', 'sections', 'enrollment'])}`)
+    ].join('');
+
+    table('dashboardRotationTable', state.rotationRows, [
+      'course',
+      'courseTitle',
+      'division',
+      'department',
+      'termsOffered',
+      'termsOfferedCount',
+      'averageGap',
+      'rotationCycle',
+      'lastOffered',
+      'expectedNextOffering',
+      'rotationStatus'
+    ]);
+    renderDashboardLegend();
+  }
+
+  function dashboardPanel(title, body) {
+    return `<section class="dashboard-panel"><h3>${escapeAttr(title)}</h3>${body}</section>`;
+  }
+
+  function miniTable(rows, columns) {
+    const display = (rows || []).slice(0, 12);
+    if (!display.length) return '<p class="analytics-empty">No rows match the selected criteria.</p>';
+    return `<table><thead><tr>${columns.map(column => `<th>${label(column)}</th>`).join('')}</tr></thead><tbody>${display.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  }
+
+  function presenceExtremes(presence) {
+    const peak = presence.peak ? `${presence.peak.campus} ${presence.peak.day} ${presence.peak.hour}: ${presence.peak.studentsPresent}` : 'N/A';
+    const lightest = presence.lightest ? `${presence.lightest.campus} ${presence.lightest.day} ${presence.lightest.hour}: ${presence.lightest.studentsPresent}` : 'N/A';
+    return `<p class="dashboard-note"><strong>Peak:</strong> ${escapeAttr(peak)} <strong>Lightest:</strong> ${escapeAttr(lightest)}</p>`;
+  }
+
+  function structureSummary(structure) {
+    return `<p class="dashboard-note"><strong>Prime:</strong> ${structure.primeSections || 0} sections / ${structure.primeEnrollment || 0} enrollment <strong>Off-peak:</strong> ${structure.offPeakSections || 0} sections / ${structure.offPeakEnrollment || 0} enrollment</p>`;
   }
 
   function emptyAttritionRecord(group) {
@@ -2457,6 +2601,29 @@
     rows.forEach(row => tbody.appendChild(row));
   }
 
+  function renderDashboardLegend() {
+    const legend = document.getElementById('dashboardLegend');
+    if (!legend) return;
+    renderMethodologyPanel(legend, {
+      title: 'Enrollment Analytics Dashboard Methodology & Data Dictionary',
+      purpose: 'Provides a compact decision-support landing view for enrollment health, registration pace, capacity pressure, consolidation summary, physical student presence, schedule structure, and course rotation health.',
+      methodology: 'Prepared using TIMBER Enrollment Analytics. Dashboard calculations use the currently selected filters. Growth prompts compare waitlist pressure to existing open seats before suggesting added capacity. Reduction prompts summarize the existing Section Consolidation Opportunities output and do not introduce separate reduction logic.',
+      assumptions: 'Current enrollment uses census enrollment when available and current enrollment otherwise. Expected enrollment uses historical term averages when comparison rows are loaded. Student Presence Analytics includes in-person and hybrid rows only. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM.',
+      limitations: 'The dashboard is a planning summary, not an automatic add, cancel, consolidation, or staffing directive. It does not include student intent, budget constraints, contractual constraints, equity review, or leadership decisions unless those factors are represented in the uploaded data.',
+      items: [
+        ['Enrollment Health', 'Current enrollment, expected enrollment, variance, courses reviewed, sections reviewed, FTES, and available lifecycle milestones for the selected filters.'],
+        ['Registration Pace Monitor', 'Current versus expected enrollment by Course, Division, Modality, Campus, Day Pattern, and Time Block. Status is Ahead of Pace, On Pace, Behind Pace, or N/A.'],
+        ['Growth Opportunities', 'Courses with waitlist pressure or very high fill. Added capacity is suggested only when waitlist exceeds existing open seats.'],
+        ['Reduction Opportunities', 'Top rows from the existing consolidation report output. Open the consolidation report for the full methodology and candidate details.'],
+        ['Student Presence Analytics', 'In-person and hybrid student load by campus, day, and hour. Online rows are excluded.'],
+        ['Schedule Structure', 'Prime/off-peak section and enrollment split plus modality mix for the selected filters.'],
+        ['Course Rotation Analysis', 'Course offering cadence based on loaded historical terms, including terms offered, average gap, rotation cycle, last offered, expected next offering, and rotation status.'],
+        ['Part-Time Faculty', 'Standard user-facing terminology for part-time instructional staffing references.']
+      ],
+      version: 'Methodology v1.2'
+    });
+  }
+
   function renderInstructorAvailabilityLegend() {
     const legend = document.getElementById('instructorAvailabilityLegend');
     if (!legend) return;
@@ -2757,13 +2924,38 @@
       expectedSectionsNeeded: 'Forecast Sections Needed',
       suggestedSectionCount: 'Suggested Section Count',
       forecastConfidence: 'Forecast Confidence',
-      capacityGuidance: 'Capacity Guidance'
+      capacityGuidance: 'Capacity Guidance',
+      dimension: 'Dimension',
+      name: 'Group',
+      currentEnrollment: 'Current Enrollment',
+      expectedEnrollment: 'Expected Enrollment',
+      variance: 'Variance',
+      variancePct: 'Variance %',
+      openSeats: 'Open Seats',
+      action: 'Action',
+      studentsPresent: 'Students Present',
+      sectionsActive: 'Sections Active',
+      availableRoomCapacity: 'Available Room Capacity',
+      hour: 'Hour',
+      peak: 'Peak',
+      lightest: 'Lightest',
+      primeSections: 'Prime Sections',
+      primeEnrollment: 'Prime Enrollment',
+      offPeakSections: 'Off-Peak Sections',
+      offPeakEnrollment: 'Off-Peak Enrollment',
+      termsOffered: 'Terms Offered',
+      termsOfferedCount: 'Terms Offered Count',
+      averageGap: 'Average Gap',
+      rotationCycle: 'Rotation Cycle',
+      lastOffered: 'Last Offered',
+      expectedNextOffering: 'Expected Next Offering',
+      rotationStatus: 'Rotation Status'
     };
     return labels[text] || text.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
   }
 
   function format(value, column = '') {
-    if (typeof value === 'number' && /(rate|fill|growth)$/i.test(column)) return pct(value);
+    if (typeof value === 'number' && /(rate|fill|growth|pct)$/i.test(column)) return pct(value);
     if (typeof value === 'number' && /ftes/i.test(column)) return round1(value);
     return value ?? '';
   }
@@ -2799,7 +2991,8 @@
   function methodologyExportText() {
     if (!document.getElementById('includeMethodologyExport')?.checked) return '';
     const selected = selectedEnrollmentReport();
-    const legendId = selected === REPORTS.attrition ? 'attritionLegend' :
+    const legendId = selected === REPORTS.dashboard ? 'dashboardLegend' :
+      selected === REPORTS.attrition ? 'attritionLegend' :
       selected === REPORTS.consolidation ? 'consolidationLegend' :
       selected === REPORTS.demand ? 'demandLegend' :
       selected === REPORTS.instructorAvailability ? 'instructorAvailabilityLegend' : '';
@@ -2808,15 +3001,30 @@
   }
 
   function divisionFilterContextText(selectedReport) {
-    const prefix = selectedReport === REPORTS.attrition ? 'attr' :
+    const prefix = selectedReport === REPORTS.dashboard ? 'dash' :
+      selectedReport === REPORTS.attrition ? 'attr' :
       selectedReport === REPORTS.consolidation ? 'con' :
       selectedReport === REPORTS.demand ? 'dem' : '';
     if (!prefix || !document.getElementById(prefix + 'Division')) return '';
-    return `Report Context\nDivision filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Division'))}`;
+    return [
+      'Report Context',
+      `Prepared using TIMBER Enrollment Analytics`,
+      `Methodology Version 1.2`,
+      `Selected term: ${currentTerm() || 'All loaded terms'}`,
+      `Division filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Division'))}`,
+      `Campus filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Campus'))}`,
+      `Modality filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Modality'))}`,
+      `Data source: ${dashboardDataSourceLabel()}`
+    ].join('\n');
   }
 
   function selectedEnrollmentReport() {
-    return document.getElementById('emReportSelect')?.value || REPORTS.demand;
+    return document.getElementById('emReportSelect')?.value || REPORTS.dashboard;
+  }
+
+  function dashboardDataSourceLabel() {
+    if (state.enrollment.length || state.demandInput.length || state.consolidationInput.length) return 'Uploaded and/or archived enrollment CSV rows';
+    return 'Currently loaded schedule rows';
   }
 
   function isEnrollmentManagementUnlocked() {
@@ -2867,6 +3075,7 @@
     document.getElementById('unlockEnrollmentManagement').hidden = unlocked;
     const note = document.querySelector('.em-access-note');
     if (note) note.textContent = unlocked ? 'Enrollment Management reports are open for this browser session.' : 'Planning reports are hidden until opened.';
+    document.getElementById('dashboardReport').style.display = unlocked && selected === REPORTS.dashboard ? 'block' : 'none';
     document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
     document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
@@ -2874,6 +3083,9 @@
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = unlocked && selected === REPORTS.utilization ? 'block' : 'none';
     if (!unlocked) return;
+    if (selected === REPORTS.dashboard) {
+      runDashboard();
+    }
     if (selected === REPORTS.attrition && !state.attritionRan) {
       const rows = state.enrollment.length ? state.enrollment : currentRows().filter(row => !isOmittedInstructionalMethod(row));
       updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(rows));
@@ -2960,6 +3172,16 @@
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
       .analytics-insights ul{margin:0;padding-left:18px;color:#334862}
       .analytics-insights li{margin:4px 0;line-height:1.3}
+      .dashboard-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+      .dashboard-actions button,.dashboard-panel button{min-height:32px;border:1px solid #ccd6e2;border-radius:8px;padding:0 12px;background:#fff;color:#123367;font-weight:800;cursor:pointer}
+      .dashboard-actions button:hover,.dashboard-panel button:hover{border-color:#8ba6c2;background:#f8fbff}
+      .dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:14px}
+      .dashboard-panel{min-width:0;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;padding:12px;overflow:auto}
+      .dashboard-panel h3{margin:0 0 8px;color:#123367;font-size:15px}
+      .dashboard-panel table{width:100%;border-collapse:collapse;background:#fff}
+      .dashboard-panel th{background:#eaf1f7;color:#123367;text-align:left;padding:7px;font-size:12px}
+      .dashboard-panel td{border-top:1px solid #e6edf5;padding:7px;font-size:12px;vertical-align:top}
+      .dashboard-note{margin:0 0 8px;color:#334862;font-size:13px;line-height:1.35}
       .analytics-sparkline{display:block;width:100%;height:74px;margin:6px 0}
       .analytics-sparkline polyline{fill:none;stroke:#1f7aa8;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
       .analytics-chart-note{margin:4px 0 0;color:#51657c;font-size:12px;line-height:1.3}
@@ -2995,9 +3217,11 @@
     document.getElementById('unlockEnrollmentManagement')?.addEventListener('click', unlockEnrollmentManagement);
     document.getElementById('termSelect')?.addEventListener('change', () => {
       if (!isEnrollmentManagementUnlocked()) return;
+      if (selectedEnrollmentReport() === REPORTS.dashboard) runDashboard();
       if (selectedEnrollmentReport() === REPORTS.consolidation) runConsolidation();
       if (selectedEnrollmentReport() === REPORTS.demand) runDemand();
     });
+    document.getElementById('runDashboard')?.addEventListener('click', runDashboard);
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
     document.getElementById('attrArchiveTerms')?.addEventListener('change', loadAttritionFiles);
@@ -3020,7 +3244,20 @@
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
     document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-demand-forecast-${demandTargetSlug()}.csv`));
     document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-demand-forecast-${demandTargetSlug()}.xls`));
+    document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
+      const targetButton = event.target.closest('[data-report-target],[data-scroll-target]');
+      if (targetButton) {
+        const targetReport = targetButton.dataset.reportTarget;
+        const reportSelect = document.getElementById('emReportSelect');
+        if (targetReport && reportSelect) {
+          reportSelect.value = targetReport;
+          updateVisibility();
+        }
+        const scrollTarget = targetButton.dataset.scrollTarget;
+        if (scrollTarget) document.getElementById(scrollTarget)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
       const button = event.target.closest('.analytics-sort');
       if (button) sortAnalyticsTable(button);
     });
