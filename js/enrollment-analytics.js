@@ -7,6 +7,7 @@
     consolidation: 'section-consolidation',
     demand: 'enrollment-demand-forecast',
     utilization: 'room-utilization',
+    studentPresence: 'student-presence-analytics',
     instructorAvailability: 'instructor-availability'
   };
   const ACCOUNTING_METHODS = {
@@ -28,6 +29,8 @@
     dashboardRows: [],
     rotationRows: [],
     dashboardRan: false,
+    studentPresenceRows: [],
+    studentPresenceRan: false,
     attritionRows: [],
     attritionRan: false,
     attritionTerms: [],
@@ -188,7 +191,9 @@
     const subjectCourse = val(row, ['Subject_Course', 'Subject Course', 'Course ID', 'SUBJECT/COURSE']);
     const subject = canon(val(row, fields.subject) || (subjectCourse.match(/^([A-Z]+)/i) || [])[1]);
     const course = courseNumber(row);
-    const campus = canon(val(row, fields.campus) || val(row, fields.building));
+    const building = canon(val(row, fields.building));
+    const roomOnly = canon(val(row, fields.room));
+    const campus = canon(val(row, fields.campus) || building);
     const modality = normalizeModality(val(row, fields.modality), row);
     const days = normalizeDays(val(row, fields.days), row);
     const times = normalizeTimes(row);
@@ -227,7 +232,9 @@
       start: times.start,
       end: times.end,
       timeBlock: timeBlock(times.start, modality),
-      room: canon([val(row, fields.building), val(row, fields.room)].filter(Boolean).join(' ')),
+      building,
+      roomOnly,
+      room: canon([building, roomOnly].filter(Boolean).join(' ')),
       cap,
       units,
       weeklyHours,
@@ -589,6 +596,7 @@
             <option value="${REPORTS.attrition}">Enrollment Attrition / Lifecycle</option>
             <option value="${REPORTS.consolidation}">Section Consolidation Opportunities</option>
             <option value="${REPORTS.utilization}">Room Utilization Map</option>
+            <option value="${REPORTS.studentPresence}">Student Presence Analytics</option>
             <option value="${REPORTS.instructorAvailability}">Instructor Availability - Planning View</option>
           </select>
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
@@ -640,6 +648,53 @@
           <div id="dashboardInsights" class="dashboard-grid"></div>
           <div id="dashboardRotationTable" class="analytics-table"></div>
           <div id="dashboardLegend" class="analytics-legend"></div>
+        </div>
+        <div id="studentPresenceReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Student Presence Analytics</h2>
+            <p>Estimates physical student presence from loaded scheduled sections and enrollment. It excludes fully online sections, TBA/no fixed meeting times, and online/web/virtual campuses.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Select a focus term, then filter by division, department, discipline, course, campus, building, room, modality, day, or time block.</li>
+                  <li>Use grouping to switch between campus, building, room, day, hour, and day/hour combinations.</li>
+                  <li>Use this as a physical presence estimate for scheduling and facilities planning, not a full campus traffic count.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Students present uses census enrollment when available and current enrollment otherwise.</li>
+                  <li>Only in-person and hybrid sections with fixed day/time patterns are included.</li>
+                  <li>This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Focus Term <select id="spFocusTerm"></select></label>
+            ${filters('sp', { includeGroup: false, includeCancelled: false, includeDivision: true, includeRoom: true })}
+            <label>Group by
+              <select id="spGroup">
+                <option value="all">All campuses</option>
+                <option value="campus">Campus</option>
+                <option value="building">Building</option>
+                <option value="room">Room</option>
+                <option value="day">Day</option>
+                <option value="hour">Hour/time block</option>
+                <option value="campusDayHour" selected>Campus + Day + Hour</option>
+                <option value="buildingDayHour">Building + Day + Hour</option>
+                <option value="roomDayHour">Room + Day + Hour</option>
+              </select>
+            </label>
+            <button id="runStudentPresence" type="button">Run</button>
+            <button id="exportStudentPresence" type="button">Export CSV</button>
+          </div>
+          <div id="studentPresenceMetrics" class="analytics-metrics"></div>
+          <div id="studentPresenceHeatmap" class="analytics-insights"></div>
+          <div id="studentPresenceTable" class="analytics-table"></div>
+          <div id="studentPresenceLegend" class="analytics-legend"></div>
         </div>
         <div id="instructorAvailabilityReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -867,12 +922,15 @@
     const includeCancelled = typeof options === 'boolean' ? true : options.includeCancelled !== false;
     const includeOrg = typeof options === 'object' && Boolean(options.includeOrg);
     const includeDivision = includeOrg || (typeof options === 'object' && Boolean(options.includeDivision));
+    const includeRoom = typeof options === 'object' && Boolean(options.includeRoom);
     return `
       ${includeDivision ? `<label>Division <select id="${prefix}Division" multiple data-placeholder="All divisions"></select></label>` : ''}
       ${includeOrg ? `<label>Department <select id="${prefix}Department" multiple data-placeholder="All departments"></select></label>` : ''}
       <label>Discipline <select id="${prefix}Subject" multiple data-placeholder="All disciplines"></select></label>
       <label>Course <select id="${prefix}Course" multiple data-placeholder="All courses"></select></label>
       <label>Campus <select id="${prefix}Campus" multiple data-placeholder="All campuses"></select></label>
+      ${includeRoom ? `<label>Building <select id="${prefix}Building" multiple data-placeholder="All buildings"></select></label>` : ''}
+      ${includeRoom ? `<label>Room <select id="${prefix}Room" multiple data-placeholder="All rooms"></select></label>` : ''}
       <label>Modality <select id="${prefix}Modality" multiple data-placeholder="All modalities"></select></label>
       <label>Instructor <select id="${prefix}Instructor" multiple data-placeholder="All instructors"></select></label>
       <label>Day <select id="${prefix}Day" multiple data-placeholder="All days"></select></label>
@@ -908,11 +966,13 @@
     const selectedDepartments = getSelectedValues(prefix + 'Department');
     const selectedSubjects = getSelectedValues(prefix + 'Subject');
     const selectedCourses = getSelectedValues(prefix + 'Course');
+    const selectedCampuses = getSelectedValues(prefix + 'Campus');
     return rows.filter(row => {
       if (!valueMatchesSelection(row.division, selectedDivisions)) return false;
       if (!valueMatchesSelection(row.department, selectedDepartments)) return false;
       if (!valueMatchesSelection(row.subject, selectedSubjects)) return false;
       if (!valueMatchesSelection(row.course, selectedCourses)) return false;
+      if (!valueMatchesSelection(row.campus, selectedCampuses)) return false;
       return true;
     });
   }
@@ -973,7 +1033,7 @@
   }
 
   function resetAnalyticsControls(prefix) {
-    ['Division', 'Department', 'Subject', 'Course', 'Campus', 'Modality', 'Instructor', 'Day', 'Time'].forEach(name => clearSelect(prefix + name));
+    ['Division', 'Department', 'Subject', 'Course', 'Campus', 'Building', 'Room', 'Modality', 'Instructor', 'Day', 'Time'].forEach(name => clearSelect(prefix + name));
     const hideOnline = document.getElementById(prefix + 'HideOnline');
     if (hideOnline) hideOnline.checked = false;
     const hideCancelled = document.getElementById(prefix + 'HideCancelled');
@@ -1041,6 +1101,8 @@
     setSelectOptions(prefix + 'Subject', uniqueOptions(rows, row => row.subject));
     updateCourseOptions(prefix, rows);
     setSelectOptions(prefix + 'Campus', uniqueOptions(rows, row => row.campus));
+    setSelectOptions(prefix + 'Building', uniqueOptions(rows, row => row.building));
+    setSelectOptions(prefix + 'Room', uniqueOptions(rows, row => row.roomOnly || row.room));
     setSelectOptions(prefix + 'Modality', uniqueOptions(rows, row => row.modality));
     setSelectOptions(prefix + 'Instructor', uniqueOptions(rows, row => row.instructor));
     updatePatternOptions(prefix, rows);
@@ -1064,6 +1126,8 @@
       subject: getSelectedValues(prefix + 'Subject'),
       course: getSelectedValues(prefix + 'Course'),
       campus: getSelectedValues(prefix + 'Campus'),
+      building: getSelectedValues(prefix + 'Building'),
+      room: getSelectedValues(prefix + 'Room'),
       modality: getSelectedValues(prefix + 'Modality'),
       instructor: getSelectedValues(prefix + 'Instructor'),
       day: getSelectedValues(prefix + 'Day'),
@@ -1075,6 +1139,8 @@
       if (!valueMatchesSelection(r.subject, selected.subject)) return false;
       if (!valueMatchesSelection(r.course, selected.course)) return false;
       if (!valueMatchesSelection(r.campus, selected.campus)) return false;
+      if (!valueMatchesSelection(r.building, selected.building)) return false;
+      if (!valueMatchesSelection(r.roomOnly || r.room, selected.room)) return false;
       if (!valueMatchesSelection(r.modality, selected.modality)) return false;
       if (!valueMatchesSelection(r.instructor, selected.instructor)) return false;
       if (!valueMatchesSelection(r.dayPattern, selected.day)) return false;
@@ -1255,6 +1321,8 @@
       subject: getSelectedValues(prefix + 'Subject'),
       course: getSelectedValues(prefix + 'Course'),
       campus: getSelectedValues(prefix + 'Campus'),
+      building: getSelectedValues(prefix + 'Building'),
+      room: getSelectedValues(prefix + 'Room'),
       modality: getSelectedValues(prefix + 'Modality'),
       instructor: getSelectedValues(prefix + 'Instructor'),
       day: getSelectedValues(prefix + 'Day'),
@@ -1270,6 +1338,8 @@
       ['Subject', saved.subject],
       ['Course', saved.course],
       ['Campus', saved.campus],
+      ['Building', saved.building],
+      ['Room', saved.room],
       ['Modality', saved.modality],
       ['Instructor', saved.instructor],
       ['Day', saved.day],
@@ -1333,9 +1403,28 @@
     return defaultTerm;
   }
 
+  function updatePresenceFocusTermOptions(rows) {
+    const select = document.getElementById('spFocusTerm');
+    if (!select) return '';
+    const terms = dashboardAvailableTerms(rows);
+    const prior = select.value;
+    const active = canon(currentTerm());
+    const defaultTerm = terms.includes(prior) ? prior :
+      terms.includes(active) ? active :
+      terms.length ? terms[terms.length - 1] : '';
+    select.replaceChildren();
+    terms.forEach(term => select.appendChild(new Option(term, term, false, term === defaultTerm)));
+    select.value = defaultTerm;
+    return defaultTerm;
+  }
+
   function dashboardFocusTerm() {
     const value = document.getElementById('dashFocusTerm')?.value || '';
     return value === '__ALL__' ? '' : canon(value);
+  }
+
+  function studentPresenceFocusTerm() {
+    return canon(document.getElementById('spFocusTerm')?.value || '');
   }
 
   function dashboardCurrentRows(sourceRows, focusTerm) {
@@ -1493,7 +1582,7 @@
       dashboardPanel('Registration Pace Monitor', miniTable(summary.pace || [], ['dimension', 'name', 'currentEnrollment', 'expectedEnrollment', 'variance', 'variancePct', 'status'], 'pace')),
       dashboardPanel('Growth Opportunities', miniTable(summary.growth || [], ['course', 'waitlist', 'openSeats', 'viableOpenSeats', 'sameModalitySeats', 'onlineSeats', 'sameCampusSeats', 'timeWindowSeats', 'fillRate', 'recommendation'], 'growth')),
       dashboardPanel('Reduction Opportunities', `${miniTable(summary.reduction || [], ['type', 'course', 'potentialSectionsRemoved', 'availableReceivingCapacity', 'recommendation'], 'reduction')}<button type="button" data-report-target="${REPORTS.consolidation}">Open Consolidation Report</button>`),
-      dashboardPanel('Student Presence Analytics', `${presenceExtremes(presence)}${miniTable(presence.rows || [], ['campus', 'day', 'hour', 'studentsPresent', 'sectionsActive', 'availableRoomCapacity'], 'presence')}`),
+      dashboardPanel('Student Presence Analytics', `${presenceExtremes(presence)}${miniTable(presence.rows || [], ['campus', 'day', 'hour', 'studentsPresent', 'sectionsActive', 'availableRoomCapacity'], 'presence')}<button type="button" data-report-target="${REPORTS.studentPresence}">Open Student Presence Report</button>`),
       dashboardPanel('Schedule Structure', `${structureSummary(structure)}${miniTable(structure.modality || [], ['modality', 'sections', 'enrollment'], 'structure')}`)
     ].join('');
 
@@ -1588,6 +1677,90 @@
 
   function structureSummary(structure) {
     return `<p class="dashboard-note"><strong>Prime:</strong> ${structure.primeSections || 0} sections / ${structure.primeEnrollment || 0} enrollment <strong>Off-peak:</strong> ${structure.offPeakSections || 0} sections / ${structure.offPeakEnrollment || 0} enrollment</p>`;
+  }
+
+  function runStudentPresence() {
+    state.studentPresenceRan = true;
+    const saved = captureFilterState('sp');
+    const sourceRows = dashboardSourceRows().filter(row => !isOmittedInstructionalMethod(row));
+    const focusTerm = updatePresenceFocusTermOptions(sourceRows);
+    refreshAnalyticsFilters('sp', sourceRows, saved);
+    const scopedRows = applyFilters(dashboardCurrentRows(sourceRows, focusTerm), 'sp');
+    const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour');
+    state.studentPresenceRows = report.rows;
+    renderStudentPresenceReport(report);
+  }
+
+  function renderStudentPresenceReport(report) {
+    const metrics = report.metrics || {};
+    metric('studentPresenceMetrics', [
+      ['Focus Term', studentPresenceFocusTerm() || 'N/A'],
+      ['Students Present', metrics.totalStudents || 0],
+      ['Sections Active', metrics.totalSections || 0],
+      ['Seats Scheduled', metrics.totalSeats || 0],
+      ['Available Capacity', metrics.totalOpen || 0],
+      ['Average Fill Rate', pct(metrics.averageFillRate || 0)],
+      ['Peak Hour', presenceMetricLabel(metrics.peakHour)],
+      ['Lightest Hour', presenceMetricLabel(metrics.lightestHour)],
+      ['Peak Campus', presenceMetricLabel(metrics.peakCampus)],
+      ['Peak Building', presenceMetricLabel(metrics.peakBuilding)],
+      ['Peak Room', presenceMetricLabel(metrics.peakRoom)]
+    ]);
+    renderPresenceHeatmap(report.rows || []);
+    table('studentPresenceTable', report.rows || [], [
+      'group',
+      'campus',
+      'building',
+      'room',
+      'day',
+      'hour',
+      'studentsPresent',
+      'sectionsActive',
+      'availableRoomCapacity',
+      'seatsScheduled',
+      'averageFillRate'
+    ]);
+    renderStudentPresenceLegend();
+  }
+
+  function presenceMetricLabel(item) {
+    return item ? `${item.group} (${item.studentsPresent})` : 'N/A';
+  }
+
+  function renderPresenceHeatmap(rows) {
+    const node = document.getElementById('studentPresenceHeatmap');
+    if (!node) return;
+    const cells = (rows || []).slice(0, 12).map(row => `
+      <section>
+        <h3>${escapeAttr(row.group)}</h3>
+        <ul>
+          <li>Students: ${row.studentsPresent}</li>
+          <li>Sections: ${row.sectionsActive}</li>
+          <li>Open capacity: ${row.availableRoomCapacity}</li>
+        </ul>
+      </section>`).join('');
+    node.innerHTML = cells || '<p class="analytics-empty">No fixed in-person or hybrid presence rows match the selected filters.</p>';
+  }
+
+  function renderStudentPresenceLegend() {
+    const legend = document.getElementById('studentPresenceLegend');
+    if (!legend) return;
+    renderMethodologyPanel(legend, {
+      title: 'Student Presence Analytics Methodology & Data Dictionary',
+      purpose: 'Estimates physical student presence from loaded scheduled sections and enrollment for the selected focus term.',
+      methodology: 'Rows are included only when they are in-person or hybrid, have fixed meeting days and times, and do not use online, web, virtual, or TBA campus values. Students present uses census enrollment when available and current enrollment otherwise.',
+      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included meeting buckets. A multi-day section contributes to each scheduled meeting day/hour bucket.',
+      limitations: 'This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.',
+      items: [
+        ['Students Present', 'Sum of census/current enrollment in the selected physical presence bucket.'],
+        ['Sections Active', 'Count of scheduled section meetings represented in the bucket.'],
+        ['Available Room Capacity', 'Scheduled capacity minus enrollment for the bucket, floored at zero.'],
+        ['Seats Scheduled', 'Total scheduled section capacity in the bucket.'],
+        ['Average Fill Rate', 'Students Present divided by Seats Scheduled.'],
+        ['Peak/Lightest', 'Highest and lowest physical presence buckets after filters are applied.']
+      ],
+      version: 'Methodology v1.0'
+    });
   }
 
   function emptyAttritionRecord(group) {
@@ -3172,6 +3345,7 @@
       suggestedSectionCount: 'Suggested Section Count',
       forecastConfidence: 'Forecast Confidence',
       capacityGuidance: 'Capacity Guidance',
+      group: 'Group',
       dimension: 'Dimension',
       name: 'Group',
       currentEnrollment: 'Current Enrollment',
@@ -3189,6 +3363,8 @@
       studentsPresent: 'Students Present',
       sectionsActive: 'Sections Active',
       availableRoomCapacity: 'Available Room Capacity',
+      seatsScheduled: 'Seats Scheduled',
+      averageFillRate: 'Average Fill Rate',
       hour: 'Hour',
       peak: 'Peak',
       lightest: 'Lightest',
@@ -3257,6 +3433,7 @@
       selected === REPORTS.attrition ? 'attritionLegend' :
       selected === REPORTS.consolidation ? 'consolidationLegend' :
       selected === REPORTS.demand ? 'demandLegend' :
+      selected === REPORTS.studentPresence ? 'studentPresenceLegend' :
       selected === REPORTS.instructorAvailability ? 'instructorAvailabilityLegend' : '';
     const text = document.getElementById(legendId)?.innerText || '';
     return [divisionFilterContextText(selected), text.trim()].filter(Boolean).join('\n\n');
@@ -3266,13 +3443,14 @@
     const prefix = selectedReport === REPORTS.dashboard ? 'dash' :
       selectedReport === REPORTS.attrition ? 'attr' :
       selectedReport === REPORTS.consolidation ? 'con' :
+      selectedReport === REPORTS.studentPresence ? 'sp' :
       selectedReport === REPORTS.demand ? 'dem' : '';
     if (!prefix || !document.getElementById(prefix + 'Division')) return '';
     return [
       'Report Context',
       `Prepared using TIMBER Enrollment Analytics`,
       `Methodology Version 1.2`,
-      `Selected term: ${selectedReport === REPORTS.dashboard ? dashboardFocusTerm() || 'All Loaded Terms' : currentTerm() || 'All loaded terms'}`,
+      `Selected term: ${selectedReport === REPORTS.dashboard ? dashboardFocusTerm() || 'All Loaded Terms' : selectedReport === REPORTS.studentPresence ? studentPresenceFocusTerm() || 'N/A' : currentTerm() || 'All loaded terms'}`,
       `Division filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Division'))}`,
       `Campus filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Campus'))}`,
       `Modality filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Modality'))}`,
@@ -3341,6 +3519,7 @@
     document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
     document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
+    document.getElementById('studentPresenceReport').style.display = unlocked && selected === REPORTS.studentPresence ? 'block' : 'none';
     document.getElementById('instructorAvailabilityReport').style.display = unlocked && selected === REPORTS.instructorAvailability ? 'block' : 'none';
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = unlocked && selected === REPORTS.utilization ? 'block' : 'none';
@@ -3367,6 +3546,9 @@
     }
     if (selected === REPORTS.utilization) {
       window.COSScheduleApp?.renderUtilizationMap?.();
+    }
+    if (selected === REPORTS.studentPresence) {
+      runStudentPresence();
     }
     if (selected === REPORTS.instructorAvailability) {
       populateInstructorAvailabilityFilters(currentRows());
@@ -3498,10 +3680,15 @@
       if (selectedEnrollmentReport() === REPORTS.dashboard) runDashboard();
       if (selectedEnrollmentReport() === REPORTS.consolidation) runConsolidation();
       if (selectedEnrollmentReport() === REPORTS.demand) runDemand();
+      if (selectedEnrollmentReport() === REPORTS.studentPresence) runStudentPresence();
     });
     document.getElementById('runDashboard')?.addEventListener('click', runDashboard);
     document.getElementById('dashFocusTerm')?.addEventListener('change', runDashboard);
     document.getElementById('exportDashboardSummary')?.addEventListener('click', exportDashboardSummary);
+    document.getElementById('runStudentPresence')?.addEventListener('click', runStudentPresence);
+    document.getElementById('spFocusTerm')?.addEventListener('change', runStudentPresence);
+    document.getElementById('spGroup')?.addEventListener('change', runStudentPresence);
+    document.getElementById('exportStudentPresence')?.addEventListener('click', () => exportRows(state.studentPresenceRows, `student-presence-${studentPresenceFocusTerm() || 'term'}.csv`));
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
     document.getElementById('attrArchiveTerms')?.addEventListener('change', loadAttritionFiles);

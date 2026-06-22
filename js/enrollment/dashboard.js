@@ -263,6 +263,101 @@
     };
   }
 
+  function studentPresenceReport(rows, groupBy = 'campusDayHour') {
+    const physicalRows = (rows || []).filter(isPhysicalPresenceRow);
+    const buckets = new Map();
+    physicalRows.forEach(row => {
+      const hour = row.start ? `${String(row.start).slice(0, 2)}:00` : 'TBA';
+      (row.days || []).filter(day => dayOrder.includes(day)).forEach(day => {
+        const key = presenceGroupKey(row, groupBy, day, hour);
+        const item = buckets.get(key) || {
+          group: key,
+          campus: row.campus || 'UNKNOWN',
+          building: row.building || '',
+          room: row.roomOnly || row.room || '',
+          day,
+          hour,
+          studentsPresent: 0,
+          sectionsActive: 0,
+          availableRoomCapacity: 0,
+          seatsScheduled: 0,
+          fillRate: 0
+        };
+        const enrolled = enrollment(row);
+        item.studentsPresent += enrolled;
+        item.sectionsActive += 1;
+        item.seatsScheduled += Number(row.cap) || 0;
+        item.availableRoomCapacity += Math.max(0, (Number(row.cap) || 0) - enrolled);
+        buckets.set(key, item);
+      });
+    });
+    const rowsOut = [...buckets.values()].map(row => ({
+      ...row,
+      averageFillRate: safeDiv(row.studentsPresent, row.seatsScheduled)
+    })).sort((a, b) => b.studentsPresent - a.studentsPresent);
+    return {
+      rows: rowsOut,
+      metrics: studentPresenceMetrics(rowsOut)
+    };
+  }
+
+  function presenceGroupKey(row, groupBy, day, hour) {
+    const campus = row.campus || 'UNKNOWN';
+    const building = row.building || 'UNKNOWN';
+    const room = row.roomOnly || row.room || 'UNKNOWN';
+    const map = {
+      all: 'All Campuses',
+      campus: campus,
+      building: building,
+      room: room,
+      day: day,
+      hour: hour,
+      campusDayHour: [campus, day, hour].join(' / '),
+      buildingDayHour: [building, day, hour].join(' / '),
+      roomDayHour: [room, day, hour].join(' / ')
+    };
+    return map[groupBy] || map.campusDayHour;
+  }
+
+  function studentPresenceMetrics(rows) {
+    const totalStudents = rows.reduce((total, row) => total + row.studentsPresent, 0);
+    const totalSections = rows.reduce((total, row) => total + row.sectionsActive, 0);
+    const totalSeats = rows.reduce((total, row) => total + row.seatsScheduled, 0);
+    const totalOpen = rows.reduce((total, row) => total + row.availableRoomCapacity, 0);
+    return {
+      totalStudents,
+      totalSections,
+      totalSeats,
+      totalOpen,
+      averageFillRate: safeDiv(totalStudents, totalSeats),
+      peakHour: peakBy(rows, row => row.hour),
+      lightestHour: lightestBy(rows, row => row.hour),
+      peakCampus: peakBy(rows, row => row.campus),
+      peakBuilding: peakBy(rows.filter(row => row.building), row => row.building),
+      peakRoom: peakBy(rows.filter(row => row.room), row => row.room)
+    };
+  }
+
+  function peakBy(rows, keyer) {
+    return aggregatePresence(rows, keyer).sort((a, b) => b.studentsPresent - a.studentsPresent)[0] || null;
+  }
+
+  function lightestBy(rows, keyer) {
+    return aggregatePresence(rows, keyer).sort((a, b) => a.studentsPresent - b.studentsPresent)[0] || null;
+  }
+
+  function aggregatePresence(rows, keyer) {
+    const map = new Map();
+    rows.forEach(row => {
+      const key = keyer(row) || 'UNKNOWN';
+      const item = map.get(key) || { group: key, studentsPresent: 0, sectionsActive: 0 };
+      item.studentsPresent += row.studentsPresent;
+      item.sectionsActive += row.sectionsActive;
+      map.set(key, item);
+    });
+    return [...map.values()];
+  }
+
   function isPhysicalPresenceRow(row) {
     const modality = String(row?.modality || '').toUpperCase();
     const campus = String(row?.campus || '').toUpperCase();
@@ -445,6 +540,7 @@
     registrationPace,
     growthOpportunities,
     studentPresence,
+    studentPresenceReport,
     isPhysicalPresenceRow,
     scheduleStructure,
     rotationRows,
