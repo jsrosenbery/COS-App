@@ -620,6 +620,7 @@
             </div>
           </div>
           <div class="analytics-toolbar dashboard-toolbar">
+            <label>Dashboard Focus Term <select id="dashFocusTerm"></select></label>
             ${filters('dash', { includeGroup: false, includeCancelled: false, includeDivision: true })}
             <button id="runDashboard" type="button">Refresh Dashboard</button>
             <button id="exportDashboardSummary" type="button">Export Dashboard Summary CSV</button>
@@ -1309,27 +1310,73 @@
     return rows.length ? dedupeEnrollmentRows(rows) : currentRows().filter(row => !isOmittedInstructionalMethod(row));
   }
 
-  function dashboardHistoricalRows(rows) {
-    const current = currentTerm();
+  function dashboardAvailableTerms(rows) {
+    return collectRowTerms(rows)
+      .sort((a, b) => termSortValue(a) - termSortValue(b));
+  }
+
+  function updateDashboardFocusTermOptions(rows) {
+    const select = document.getElementById('dashFocusTerm');
+    if (!select) return '';
+    const terms = dashboardAvailableTerms(rows);
+    const prior = select.value;
+    const active = canon(currentTerm());
+    const defaultTerm = terms.includes(prior) || prior === '__ALL__' ? prior :
+      terms.includes(active) ? active :
+      terms.length ? terms[terms.length - 1] : '__ALL__';
+    select.replaceChildren();
+    select.appendChild(new Option('All Loaded Terms', '__ALL__', false, defaultTerm === '__ALL__'));
+    terms.forEach(term => select.appendChild(new Option(term, term, false, term === defaultTerm)));
+    select.value = defaultTerm;
+    return defaultTerm;
+  }
+
+  function dashboardFocusTerm() {
+    const value = document.getElementById('dashFocusTerm')?.value || '';
+    return value === '__ALL__' ? '' : canon(value);
+  }
+
+  function dashboardCurrentRows(sourceRows, focusTerm) {
+    if (!focusTerm) return sourceRows;
+    return sourceRows.filter(row => row.term === focusTerm);
+  }
+
+  function dashboardHistoricalRows(rows, focusTerm) {
     const pool = [
       ...(state.enrollment || []),
       ...(state.demandInput || []),
       ...(state.consolidationInput || []),
       ...(rows || [])
     ].filter(row => row && !isOmittedInstructionalMethod(row));
-    return dedupeEnrollmentRows(pool).filter(row => !current || row.term !== current);
+    const focusParts = termParts(focusTerm);
+    const focusSort = termSortValue(focusTerm);
+    return dedupeEnrollmentRows(pool).filter(row => {
+      if (!focusTerm) return true;
+      if (!row.term || row.term === focusTerm) return false;
+      const rowParts = termParts(row.term);
+      if (focusParts.season && rowParts.season && rowParts.season !== focusParts.season) return false;
+      return termSortValue(row.term) < focusSort;
+    });
+  }
+
+  function dashboardReductionRows(focusTerm) {
+    const rows = (state.consolidationRows || []).map(flattenOpportunity);
+    if (!focusTerm) return rows;
+    return rows.filter(row => (!row.term && !row.decisionTerm) || row.term === focusTerm || row.decisionTerm === focusTerm);
   }
 
   function runDashboard() {
     state.dashboardRan = true;
     const saved = captureFilterState('dash');
     const sourceRows = dashboardSourceRows().filter(row => !isOmittedInstructionalMethod(row));
+    const focusTerm = updateDashboardFocusTermOptions(sourceRows);
     refreshAnalyticsFilters('dash', sourceRows, saved);
-    const filteredRows = applyFilters(sourceRows, 'dash');
-    const historicalRows = applyFilters(dashboardHistoricalRows(sourceRows), 'dash');
-    const reductionRows = (state.consolidationRows || []).map(flattenOpportunity);
-    const summary = dashboard.dashboardSummary(filteredRows, historicalRows, reductionRows);
-    state.dashboardRows = filteredRows;
+    const selectedFocusTerm = focusTerm === '__ALL__' ? '' : focusTerm;
+    const currentRows = applyFilters(dashboardCurrentRows(sourceRows, selectedFocusTerm), 'dash');
+    const historicalRows = applyFilters(dashboardHistoricalRows(sourceRows, selectedFocusTerm), 'dash');
+    const reductionRows = dashboardReductionRows(selectedFocusTerm);
+    const summary = dashboard.dashboardSummary(currentRows, historicalRows, reductionRows);
+    state.dashboardRows = currentRows;
     state.dashboardSummary = summary;
     state.rotationRows = summary.rotation || [];
     renderDashboard(summary);
@@ -1338,7 +1385,11 @@
   function exportDashboardSummary() {
     if (!state.dashboardSummary) runDashboard();
     const rows = dashboard.dashboardSummaryExportRows(state.dashboardSummary, dashboardExportContext());
-    exportRowsWithoutMethodology(rows, `enrollment-dashboard-summary-${currentTerm() || 'term'}.csv`);
+    exportRowsWithoutMethodology(rows, `enrollment-dashboard-summary-${dashboardFocusSlug()}.csv`);
+  }
+
+  function dashboardFocusSlug() {
+    return (dashboardFocusTerm() || 'all-loaded-terms').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'term';
   }
 
   function dashboardExportContext() {
@@ -1347,7 +1398,7 @@
     return {
       methodologyVersion: 'Methodology Version 1.2',
       exportedAt: new Date().toLocaleString(),
-      selectedTerm: currentTerm() || 'All loaded terms',
+      selectedTerm: dashboardFocusTerm() || 'All Loaded Terms',
       divisionFilter: filterUtils.divisionFilterLabel(getSelectedValues('dashDivision')),
       campusFilter: filterUtils.divisionFilterLabel(getSelectedValues('dashCampus')),
       modalityFilter: filterUtils.divisionFilterLabel(getSelectedValues('dashModality')),
@@ -2541,6 +2592,8 @@
       : '';
     return {
       type: row.type || 'In-Person Consolidation',
+      term: row.term || row.decisionTerm || row.source?.term || row.target?.term || '',
+      decisionTerm: row.decisionTerm || row.term || row.source?.term || row.target?.term || '',
       score: row.score,
       label: row.label,
       course: row.course,
@@ -3098,7 +3151,7 @@
       'Report Context',
       `Prepared using TIMBER Enrollment Analytics`,
       `Methodology Version 1.2`,
-      `Selected term: ${currentTerm() || 'All loaded terms'}`,
+      `Selected term: ${selectedReport === REPORTS.dashboard ? dashboardFocusTerm() || 'All Loaded Terms' : currentTerm() || 'All loaded terms'}`,
       `Division filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Division'))}`,
       `Campus filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Campus'))}`,
       `Modality filter: ${filterUtils.divisionFilterLabel(getSelectedValues(prefix + 'Modality'))}`,
@@ -3313,6 +3366,7 @@
       if (selectedEnrollmentReport() === REPORTS.demand) runDemand();
     });
     document.getElementById('runDashboard')?.addEventListener('click', runDashboard);
+    document.getElementById('dashFocusTerm')?.addEventListener('change', runDashboard);
     document.getElementById('exportDashboardSummary')?.addEventListener('click', exportDashboardSummary);
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
@@ -3365,7 +3419,10 @@
   }
 
   window.COSEnrollmentAnalytics = {
-    normalizeRow: normalize
+    normalizeRow: normalize,
+    dashboardAvailableTerms,
+    dashboardCurrentRows,
+    dashboardHistoricalRows
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
