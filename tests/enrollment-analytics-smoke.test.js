@@ -283,6 +283,57 @@ test('dashboard consolidation summary consumes existing consolidation output', (
   assert.deepEqual(summary.reduction[0], existingOutput[0]);
 });
 
+test('dashboard summary export includes methodology and context rows', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const summary = COSEnrollmentDashboard.dashboardSummary([section({ division: 'Arts', census: 18, cap: 25 })], [], []);
+  const rows = COSEnrollmentDashboard.dashboardSummaryExportRows(summary, {
+    methodologyVersion: 'Methodology Version 1.2',
+    exportedAt: '2026-06-22 10:00',
+    selectedTerm: 'FALL 2026',
+    divisionFilter: 'Arts',
+    campusFilter: 'VIS',
+    modalityFilter: 'IN PERSON',
+    disciplineCourseFilter: 'Discipline: PS',
+    dataSourceNote: 'Uploaded and/or archived enrollment CSV rows'
+  });
+
+  assert.ok(rows.some(row => row.Section === 'Context' && row.Metric === 'Prepared using' && row.Value === 'TIMBER Enrollment Analytics'));
+  assert.ok(rows.some(row => row.Section === 'Context' && row.Metric === 'Methodology Version' && row.Value === 'Methodology Version 1.2'));
+  assert.ok(rows.some(row => row.Section === 'Context' && row.Metric === 'Selected Division Filter' && row.Value === 'Arts'));
+  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Current Enrollment'));
+});
+
+test('dashboard summary export respects selected division filter', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const rows = [
+    section({ division: 'Arts', subject: 'ART', course: '101', waitlist: 4, census: 30, cap: 30 }),
+    section({ division: 'Business', subject: 'BUS', course: '101', waitlist: 4, census: 30, cap: 30 })
+  ];
+  const filtered = COSEnrollmentDashboard.applyDashboardFilters(rows, { division: ['Arts'] });
+  const summary = COSEnrollmentDashboard.dashboardSummary(filtered, [], []);
+  const exportRows = COSEnrollmentDashboard.dashboardSummaryExportRows(summary, { divisionFilter: 'Arts' });
+  const groups = exportRows.map(row => row.Group).join(' ');
+
+  assert.match(groups, /ART 101/);
+  assert.doesNotMatch(groups, /BUS 101/);
+  assert.ok(exportRows.some(row => row.Section === 'Context' && row.Metric === 'Selected Division Filter' && row.Value === 'Arts'));
+});
+
+test('dashboard summary export excludes fully online rows from student presence', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const summary = COSEnrollmentDashboard.dashboardSummary([
+    section({ modality: 'IN PERSON', campus: 'VIS', days: ['MO'], start: '10:00', census: 20 }),
+    section({ modality: 'ONLINE', campus: 'ONLINE', days: ['MO'], start: '', census: 99 })
+  ], [], []);
+  const exportRows = COSEnrollmentDashboard.dashboardSummaryExportRows(summary, {});
+  const presenceRows = exportRows.filter(row => row.Section === 'Student Presence Analytics');
+  const text = presenceRows.map(row => `${row.Group} ${row.Value}`).join(' ');
+
+  assert.match(text, /VIS \/ MO \/ 10:00/);
+  assert.doesNotMatch(text, /ONLINE/);
+  assert.doesNotMatch(text, /99/);
+});
+
 test('user-facing terminology uses Part-Time Faculty wording', () => {
   const root = path.join(__dirname, '..');
   const files = [
