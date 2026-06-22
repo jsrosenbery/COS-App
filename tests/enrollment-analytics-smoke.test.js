@@ -459,6 +459,18 @@ test('user-facing terminology uses Part-Time Faculty wording', () => {
   assert.equal(new RegExp(legacyWord, 'i').test(text), false);
 });
 
+test('enrollment analytics report labels are operational', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.doesNotMatch(text, /WIP/);
+  assert.match(text, /Enrollment Analytics Dashboard/);
+  assert.match(text, /Enrollment Demand Forecast/);
+  assert.match(text, /Enrollment Attrition \/ Lifecycle/);
+  assert.match(text, /Section Consolidation Opportunities/);
+  assert.match(text, /Room Utilization Map/);
+  assert.match(text, /Instructor Availability - Planning View/);
+});
+
 test('index owns enrollment analytics script order', () => {
   const root = path.join(__dirname, '..');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');

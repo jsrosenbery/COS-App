@@ -585,11 +585,11 @@
           <label for="emReportSelect">Enrollment Management Report:</label>
           <select id="emReportSelect">
             <option value="${REPORTS.dashboard}">Enrollment Analytics Dashboard</option>
-            <option value="${REPORTS.demand}">Enrollment Demand Forecast - WIP</option>
-            <option value="${REPORTS.attrition}">Enrollment Attrition / Lifecycle - WIP</option>
-            <option value="${REPORTS.consolidation}">Section Consolidation Opportunities - WIP</option>
+            <option value="${REPORTS.demand}">Enrollment Demand Forecast</option>
+            <option value="${REPORTS.attrition}">Enrollment Attrition / Lifecycle</option>
+            <option value="${REPORTS.consolidation}">Section Consolidation Opportunities</option>
             <option value="${REPORTS.utilization}">Room Utilization Map</option>
-            <option value="${REPORTS.instructorAvailability}">Instructor Availability - WIP</option>
+            <option value="${REPORTS.instructorAvailability}">Instructor Availability - Planning View</option>
           </select>
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
           <span class="em-workbench-note">Dashboard and factual reports support dean/division review. Scenario modeling and schedule simulation are future Enrollment Management Workbench tools.</span>
@@ -640,7 +640,7 @@
         </div>
         <div id="instructorAvailabilityReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Instructor Availability - WIP</h2>
+            <h2>Instructor Availability - Planning View</h2>
             <p>This first-layer planning view uses the loaded schedule/class data to identify when instructors are already scheduled. It does not prove contractual or personal availability; it only separates known schedule conflicts from open windows where no loaded teaching assignment is found.</p>
             <div class="analytics-methodology">
               <div>
@@ -689,7 +689,7 @@
         </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Attrition / Lifecycle - WIP</h2>
+            <h2>Enrollment Attrition / Lifecycle</h2>
             <p>Upload enrollment snapshot CSV files for the decision term and any comparison terms. This report uses CENSUS_ENROLL as census enrollment and ACTUAL_ENROLL as end/current enrollment, while keeping the selected decision term separate from historical terms.</p>
             <div class="analytics-methodology">
               <div>
@@ -743,7 +743,7 @@
         </div>
         <div id="consolidationReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Section Consolidation Opportunities - WIP</h2>
+            <h2>Section Consolidation Opportunities</h2>
             <p>Use this planning view to identify low-filled sections and possible receiving sections. Recommendations are review prompts, not automatic cancellation decisions.</p>
             <div class="analytics-methodology">
               <div>
@@ -797,7 +797,7 @@
         </div>
         <div id="demandReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Demand Forecast - WIP</h2>
+            <h2>Enrollment Demand Forecast</h2>
             <p>Use historical enrollment growth patterns to forecast future student demand by college, division, discipline, and course. This report is a planning forecast, not a cancellation or consolidation recommendation.</p>
             <div class="analytics-methodology">
               <div>
@@ -2700,7 +2700,7 @@
     const legend = document.getElementById('instructorAvailabilityLegend');
     if (!legend) return;
     renderMethodologyPanel(legend, {
-      title: 'Instructor Availability Methodology & Data Dictionary',
+      title: 'Instructor Availability - Planning View Methodology & Data Dictionary',
       purpose: 'Provides a first-layer schedule-conflict check for instructors using the currently loaded schedule/class data.',
       methodology: 'The report compares each instructor scheduled in the loaded data against the selected day and time window. A conflict exists when the section meets on the selected day and its meeting time overlaps the requested window.',
       assumptions: 'Rows without fixed meeting days or fixed meeting times are not treated as conflicts for a specific day/time search. Rows with 00:00 placeholder start or end times are treated as non-fixed. This keeps Online/TBA rows and placeholder records from blocking an instructor in a physical time slot.',
