@@ -579,7 +579,7 @@
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="emAccessPanel" class="em-access-panel">
           <button id="unlockEnrollmentManagement" type="button" class="em-unlock">Enrollment Management</button>
-          <span class="em-access-note">Planning reports are hidden until opened.</span>
+          <span class="em-access-note">Decision-support summaries are hidden until opened.</span>
         </div>
         <div id="emReportControls" class="em-report-controls" hidden>
           <label for="emReportSelect">Enrollment Management Report:</label>
@@ -592,17 +592,19 @@
             <option value="${REPORTS.instructorAvailability}">Instructor Availability - WIP</option>
           </select>
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
+          <span class="em-workbench-note">Dashboard and factual reports support dean/division review. Scenario modeling and schedule simulation are future Enrollment Management Workbench tools.</span>
         </div>
         <div id="dashboardReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Analytics Dashboard</h2>
-            <p>A compact decision-support view for enrollment health, registration pace, growth pressure, reduction opportunities, physical student presence, schedule structure, and course rotation health.</p>
+            <p>A compact decision-support summary for enrollment health, registration pace, growth pressure, reduction opportunities, physical student presence, schedule structure, and course rotation health. It summarizes factual report data; scenario modeling and simulation are future Enrollment Management Workbench tools.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Dashboard</h3>
                 <ul>
                   <li>Use the filters to focus the summary by division, campus, modality, discipline, course, instructor, day, or start hour.</li>
-                  <li>Review the top cards first, then use the drill-down buttons for the detailed demand, attrition, consolidation, rotation, room, and methodology views.</li>
+                  <li>Review the top cards first, then use the drill-down buttons for detailed factual demand, attrition, consolidation, rotation, room, and methodology views.</li>
+                  <li>Scenario modeling and schedule simulation are intentionally not enabled here yet; those controls are reserved for a future Enrollment Management Workbench once backend support exists.</li>
                   <li>Growth prompts review viable existing seats before suggesting added capacity. Reduction prompts summarize the existing consolidation report output rather than creating separate cancellation logic.</li>
                 </ul>
               </div>
@@ -3160,7 +3162,7 @@
     document.getElementById('emReportControls').hidden = !unlocked;
     document.getElementById('unlockEnrollmentManagement').hidden = unlocked;
     const note = document.querySelector('.em-access-note');
-    if (note) note.textContent = unlocked ? 'Enrollment Management reports are open for this browser session.' : 'Planning reports are hidden until opened.';
+    if (note) note.textContent = unlocked ? 'Decision-support reports are open for this browser session.' : 'Decision-support summaries are hidden until opened.';
     document.getElementById('dashboardReport').style.display = unlocked && selected === REPORTS.dashboard ? 'block' : 'none';
     document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
@@ -3210,6 +3212,7 @@
       .em-report-controls label{font-weight:800;color:#51657c;font-size:13px}
       .em-report-controls .em-methodology-export{font-weight:700;color:#51657c}
       .em-report-controls .em-methodology-export input{margin-right:6px}
+      .em-workbench-note{flex-basis:100%;color:#6b7d91;font-size:12px;line-height:1.35}
       .em-report-controls select{min-height:36px;border:1px solid #ccd6e2;border-radius:8px;padding:6px 10px;background:#fff;color:#123367;font-weight:700}
       .analytics-report-intro{margin-bottom:16px;color:#51657c;line-height:1.45}
       .analytics-report-intro h2{margin:0 0 6px;color:#123367;font-size:24px}

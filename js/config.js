@@ -19,6 +19,10 @@
     },
     features: {
       enrollmentManagement: true,
+      deanDashboardAccess: true,
+      enrollmentManagementWorkbench: false,
+      scenarioModeling: false,
+      scheduleSimulation: false,
       analyticsArchive: true,
       roomCatalogAdmin: true,
       calGetcAdmin: true,

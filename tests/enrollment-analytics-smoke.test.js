@@ -39,6 +39,17 @@ function loadEnrollmentAnalyticsRuntime() {
   return context.window;
 }
 
+function loadConfigModule() {
+  const context = {
+    window: {},
+    location: { hostname: 'localhost' }
+  };
+  vm.createContext(context);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/config.js'), 'utf8');
+  vm.runInContext(source, context, { filename: 'js/config.js' });
+  return context.window.COS_APP_CONFIG;
+}
+
 function section(overrides = {}) {
   return {
     term: 'FALL 2026',
@@ -68,6 +79,16 @@ test('metrics use census as the planning enrollment basis', () => {
   assert.equal(COSEnrollmentMetrics.expectedEnrollment(row), 24);
   assert.equal(COSEnrollmentMetrics.expectedOpenSeats(row), 6);
   assert.equal(COSEnrollmentMetrics.expectedFillRate(row), 0.8);
+});
+
+test('config exposes future enrollment access feature placeholders', () => {
+  const config = loadConfigModule();
+
+  assert.equal(config.features.deanDashboardAccess, true);
+  assert.equal(config.features.enrollmentManagementWorkbench, false);
+  assert.equal(config.features.scenarioModeling, false);
+  assert.equal(config.features.scheduleSimulation, false);
+  assert.equal(config.features.enrollmentManagement, true);
 });
 
 test('current CSV data without milestone fields still normalizes for attrition', () => {
