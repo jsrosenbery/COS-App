@@ -133,6 +133,43 @@ test('future lifecycle milestone fields normalize when present', () => {
   assert.equal(row.census, 25);
 });
 
+test('dashboard focus term scopes current metrics and excludes focus from history', () => {
+  const { COSEnrollmentAnalytics, COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'SPRING 2025', subject: 'BUS', course: '050', crn: '1', census: 80, actual: 75, cap: 100, ftes: 8 }),
+    section({ term: 'SPRING 2026', subject: 'BUS', course: '050', crn: '2', census: 100, actual: 95, cap: 100, ftes: 10 }),
+    section({ term: 'FALL 2026', subject: 'BUS', course: '050', crn: '4', census: 999, actual: 999, cap: 1000, ftes: 99 }),
+    section({ term: 'SPRING 2027', subject: 'BUS', course: '050', crn: '3', census: 0, actual: 0, cap: 100, ftes: 0 })
+  ];
+
+  const currentRows = COSEnrollmentAnalytics.dashboardCurrentRows(rows, 'SPRING 2027');
+  const historicalRows = COSEnrollmentAnalytics.dashboardHistoricalRows(rows, 'SPRING 2027');
+  const summary = COSEnrollmentDashboard.dashboardSummary(currentRows, historicalRows, []);
+
+  assert.deepEqual(Array.from(COSEnrollmentAnalytics.dashboardAvailableTerms(rows)), ['SPRING 2025', 'SPRING 2026', 'FALL 2026', 'SPRING 2027']);
+  assert.equal(summary.health.currentEnrollment, 0);
+  assert.equal(summary.health.sectionsReviewed, 1);
+  assert.equal(summary.health.coursesReviewed, 1);
+  assert.equal(summary.health.ftes, 0);
+  assert.equal(summary.health.expectedEnrollment, 90);
+  assert.equal(historicalRows.some(row => row.term === 'SPRING 2027'), false);
+  assert.equal(historicalRows.some(row => row.term === 'FALL 2026'), false);
+});
+
+test('dashboard all loaded terms is explicit gross-total mode', () => {
+  const { COSEnrollmentAnalytics, COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'SPRING 2025', subject: 'BUS', course: '050', crn: '1', census: 80, actual: 75, cap: 100 }),
+    section({ term: 'SPRING 2027', subject: 'BUS', course: '050', crn: '2', census: 10, actual: 10, cap: 100 })
+  ];
+
+  const allRows = COSEnrollmentAnalytics.dashboardCurrentRows(rows, '');
+  const summary = COSEnrollmentDashboard.dashboardSummary(allRows, [], []);
+
+  assert.equal(summary.health.currentEnrollment, 90);
+  assert.equal(summary.health.sectionsReviewed, 2);
+});
+
 test('grouped consolidation returns one opportunity for reciprocal section matches', () => {
   const { COSConsolidationAnalytics } = loadEnrollmentModules();
   const sections = [
