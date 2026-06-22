@@ -606,6 +606,7 @@
                   <li>Review the top cards first, then use the drill-down buttons for detailed factual demand, attrition, consolidation, rotation, room, and methodology views.</li>
                   <li>Scenario modeling and schedule simulation are intentionally not enabled here yet; those controls are reserved for a future Enrollment Management Workbench once backend support exists.</li>
                   <li>Growth prompts review viable existing seats before suggesting added capacity. Reduction prompts summarize the existing consolidation report output rather than creating separate cancellation logic.</li>
+                  <li>Expected enrollment uses same-season historical comparison terms and excludes the selected focus term.</li>
                 </ul>
               </div>
               <div>
@@ -2733,11 +2734,11 @@
       title: 'Enrollment Analytics Dashboard Methodology & Data Dictionary',
       purpose: 'Provides a compact decision-support landing view for enrollment health, registration pace, capacity pressure, consolidation summary, physical student presence, schedule structure, and course rotation health.',
       methodology: 'Prepared using TIMBER Enrollment Analytics. Dashboard calculations use the currently selected filters. Growth prompts compare waitlist pressure to existing open seats before suggesting added capacity. Reduction prompts summarize the existing Section Consolidation Opportunities output and do not introduce separate reduction logic.',
-      assumptions: 'Current enrollment uses census enrollment when available and current enrollment otherwise. Expected enrollment uses historical term averages when comparison rows are loaded. Student Presence Analytics includes in-person and hybrid rows only. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM.',
+      assumptions: 'Current enrollment uses census enrollment when available and current enrollment otherwise. Expected enrollment uses same-season historical comparison terms and excludes the selected focus term. Student Presence Analytics includes in-person and hybrid rows only. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM.',
       limitations: 'The dashboard is a planning summary, not an automatic add, cancel, consolidation, or staffing directive. It does not include student intent, budget constraints, contractual constraints, equity review, or leadership decisions unless those factors are represented in the uploaded data.',
       items: [
         ['Enrollment Health', 'Current enrollment, expected enrollment, variance, courses reviewed, sections reviewed, FTES, and available lifecycle milestones for the selected filters.'],
-        ['Registration Pace Monitor', 'Current versus expected enrollment by Course, Division, Modality, Campus, Day Pattern, and Time Block. Status is Ahead of Pace, On Pace, Behind Pace, or N/A.'],
+        ['Registration Pace Monitor', 'Current focus-term enrollment versus average expected enrollment from comparable same-season historical terms by Course, Division, Modality, Campus, Day Pattern, and Time Block. The selected focus term and future terms are excluded. Status is Ahead of Pace, On Pace, Behind Pace, or N/A.'],
         ['Growth Opportunities', 'Courses with waitlist pressure or very high fill. Added capacity is considered only when viable open seats appear insufficient after reviewing same modality, online, same campus, time-window, and compatible-day seats.'],
         ['Reduction Opportunities', 'Top rows from the existing consolidation report output. Open the consolidation report for the full methodology and candidate details.'],
         ['Student Presence Analytics', 'In-person and hybrid student load by campus, day, and hour. Online rows are excluded.'],
