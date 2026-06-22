@@ -107,6 +107,10 @@
     ftes: ['FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
     actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment'],
     census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment'],
+    firstDay: ['First Day Enrollment', 'First_Day_Enrollment', 'FIRST_DAY_ENROLLMENT', 'First Day'],
+    census1: ['Census 1', 'Census_1', 'CENSUS_1'],
+    census2: ['Census 2', 'Census_2', 'CENSUS_2'],
+    finalEnrollment: ['Final Enrollment', 'FINAL_ENROLLMENT', 'End Enrollment', 'END_ENROLLMENT'],
     waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WAIT COUNT', 'WAIT_COUNT', 'WL Count', 'WAITLISTED'],
     fill: ['Fill_Rate', 'Fill Rate', 'Percent Full', '% Full'],
     closed: ['Closed Prior to Census', 'CLOSED_PRIOR_TO_CENSUS', 'Closed Before Census', 'Closed', 'CLOSED'],
@@ -192,6 +196,10 @@
     const actual = num(val(row, fields.actual));
     const censusValue = val(row, fields.census);
     const census = censusValue === '' ? null : num(censusValue);
+    const firstDayValue = val(row, fields.firstDay);
+    const census1Value = val(row, fields.census1);
+    const census2Value = val(row, fields.census2);
+    const finalEnrollmentValue = val(row, fields.finalEnrollment);
     const waitlistValue = val(row, fields.waitlist);
     const units = num(val(row, fields.units));
     const weeklyHours = num(val(row, fields.weeklyHours));
@@ -234,6 +242,10 @@
       hasDirectFtesData: ftesValue !== '',
       actual,
       census,
+      firstDay: firstDayValue === '' ? null : num(firstDayValue),
+      census1: census1Value === '' ? null : num(census1Value),
+      census2: census2Value === '' ? null : num(census2Value),
+      finalEnrollment: finalEnrollmentValue === '' ? null : num(finalEnrollmentValue),
       waitlist: num(waitlistValue),
       hasWaitlistData: waitlistValue !== '',
       closedPriorCensus: isTruthy(val(row, fields.closed)),
@@ -574,7 +586,7 @@
           <select id="emReportSelect">
             <option value="${REPORTS.dashboard}">Enrollment Analytics Dashboard</option>
             <option value="${REPORTS.demand}">Enrollment Demand Forecast - WIP</option>
-            <option value="${REPORTS.attrition}">Enrollment Attrition - WIP</option>
+            <option value="${REPORTS.attrition}">Enrollment Attrition / Lifecycle - WIP</option>
             <option value="${REPORTS.consolidation}">Section Consolidation Opportunities - WIP</option>
             <option value="${REPORTS.utilization}">Room Utilization Map</option>
             <option value="${REPORTS.instructorAvailability}">Instructor Availability - WIP</option>
@@ -675,7 +687,7 @@
         </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Attrition - WIP</h2>
+            <h2>Enrollment Attrition / Lifecycle - WIP</h2>
             <p>Upload enrollment snapshot CSV files for the decision term and any comparison terms. This report uses CENSUS_ENROLL as census enrollment and ACTUAL_ENROLL as end/current enrollment, while keeping the selected decision term separate from historical terms.</p>
             <div class="analytics-methodology">
               <div>
@@ -687,6 +699,7 @@
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
                   <li>Enter the decision season and year before running the report. The decision term can be a future term with no uploaded section seating report yet; in that case, decision-term columns will be zero and the report serves as a historical attrition baseline for planning.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
+                  <li>The report is lifecycle-ready: when future source files include First Day, Census 1, Census 2, and Final milestone fields, those values can be summarized without changing the current attrition workflow.</li>
                 </ul>
               </div>
               <div>
@@ -695,6 +708,9 @@
                   <li>Sections are deduplicated by CRN within term, with subject/course/section used as fallback, so multi-meeting rows are not double counted.</li>
                   <li>Attrition Count = CENSUS_ENROLL - ACTUAL_ENROLL. Attrition Rate = Attrition Count / CENSUS_ENROLL.</li>
                   <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
+                  <li>Current available lifecycle calculation uses Census Enrollment and Final/Current Enrollment because current Section Seating exports may not include all milestone fields.</li>
+                  <li>Future lifecycle support will use First Day, Census 1, Census 2, and Final Enrollment when those fields are available. Missing milestone fields display as N/A rather than zero.</li>
+                  <li>This report is lifecycle-ready but limited by available uploaded data until those IT report fields are delivered.</li>
                   <li>All Terms columns include the decision term plus comparison terms when decision-term rows exist. Historical Attrition excludes the decision term and uses comparison terms only, which is the correct planning view for future terms that have not opened for scheduling/enrollment yet.</li>
                   <li>Min sections controls the minimum section count a grouped row must have before it appears in the report.</li>
                 </ul>
@@ -2714,6 +2730,7 @@
       ['Total Seats', 'Total MAX ENROLL capacity across the row grouping and included terms.'],
       ['Census Enrollment', 'CENSUS_ENROLL across included terms. If CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
       ['Final Enrollment', 'ACTUAL_ENROLL across included terms. This remains visible for attrition/retention context and does not drive consolidation or forecast recommendations.'],
+      ['Lifecycle Readiness', 'Current available calculations use Census Enrollment and Final/Current Enrollment. Future lifecycle support will use First Day, Census 1, Census 2, and Final Enrollment fields when those fields are available. Missing milestone fields display as N/A.'],
       ['Attrition Count', 'Census Enrollment minus Final Enrollment, floored at zero.'],
       ['Attrition Rate', 'Attrition Count divided by Census Enrollment.'],
       ['Historical Attrition Rate', 'Historical attrition from comparison terms only; it excludes the decision term.'],
@@ -2726,7 +2743,7 @@
     renderMethodologyPanel(legend, {
       title: 'Enrollment Attrition Methodology & Data Dictionary',
       purpose: 'Identifies enrollment loss between census and final/current enrollment and compares decision-term attrition against historical comparison terms.',
-      methodology: 'The selected decision term is tracked separately from historical comparison terms. Historical term counts and historical attrition exclude the decision/future term. Census enrollment is the demand basis; final enrollment remains visible as attrition context.',
+      methodology: 'The selected decision term is tracked separately from historical comparison terms. Historical term counts and historical attrition exclude the decision/future term. Census enrollment is the demand basis; final/current enrollment remains visible as attrition context. The report is lifecycle-ready but limited by available uploaded data until First Day, Census 1, Census 2, and Final milestone fields are delivered.',
       assumptions: 'CENSUS_ENROLL is treated as census enrollment. ACTUAL_ENROLL is treated as final enrollment when the source file is final and as current enrollment when the source file is an in-progress snapshot.',
       limitations: 'This report does not know why students left, whether a term file is final unless the uploaded source reflects that, or whether external retention interventions occurred.',
       items,
@@ -3343,6 +3360,10 @@
     refreshAnalyticsArchiveOptions();
     updateVisibility();
   }
+
+  window.COSEnrollmentAnalytics = {
+    normalizeRow: normalize
+  };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

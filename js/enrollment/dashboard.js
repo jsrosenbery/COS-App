@@ -76,10 +76,7 @@
       ['Final', 'finalEnrollment']
     ];
     return milestones.map(([label, key]) => {
-      const values = rows.map(row => {
-        if (key === 'finalEnrollment') return finalEnrollment(row);
-        return Number(row?.[key]);
-      }).filter(Number.isFinite);
+      const values = rows.map(row => Number(row?.[key])).filter(Number.isFinite);
       return { label, value: values.length ? values.reduce((total, value) => total + value, 0) : null };
     });
   }

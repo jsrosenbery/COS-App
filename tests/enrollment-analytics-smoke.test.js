@@ -18,6 +18,27 @@ function loadEnrollmentModules() {
   return context.window;
 }
 
+function loadEnrollmentAnalyticsRuntime() {
+  const context = {
+    window: {},
+    document: {
+      readyState: 'loading',
+      addEventListener() {},
+      getElementById() { return null; },
+      querySelectorAll() { return []; }
+    },
+    console
+  };
+  context.window.window = context.window;
+  context.window.document = context.document;
+  vm.createContext(context);
+  ['js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment-analytics.js'].forEach(file => {
+    const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    vm.runInContext(source, context, { filename: file });
+  });
+  return context.window;
+}
+
 function section(overrides = {}) {
   return {
     term: 'FALL 2026',
@@ -47,6 +68,48 @@ test('metrics use census as the planning enrollment basis', () => {
   assert.equal(COSEnrollmentMetrics.expectedEnrollment(row), 24);
   assert.equal(COSEnrollmentMetrics.expectedOpenSeats(row), 6);
   assert.equal(COSEnrollmentMetrics.expectedFillRate(row), 0.8);
+});
+
+test('current CSV data without milestone fields still normalizes for attrition', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    CRN: '12345',
+    Subject: 'PS',
+    Course: '200M',
+    Capacity: '30',
+    ACTUAL_ENROLL: '18',
+    CENSUS_ENROLL: '24'
+  });
+
+  assert.equal(row.actual, 18);
+  assert.equal(row.census, 24);
+  assert.equal(row.firstDay, null);
+  assert.equal(row.census1, null);
+  assert.equal(row.census2, null);
+  assert.equal(row.finalEnrollment, null);
+});
+
+test('future lifecycle milestone fields normalize when present', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    Subject: 'PS',
+    Course: '200M',
+    'First Day Enrollment': '31',
+    Census_1: '28',
+    CENSUS_2: '26',
+    FINAL_ENROLLMENT: '22',
+    ACTUAL_ENROLL: '20',
+    CENSUS_ENROLL: '25'
+  });
+
+  assert.equal(row.firstDay, 31);
+  assert.equal(row.census1, 28);
+  assert.equal(row.census2, 26);
+  assert.equal(row.finalEnrollment, 22);
+  assert.equal(row.actual, 20);
+  assert.equal(row.census, 25);
 });
 
 test('grouped consolidation returns one opportunity for reciprocal section matches', () => {
@@ -182,6 +245,29 @@ test('dashboard summary loads decision-support sections', () => {
   assert.ok(summary.growth.length > 0);
   assert.equal(summary.reduction.length, 1);
   assert.ok(summary.rotation.length > 0);
+});
+
+test('dashboard lifecycle displays N/A when milestone fields are missing', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const summary = COSEnrollmentDashboard.dashboardSummary([
+    section({ census: 24, actual: 18 }),
+    section({ census: 20, actual: 15 })
+  ], [], []);
+
+  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [null, null, null, null]);
+  const exportRows = COSEnrollmentDashboard.dashboardSummaryExportRows(summary, {});
+  const lifecycleRows = exportRows.filter(row => row.Section === 'Enrollment Health' && row.Group === 'Lifecycle Milestone');
+  assert.equal(lifecycleRows.every(row => row.Value === 'N/A'), true);
+});
+
+test('dashboard lifecycle totals future milestone fields when available', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const summary = COSEnrollmentDashboard.dashboardSummary([
+    section({ firstDay: 30, census1: 28, census2: 26, finalEnrollment: 22 }),
+    section({ firstDay: 20, census1: 18, census2: 16, finalEnrollment: 12 })
+  ], [], []);
+
+  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [50, 46, 42, 34]);
 });
 
 test('dashboard division filter changes row count and exported rows', () => {
