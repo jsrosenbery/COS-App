@@ -470,6 +470,48 @@ test('student presence analytics excludes online sections', () => {
   assert.equal(presence.rows[0].campus, 'VIS');
 });
 
+test('detailed student presence report excludes non-physical rows and groups room buckets', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const report = COSEnrollmentDashboard.studentPresenceReport([
+    section({ modality: 'IN PERSON', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '10:00', census: 20, cap: 30 }),
+    section({ modality: 'HYBRID', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '10:00', census: 10, cap: 20 }),
+    section({ modality: 'ONLINE', campus: 'ONLINE', building: '', roomOnly: '', room: '', days: ['MO'], start: '', census: 99, cap: 100 }),
+    section({ modality: 'IN PERSON', campus: 'VIS', building: 'KERN', roomOnly: '102', room: 'KERN 102', days: ['TBA'], start: '00:00', census: 50, cap: 60 })
+  ], 'roomDayHour');
+
+  assert.equal(report.rows.length, 1);
+  assert.equal(report.rows[0].group, '101 / MO / 10:00');
+  assert.equal(report.rows[0].studentsPresent, 30);
+  assert.equal(report.rows[0].sectionsActive, 2);
+  assert.equal(report.rows[0].seatsScheduled, 50);
+  assert.equal(report.rows[0].availableRoomCapacity, 20);
+  assert.equal(report.metrics.totalStudents, 30);
+  assert.equal(report.metrics.peakRoom.group, '101');
+});
+
+test('detailed student presence report supports campus and building group metrics', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const campusReport = COSEnrollmentDashboard.studentPresenceReport([
+    section({ campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '09:00', census: 20, cap: 30 }),
+    section({ campus: 'TCCB', building: 'TCCB', roomOnly: '201', room: 'TCCB 201', days: ['TU'], start: '11:00', census: 40, cap: 50 })
+  ], 'campus');
+  const buildingReport = COSEnrollmentDashboard.studentPresenceReport(campusReport.rows.map(row => ({
+    ...section(),
+    campus: row.campus,
+    building: row.building,
+    roomOnly: row.room,
+    room: row.room,
+    days: [row.day],
+    start: row.hour.replace(':00', ':00'),
+    census: row.studentsPresent,
+    cap: row.seatsScheduled
+  })), 'building');
+
+  assert.equal(campusReport.rows.length, 2);
+  assert.equal(campusReport.metrics.peakCampus.group, 'TCCB');
+  assert.equal(buildingReport.rows.some(row => row.group === 'KERN'), true);
+});
+
 test('course rotation export rows include planning fields', () => {
   const { COSEnrollmentDashboard } = loadEnrollmentModules();
   const rows = COSEnrollmentDashboard.rotationRows([
@@ -572,6 +614,9 @@ test('enrollment analytics report labels are operational', () => {
   assert.match(text, /Enrollment Attrition \/ Lifecycle/);
   assert.match(text, /Section Consolidation Opportunities/);
   assert.match(text, /Room Utilization Map/);
+  assert.match(text, /Student Presence Analytics/);
+  assert.match(text, /Open Student Presence Report/);
+  assert.match(text, /REPORTS\.studentPresence/);
   assert.match(text, /Instructor Availability - Planning View/);
 });
 
