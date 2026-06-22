@@ -199,6 +199,52 @@ test('dashboard division filter changes row count and exported rows', () => {
   assert.equal(exportedRows[0].division, 'Arts');
 });
 
+test('growth opportunities use existing viable seats before recommending capacity', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const rows = [
+    section({ subject: 'ART', course: '110', crn: 'A1', waitlist: 8, census: 30, cap: 30, modality: 'IN PERSON', campus: 'VIS', days: ['MO', 'WE'], start: '09:00' }),
+    section({ subject: 'ART', course: '110', crn: 'A2', waitlist: 0, census: 10, cap: 25, modality: 'IN PERSON', campus: 'VIS', days: ['WE'], start: '10:00' })
+  ];
+
+  const [opportunity] = COSEnrollmentDashboard.growthOpportunities(rows);
+
+  assert.equal(opportunity.waitlist, 8);
+  assert.equal(opportunity.openSeats, 15);
+  assert.equal(opportunity.viableOpenSeats, 15);
+  assert.equal(opportunity.recommendation, 'Use Existing Seats First');
+});
+
+test('growth opportunities recommend review when viable seats are insufficient', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const rows = [
+    section({ subject: 'BUS', course: '120', crn: 'B1', waitlist: 12, census: 30, cap: 30, modality: 'IN PERSON', campus: 'VIS', days: ['MO'], start: '09:00' }),
+    section({ subject: 'BUS', course: '120', crn: 'B2', waitlist: 0, census: 20, cap: 40, modality: 'IN PERSON', campus: 'TCCB', days: ['TH'], start: '18:00' })
+  ];
+
+  const [opportunity] = COSEnrollmentDashboard.growthOpportunities(rows);
+
+  assert.equal(opportunity.openSeats, 20);
+  assert.equal(opportunity.viableOpenSeats, 0);
+  assert.equal(opportunity.recommendation, 'Consider Added Capacity');
+});
+
+test('growth opportunities report online, campus, and modality seat buckets', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const rows = [
+    section({ subject: 'STAT', course: '130', crn: 'S1', waitlist: 9, census: 30, cap: 30, modality: 'ONLINE', campus: 'ONLINE', days: [], start: '' }),
+    section({ subject: 'STAT', course: '130', crn: 'S2', waitlist: 0, census: 10, cap: 20, modality: 'ONLINE', campus: 'ONLINE', days: [], start: '' }),
+    section({ subject: 'STAT', course: '130', crn: 'S3', waitlist: 0, census: 12, cap: 20, modality: 'IN PERSON', campus: 'VIS', days: ['MO'], start: '09:00' })
+  ];
+
+  const [opportunity] = COSEnrollmentDashboard.growthOpportunities(rows);
+
+  assert.equal(opportunity.onlineSeats, 10);
+  assert.equal(opportunity.sameModalitySeats, 10);
+  assert.equal(opportunity.sameCampusSeats, 10);
+  assert.equal(opportunity.viableOpenSeats, 10);
+  assert.equal(opportunity.recommendation, 'Use Existing Seats First');
+});
+
 test('student presence analytics excludes online sections', () => {
   const { COSEnrollmentDashboard } = loadEnrollmentModules();
   const presence = COSEnrollmentDashboard.studentPresence([

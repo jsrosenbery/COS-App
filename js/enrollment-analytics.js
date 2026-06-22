@@ -563,7 +563,7 @@
                 <ul>
                   <li>Use the filters to focus the summary by division, campus, modality, discipline, course, instructor, day, or start hour.</li>
                   <li>Review the top cards first, then use the drill-down buttons for the detailed demand, attrition, consolidation, rotation, room, and methodology views.</li>
-                  <li>Growth prompts check existing open seats before suggesting added capacity. Reduction prompts summarize the existing consolidation report output rather than creating separate cancellation logic.</li>
+                  <li>Growth prompts review viable existing seats before suggesting added capacity. Reduction prompts summarize the existing consolidation report output rather than creating separate cancellation logic.</li>
                 </ul>
               </div>
               <div>
@@ -1304,7 +1304,7 @@
     const structure = summary.structure || { modality: [] };
     document.getElementById('dashboardInsights').innerHTML = [
       dashboardPanel('Registration Pace Monitor', miniTable(summary.pace || [], ['dimension', 'name', 'currentEnrollment', 'expectedEnrollment', 'variance', 'variancePct', 'status'])),
-      dashboardPanel('Growth Opportunities', miniTable(summary.growth || [], ['course', 'waitlist', 'openSeats', 'enrollment', 'fillRate', 'action'])),
+      dashboardPanel('Growth Opportunities', miniTable(summary.growth || [], ['course', 'waitlist', 'openSeats', 'viableOpenSeats', 'sameModalitySeats', 'onlineSeats', 'sameCampusSeats', 'timeWindowSeats', 'fillRate', 'recommendation'])),
       dashboardPanel('Reduction Opportunities', `${miniTable(summary.reduction || [], ['type', 'course', 'potentialSectionsRemoved', 'availableReceivingCapacity', 'recommendation'])}<button type="button" data-report-target="${REPORTS.consolidation}">Open Consolidation Report</button>`),
       dashboardPanel('Student Presence Analytics', `${presenceExtremes(presence)}${miniTable(presence.rows || [], ['campus', 'day', 'hour', 'studentsPresent', 'sectionsActive', 'availableRoomCapacity'])}`),
       dashboardPanel('Schedule Structure', `${structureSummary(structure)}${miniTable(structure.modality || [], ['modality', 'sections', 'enrollment'])}`)
@@ -2613,7 +2613,7 @@
       items: [
         ['Enrollment Health', 'Current enrollment, expected enrollment, variance, courses reviewed, sections reviewed, FTES, and available lifecycle milestones for the selected filters.'],
         ['Registration Pace Monitor', 'Current versus expected enrollment by Course, Division, Modality, Campus, Day Pattern, and Time Block. Status is Ahead of Pace, On Pace, Behind Pace, or N/A.'],
-        ['Growth Opportunities', 'Courses with waitlist pressure or very high fill. Added capacity is suggested only when waitlist exceeds existing open seats.'],
+        ['Growth Opportunities', 'Courses with waitlist pressure or very high fill. Added capacity is considered only when viable open seats appear insufficient after reviewing same modality, online, same campus, time-window, and compatible-day seats.'],
         ['Reduction Opportunities', 'Top rows from the existing consolidation report output. Open the consolidation report for the full methodology and candidate details.'],
         ['Student Presence Analytics', 'In-person and hybrid student load by campus, day, and hour. Online rows are excluded.'],
         ['Schedule Structure', 'Prime/off-peak section and enrollment split plus modality mix for the selected filters.'],
@@ -2931,8 +2931,14 @@
       expectedEnrollment: 'Expected Enrollment',
       variance: 'Variance',
       variancePct: 'Variance %',
-      openSeats: 'Open Seats',
-      action: 'Action',
+      openSeats: 'Total Open Seats',
+      viableOpenSeats: 'Viable Open Seats',
+      sameModalitySeats: 'Same Modality Seats',
+      onlineSeats: 'Online Seats',
+      sameCampusSeats: 'Same Campus Seats',
+      timeWindowSeats: '+/- Hour Seats',
+      compatibleDaySeats: 'Compatible Day Seats',
+      action: 'Recommendation',
       studentsPresent: 'Students Present',
       sectionsActive: 'Sections Active',
       availableRoomCapacity: 'Available Room Capacity',
