@@ -203,7 +203,9 @@ test('student presence analytics excludes online sections', () => {
   const { COSEnrollmentDashboard } = loadEnrollmentModules();
   const presence = COSEnrollmentDashboard.studentPresence([
     section({ modality: 'IN PERSON', census: 20, days: ['MO'], campus: 'VIS', start: '09:00' }),
-    section({ modality: 'ONLINE', census: 99, days: ['MO'], campus: 'WEB', start: '' })
+    section({ modality: 'ONLINE', census: 99, days: ['MO'], campus: 'WEB', start: '' }),
+    section({ modality: 'HYBRID', census: 50, days: ['SA'], campus: 'ONLINE', start: '00:00' }),
+    section({ modality: 'IN PERSON', census: 30, days: ['TBA'], campus: 'VIS', start: '00:00' })
   ]);
 
   assert.equal(presence.rows.length, 1);

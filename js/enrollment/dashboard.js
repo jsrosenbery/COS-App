@@ -154,7 +154,7 @@
   }
 
   function studentPresence(rows) {
-    const physicalRows = (rows || []).filter(row => row.modality !== 'ONLINE');
+    const physicalRows = (rows || []).filter(isPhysicalPresenceRow);
     const buckets = new Map();
     physicalRows.forEach(row => {
       const hour = row.start ? `${String(row.start).slice(0, 2)}:00` : 'TBA';
@@ -173,6 +173,18 @@
       peak: rowsOut[0] || null,
       lightest: rowsOut.length ? rowsOut[rowsOut.length - 1] : null
     };
+  }
+
+  function isPhysicalPresenceRow(row) {
+    const modality = String(row?.modality || '').toUpperCase();
+    const campus = String(row?.campus || '').toUpperCase();
+    const start = String(row?.start || '').trim();
+    const days = row?.days || [];
+    if (modality === 'ONLINE' || modality === 'TBA') return false;
+    if (/ONLINE|WEB|VIRTUAL|TBA/.test(campus)) return false;
+    if (!start || start === '00:00') return false;
+    if (!days.length || days.includes('TBA')) return false;
+    return days.some(day => dayOrder.includes(day));
   }
 
   function scheduleStructure(rows) {
@@ -263,6 +275,7 @@
     registrationPace,
     growthOpportunities,
     studentPresence,
+    isPhysicalPresenceRow,
     scheduleStructure,
     rotationRows,
     dashboardSummary
