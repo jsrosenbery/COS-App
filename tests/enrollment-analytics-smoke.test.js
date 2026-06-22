@@ -111,6 +111,39 @@ test('current CSV data without milestone fields still normalizes for attrition',
   assert.equal(row.finalEnrollment, null);
 });
 
+test('campus normalization does not use building or location as campus', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    CRN: '12345',
+    Subject: 'ART',
+    Course: '001',
+    Building: 'HACVEB',
+    Room: '101',
+    Location: 'HACVEB',
+    Capacity: '30'
+  });
+
+  assert.equal(row.campus, '');
+  assert.equal(row.building, 'HACVEB');
+  assert.equal(row.room, 'HACVEB 101');
+});
+
+test('campus normalization keeps explicit campus fields separate from building', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    Subject: 'ART',
+    Course: '001',
+    Campus: 'Tulare',
+    Building: 'TCC',
+    Room: '101'
+  });
+
+  assert.equal(row.campus, 'TUL');
+  assert.equal(row.building, 'TCC');
+});
+
 test('future lifecycle milestone fields normalize when present', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const row = COSEnrollmentAnalytics.normalizeRow({

@@ -91,7 +91,7 @@
     division: ['Division', 'DIVISION', 'Division Name', 'DIVISION_NAME'],
     department: ['Department', 'DEPARTMENT', 'Dept', 'DEPT', 'Department Name', 'DEPARTMENT_NAME'],
     section: ['Section', 'SECTION', 'Sec', 'SEC', 'SECTION_NUMB', 'Section Number'],
-    campus: ['Campus', 'CAMPUS', 'Location', 'LOCATION'],
+    campus: ['Campus', 'CAMPUS', 'Campus Code', 'CAMPUS CODE', 'Campus_Code', 'CAMPUS_CODE'],
     modality: ['Modality', 'MODALITY', 'Instructional Method', 'INSTRUCTIONAL METHOD', 'Instruction_Mode', 'Instruction Mode', 'Method', 'INSTRUCTIONAL_METHOD_CODE', 'INSTRUCTION_METHOD_DESC'],
     instructor: ['Instructor', 'INSTRUCTOR', 'Faculty', 'FACULTY', 'FACULTY'],
     days: ['Days', 'DAYS', 'Meeting Days', 'Meet Days', 'Day', 'Days Of Week', 'Mtg Days', 'Meeting Pattern', 'Meeting_Pattern'],
@@ -152,6 +152,23 @@
     return String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
   }
 
+  function normalizeCampus(row) {
+    const raw = canon(val(row, fields.campus));
+    const aliases = {
+      VISALIA: 'VIS',
+      VIS: 'VIS',
+      TULARE: 'TUL',
+      TUL: 'TUL',
+      HANFORD: 'HAN',
+      HAN: 'HAN',
+      ONLINE: 'ONLINE',
+      ONL: 'ONLINE',
+      DISTANCE: 'ONLINE',
+      'DISTANCE EDUCATION': 'ONLINE'
+    };
+    return aliases[raw] || raw;
+  }
+
   function courseNumber(row) {
     const direct = val(row, fields.course);
     if (direct) return canon(direct).replace(/^([A-Z]+)\s+/, '');
@@ -165,7 +182,7 @@
     const course = courseNumber(row);
     const building = canon(val(row, fields.building));
     const roomOnly = canon(val(row, fields.room));
-    const campus = canon(val(row, fields.campus) || building);
+    const campus = normalizeCampus(row);
     const modality = normalizeModality(val(row, fields.modality), row);
     const days = normalizeDays(val(row, fields.days), row);
     const times = normalizeTimes(row);
