@@ -608,6 +608,7 @@
           <div class="analytics-toolbar dashboard-toolbar">
             ${filters('dash', { includeGroup: false, includeCancelled: false, includeDivision: true })}
             <button id="runDashboard" type="button">Refresh Dashboard</button>
+            <button id="exportDashboardSummary" type="button">Export Dashboard Summary CSV</button>
             <button id="exportRotation" type="button">Export Course Rotation CSV</button>
           </div>
           <div class="dashboard-actions">
@@ -1311,8 +1312,33 @@
     const reductionRows = (state.consolidationRows || []).map(flattenOpportunity);
     const summary = dashboard.dashboardSummary(filteredRows, historicalRows, reductionRows);
     state.dashboardRows = filteredRows;
+    state.dashboardSummary = summary;
     state.rotationRows = summary.rotation || [];
     renderDashboard(summary);
+  }
+
+  function exportDashboardSummary() {
+    if (!state.dashboardSummary) runDashboard();
+    const rows = dashboard.dashboardSummaryExportRows(state.dashboardSummary, dashboardExportContext());
+    exportRowsWithoutMethodology(rows, `enrollment-dashboard-summary-${currentTerm() || 'term'}.csv`);
+  }
+
+  function dashboardExportContext() {
+    const discipline = getSelectedValues('dashSubject');
+    const course = getSelectedValues('dashCourse');
+    return {
+      methodologyVersion: 'Methodology Version 1.2',
+      exportedAt: new Date().toLocaleString(),
+      selectedTerm: currentTerm() || 'All loaded terms',
+      divisionFilter: filterUtils.divisionFilterLabel(getSelectedValues('dashDivision')),
+      campusFilter: filterUtils.divisionFilterLabel(getSelectedValues('dashCampus')),
+      modalityFilter: filterUtils.divisionFilterLabel(getSelectedValues('dashModality')),
+      disciplineCourseFilter: [
+        discipline.length ? `Discipline: ${discipline.join(', ')}` : '',
+        course.length ? `Course: ${course.join(', ')}` : ''
+      ].filter(Boolean).join('; ') || 'All disciplines/courses',
+      dataSourceNote: dashboardDataSourceLabel()
+    };
   }
 
   function renderDashboard(summary) {
@@ -3008,6 +3034,15 @@
     URL.revokeObjectURL(link.href);
   }
 
+  function exportRowsWithoutMethodology(rows, filename) {
+    const blob = new Blob([Papa.unparse(rows)], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
   function exportRowsExcel(rows, columns, filename) {
     const methodology = methodologyExportText();
     const methodologyTable = methodology
@@ -3258,6 +3293,7 @@
       if (selectedEnrollmentReport() === REPORTS.demand) runDemand();
     });
     document.getElementById('runDashboard')?.addEventListener('click', runDashboard);
+    document.getElementById('exportDashboardSummary')?.addEventListener('click', exportDashboardSummary);
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
     document.getElementById('attrArchiveTerms')?.addEventListener('change', loadAttritionFiles);

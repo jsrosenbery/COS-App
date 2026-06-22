@@ -360,6 +360,88 @@
     };
   }
 
+  function dashboardSummaryExportRows(summary, context = {}) {
+    const rows = [];
+    const add = (section, metric, group, value, secondaryValue = '', notes = '') => {
+      rows.push({
+        Section: section,
+        Metric: metric,
+        Group: group,
+        Value: value ?? '',
+        'Secondary Value': secondaryValue ?? '',
+        Notes: notes ?? ''
+      });
+    };
+    add('Context', 'Prepared using', 'All Selected Rows', 'TIMBER Enrollment Analytics');
+    add('Context', 'Methodology Version', 'All Selected Rows', context.methodologyVersion || 'Methodology Version 1.2');
+    add('Context', 'Export Date/Time', 'All Selected Rows', context.exportedAt || new Date().toISOString());
+    add('Context', 'Selected Term', 'All Selected Rows', context.selectedTerm || 'All loaded terms');
+    add('Context', 'Selected Division Filter', 'All Selected Rows', context.divisionFilter || 'All divisions');
+    add('Context', 'Selected Campus Filter', 'All Selected Rows', context.campusFilter || 'All campuses');
+    add('Context', 'Selected Modality Filter', 'All Selected Rows', context.modalityFilter || 'All modalities');
+    add('Context', 'Selected Discipline/Course Filters', 'All Selected Rows', context.disciplineCourseFilter || 'All disciplines/courses');
+    add('Context', 'Data Source Note', 'All Selected Rows', context.dataSourceNote || 'Currently loaded schedule rows');
+    add('Context', 'Milestone Availability Note', 'All Selected Rows', milestoneAvailabilityNote(summary?.health?.lifecycle || []));
+
+    const health = summary?.health || {};
+    add('Enrollment Health', 'Current Enrollment', 'All Selected Rows', health.currentEnrollment);
+    add('Enrollment Health', 'Expected Enrollment', 'All Selected Rows', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment);
+    add('Enrollment Health', 'Variance', 'All Selected Rows', health.variance == null ? 'N/A' : health.variance);
+    add('Enrollment Health', 'Courses Reviewed', 'All Selected Rows', health.coursesReviewed);
+    add('Enrollment Health', 'Sections Reviewed', 'All Selected Rows', health.sectionsReviewed);
+    add('Enrollment Health', 'FTES', 'All Selected Rows', health.ftes);
+    (health.lifecycle || []).forEach(item => add('Enrollment Health', item.label, 'Lifecycle Milestone', item.value == null ? 'N/A' : item.value));
+
+    (summary?.pace || []).slice(0, 12).forEach(row => {
+      add('Registration Pace Monitor', row.dimension, row.name, row.currentEnrollment, row.expectedEnrollment == null ? 'N/A' : row.expectedEnrollment, `Variance: ${row.variance ?? 'N/A'}; Status: ${row.status}`);
+    });
+
+    (summary?.growth || []).slice(0, 12).forEach(row => {
+      const notes = row.recommendation === 'Consider Added Capacity'
+        ? 'Waitlist/high demand exceeds viable open seats'
+        : 'Review existing viable seats before adding capacity';
+      add('Growth Opportunities', 'Recommendation', row.course, row.recommendation, `Viable seats: ${row.viableOpenSeats}; Waitlist: ${row.waitlist}`, notes);
+      add('Growth Opportunities', 'Seat Buckets', row.course, `Total open: ${row.openSeats}`, `Same modality: ${row.sameModalitySeats}; Same campus: ${row.sameCampusSeats}`, `Online: ${row.onlineSeats}; +/- hour: ${row.timeWindowSeats}; Compatible days: ${row.compatibleDaySeats}`);
+    });
+
+    (summary?.reduction || []).slice(0, 12).forEach(row => {
+      add('Reduction Opportunities', 'Recommendation', row.course || row.label || 'Grouped Opportunity', row.recommendation || row.type, `Potential reductions: ${row.potentialSectionsRemoved || row.recommendedReductions || 'N/A'}`, `Type: ${row.type || 'N/A'}; Available capacity: ${row.availableReceivingCapacity ?? 'N/A'}`);
+    });
+
+    const presence = summary?.presence || {};
+    if (presence.peak) add('Student Presence Analytics', 'Peak Student Presence', presenceGroup(presence.peak), presence.peak.studentsPresent, `Sections active: ${presence.peak.sectionsActive}`, `Available room capacity: ${presence.peak.availableRoomCapacity}`);
+    if (presence.lightest) add('Student Presence Analytics', 'Lightest Student Presence', presenceGroup(presence.lightest), presence.lightest.studentsPresent, `Sections active: ${presence.lightest.sectionsActive}`, `Available room capacity: ${presence.lightest.availableRoomCapacity}`);
+    (presence.rows || []).slice(0, 12).forEach(row => {
+      add('Student Presence Analytics', 'Presence Bucket', presenceGroup(row), row.studentsPresent, `Sections active: ${row.sectionsActive}`, `Available room capacity: ${row.availableRoomCapacity}`);
+    });
+
+    const structure = summary?.structure || {};
+    add('Schedule Structure', 'Prime Sections', 'Prime Time', structure.primeSections, `Enrollment: ${structure.primeEnrollment}`);
+    add('Schedule Structure', 'Off-Peak Sections', 'Off-Peak', structure.offPeakSections, `Enrollment: ${structure.offPeakEnrollment}`);
+    (structure.modality || []).forEach(row => add('Schedule Structure', 'Modality Mix', row.modality, row.sections, `Enrollment: ${row.enrollment}`));
+
+    const rotation = summary?.rotation || [];
+    add('Rotation Health Summary', 'Courses Reviewed', 'All Selected Rows', rotation.length);
+    group(rotation, row => row.rotationStatus || 'Unknown').forEach((statusRows, status) => {
+      add('Rotation Health Summary', 'Rotation Status Count', status, statusRows.length);
+    });
+    rotation.filter(row => row.rotationStatus !== 'On Cycle').slice(0, 12).forEach(row => {
+      add('Rotation Health Summary', 'Review Course Rotation', row.course, row.rotationStatus, `Last offered: ${row.lastOffered || 'N/A'}`, `Expected next: ${row.expectedNextOffering || 'N/A'}; Cycle: ${row.rotationCycle || 'N/A'}`);
+    });
+    return rows;
+  }
+
+  function milestoneAvailabilityNote(lifecycle) {
+    if (!lifecycle.length) return 'No lifecycle milestone fields were available in the selected rows.';
+    const available = lifecycle.filter(item => item.value != null).map(item => item.label);
+    const missing = lifecycle.filter(item => item.value == null).map(item => item.label);
+    return `Available: ${available.join(', ') || 'None'}; Missing: ${missing.join(', ') || 'None'}`;
+  }
+
+  function presenceGroup(row) {
+    return [row.campus || 'N/A', row.day || 'N/A', row.hour || 'N/A'].join(' / ');
+  }
+
   window.COSEnrollmentDashboard = {
     applyDashboardFilters,
     enrollmentHealth,
@@ -369,6 +451,7 @@
     isPhysicalPresenceRow,
     scheduleStructure,
     rotationRows,
-    dashboardSummary
+    dashboardSummary,
+    dashboardSummaryExportRows
   };
 })();
