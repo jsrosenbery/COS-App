@@ -546,7 +546,10 @@ function blobToBase64(blob) {
 }
 
 async function scfExportPdf(shadow) {
-  const BACKEND_BASE_URL = window.COS_BACKEND_BASE_URL || 'https://app-backend-pp98.onrender.com';
+  const BACKEND_BASE_URL = window.BACKEND_BASE_URL ||
+    window.COS_APP_CONFIG?.backendBaseUrl ||
+    window.COS_BACKEND_BASE_URL ||
+    'https://app-backend-pp98.onrender.com';
   try {
     const { blob, baseName } = await scfBuildOfficialDocx(shadow);
     const docxBase64 = await blobToBase64(blob);
