@@ -778,7 +778,15 @@
             </div>
           </div>
           <div class="analytics-toolbar dashboard-toolbar">
-            <label>Dashboard Focus Term <select id="dashFocusTerm"></select></label>
+            <label>Loaded decision term <select id="dashFocusTerm"></select></label>
+            <label>Decision season
+              <select id="dashDecisionSeason">
+                <option value="SUMMER">Summer</option>
+                <option value="FALL">Fall</option>
+                <option value="SPRING">Spring</option>
+              </select>
+            </label>
+            <label>Decision year <input id="dashDecisionYear" type="number" min="2022" max="2035" step="1"></label>
             ${filters('dash', { includeGroup: false, includeCancelled: false, includeDivision: true })}
             <button id="runDashboard" type="button">Refresh Dashboard</button>
             <button id="exportDashboardSummary" type="button">Export Dashboard Summary CSV</button>
@@ -1705,14 +1713,22 @@
     if (!select) return '';
     const terms = dashboardAvailableTerms(rows);
     const prior = select.value;
+    const seasonSelect = document.getElementById('dashDecisionSeason');
+    const yearInput = document.getElementById('dashDecisionYear');
     const active = canon(currentTerm());
-    const defaultTerm = terms.includes(prior) || prior === '__ALL__' ? prior :
+    const defaultTerm = terms.includes(prior) || prior === '__ALL__' || prior === '__MANUAL__' ? prior :
       terms.includes(active) ? active :
-      terms.length ? terms[terms.length - 1] : '__ALL__';
+      terms.length ? terms[terms.length - 1] : '__MANUAL__';
     select.replaceChildren();
+    select.appendChild(new Option('Use season/year below', '__MANUAL__', false, defaultTerm === '__MANUAL__'));
     select.appendChild(new Option('All Loaded Terms', '__ALL__', false, defaultTerm === '__ALL__'));
     terms.forEach(term => select.appendChild(new Option(term, term, false, term === defaultTerm)));
     select.value = defaultTerm;
+    const selectedParts = termParts(defaultTerm === '__MANUAL__' || defaultTerm === '__ALL__' ? '' : defaultTerm);
+    const priorParts = termParts(prior);
+    const basis = selectedParts.year ? selectedParts : priorParts.year ? priorParts : termParts(active);
+    if (seasonSelect && basis.season) seasonSelect.value = basis.season;
+    if (yearInput && basis.year && !yearInput.value) yearInput.value = String(basis.year);
     return defaultTerm;
   }
 
@@ -1733,7 +1749,11 @@
 
   function dashboardFocusTerm() {
     const value = document.getElementById('dashFocusTerm')?.value || '';
-    return value === '__ALL__' ? '' : canon(value);
+    if (value === '__ALL__') return '';
+    if (value && value !== '__MANUAL__') return canon(value);
+    const season = canon(document.getElementById('dashDecisionSeason')?.value || 'FALL');
+    const year = Number(document.getElementById('dashDecisionYear')?.value || termParts(currentTerm()).year || new Date().getFullYear());
+    return `${season || 'FALL'} ${year}`;
   }
 
   function studentPresenceFocusTerm() {
@@ -1773,9 +1793,9 @@
     state.dashboardRan = true;
     const saved = captureFilterState('dash');
     const sourceRows = dashboardSourceRows().filter(row => !isOmittedInstructionalMethod(row));
-    const focusTerm = updateDashboardFocusTermOptions(sourceRows);
+    updateDashboardFocusTermOptions(sourceRows);
     refreshAnalyticsFilters('dash', sourceRows, saved);
-    const selectedFocusTerm = focusTerm === '__ALL__' ? '' : focusTerm;
+    const selectedFocusTerm = dashboardFocusTerm();
     const currentRows = applyFilters(dashboardCurrentRows(sourceRows, selectedFocusTerm), 'dash');
     const historicalRows = applyFilters(dashboardHistoricalRows(sourceRows, selectedFocusTerm), 'dash');
     const reductionRows = dashboardReductionRows(selectedFocusTerm);
@@ -1861,7 +1881,7 @@
     const historicalTerms = context.historicalTerms.length ? context.historicalTerms.join(', ') : 'None';
     const warnings = context.warnings.length
       ? `<div class="dashboard-scope-warnings">${context.warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('')}</div>`
-      : '<div class="dashboard-scope-ok">No scope warnings detected.</div>';
+      : '<div class="dashboard-scope-ok"><strong>No scope warnings detected.</strong> The current selection is internally consistent and no obvious data-scope issue was detected.</div>';
     node.innerHTML = `
       <h3>Dashboard Scope &amp; Data Quality</h3>
       ${warnings}
@@ -4217,7 +4237,22 @@
       if (selectedEnrollmentReport() === REPORTS.studentPresence) runStudentPresence().catch(err => console.warn(err));
     });
     document.getElementById('runDashboard')?.addEventListener('click', runDashboard);
-    document.getElementById('dashFocusTerm')?.addEventListener('change', runDashboard);
+    document.getElementById('dashFocusTerm')?.addEventListener('change', () => {
+      const value = document.getElementById('dashFocusTerm')?.value || '';
+      const parts = termParts(value);
+      const season = document.getElementById('dashDecisionSeason');
+      const year = document.getElementById('dashDecisionYear');
+      if (parts.season && season) season.value = parts.season;
+      if (parts.year && year) year.value = String(parts.year);
+      runDashboard();
+    });
+    ['dashDecisionSeason', 'dashDecisionYear'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        const select = document.getElementById('dashFocusTerm');
+        if (select) select.value = '__MANUAL__';
+        runDashboard();
+      });
+    });
     document.getElementById('exportDashboardSummary')?.addEventListener('click', exportDashboardSummary);
     document.getElementById('runStudentPresence')?.addEventListener('click', () => runStudentPresence().catch(err => alert(err.message || 'Student Presence failed.')));
     document.getElementById('spFocusTerm')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));

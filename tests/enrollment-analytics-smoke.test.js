@@ -724,6 +724,10 @@ test('enrollment analytics report labels are operational', () => {
   assert.match(text, /Instructor Availability - Planning View/);
   assert.match(text, /Enrollment Snapshot Manager/);
   assert.match(text, /REPORTS\.snapshotManager/);
+  assert.match(text, /dashDecisionSeason/);
+  assert.match(text, /dashDecisionYear/);
+  assert.match(text, /Use season\/year below/);
+  assert.match(text, /The current selection is internally consistent and no obvious data-scope issue was detected/);
   assert.match(text, /spArchiveTerms/);
   assert.match(text, /conDecisionSeason/);
   assert.match(text, /conDecisionYear/);
@@ -747,6 +751,19 @@ test('consolidation scope is limited to selected report inputs', () => {
   assert.doesNotMatch(loadBlock, /currentRows\(\)/);
   assert.doesNotMatch(historicalBlock, /api\/schedule/);
   assert.doesNotMatch(historicalBlock, /visibleScheduleTerms/);
+});
+
+test('dashboard source does not silently load all archived terms', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const sourceStart = text.indexOf('function dashboardSourceRows');
+  const sourceEnd = text.indexOf('function dashboardAvailableTerms', sourceStart);
+  const sourceBlock = text.slice(sourceStart, sourceEnd);
+
+  assert.doesNotMatch(sourceBlock, /readArchivedRows/);
+  assert.doesNotMatch(sourceBlock, /analytics-archive/);
+  assert.match(sourceBlock, /state\.enrollment/);
+  assert.match(sourceBlock, /state\.demandInput/);
+  assert.match(sourceBlock, /state\.consolidationInput/);
 });
 
 test('modality balance includes dual enrollment toggle and methodology note', () => {
