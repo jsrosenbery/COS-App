@@ -125,9 +125,9 @@
     </label>
   </div>
 
-  <div id="calendar-container" style="display:none;">
+  <section id="calendar-container" class="page-tool-section" style="display:none;">
     <div id="calendar"></div>
-  </div>
+  </section>
 
   <div id="heatmap-tool" style="display:none;">
     <h2>Course Offerings Heatmap & Table</h2>
@@ -268,6 +268,18 @@
   <div id="modality-tool" style="display:none;">
     <h2>Modality Balance</h2>
     <div id="modality-controls">
+      <label>Decision Term:
+        <select id="modality-decision-term"></select>
+      </label>
+      <label>Compare 1:
+        <select id="modality-comparison-1"></select>
+      </label>
+      <label>Compare 2:
+        <select id="modality-comparison-2"></select>
+      </label>
+      <label>Compare 3:
+        <select id="modality-comparison-3"></select>
+      </label>
       <label>Campus:
         <select id="modality-campus-select"></select>
       </label>
@@ -283,18 +295,21 @@
       <label>CAL-GETC:
         <select id="modality-calgetc-select"></select>
       </label>
+      <label><input id="modality-include-de" type="checkbox"> Include Dual Enrollment</label>
       <button id="modality-clear-btn" type="button">Clear</button>
     </div>
     <div class="modality-note">
-      This view uses the Instructional Method column from the uploaded CSV and counts unique CRNs when available, so multi-meeting sections are not counted more than once.
+      This view uses the Instructional Method column from the uploaded CSV and counts unique CRNs when available, so multi-meeting sections are not counted more than once. Dual Enrollment rows are excluded by default; including them can change modality percentages.
     </div>
     <div id="modality-summary" class="modality-summary"></div>
+    <div id="modality-comparison" class="modality-comparison"></div>
     <div id="modality-chart" class="modality-chart"></div>
     <table id="modality-table" class="modality-table">
       <thead>
         <tr>
           <th>Category</th>
           <th>Sections</th>
+          <th>Enrollment</th>
           <th>Share</th>
           <th>Visual Share</th>
           <th>Instructional Method Details</th>
