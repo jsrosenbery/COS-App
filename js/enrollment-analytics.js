@@ -9,6 +9,7 @@
     utilization: 'room-utilization',
     studentPresence: 'student-presence-analytics',
     instructorAvailability: 'instructor-availability',
+    conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager'
   };
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
@@ -33,6 +34,10 @@
     dashboardRan: false,
     studentPresenceRows: [],
     studentPresenceRan: false,
+    conflictRows: [],
+    conflictInput: [],
+    conflictTerms: [],
+    conflictRan: false,
     attritionRows: [],
     attritionRan: false,
     attritionTerms: [],
@@ -745,6 +750,7 @@
             <option value="${REPORTS.attrition}">Enrollment Attrition / Lifecycle</option>
             <option value="${REPORTS.consolidation}">Section Consolidation Opportunities</option>
             <option value="${REPORTS.utilization}">Room Utilization Map</option>
+            <option value="${REPORTS.conflictCheck}">Conflict Check Report</option>
             <option value="${REPORTS.studentPresence}">Student Presence Analytics</option>
             <option value="${REPORTS.instructorAvailability}">Instructor Availability - Planning View</option>
             <option value="${REPORTS.snapshotManager}">Enrollment Snapshot Manager</option>
@@ -860,6 +866,52 @@
           <div id="snapshotMetrics" class="analytics-metrics"></div>
           <div id="snapshotTable" class="analytics-table"></div>
           <div id="snapshotLegend" class="analytics-legend"></div>
+        </div>
+        <div id="conflictCheckReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Conflict Check Report</h2>
+            <p>Identifies overlapping fixed class meetings by room, instructor, exact room/time, exact instructor/time, or same course/day/time pattern.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Upload or select archived Section Seating files, choose the term, then select one or more conflict modes.</li>
+                  <li>Use filters to narrow the review by division, discipline, course, campus, room, modality, instructor, day, or start hour.</li>
+                  <li>Online/TBA rows are excluded unless they contain fixed meeting days and times.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Only fixed meeting days and valid start/end times are compared.</li>
+                  <li>Duplicate meeting rows for the same Term + CRN + day + start + end are counted once.</li>
+                  <li>Conflicts are based on partial time overlap, not only identical start/end times. Exact time modes require same day, same start, and same end.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Conflict CSV(s) <input id="conflictCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveConflictUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="conflictArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
+            <label>Term <select id="conflictTerm"></select></label>
+            <label>Conflict modes
+              <select id="conflictModes" multiple data-placeholder="Select conflict modes">
+                <option value="roomOverlap" selected>Same room overlap</option>
+                <option value="instructorOverlap" selected>Same instructor overlap</option>
+                <option value="roomExact">Same room + same time</option>
+                <option value="instructorExact">Same instructor + same time</option>
+                <option value="coursePattern">Same course/day/time pattern</option>
+              </select>
+            </label>
+            ${filters('conflict', { includeGroup: false, includeCancelled: false, includeDivision: true, includeRoom: true })}
+            <button id="runConflictCheck" type="button">Run</button>
+            <button id="clearConflictCheck" type="button">Clear</button>
+            <button id="exportConflictCheck" type="button">Export CSV</button>
+          </div>
+          <div id="conflictMetrics" class="analytics-metrics"></div>
+          <div id="conflictTable" class="analytics-table"></div>
+          <div id="conflictLegend" class="analytics-legend"></div>
         </div>
         <div id="studentPresenceReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -1413,6 +1465,7 @@
       setSelectOptions('conArchiveTerms', options);
       setSelectOptions('demArchiveTerms', options);
       setSelectOptions('spArchiveTerms', options);
+      setSelectOptions('conflictArchiveTerms', options);
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
     }
@@ -2140,6 +2193,193 @@
     const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour');
     state.studentPresenceRows = report.rows;
     renderStudentPresenceReport(report);
+  }
+
+  async function loadConflictRows() {
+    const saved = captureFilterState('conflict');
+    const uploadedRows = await readCsv(document.getElementById('conflictCsv'));
+    const archivedRows = await readArchivedRows('conflictArchiveTerms');
+    const sourceRows = [...uploadedRows, ...archivedRows].length
+      ? [...uploadedRows, ...archivedRows].map(normalize)
+      : currentRows();
+    state.conflictInput = sourceRows.filter(row => !isOmittedInstructionalMethod(row));
+    state.conflictTerms = collectRowTerms(state.conflictInput);
+    updateConflictTermOptions(state.conflictTerms);
+    refreshAnalyticsFilters('conflict', state.conflictInput, saved);
+    return state.conflictInput;
+  }
+
+  function updateConflictTermOptions(terms) {
+    const select = document.getElementById('conflictTerm');
+    if (!select) return '';
+    const prior = select.value;
+    const sorted = [...(terms || [])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const active = canon(currentTerm());
+    const selected = sorted.includes(prior) ? prior : sorted.includes(active) ? active : sorted[sorted.length - 1] || '';
+    select.replaceChildren();
+    sorted.forEach(term => select.appendChild(new Option(term, term, false, term === selected)));
+    select.value = selected;
+    return selected;
+  }
+
+  async function runConflictCheck() {
+    state.conflictRan = true;
+    const allRows = await loadConflictRows();
+    const selectedTerm = canon(document.getElementById('conflictTerm')?.value || updateConflictTermOptions(state.conflictTerms));
+    const scopedRows = applyFilters(allRows.filter(row => !selectedTerm || canon(row.term) === selectedTerm), 'conflict');
+    const modes = getSelectedValues('conflictModes');
+    state.conflictRows = conflictRows(scopedRows, modes.length ? modes : ['ROOMOVERLAP', 'INSTRUCTOROVERLAP']);
+    renderConflictCheck();
+  }
+
+  function conflictRows(rows, modes) {
+    const selectedModes = new Set((modes || []).map(canon));
+    const meetings = fixedMeetingRecords(rows);
+    const conflicts = [];
+    const seen = new Set();
+    for (let i = 0; i < meetings.length; i += 1) {
+      for (let j = i + 1; j < meetings.length; j += 1) {
+        const a = meetings[i];
+        const b = meetings[j];
+        if (a.term !== b.term || a.day !== b.day || a.sectionKey === b.sectionKey) continue;
+        const overlapStart = Math.max(a.startMinutes, b.startMinutes);
+        const overlapEnd = Math.min(a.endMinutes, b.endMinutes);
+        const overlap = overlapEnd - overlapStart;
+        if (overlap <= 0) continue;
+        const exactTime = a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
+        const checks = [
+          ['ROOMOVERLAP', 'Same room overlap', sameRoom(a, b)],
+          ['INSTRUCTOROVERLAP', 'Same instructor overlap', sameInstructor(a, b)],
+          ['ROOMEXACT', 'Same room + same time', sameRoom(a, b) && exactTime],
+          ['INSTRUCTOREXACT', 'Same instructor + same time', sameInstructor(a, b) && exactTime],
+          ['COURSEPATTERN', 'Same course/day/time pattern', sameCourse(a, b) && exactTime]
+        ];
+        checks.forEach(([mode, label, matches]) => {
+          if (!matches || !selectedModes.has(mode)) return;
+          const key = [mode, a.sectionKey, b.sectionKey, a.day, a.startMinutes, b.startMinutes].join('|');
+          if (seen.has(key)) return;
+          seen.add(key);
+          conflicts.push(conflictRecord(label, a, b, overlapStart, overlapEnd, overlap));
+        });
+      }
+    }
+    return conflicts.sort((a, b) =>
+      a.term.localeCompare(b.term, undefined, { numeric: true }) ||
+      dayOrder.indexOf(canonDay(a.day)) - dayOrder.indexOf(canonDay(b.day)) ||
+      String(a.timeOverlap).localeCompare(String(b.timeOverlap)) ||
+      a.conflictType.localeCompare(b.conflictType)
+    );
+  }
+
+  function fixedMeetingRecords(rows) {
+    const map = new Map();
+    (rows || []).forEach(row => {
+      const startMinutes = minutesFromTime(row.start);
+      const endMinutes = minutesFromTime(row.end);
+      const fixedDays = (row.days || []).map(canonDay).filter(day => dayOrder.includes(day));
+      if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes || !fixedDays.length) return;
+      fixedDays.forEach(day => {
+        const sectionId = sectionKey(row);
+        const meetingKey = [sectionId, day, startMinutes, endMinutes].join('|');
+        if (map.has(meetingKey)) return;
+        map.set(meetingKey, {
+          row,
+          sectionKey: sectionId,
+          term: canon(row.term),
+          day,
+          startMinutes,
+          endMinutes,
+          crn: row.crn || '',
+          course: `${row.subject || ''} ${row.course || ''}`.trim(),
+          instructor: row.instructor || '',
+          room: row.room || [row.building, row.roomOnly].filter(Boolean).join(' '),
+          roomKey: canon(row.room || [row.building, row.roomOnly].filter(Boolean).join(' ')),
+          courseKey: canon(`${row.subject || ''} ${row.course || ''}`.trim())
+        });
+      });
+    });
+    return [...map.values()];
+  }
+
+  function canonDay(value) {
+    return canon(value);
+  }
+
+  function sameRoom(a, b) {
+    return Boolean(a.roomKey && b.roomKey && a.roomKey === b.roomKey);
+  }
+
+  function sameInstructor(a, b) {
+    return Boolean(a.instructor && b.instructor && canon(a.instructor) === canon(b.instructor));
+  }
+
+  function sameCourse(a, b) {
+    return Boolean(a.courseKey && b.courseKey && a.courseKey === b.courseKey);
+  }
+
+  function conflictRecord(conflictType, a, b, overlapStart, overlapEnd, overlapMinutesValue) {
+    return {
+      conflictType,
+      term: a.term,
+      day: a.day,
+      timeOverlap: `${formatMinutes(overlapStart)}-${formatMinutes(overlapEnd)}`,
+      crn1: a.crn,
+      course1: a.course,
+      instructor1: a.instructor,
+      room1: a.room,
+      crn2: b.crn,
+      course2: b.course,
+      instructor2: b.instructor,
+      room2: b.room,
+      overlapMinutes: overlapMinutesValue
+    };
+  }
+
+  function renderConflictCheck() {
+    const rows = state.conflictRows || [];
+    const typeCounts = new Map();
+    rows.forEach(row => typeCounts.set(row.conflictType, (typeCounts.get(row.conflictType) || 0) + 1));
+    metric('conflictMetrics', [
+      ['Term', document.getElementById('conflictTerm')?.value || 'N/A'],
+      ['Conflicts Found', rows.length],
+      ['Conflict Types', [...typeCounts.entries()].map(([type, count]) => `${type}: ${count}`).join('; ') || 'None']
+    ]);
+    table('conflictTable', rows, [
+      'conflictType',
+      'term',
+      'day',
+      'timeOverlap',
+      'crn1',
+      'course1',
+      'instructor1',
+      'room1',
+      'crn2',
+      'course2',
+      'instructor2',
+      'room2',
+      'overlapMinutes'
+    ]);
+    renderConflictLegend();
+  }
+
+  function renderConflictLegend() {
+    const legend = document.getElementById('conflictLegend');
+    if (!legend) return;
+    renderMethodologyPanel(legend, {
+      title: 'Conflict Check Methodology & Data Dictionary',
+      purpose: 'Identifies loaded class meetings that overlap by room, instructor, exact room/time, exact instructor/time, or same course/day/time pattern.',
+      methodology: 'The report creates one meeting record per Term + CRN + day + start + end, removes duplicate meeting rows, then compares every fixed meeting pair in the selected term. A conflict is flagged when the two meetings share the selected basis and their time intervals overlap.',
+      assumptions: 'Rows without fixed meeting days and valid start/end times are excluded. Fully online or TBA rows only appear if they include fixed meeting days and times. Same room uses the normalized building/room text. Same instructor uses the uploaded instructor field.',
+      limitations: 'This report identifies schedule conflicts for review. It does not decide whether intentional cross-listing, arranged meetings, room-sharing, instructor load rules, or special events make an overlap acceptable.',
+      items: [
+        ['Conflict Type', 'The selected conflict basis that matched: same room overlap, same instructor overlap, exact room/time, exact instructor/time, or same course/day/time pattern.'],
+        ['Time Overlap', 'The intersecting portion of the two class meeting intervals. Partial overlaps are included.'],
+        ['CRN 1 / CRN 2', 'The two distinct CRNs involved. A CRN is never compared against itself.'],
+        ['Overlap Minutes', 'Number of minutes shared by both meetings on the same day. Formula: min(end times) - max(start times).'],
+        ['Deduplication', 'Duplicate meeting rows for the same Term + CRN + day + start + end are counted once. Distinct meeting patterns for the same CRN remain available for comparison against other sections.']
+      ],
+      version: 'Methodology v1.0'
+    });
   }
 
   function renderStudentPresenceReport(report) {
@@ -4152,6 +4392,17 @@
       timeWindowSeats: '+/- Hour Seats',
       compatibleDaySeats: 'Compatible Day Seats',
       action: 'Recommendation',
+      conflictType: 'Conflict Type',
+      timeOverlap: 'Time Overlap',
+      crn1: 'CRN 1',
+      course1: 'Course 1',
+      instructor1: 'Instructor 1',
+      room1: 'Room 1',
+      crn2: 'CRN 2',
+      course2: 'Course 2',
+      instructor2: 'Instructor 2',
+      room2: 'Room 2',
+      overlapMinutes: 'Overlap Minutes',
       studentsPresent: 'Students Present',
       sectionsActive: 'Sections Active',
       distinctCrns: 'Distinct CRNs',
@@ -4228,6 +4479,7 @@
       selected === REPORTS.attrition ? 'attritionLegend' :
       selected === REPORTS.consolidation ? 'consolidationLegend' :
       selected === REPORTS.demand ? 'demandLegend' :
+      selected === REPORTS.conflictCheck ? 'conflictLegend' :
       selected === REPORTS.studentPresence ? 'studentPresenceLegend' :
       selected === REPORTS.instructorAvailability ? 'instructorAvailabilityLegend' : '';
     const text = document.getElementById(legendId)?.innerText || '';
@@ -4238,6 +4490,7 @@
     const prefix = selectedReport === REPORTS.dashboard ? 'dash' :
       selectedReport === REPORTS.attrition ? 'attr' :
       selectedReport === REPORTS.consolidation ? 'con' :
+      selectedReport === REPORTS.conflictCheck ? 'conflict' :
       selectedReport === REPORTS.studentPresence ? 'sp' :
       selectedReport === REPORTS.demand ? 'dem' : '';
     if (!prefix || !document.getElementById(prefix + 'Division')) return '';
@@ -4314,6 +4567,7 @@
     document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
     document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
+    document.getElementById('conflictCheckReport').style.display = unlocked && selected === REPORTS.conflictCheck ? 'block' : 'none';
     document.getElementById('snapshotManagerReport').style.display = unlocked && selected === REPORTS.snapshotManager ? 'block' : 'none';
     document.getElementById('studentPresenceReport').style.display = unlocked && selected === REPORTS.studentPresence ? 'block' : 'none';
     document.getElementById('instructorAvailabilityReport').style.display = unlocked && selected === REPORTS.instructorAvailability ? 'block' : 'none';
@@ -4340,6 +4594,12 @@
       populateAnalyticsFilters('dem', rows);
       document.getElementById('demandTable').innerHTML = '<p class="analytics-empty">Upload or select archived historical CSV files, then click Run.</p>';
       renderDemandLegend();
+    }
+    if (selected === REPORTS.conflictCheck && !state.conflictRan) {
+      loadConflictRows().then(() => {
+        document.getElementById('conflictTable').innerHTML = '<p class="analytics-empty">Upload/select schedule CSVs or use the current loaded schedule, then click Run.</p>';
+        renderConflictLegend();
+      }).catch(err => console.warn(err));
     }
     if (selected === REPORTS.utilization) {
       window.COSScheduleApp?.renderUtilizationMap?.();
@@ -4539,6 +4799,18 @@
     document.getElementById('demForecastScope')?.addEventListener('change', updateDemandTargetControls);
     document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
+    document.getElementById('runConflictCheck')?.addEventListener('click', () => runConflictCheck().catch(err => alert(err.message || 'Conflict check failed.')));
+    document.getElementById('conflictCsv')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
+    document.getElementById('conflictArchiveTerms')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
+    document.getElementById('conflictTerm')?.addEventListener('change', () => { if (state.conflictRan) runConflictCheck().catch(err => console.warn(err)); });
+    document.getElementById('conflictModes')?.addEventListener('change', () => { if (state.conflictRan) runConflictCheck().catch(err => console.warn(err)); });
+    document.getElementById('archiveConflictUploads')?.addEventListener('click', () => archiveUploads('conflictCsv').catch(err => alert(err.message || 'Archive failed.')));
+    document.getElementById('clearConflictCheck')?.addEventListener('click', () => {
+      resetAnalyticsControls('conflict');
+      state.conflictRows = [];
+      document.getElementById('conflictTable').innerHTML = '<p class="analytics-empty">Conflict filters cleared. Click Run to scan again.</p>';
+    });
+    document.getElementById('exportConflictCheck')?.addEventListener('click', () => exportRows(state.conflictRows, `conflict-check-${document.getElementById('conflictTerm')?.value || 'term'}.csv`));
     document.getElementById('saveSnapshotBatch')?.addEventListener('click', () => saveSnapshotBatch().catch(err => alert(err.message || 'Snapshot save failed.')));
     document.getElementById('snapSeason')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('snapYear')?.addEventListener('change', () => renderSnapshotManager());
@@ -4610,7 +4882,9 @@
     lifecycleMetrics,
     emptyAttritionRecord,
     addAttritionLifecycle,
-    lifecycleMetricLabel
+    lifecycleMetricLabel,
+    conflictRows,
+    fixedMeetingRecords
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
