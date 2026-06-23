@@ -181,7 +181,7 @@ function escapeHTML(value) {
 
 function resetSelect(select, options, allLabel = 'All', allValue = 'All') {
   select.replaceChildren();
-  select.appendChild(new Option(allLabel, allValue));
+  if (!select.multiple) select.appendChild(new Option(allLabel, allValue));
   options.forEach(option => {
     if (option && typeof option === 'object') {
       select.appendChild(new Option(option.label, option.value));
@@ -189,6 +189,29 @@ function resetSelect(select, options, allLabel = 'All', allValue = 'All') {
       select.appendChild(new Option(option, option));
     }
   });
+}
+
+function selectedValues(select) {
+  if (!select) return [];
+  if (select.multiple) return Array.from(select.selectedOptions).map(option => option.value).filter(Boolean);
+  return select.value ? [select.value] : [];
+}
+
+function preserveSelected(select, values) {
+  if (!select) return;
+  const wanted = new Set((values || []).filter(Boolean));
+  if (select.multiple) {
+    Array.from(select.options).forEach(option => { option.selected = wanted.has(option.value); });
+  } else if (wanted.has(select.value)) {
+    return;
+  } else {
+    const first = [...wanted].find(value => Array.from(select.options).some(option => option.value === value));
+    if (first) select.value = first;
+  }
+}
+
+function valueMatchesAny(value, selected) {
+  return !selected?.length || selected.includes(value);
 }
 
 function appendLine(parent, text, bold = false) {
@@ -661,6 +684,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalityCampusSelect = document.getElementById('modality-campus-select');
   const modalityDivisionSelect = document.getElementById('modality-division-select');
   const modalityDisciplineSelect = document.getElementById('modality-discipline-select');
+  const modalityDepartmentSelect = document.getElementById('modality-department-select');
+  const modalityCourseSelect = document.getElementById('modality-course-select');
+  const modalityModalitySelect = document.getElementById('modality-modality-select');
   const modalityLevelSelect = document.getElementById('modality-level-select');
   const modalityCalGetcSelect = document.getElementById('modality-calgetc-select');
   const modalityIncludeDe = document.getElementById('modality-include-de');
@@ -677,6 +703,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let snapshotRoomFilter = null;
   let calendarRoomFilter = null;
+  let modalityArchiveRows = [];
 
   initHeatmap();
   initLineChartChoices();
@@ -686,6 +713,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupCurriculumCrosswalkAdmin();
   loadRoomCatalogFromBackend();
   loadModalityDefinitionsFromBackend();
+  loadModalityArchiveRowsFromBackend();
   loadCalGetcMappingFromBackend();
   loadCurriculumCrosswalkFromBackend();
 
@@ -711,6 +739,9 @@ document.addEventListener('DOMContentLoaded', () => {
   modalityComparisonSelects.forEach(select => select.addEventListener('change', renderModalityTool));
   if (modalityDivisionSelect) modalityDivisionSelect.addEventListener('change', renderModalityTool);
   if (modalityDisciplineSelect) modalityDisciplineSelect.addEventListener('change', renderModalityTool);
+  if (modalityDepartmentSelect) modalityDepartmentSelect.addEventListener('change', renderModalityTool);
+  if (modalityCourseSelect) modalityCourseSelect.addEventListener('change', renderModalityTool);
+  if (modalityModalitySelect) modalityModalitySelect.addEventListener('change', renderModalityTool);
   if (modalityLevelSelect) modalityLevelSelect.addEventListener('change', renderModalityTool);
   if (modalityCalGetcSelect) modalityCalGetcSelect.addEventListener('change', renderModalityTool);
   if (modalityIncludeDe) modalityIncludeDe.addEventListener('change', renderModalityTool);
@@ -726,6 +757,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (modalityCampusSelect) modalityCampusSelect.value = '';
       if (modalityDivisionSelect) modalityDivisionSelect.value = '';
       if (modalityDisciplineSelect) modalityDisciplineSelect.value = '';
+      if (modalityDepartmentSelect) modalityDepartmentSelect.value = '';
+      if (modalityCourseSelect) modalityCourseSelect.value = '';
+      if (modalityModalitySelect) modalityModalitySelect.value = '';
       if (modalityLevelSelect) modalityLevelSelect.value = '';
       if (modalityCalGetcSelect) modalityCalGetcSelect.value = '';
       if (modalityDecisionTermSelect) modalityDecisionTermSelect.value = '';
@@ -2198,6 +2232,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const value = String(method || '').trim();
     const code = normalizeModalityCode(value);
     const normalized = value.toLowerCase();
+    if (code === 'DE' || /dual\s*enroll/.test(normalized)) return 'Dual Enrollment';
     if (modalityDefinitionMap.has(code)) return modalityDefinitionMap.get(code);
     if (!value) return 'Unspecified';
     if (/(hybrid|blended|partially online|part online|partially distance)/.test(normalized)) return 'Hybrid';
@@ -2208,8 +2243,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function getSectionIdentity(section, index) {
     const crn = extractField(section, ['CRN', 'Course Reference Number']);
-    if (crn) return `CRN:${crn}`;
+    const term = getSectionTerm(section);
+    if (crn) return `${term || 'UNKNOWN'}|CRN:${crn}`;
     return [
+      term,
       extractField(section, ['Subject_Course', 'Subject Course', 'Course']),
       extractField(section, ['Title', 'Course Title']),
       getInstructionalMethod(section),
@@ -2220,6 +2257,50 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function getDivision(section) {
     return extractField(section, ['Division', 'Academic Division', 'Department Division', 'School', 'Area']);
+  }
+
+  function getDepartment(section) {
+    return extractField(section, ['Department', 'DEPARTMENT', 'Dept', 'DEPT', 'Department Name']);
+  }
+
+  function getCourseCode(section) {
+    const parts = getCourseParts(section);
+    return [parts.discipline, parts.courseNumber].filter(Boolean).join(' ');
+  }
+
+  function getModalitySourceRows() {
+    return [...currentData, ...modalityArchiveRows];
+  }
+
+  function normalizeTermLabel(value) {
+    const text = String(value || '').trim();
+    const match = text.match(/\b(SUMMER|FALL|SPRING)\b\s*(20\d{2})/i) || text.match(/\b(20\d{2})\b.*\b(SUMMER|FALL|SPRING)\b/i);
+    if (!match) return text;
+    const season = (match[1].match(/20\d{2}/) ? match[2] : match[1]).toUpperCase();
+    const year = match[1].match(/20\d{2}/) ? match[1] : match[2];
+    return `${season} ${year}`;
+  }
+
+  function termMatches(sectionTerm, selectedTerm) {
+    if (!selectedTerm) return true;
+    return normalizeTermLabel(sectionTerm).toUpperCase() === normalizeTermLabel(selectedTerm).toUpperCase();
+  }
+
+  async function loadModalityArchiveRowsFromBackend() {
+    if (!BACKEND_BASE_URL) return;
+    try {
+      const listPayload = await fetch(`${BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
+      const terms = (listPayload.data || []).map(item => item.term).filter(Boolean);
+      const batches = await Promise.all(terms.map(term => fetch(`${BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`)
+        .then(response => response.ok ? response.json() : { data: [] })
+        .then(payload => (payload.data || []).map(row => normalizeRow({ ...row, __sourceTerm: payload.term || term })))
+        .catch(() => [])));
+      modalityArchiveRows = batches.flat();
+      initModalityFilters();
+      if (document.getElementById('viewSelect')?.value === 'modality') renderModalityTool();
+    } catch (err) {
+      console.warn('Modality archive rows skipped:', err);
+    }
   }
 
   function getCourseLevelSort(level) {
@@ -2235,39 +2316,52 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function initModalityFilters() {
     if (!modalityCampusSelect || !modalityDivisionSelect || !modalityDisciplineSelect || !modalityLevelSelect) return;
+    const rows = getModalitySourceRows();
     const decisionTermValue = modalityDecisionTermSelect?.value || '';
     const comparisonValues = modalityComparisonSelects.map(select => select.value);
-    const campusValue = modalityCampusSelect.value;
-    const divisionValue = modalityDivisionSelect.value;
-    const disciplineValue = modalityDisciplineSelect.value;
-    const levelValue = modalityLevelSelect.value;
+    const campusValues = selectedValues(modalityCampusSelect);
+    const divisionValues = selectedValues(modalityDivisionSelect);
+    const disciplineValues = selectedValues(modalityDisciplineSelect);
+    const departmentValues = selectedValues(modalityDepartmentSelect);
+    const courseValues = selectedValues(modalityCourseSelect);
+    const modalityValues = selectedValues(modalityModalitySelect);
+    const levelValues = selectedValues(modalityLevelSelect);
     const calGetcValue = modalityCalGetcSelect?.value || '';
-    const campuses = getUniqueCampuses(currentData);
-    const terms = [...new Set(currentData.map(getSectionTerm).filter(Boolean))].sort();
-    const divisions = [...new Set(currentData.map(getDivision).filter(Boolean))].sort();
-    const disciplines = [...new Set(currentData.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
-    const levels = [...new Set(currentData.map(section => getCourseLevel(getCourseParts(section).courseNumber)).filter(Boolean))]
+    const campuses = getUniqueCampuses(rows);
+    const terms = [...new Set(rows.map(getSectionTerm).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const divisions = [...new Set(rows.map(getDivision).filter(Boolean))].sort();
+    const disciplines = [...new Set(rows.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
+    const departments = [...new Set(rows.map(getDepartment).filter(Boolean))].sort();
+    const courses = [...new Set(rows.map(getCourseCode).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const modalityOptions = [...new Set(rows.map(section => getModalityCategory(getInstructionalMethod(section) || 'Unspecified')).filter(Boolean))].sort();
+    const levels = [...new Set(rows.map(section => getCourseLevel(getCourseParts(section).courseNumber)).filter(Boolean))]
       .sort((a, b) => getCourseLevelSort(a) - getCourseLevelSort(b));
     if (modalityDecisionTermSelect) resetSelect(modalityDecisionTermSelect, terms, 'Current loaded term', '');
     modalityComparisonSelects.forEach(select => resetSelect(select, terms, 'None', ''));
     resetSelect(modalityCampusSelect, campuses, 'All', '');
     resetSelect(modalityDivisionSelect, divisions, 'All', '');
     resetSelect(modalityDisciplineSelect, disciplines, 'All', '');
+    if (modalityDepartmentSelect) resetSelect(modalityDepartmentSelect, departments, 'All', '');
+    if (modalityCourseSelect) resetSelect(modalityCourseSelect, courses, 'All', '');
+    if (modalityModalitySelect) resetSelect(modalityModalitySelect, modalityOptions, 'All', '');
     resetSelect(modalityLevelSelect, levels, 'All', '');
     if (modalityCalGetcSelect) resetSelect(modalityCalGetcSelect, calGetcFilterOptions, 'All', '');
     if (terms.includes(decisionTermValue) && modalityDecisionTermSelect) modalityDecisionTermSelect.value = decisionTermValue;
     modalityComparisonSelects.forEach((select, index) => {
       if (terms.includes(comparisonValues[index])) select.value = comparisonValues[index];
     });
-    if (campuses.includes(campusValue)) modalityCampusSelect.value = campusValue;
-    if (divisions.includes(divisionValue)) modalityDivisionSelect.value = divisionValue;
-    if (disciplines.includes(disciplineValue)) modalityDisciplineSelect.value = disciplineValue;
-    if (levels.includes(levelValue)) modalityLevelSelect.value = levelValue;
+    preserveSelected(modalityCampusSelect, campusValues);
+    preserveSelected(modalityDivisionSelect, divisionValues);
+    preserveSelected(modalityDisciplineSelect, disciplineValues);
+    preserveSelected(modalityDepartmentSelect, departmentValues);
+    preserveSelected(modalityCourseSelect, courseValues);
+    preserveSelected(modalityModalitySelect, modalityValues);
+    preserveSelected(modalityLevelSelect, levelValues);
     if (calGetcFilterOptions.some(option => option.value === calGetcValue) && modalityCalGetcSelect) modalityCalGetcSelect.value = calGetcValue;
   }
 
   function getSectionTerm(section) {
-    return extractField(section, ['Term', 'TERM', 'term']);
+    return normalizeTermLabel(extractField(section, ['Term', 'TERM', 'term']) || section.__sourceTerm || '');
   }
 
   function getEnrollmentValue(section) {
@@ -2278,26 +2372,33 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function calculateModalityBalance(options = {}) {
     const selectedTerm = options.term || modalityDecisionTermSelect?.value || '';
-    const selectedCampus = modalityCampusSelect?.value || '';
-    const selectedDivision = modalityDivisionSelect?.value || '';
-    const selectedDiscipline = modalityDisciplineSelect?.value || '';
-    const selectedLevel = modalityLevelSelect?.value || '';
+    const selectedCampus = selectedValues(modalityCampusSelect);
+    const selectedDivision = selectedValues(modalityDivisionSelect);
+    const selectedDiscipline = selectedValues(modalityDisciplineSelect);
+    const selectedDepartment = selectedValues(modalityDepartmentSelect);
+    const selectedCourse = selectedValues(modalityCourseSelect);
+    const selectedModality = selectedValues(modalityModalitySelect);
+    const selectedLevel = selectedValues(modalityLevelSelect);
     const selectedCalGetc = modalityCalGetcSelect?.value || '';
     const includeDualEnrollment = Boolean(modalityIncludeDe?.checked);
     const seenSections = new Set();
     const categories = new Map();
 
-    currentData.forEach((section, index) => {
+    getModalitySourceRows().forEach((section, index) => {
       const campus = extractField(section, ['Campus', 'campus', 'CAMPUS']);
       const term = getSectionTerm(section);
       const division = getDivision(section);
+      const department = getDepartment(section);
       const courseParts = getCourseParts(section);
+      const courseCode = getCourseCode(section);
       const courseLevel = getCourseLevel(courseParts.courseNumber);
-      if (selectedTerm && term !== selectedTerm) return;
-      if (selectedCampus && campus !== selectedCampus) return;
-      if (selectedDivision && division !== selectedDivision) return;
-      if (selectedDiscipline && courseParts.discipline !== selectedDiscipline) return;
-      if (selectedLevel && courseLevel !== selectedLevel) return;
+      if (selectedTerm && !termMatches(term, selectedTerm)) return;
+      if (!valueMatchesAny(campus, selectedCampus)) return;
+      if (!valueMatchesAny(division, selectedDivision)) return;
+      if (!valueMatchesAny(courseParts.discipline, selectedDiscipline)) return;
+      if (!valueMatchesAny(department, selectedDepartment)) return;
+      if (!valueMatchesAny(courseCode, selectedCourse)) return;
+      if (!valueMatchesAny(courseLevel, selectedLevel)) return;
       if (!sectionMatchesCalGetc(section, selectedCalGetc)) return;
 
       const identity = getSectionIdentity(section, index);
@@ -2307,6 +2408,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const rawMethod = getInstructionalMethod(section) || 'Unspecified';
       const methodCode = normalizeModalityCode(rawMethod);
       const category = getModalityCategory(rawMethod);
+      if (!valueMatchesAny(category, selectedModality)) return;
       if (omittedModalityCodes.has(methodCode) && !(includeDualEnrollment && (methodCode === 'DE' || category === 'Dual Enrollment'))) return;
       if (!includeDualEnrollment && (methodCode === 'DE' || category === 'Dual Enrollment')) return;
       if (!categories.has(category)) {
@@ -2334,7 +2436,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         methodDetails: Array.from(item.methods.entries())
           .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       }))
-      .sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category))
+      .sort((a, b) => {
+        const ai = order.includes(a.category) ? order.indexOf(a.category) : order.length;
+        const bi = order.includes(b.category) ? order.indexOf(b.category) : order.length;
+        return ai - bi || a.category.localeCompare(b.category);
+      })
       .map(item => ({ ...item, total, totalEnrollment }));
   }
 
@@ -2378,7 +2484,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       bar.className = 'modality-bar';
       const label = document.createElement('div');
       label.className = 'modality-bar-label';
-      label.textContent = `${row.category} (${row.count}, ${Math.round(row.share * 100)}%)`;
+      label.textContent = `${row.category} (${row.count} sections, ${Math.round(row.share * 100)}%; ${row.enrollment} enrollment, ${Math.round(row.enrollmentShare * 100)}%)`;
       const track = document.createElement('div');
       track.className = 'modality-bar-track';
       const fill = document.createElement('div');
@@ -2390,7 +2496,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
       if (tbody) {
         const tr = document.createElement('tr');
-        [row.category, row.count, row.enrollment, `${(row.share * 100).toFixed(1)}%`].forEach(value => {
+        [row.category, row.count, row.enrollment, `${(row.share * 100).toFixed(1)}%`, `${(row.enrollmentShare * 100).toFixed(1)}%`].forEach(value => {
           const td = document.createElement('td');
           td.textContent = value;
           tr.appendChild(td);
@@ -2427,16 +2533,16 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!selectedTerms.length) return;
     const decisionTerm = modalityDecisionTermSelect?.value || 'Current loaded term';
     const decisionMap = new Map(decisionRows.map(row => [row.category, row]));
-    const categories = ['In Person', 'Online', 'Hybrid', 'Other', 'Unspecified'];
     const sections = selectedTerms.map(term => {
       const comparisonRows = calculateModalityBalance({ term });
       const comparisonMap = new Map(comparisonRows.map(row => [row.category, row]));
+      const categories = [...new Set([...decisionMap.keys(), ...comparisonMap.keys()])];
       const rows = categories.map(category => {
         const decision = decisionMap.get(category) || { count: 0, enrollment: 0, share: 0, enrollmentShare: 0 };
         const compare = comparisonMap.get(category) || { count: 0, enrollment: 0, share: 0, enrollmentShare: 0 };
-        return `<tr><td>${escapeHTML(category)}</td><td>${decision.count}</td><td>${compare.count}</td><td>${compare.count - decision.count}</td><td>${decision.enrollment}</td><td>${compare.enrollment}</td><td>${compare.enrollment - decision.enrollment}</td><td>${((compare.share - decision.share) * 100).toFixed(1)} pts</td></tr>`;
+        return `<tr><td>${escapeHTML(category)}</td><td>${decision.count}</td><td>${compare.count}</td><td>${decision.count - compare.count}</td><td>${decision.enrollment}</td><td>${compare.enrollment}</td><td>${decision.enrollment - compare.enrollment}</td><td>${((decision.share - compare.share) * 100).toFixed(1)} pts</td><td>${((decision.enrollmentShare - compare.enrollmentShare) * 100).toFixed(1)} pts</td></tr>`;
       }).join('');
-      return `<section><h3>${escapeHTML(decisionTerm)} vs ${escapeHTML(term)}</h3><table><thead><tr><th>Modality</th><th>Decision Sections</th><th>Comparison Sections</th><th>Section Diff</th><th>Decision Enrollment</th><th>Comparison Enrollment</th><th>Enrollment Diff</th><th>Share Diff</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+      return `<section><h3>${escapeHTML(decisionTerm)} vs ${escapeHTML(term)}</h3><table><thead><tr><th>Modality</th><th>Decision Sections</th><th>Comparison Sections</th><th>Section Diff</th><th>Decision Enrollment</th><th>Comparison Enrollment</th><th>Enrollment Diff</th><th>Section Share Diff</th><th>Enrollment Share Diff</th></tr></thead><tbody>${rows}</tbody></table></section>`;
     }).join('');
     modalityComparison.innerHTML = sections;
   }

@@ -854,8 +854,21 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
 
   assert.match(index, /modality-include-de/);
   assert.match(index, /Dual Enrollment is excluded by default/);
+  ['modality-campus-select', 'modality-division-select', 'modality-discipline-select', 'modality-department-select', 'modality-course-select', 'modality-modality-select'].forEach(id => {
+    assert.match(index, new RegExp(`id="${id}"[^>]*multiple`));
+  });
+  assert.match(index, /% of Sections/);
+  assert.match(index, /% of Enrollment/);
   assert.match(app, /includeDualEnrollment/);
+  assert.match(app, /code === 'DE'/);
   assert.match(app, /category === 'Dual Enrollment'/);
+  assert.match(app, /loadModalityArchiveRowsFromBackend/);
+  assert.match(app, /api\/analytics-archive/);
+  assert.match(app, /selectedValues\(modalityCampusSelect\)/);
+  assert.match(app, /selectedValues\(modalityCourseSelect\)/);
+  assert.match(app, /selectedValues\(modalityModalitySelect\)/);
+  assert.match(app, /getModalitySourceRows\(\)\.forEach/);
+  assert.match(app, /decision\.share - compare\.share/);
 });
 
 test('duration graph uses nice y-axis tick steps', () => {
