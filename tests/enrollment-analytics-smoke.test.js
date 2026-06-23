@@ -899,6 +899,24 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(app, /decision\.share - compare\.share/);
 });
 
+test('room utilization includes room capacity fit flags', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+
+  assert.match(index, /Room Capacity Fit Flags/);
+  assert.match(index, /Room Capacity/);
+  assert.match(index, /Section Capacity/);
+  assert.match(index, /Census\/Current Enrollment/);
+  assert.match(index, /Fit Ratio/);
+  assert.match(app, /calculateRoomFitFlags/);
+  assert.match(app, /Under-utilized room assignment/);
+  assert.match(app, /Over-capacity risk/);
+  assert.match(app, /Enrollment over room capacity/);
+  assert.match(app, /room-capacity-fit-flags\.csv/);
+  assert.match(css, /\.room-fit-table/);
+});
+
 test('duration graph uses nice y-axis tick steps', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
 

@@ -263,6 +263,36 @@
     </div>
     <div id="utilization-summary" class="utilization-summary"></div>
     <div id="utilization-map" class="utilization-map"></div>
+    <section class="room-fit-section">
+      <div class="room-fit-header">
+        <h3>Room Capacity Fit Flags</h3>
+        <button id="room-fit-export-btn" type="button">Export Room Fit CSV</button>
+      </div>
+      <p class="utilization-note">Flags sections where assigned room capacity may be materially larger or smaller than the section capacity or enrollment. Under-utilized defaults to section capacity or enrollment using less than 70% of room capacity.</p>
+      <div id="room-fit-summary" class="utilization-summary"></div>
+      <div class="room-fit-table-wrap">
+        <table id="room-fit-table" class="room-fit-table">
+          <thead>
+            <tr>
+              <th>Term</th>
+              <th>CRN</th>
+              <th>Course</th>
+              <th>Section</th>
+              <th>Campus</th>
+              <th>Building</th>
+              <th>Room</th>
+              <th>Room Capacity</th>
+              <th>Section Capacity</th>
+              <th>Census/Current Enrollment</th>
+              <th>Fit Ratio</th>
+              <th>Flag</th>
+              <th>Recommendation</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
   </div>
 
   <div id="modality-tool" style="display:none;">

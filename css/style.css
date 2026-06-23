@@ -624,6 +624,51 @@ button:hover,
   line-height: 1.4;
 }
 
+.room-fit-section {
+  margin-top: 1.2rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.room-fit-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.room-fit-header h3 {
+  margin: 0;
+  color: var(--brand);
+}
+
+.room-fit-table-wrap {
+  overflow-x: auto;
+}
+
+.room-fit-table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.room-fit-table th,
+.room-fit-table td {
+  padding: 0.5rem;
+  border: 1px solid rgba(32, 66, 96, 0.14);
+  text-align: left;
+  vertical-align: top;
+}
+
+.room-fit-table th {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+}
+
 #heatmap-tool .choices__list--dropdown {
   max-height: 300px;
   overflow-y: auto;

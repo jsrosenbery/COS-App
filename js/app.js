@@ -677,6 +677,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const utilizationClearBtn = document.getElementById('utilization-clear-btn');
   const utilizationSummary = document.getElementById('utilization-summary');
   const utilizationMap = document.getElementById('utilization-map');
+  const roomFitSummary = document.getElementById('room-fit-summary');
+  const roomFitTable = document.getElementById('room-fit-table');
+  const roomFitExportBtn = document.getElementById('room-fit-export-btn');
   const modalityDecisionTermSelect = document.getElementById('modality-decision-term');
   const modalityComparisonSelects = ['modality-comparison-1', 'modality-comparison-2', 'modality-comparison-3']
     .map(id => document.getElementById(id))
@@ -734,6 +737,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('linechart-calgetc-select').addEventListener('change', renderLineChart);
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
+  if (roomFitExportBtn) roomFitExportBtn.addEventListener('click', exportRoomFitAnalysis);
   if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
   if (modalityDecisionTermSelect) modalityDecisionTermSelect.addEventListener('change', renderModalityTool);
   modalityComparisonSelects.forEach(select => select.addEventListener('change', renderModalityTool));
@@ -2148,6 +2152,181 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       .sort((a, b) => b.score - a.score || a.buildingRoom.localeCompare(b.buildingRoom, undefined, { numeric: true }));
   }
 
+  function getSectionCapacity(section) {
+    const value = extractField(section, ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'MAX ENROLL', 'Maximum Enrollment']);
+    const parsed = Number(String(value || '').replace(/[%,$]/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function getFitEnrollmentValue(section) {
+    const value = extractField(section, ['CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL', 'Actual_Enroll', 'Actual Enroll', 'Enrollment', 'Enroll']);
+    const parsed = Number(String(value || '').replace(/[%,$]/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function getSectionTermLabel(section) {
+    return extractField(section, ['Term', 'TERM', 'term']) || currentTerm || '';
+  }
+
+  function getSectionCourseLabel(section) {
+    const parts = getCourseParts(section);
+    return [parts.discipline, parts.courseNumber].filter(Boolean).join(' ') || extractField(section, ['Subject_Course', 'Subject Course', 'Course']);
+  }
+
+  function getSectionNumber(section) {
+    return extractField(section, ['Section', 'SECTION', 'Sec', 'SEC', 'SECTION_NUMB', 'Section Number']);
+  }
+
+  function calculateRoomFitFlags(options = {}) {
+    const threshold = Number(options.threshold || 0.7);
+    const seen = new Set();
+    return currentData.reduce((rows, section, index) => {
+      if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return rows;
+      const key = getRoomKey(section);
+      if (String(key || '').toUpperCase().startsWith('VISFSC-')) return rows;
+      const roomMeta = roomCatalogByKey.get(key);
+      const roomCapacity = roomMeta?.capacity ?? null;
+      if (roomCapacity == null || roomCapacity <= 0) return rows;
+      const sectionCapacity = getSectionCapacity(section);
+      const enrollment = getFitEnrollmentValue(section);
+      const basis = Math.max(sectionCapacity || 0, enrollment || 0);
+      if (!basis) return rows;
+      const term = getSectionTermLabel(section);
+      const crn = extractField(section, ['CRN', 'Course Reference Number']) || `ROW${index}`;
+      const dedupeKey = [term, crn, key].join('|');
+      if (seen.has(dedupeKey)) return rows;
+      seen.add(dedupeKey);
+      const fitRatio = basis / roomCapacity;
+      const flags = [];
+      const recommendations = [];
+      if (sectionCapacity != null && sectionCapacity > roomCapacity) {
+        flags.push('Over-capacity risk');
+        recommendations.push('Review room assignment or reduce section cap below room capacity.');
+      }
+      if (enrollment != null && enrollment > roomCapacity) {
+        flags.push('Enrollment over room capacity');
+        recommendations.push('Move section to a larger room or resolve enrollment/room-capacity mismatch.');
+      }
+      if (fitRatio < threshold) {
+        flags.push('Under-utilized room assignment');
+        recommendations.push('Consider a smaller room or reserve this larger room for higher-capacity demand.');
+      }
+      if (!flags.length) return rows;
+      rows.push({
+        term,
+        crn,
+        course: getSectionCourseLabel(section),
+        section: getSectionNumber(section),
+        campus: section.Campus || extractField(section, ['Campus', 'CAMPUS']),
+        building: section.Building || section.BUILDING || roomMeta?.building || '',
+        room: section.Room || section.ROOM || roomMeta?.room || '',
+        roomCapacity,
+        sectionCapacity: sectionCapacity == null ? '' : sectionCapacity,
+        enrollment: enrollment == null ? '' : enrollment,
+        fitRatio,
+        flag: flags.join('; '),
+        recommendation: recommendations.join(' ')
+      });
+      return rows;
+    }, []).sort((a, b) =>
+      String(a.term).localeCompare(String(b.term), undefined, { numeric: true }) ||
+      String(a.building).localeCompare(String(b.building), undefined, { numeric: true }) ||
+      String(a.room).localeCompare(String(b.room), undefined, { numeric: true }) ||
+      String(a.course).localeCompare(String(b.course), undefined, { numeric: true })
+    );
+  }
+
+  function renderRoomFitAnalysis() {
+    if (!roomFitSummary || !roomFitTable) return;
+    const selectedCampus = utilizationCampusSelect?.value || '';
+    const selectedType = utilizationTypeSelect?.value || '';
+    const rows = calculateRoomFitFlags()
+      .filter(row => {
+        const meta = roomCatalogByKey.get(`${row.building}-${row.room}`);
+        if (selectedCampus && row.campus !== selectedCampus && meta?.campus !== selectedCampus) return false;
+        if (selectedType && meta?.type !== selectedType) return false;
+        return true;
+      });
+    const counts = rows.reduce((acc, row) => {
+      row.flag.split('; ').forEach(flag => { acc[flag] = (acc[flag] || 0) + 1; });
+      return acc;
+    }, {});
+    roomFitSummary.replaceChildren();
+    [
+      `Fit flags: ${rows.length}`,
+      `Under-utilized: ${counts['Under-utilized room assignment'] || 0}`,
+      `Over-capacity risk: ${counts['Over-capacity risk'] || 0}`,
+      `Enrollment over room capacity: ${counts['Enrollment over room capacity'] || 0}`
+    ].forEach(text => {
+      const pill = document.createElement('div');
+      pill.className = 'utilization-pill';
+      pill.textContent = text;
+      roomFitSummary.appendChild(pill);
+    });
+    const tbody = roomFitTable.querySelector('tbody');
+    if (!tbody) return;
+    tbody.replaceChildren();
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+      [
+        row.term,
+        row.crn,
+        row.course,
+        row.section,
+        row.campus,
+        row.building,
+        row.room,
+        row.roomCapacity,
+        row.sectionCapacity,
+        row.enrollment,
+        `${Math.round(row.fitRatio * 100)}%`,
+        row.flag,
+        row.recommendation
+      ].forEach(value => {
+        const td = document.createElement('td');
+        td.textContent = value ?? '';
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    if (!rows.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 13;
+      td.textContent = 'No room capacity fit flags match the selected filters.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+  }
+
+  function exportRoomFitAnalysis() {
+    const selectedCampus = utilizationCampusSelect?.value || '';
+    const selectedType = utilizationTypeSelect?.value || '';
+    const rows = calculateRoomFitFlags()
+      .filter(row => {
+        const meta = roomCatalogByKey.get(`${row.building}-${row.room}`);
+        if (selectedCampus && row.campus !== selectedCampus && meta?.campus !== selectedCampus) return false;
+        if (selectedType && meta?.type !== selectedType) return false;
+        return true;
+      })
+      .map(row => ({
+        Term: row.term,
+        CRN: row.crn,
+        Course: row.course,
+        Section: row.section,
+        Campus: row.campus,
+        Building: row.building,
+        Room: row.room,
+        'Room Capacity': row.roomCapacity,
+        'Section Capacity': row.sectionCapacity,
+        'Census/Current Enrollment': row.enrollment,
+        'Fit Ratio': `${Math.round(row.fitRatio * 100)}%`,
+        Flag: row.flag,
+        Recommendation: row.recommendation
+      }));
+    downloadTextFile('room-capacity-fit-flags.csv', Papa.unparse(rows), 'text/csv;charset=utf-8');
+  }
+
   function renderUtilizationMap() {
     if (!utilizationMap || !utilizationSummary) return;
     const selectedCampus = utilizationCampusSelect?.value || '';
@@ -2178,6 +2357,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     utilizationMap.replaceChildren();
     if (!rooms.length) {
       utilizationMap.textContent = 'No rooms match the selected filters.';
+      renderRoomFitAnalysis();
       return;
     }
     rooms.forEach(room => {
@@ -2213,6 +2393,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       card.append(title, badge, details, reason);
       utilizationMap.appendChild(card);
     });
+    renderRoomFitAnalysis();
   }
 
   function getInstructionalMethod(section) {
