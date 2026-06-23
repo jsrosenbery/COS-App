@@ -725,9 +725,28 @@ test('enrollment analytics report labels are operational', () => {
   assert.match(text, /Enrollment Snapshot Manager/);
   assert.match(text, /REPORTS\.snapshotManager/);
   assert.match(text, /spArchiveTerms/);
+  assert.match(text, /conDecisionSeason/);
+  assert.match(text, /conDecisionYear/);
+  assert.match(text, /Consolidation Scope/);
+  assert.doesNotMatch(text, /conDecisionTermManual/);
   assert.match(text, /iaDivision/);
   assert.match(text, /iaSubject/);
   assert.match(text, /Select All Visible Instructors/);
+});
+
+test('consolidation scope is limited to selected report inputs', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const loadStart = text.indexOf('async function loadConsolidationRows');
+  const loadEnd = text.indexOf('function lowEnrollmentThreshold', loadStart);
+  const historicalStart = text.indexOf('async function historicalPatterns');
+  const historicalEnd = text.indexOf('function finalizeHistoricalMap', historicalStart);
+  const loadBlock = text.slice(loadStart, loadEnd);
+  const historicalBlock = text.slice(historicalStart, historicalEnd);
+
+  assert.match(loadBlock, /const rows = uploaded;/);
+  assert.doesNotMatch(loadBlock, /currentRows\(\)/);
+  assert.doesNotMatch(historicalBlock, /api\/schedule/);
+  assert.doesNotMatch(historicalBlock, /visibleScheduleTerms/);
 });
 
 test('modality balance includes dual enrollment toggle and methodology note', () => {

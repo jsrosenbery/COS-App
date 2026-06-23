@@ -1034,7 +1034,14 @@
             <button id="archiveConsolidationUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="conArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Decision term <select id="conDecisionTerm"></select></label>
-            <label>Manual future decision term <input id="conDecisionTermManual" type="text" placeholder="FALL 2027"></label>
+            <label>Decision season
+              <select id="conDecisionSeason">
+                <option value="SUMMER">Summer</option>
+                <option value="FALL">Fall</option>
+                <option value="SPRING">Spring</option>
+              </select>
+            </label>
+            <label>Decision year <input id="conDecisionYear" type="number" min="2022" max="2035" step="1"></label>
             ${filters('con', { includeGroup: false, includeCancelled: true, includeDivision: true })}
             <label>Min sections <input id="conMinSections" type="number" min="2" value="5" title="Minimum number of decision-term in-person sections a course must have before it is considered for in-person flow review."></label>
             <label>Low enrollment <input id="conLowEnroll" type="number" min="0" value="" placeholder="optional"></label>
@@ -1053,6 +1060,7 @@
             <button id="exportConsolidation" type="button">Export CSV</button>
           </div>
           <div id="consolidationMetrics" class="analytics-metrics"></div>
+          <div id="consolidationScopePanel" class="dashboard-scope-panel"></div>
           <div id="consolidationTable" class="analytics-table"></div>
           <div id="consolidationLegend" class="analytics-legend"></div>
         </div>
@@ -1572,18 +1580,29 @@
   function updateConsolidationTermOptions(terms) {
     const select = document.getElementById('conDecisionTerm');
     if (!select) return '';
-    const active = canon(currentTerm());
+    const seasonSelect = document.getElementById('conDecisionSeason');
+    const yearInput = document.getElementById('conDecisionYear');
     const prior = select.value;
     select.replaceChildren();
+    select.add(new Option('Use season/year below', '__MANUAL__'));
     terms.forEach(term => select.add(new Option(term, term)));
     if (terms.includes(prior)) select.value = prior;
-    else if (terms.includes(active)) select.value = active;
     else if (terms.length) select.value = terms[terms.length - 1];
+    else select.value = '__MANUAL__';
+    const selectedParts = termParts(select.value === '__MANUAL__' ? '' : select.value);
+    const fallbackParts = termParts(prior);
+    const basis = selectedParts.year ? selectedParts : fallbackParts.year ? fallbackParts : termParts(currentTerm());
+    if (seasonSelect && basis.season) seasonSelect.value = basis.season;
+    if (yearInput && basis.year && !yearInput.value) yearInput.value = String(basis.year);
     return select.value;
   }
 
   function consolidationDecisionTerm() {
-    return canon(document.getElementById('conDecisionTermManual')?.value || document.getElementById('conDecisionTerm')?.value || updateConsolidationTermOptions(state.consolidationTerms));
+    const selected = canon(document.getElementById('conDecisionTerm')?.value || '');
+    if (selected && selected !== '__MANUAL__') return selected;
+    const season = canon(document.getElementById('conDecisionSeason')?.value || 'FALL');
+    const year = Number(document.getElementById('conDecisionYear')?.value || termParts(currentTerm()).year || new Date().getFullYear());
+    return `${season || 'FALL'} ${year}`;
   }
 
   function updateDemandTermOptions(terms) {
@@ -2762,8 +2781,39 @@
       ['Chronic Low Enrollment Threshold', lowEnroll == null ? `<= ${pct(lowFill)} census-based expected fill` : `<= ${lowEnroll} census-based expected enrollment`],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
+    renderConsolidationScopePanel({
+      decisionTerm,
+      selectedArchivedTerms: state.consolidationScope?.selectedArchivedTerms || getSelectedValues('conArchiveTerms'),
+      uploadedTerms: state.consolidationScope?.uploadedTerms || [],
+      historicalTerms: collectRowTerms(comparisonRows),
+      currentRowsCount: rows.length,
+      historicalRowsCount: comparisonRows.length,
+      totalRows: allRows.length
+    });
     renderConsolidationTables(state.consolidationRows.map(flattenOpportunity));
     renderConsolidationLegend();
+  }
+
+  function renderConsolidationScopePanel(context) {
+    const node = document.getElementById('consolidationScopePanel');
+    if (!node) return;
+    const selectedArchived = context.selectedArchivedTerms.length ? context.selectedArchivedTerms.join(', ') : 'None selected';
+    const uploadedTerms = context.uploadedTerms.length ? context.uploadedTerms.join(', ') : 'None uploaded';
+    const historicalTerms = context.historicalTerms.length ? context.historicalTerms.join(', ') : 'None';
+    const warning = context.totalRows
+      ? ''
+      : '<div class="dashboard-scope-warnings"><p>No Consolidation CSVs or archived terms are selected. This report will not silently use other archived terms or the current room grid.</p></div>';
+    node.innerHTML = `
+      <h3>Consolidation Scope</h3>
+      ${warning}
+      <dl>
+        <div><dt>Decision Term</dt><dd>${escapeAttr(context.decisionTerm || 'N/A')}</dd></div>
+        <div><dt>Selected Archived Terms</dt><dd>${escapeAttr(selectedArchived)}</dd></div>
+        <div><dt>Uploaded Terms</dt><dd>${escapeAttr(uploadedTerms)}</dd></div>
+        <div><dt>Historical Comparison Terms Used</dt><dd>${escapeAttr(historicalTerms)}</dd></div>
+        <div><dt>Current Rows Count</dt><dd>${context.currentRowsCount}</dd></div>
+        <div><dt>Historical Rows Count</dt><dd>${context.historicalRowsCount}</dd></div>
+      </dl>`;
   }
 
   async function loadDemandRows() {
@@ -3232,8 +3282,13 @@
     const uploaded = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
       .filter(row => !isOmittedInstructionalMethod(row));
     state.consolidationInput = uploaded;
-    const rows = uploaded.length ? uploaded : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+    const rows = uploaded;
     state.consolidationTerms = collectRowTerms(rows);
+    state.consolidationScope = {
+      uploadedTerms: collectRowTerms(uploadedRows.map(normalize)),
+      selectedArchivedTerms: getSelectedValues('conArchiveTerms'),
+      totalRows: rows.length
+    };
     updateConsolidationTermOptions(state.consolidationTerms);
     refreshAnalyticsFilters('con', rows, saved);
     return rows;
@@ -3255,34 +3310,14 @@
 
   async function historicalPatterns(allRows = [], decisionTerm = '', lowFill = 0.5, lowEnroll = null) {
     const map = new Map();
-    const lookback = Number(document.getElementById('conLookback')?.value || 0);
     const comparisonRows = allRows.filter(row => row.term && row.term !== decisionTerm);
-    if (comparisonRows.length) {
-      comparisonRows.forEach((row) => {
-        const key = patternKey(row);
-        const item = map.get(key) || { terms: new Set(), low: new Set() };
-        item.terms.add(row.term || 'UNKNOWN');
-        if (isLowEnrollmentSection(row, lowFill, lowEnroll)) item.low.add(row.term || 'UNKNOWN');
-        map.set(key, item);
-      });
-      return finalizeHistoricalMap(map);
-    }
-    if (!lookback || !window.BACKEND_BASE_URL) return map;
-    try {
-      const priorTerms = visibleScheduleTerms().filter((t) => t && t !== currentTerm()).slice(-lookback);
-      const batches = await Promise.all(priorTerms.map((t) => fetch(`${window.BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(t)}`)
-        .then((r) => r.ok ? r.json() : { data: [] })
-        .then(payload => Array.isArray(payload) ? payload : payload.data || [])));
-      batches.flat().map(normalize).forEach((row) => {
-        const key = patternKey(row);
-        const item = map.get(key) || { terms: new Set(), low: new Set() };
-        item.terms.add(row.term || 'UNKNOWN');
-        if (isLowEnrollmentSection(row, lowFill, lowEnroll)) item.low.add(row.term || 'UNKNOWN');
-        map.set(key, item);
-      });
-    } catch (err) {
-      console.warn('Historical consolidation lookup skipped:', err);
-    }
+    comparisonRows.forEach((row) => {
+      const key = patternKey(row);
+      const item = map.get(key) || { terms: new Set(), low: new Set() };
+      item.terms.add(row.term || 'UNKNOWN');
+      if (isLowEnrollmentSection(row, lowFill, lowEnroll)) item.low.add(row.term || 'UNKNOWN');
+      map.set(key, item);
+    });
     return finalizeHistoricalMap(map);
   }
 
@@ -4027,7 +4062,8 @@
       document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload enrollment CSV files, then click Run.</p>';
     }
     if (selected === REPORTS.consolidation) {
-      populateAnalyticsFilters('con', state.consolidationInput.length ? state.consolidationInput : currentRows());
+      populateAnalyticsFilters('con', state.consolidationInput || []);
+      updateConsolidationTermOptions(state.consolidationTerms || []);
       renderConsolidationLegend();
     }
     if (selected === REPORTS.demand && !state.demandRan) {
@@ -4198,6 +4234,19 @@
     document.getElementById('runConsolidation')?.addEventListener('click', runConsolidation);
     document.getElementById('consolidationCsv')?.addEventListener('change', loadConsolidationRows);
     document.getElementById('conArchiveTerms')?.addEventListener('change', loadConsolidationRows);
+    document.getElementById('conDecisionTerm')?.addEventListener('change', () => {
+      const parts = termParts(document.getElementById('conDecisionTerm')?.value || '');
+      const season = document.getElementById('conDecisionSeason');
+      const year = document.getElementById('conDecisionYear');
+      if (parts.season && season) season.value = parts.season;
+      if (parts.year && year) year.value = String(parts.year);
+    });
+    ['conDecisionSeason', 'conDecisionYear'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        const select = document.getElementById('conDecisionTerm');
+        if (select) select.value = '__MANUAL__';
+      });
+    });
     document.getElementById('archiveConsolidationUploads')?.addEventListener('click', () => archiveUploads('consolidationCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearConsolidation')?.addEventListener('click', () => resetAnalyticsControls('con'));
     document.getElementById('runDemand')?.addEventListener('click', runDemand);
