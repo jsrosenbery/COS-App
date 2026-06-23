@@ -577,8 +577,8 @@ test('student presence analytics excludes online sections', () => {
 test('detailed student presence report excludes non-physical rows and groups room buckets', () => {
   const { COSEnrollmentDashboard } = loadEnrollmentModules();
   const report = COSEnrollmentDashboard.studentPresenceReport([
-    section({ modality: 'IN PERSON', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '10:00', census: 20, cap: 30 }),
-    section({ modality: 'HYBRID', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '10:00', census: 10, cap: 20 }),
+    section({ crn: 'P1', modality: 'IN PERSON', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '10:00', census: 20, cap: 30 }),
+    section({ crn: 'P2', modality: 'HYBRID', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '10:00', census: 10, cap: 20 }),
     section({ modality: 'ONLINE', campus: 'ONLINE', building: '', roomOnly: '', room: '', days: ['MO'], start: '', census: 99, cap: 100 }),
     section({ modality: 'IN PERSON', campus: 'VIS', building: 'KERN', roomOnly: '102', room: 'KERN 102', days: ['TBA'], start: '00:00', census: 50, cap: 60 })
   ], 'roomDayHour');
@@ -591,6 +591,38 @@ test('detailed student presence report excludes non-physical rows and groups roo
   assert.equal(report.rows[0].availableRoomCapacity, 20);
   assert.equal(report.metrics.totalStudents, 30);
   assert.equal(report.metrics.peakRoom.group, '101');
+});
+
+test('student presence deduplicates duplicate meeting rows within the same bucket', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const report = COSEnrollmentDashboard.studentPresenceReport([
+    section({ crn: 'DUP1', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '10:00', census: 25, cap: 30 }),
+    section({ crn: 'DUP1', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '10:00', census: 25, cap: 30 })
+  ], 'roomDayHour');
+
+  assert.equal(report.rows.length, 1);
+  assert.equal(report.rows[0].studentsPresent, 25);
+  assert.equal(report.rows[0].sectionsActive, 1);
+  assert.equal(report.rows[0].distinctCrns, 1);
+  assert.equal(report.rows[0].meetingRowsIncluded, 2);
+  assert.equal(report.metrics.totalSections, 1);
+  assert.equal(report.metrics.distinctCrns, 1);
+  assert.equal(report.metrics.meetingRowsIncluded, 2);
+});
+
+test('student presence counts one CRN in multiple buckets but only once overall', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const report = COSEnrollmentDashboard.studentPresenceReport([
+    section({ crn: 'MULTI1', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '09:00', census: 20, cap: 30 }),
+    section({ crn: 'MULTI1', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['WE'], start: '09:00', census: 20, cap: 30 })
+  ], 'campusDayHour');
+
+  assert.equal(report.rows.length, 2);
+  assert.equal(report.rows.reduce((sum, row) => sum + row.studentsPresent, 0), 40);
+  assert.equal(report.rows.every(row => row.sectionsActive === 1), true);
+  assert.equal(report.metrics.totalSections, 1);
+  assert.equal(report.metrics.distinctCrns, 1);
+  assert.equal(report.metrics.meetingRowsIncluded, 2);
 });
 
 test('detailed student presence report supports campus and building group metrics', () => {

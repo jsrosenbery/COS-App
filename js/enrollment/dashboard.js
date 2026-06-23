@@ -248,14 +248,12 @@
       const hour = row.start ? `${String(row.start).slice(0, 2)}:00` : 'TBA';
       (row.days || []).forEach(day => {
         const key = [row.campus || 'UNKNOWN', day, hour].join('|');
-        const item = buckets.get(key) || { campus: row.campus || 'UNKNOWN', day, hour, studentsPresent: 0, sectionsActive: 0, availableRoomCapacity: 0 };
-        item.studentsPresent += enrollment(row);
-        item.sectionsActive += 1;
-        item.availableRoomCapacity += Math.max(0, (row.cap || 0) - enrollment(row));
+        const item = buckets.get(key) || presenceBucket({ campus: row.campus || 'UNKNOWN', day, hour });
+        addPresenceRow(item, row);
         buckets.set(key, item);
       });
     });
-    const rowsOut = [...buckets.values()].sort((a, b) => b.studentsPresent - a.studentsPresent);
+    const rowsOut = [...buckets.values()].map(finalizePresenceBucket).sort((a, b) => b.studentsPresent - a.studentsPresent);
     return {
       rows: rowsOut.slice(0, 12),
       peak: rowsOut[0] || null,
@@ -271,33 +269,61 @@
       (row.days || []).filter(day => dayOrder.includes(day)).forEach(day => {
         const key = presenceGroupKey(row, groupBy, day, hour);
         const item = buckets.get(key) || {
+          ...presenceBucket(),
           group: key,
           campus: row.campus || 'UNKNOWN',
           building: row.building || '',
           room: row.roomOnly || row.room || '',
           day,
-          hour,
-          studentsPresent: 0,
-          sectionsActive: 0,
-          availableRoomCapacity: 0,
-          seatsScheduled: 0,
-          fillRate: 0
+          hour
         };
-        const enrolled = enrollment(row);
-        item.studentsPresent += enrolled;
-        item.sectionsActive += 1;
-        item.seatsScheduled += Number(row.cap) || 0;
-        item.availableRoomCapacity += Math.max(0, (Number(row.cap) || 0) - enrolled);
+        addPresenceRow(item, row);
         buckets.set(key, item);
       });
     });
-    const rowsOut = [...buckets.values()].map(row => ({
-      ...row,
-      averageFillRate: safeDiv(row.studentsPresent, row.seatsScheduled)
-    })).sort((a, b) => b.studentsPresent - a.studentsPresent);
+    const rowsOut = [...buckets.values()].map(finalizePresenceBucket).sort((a, b) => b.studentsPresent - a.studentsPresent);
     return {
       rows: rowsOut,
-      metrics: studentPresenceMetrics(rowsOut)
+      metrics: studentPresenceMetrics(rowsOut, physicalRows)
+    };
+  }
+
+  function presenceBucket(base = {}) {
+    return {
+      studentsPresent: 0,
+      sectionsActive: 0,
+      distinctCrns: 0,
+      meetingRowsIncluded: 0,
+      availableRoomCapacity: 0,
+      seatsScheduled: 0,
+      fillRate: 0,
+      _crns: new Set(),
+      ...base
+    };
+  }
+
+  function presenceCrn(row) {
+    return String(row?.crn || [row?.term, row?.subject, row?.course, row?.section, row?.instructor].filter(Boolean).join('|') || Math.random()).trim();
+  }
+
+  function addPresenceRow(item, row) {
+    item.meetingRowsIncluded += 1;
+    const crn = presenceCrn(row);
+    if (item._crns.has(crn)) return;
+    item._crns.add(crn);
+    const enrolled = enrollment(row);
+    item.studentsPresent += enrolled;
+    item.sectionsActive += 1;
+    item.seatsScheduled += Number(row.cap) || 0;
+    item.availableRoomCapacity += Math.max(0, (Number(row.cap) || 0) - enrolled);
+  }
+
+  function finalizePresenceBucket(item) {
+    const { _crns, ...bucket } = item;
+    return {
+      ...bucket,
+      distinctCrns: _crns?.size || bucket.sectionsActive || 0,
+      averageFillRate: safeDiv(bucket.studentsPresent, bucket.seatsScheduled)
     };
   }
 
@@ -319,14 +345,19 @@
     return map[groupBy] || map.campusDayHour;
   }
 
-  function studentPresenceMetrics(rows) {
+  function studentPresenceMetrics(rows, sourceRows = []) {
     const totalStudents = rows.reduce((total, row) => total + row.studentsPresent, 0);
-    const totalSections = rows.reduce((total, row) => total + row.sectionsActive, 0);
+    const totalSections = sourceRows.length ? distinctCrnCount(sourceRows) : distinctBucketCrnCount(rows);
+    const totalMeetingRows = sourceRows.length
+      ? sourceRows.length
+      : rows.reduce((total, row) => total + (row.meetingRowsIncluded || row.sectionsActive || 0), 0);
     const totalSeats = rows.reduce((total, row) => total + row.seatsScheduled, 0);
     const totalOpen = rows.reduce((total, row) => total + row.availableRoomCapacity, 0);
     return {
       totalStudents,
       totalSections,
+      distinctCrns: totalSections,
+      meetingRowsIncluded: totalMeetingRows,
       totalSeats,
       totalOpen,
       averageFillRate: safeDiv(totalStudents, totalSeats),
@@ -350,12 +381,23 @@
     const map = new Map();
     rows.forEach(row => {
       const key = keyer(row) || 'UNKNOWN';
-      const item = map.get(key) || { group: key, studentsPresent: 0, sectionsActive: 0 };
+      const item = map.get(key) || { group: key, studentsPresent: 0, sectionsActive: 0, meetingRowsIncluded: 0 };
       item.studentsPresent += row.studentsPresent;
       item.sectionsActive += row.sectionsActive;
+      item.meetingRowsIncluded += row.meetingRowsIncluded || row.sectionsActive || 0;
       map.set(key, item);
     });
     return [...map.values()];
+  }
+
+  function distinctCrnCount(rows) {
+    const crns = new Set();
+    (rows || []).forEach(row => crns.add(presenceCrn(row)));
+    return crns.size;
+  }
+
+  function distinctBucketCrnCount(rows) {
+    return (rows || []).reduce((total, row) => total + (row.distinctCrns || row.sectionsActive || 0), 0);
   }
 
   function isPhysicalPresenceRow(row) {

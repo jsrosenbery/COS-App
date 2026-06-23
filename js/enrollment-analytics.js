@@ -869,8 +869,9 @@
               <div>
                 <h3>Methodology</h3>
                 <ul>
-                  <li>Students present uses census enrollment when available and current enrollment otherwise.</li>
-                  <li>Only in-person and hybrid sections with fixed day/time patterns are included.</li>
+                  <li>Students present uses census enrollment when available and current enrollment otherwise, counted once per CRN within each applicable day/hour bucket.</li>
+                  <li>Only in-person and hybrid sections with fixed day/time patterns are included; online and TBA/no fixed time rows are excluded from physical presence.</li>
+                  <li>Distinct CRNs and meeting rows are shown separately so cross-listed or multi-meeting data does not inflate active section counts.</li>
                   <li>This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.</li>
                 </ul>
               </div>
@@ -2126,6 +2127,8 @@
       ['Focus Term', studentPresenceFocusTerm() || 'N/A'],
       ['Students Present', metrics.totalStudents || 0],
       ['Sections Active', metrics.totalSections || 0],
+      ['Distinct CRNs Included', metrics.distinctCrns || 0],
+      ['Meeting Rows Included', metrics.meetingRowsIncluded || 0],
       ['Seats Scheduled', metrics.totalSeats || 0],
       ['Available Capacity', metrics.totalOpen || 0],
       ['Average Fill Rate', pct(metrics.averageFillRate || 0)],
@@ -2145,6 +2148,8 @@
       'hour',
       'studentsPresent',
       'sectionsActive',
+      'distinctCrns',
+      'meetingRowsIncluded',
       'availableRoomCapacity',
       'seatsScheduled',
       'averageFillRate'
@@ -2165,6 +2170,8 @@
         <ul>
           <li>Students: ${row.studentsPresent}</li>
           <li>Sections: ${row.sectionsActive}</li>
+          <li>Distinct CRNs: ${row.distinctCrns || row.sectionsActive || 0}</li>
+          <li>Meeting rows: ${row.meetingRowsIncluded || row.sectionsActive || 0}</li>
           <li>Open capacity: ${row.availableRoomCapacity}</li>
         </ul>
       </section>`).join('');
@@ -2177,12 +2184,14 @@
     renderMethodologyPanel(legend, {
       title: 'Student Presence Analytics Methodology & Data Dictionary',
       purpose: 'Estimates physical student presence from loaded scheduled sections and enrollment for the selected focus term.',
-      methodology: 'Rows are included only when they are in-person or hybrid, have fixed meeting days and times, and do not use online, web, virtual, or TBA campus values. Students present uses census enrollment when available and current enrollment otherwise.',
-      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included meeting buckets. A multi-day section contributes to each scheduled meeting day/hour bucket.',
+      methodology: 'Rows are included only when they are in-person or hybrid, have fixed meeting days and times, and do not use online, web, virtual, or TBA campus values. Students present uses census enrollment when available and current enrollment otherwise. Each CRN is counted once within a day/hour bucket even if the source file has multiple rows for that same section.',
+      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included meeting buckets. A multi-day section contributes to each scheduled meeting day/hour bucket, but overall active sections count distinct CRNs across the selected scope.',
       limitations: 'This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.',
       items: [
-        ['Students Present', 'Sum of census/current enrollment in the selected physical presence bucket.'],
-        ['Sections Active', 'Count of scheduled section meetings represented in the bucket.'],
+        ['Students Present', 'Sum of census/current enrollment once per CRN in the selected physical presence bucket.'],
+        ['Sections Active', 'Distinct CRNs represented in the bucket, not raw meeting rows.'],
+        ['Distinct CRNs Included', 'Overall count of unique CRNs included after filters and physical-presence exclusions.'],
+        ['Meeting Rows Included', 'Raw included meeting rows after filters. This can be higher than distinct CRNs when a section has multiple meeting rows.'],
         ['Available Room Capacity', 'Scheduled capacity minus enrollment for the bucket, floored at zero.'],
         ['Seats Scheduled', 'Total scheduled section capacity in the bucket.'],
         ['Average Fill Rate', 'Students Present divided by Seats Scheduled.'],
@@ -3909,6 +3918,8 @@
       action: 'Recommendation',
       studentsPresent: 'Students Present',
       sectionsActive: 'Sections Active',
+      distinctCrns: 'Distinct CRNs',
+      meetingRowsIncluded: 'Meeting Rows Included',
       availableRoomCapacity: 'Available Room Capacity',
       seatsScheduled: 'Seats Scheduled',
       averageFillRate: 'Average Fill Rate',
@@ -4259,6 +4270,7 @@
     document.getElementById('spGroup')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('studentPresenceCsv')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('spArchiveTerms')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
+    document.getElementById('spHideOnline')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('exportStudentPresence')?.addEventListener('click', () => exportRows(state.studentPresenceRows, `student-presence-${studentPresenceFocusTerm() || 'term'}.csv`));
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
