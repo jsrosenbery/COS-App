@@ -832,7 +832,14 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Term <input id="snapTerm" type="text" placeholder="FALL 2027" required></label>
+            <label>Snapshot Season
+              <select id="snapSeason">
+                <option value="SUMMER">Summer</option>
+                <option value="FALL">Fall</option>
+                <option value="SPRING">Spring</option>
+              </select>
+            </label>
+            <label>Snapshot Year <input id="snapYear" type="number" min="2022" max="2035" step="1" required></label>
             <label>Snapshot Type
               <select id="snapType">
                 <option>First Day</option>
@@ -1468,7 +1475,7 @@
   }
 
   async function clearSelectedSnapshotBatch() {
-    const term = canon(document.getElementById('snapTerm')?.value || '');
+    const term = snapshotTerm();
     const snapshotType = normalizeSnapshotType(document.getElementById('snapType')?.value || '');
     const snapshotDate = document.getElementById('snapDate')?.value || '';
     if (!term || !snapshotType || !snapshotDate) {
@@ -1584,6 +1591,20 @@
     const season = canon(document.getElementById('attrDecisionSeason')?.value || 'FALL');
     const year = Number(document.getElementById('attrDecisionYear')?.value || termParts(currentTerm()).year || new Date().getFullYear());
     return `${season || 'FALL'} ${year}`;
+  }
+
+  function snapshotTerm() {
+    const season = canon(document.getElementById('snapSeason')?.value || 'FALL');
+    const year = Number(document.getElementById('snapYear')?.value || termParts(attritionDecisionTerm()).year || termParts(currentTerm()).year || new Date().getFullYear());
+    return `${season || 'FALL'} ${year}`;
+  }
+
+  function setSnapshotTermControls(term) {
+    const parts = termParts(term);
+    const season = document.getElementById('snapSeason');
+    const year = document.getElementById('snapYear');
+    if (season && parts.season) season.value = parts.season;
+    if (year && parts.year) year.value = String(parts.year);
   }
 
   function updateConsolidationTermOptions(terms) {
@@ -1941,7 +1962,7 @@
   }
 
   async function saveSnapshotBatch() {
-    const term = canon(document.getElementById('snapTerm')?.value || '');
+    const term = snapshotTerm();
     const snapshotType = normalizeSnapshotType(document.getElementById('snapType')?.value || '');
     const snapshotDate = document.getElementById('snapDate')?.value || '';
     const fileRows = await readCsv(document.getElementById('snapshotCsv'));
@@ -1977,9 +1998,9 @@
   async function renderSnapshotManager(warnings = [], saveResult = null) {
     await loadEnrollmentSnapshots();
     const rows = dashboardSourceRows();
-    const snapTermInput = document.getElementById('snapTerm');
-    const term = canon(snapTermInput?.value || attritionDecisionTerm() || currentTerm());
-    if (snapTermInput && !snapTermInput.value && term) snapTermInput.value = term;
+    const snapYearInput = document.getElementById('snapYear');
+    if (snapYearInput && !snapYearInput.value) setSnapshotTermControls(attritionDecisionTerm() || currentTerm());
+    const term = snapshotTerm();
     const coverage = snapshotCoverage(rows, state.enrollmentSnapshots, term);
     metric('snapshotMetrics', [
       ['Sections in Focus Term', coverage.sectionsInFocusTerm],
@@ -4519,6 +4540,8 @@
     document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
     document.getElementById('saveSnapshotBatch')?.addEventListener('click', () => saveSnapshotBatch().catch(err => alert(err.message || 'Snapshot save failed.')));
+    document.getElementById('snapSeason')?.addEventListener('change', () => renderSnapshotManager());
+    document.getElementById('snapYear')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('viewStoredSnapshots')?.addEventListener('click', () => renderSnapshotManager());
     document.getElementById('exportStoredSnapshots')?.addEventListener('click', () => exportRows(state.enrollmentSnapshots, 'enrollment-snapshots.csv'));
     document.getElementById('clearSnapshotBatch')?.addEventListener('click', () => clearSelectedSnapshotBatch().catch(err => alert(err.message || 'Snapshot clear failed.')));

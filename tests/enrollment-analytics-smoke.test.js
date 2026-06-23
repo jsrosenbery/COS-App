@@ -806,6 +806,12 @@ test('enrollment analytics report labels are operational', () => {
   assert.match(text, /Instructor Availability - Planning View/);
   assert.match(text, /Enrollment Snapshot Manager/);
   assert.match(text, /REPORTS\.snapshotManager/);
+  assert.match(text, /snapSeason/);
+  assert.match(text, /snapYear/);
+  assert.match(text, /function snapshotTerm/);
+  assert.match(text, /Term \+ CRN \+ Snapshot Type/);
+  assert.match(text, /snapshotKey\(record\)/);
+  assert.doesNotMatch(text, /id="snapTerm"/);
   assert.match(text, /dashDecisionSeason/);
   assert.match(text, /dashDecisionYear/);
   assert.match(text, /Use season\/year below/);
