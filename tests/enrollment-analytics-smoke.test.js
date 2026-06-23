@@ -144,6 +144,77 @@ test('campus normalization keeps explicit campus fields separate from building',
   assert.equal(row.building, 'TCC');
 });
 
+test('snapshot manager appends partial first-day uploads without deleting prior records', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const firstBatch = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '22' }
+  ], { term: 'FALL 2027', snapshotType: 'First Day', snapshotDate: '2027-08-16', uploadedAt: '2027-08-16T12:00:00Z' });
+  const secondBatch = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10002', Subject: 'MATH', Course: '021', Section: '002', ACTUAL_ENROLL: '18' }
+  ], { term: 'FALL 2027', snapshotType: 'First Day', snapshotDate: '2027-08-17', uploadedAt: '2027-08-17T12:00:00Z' });
+
+  const firstSave = COSEnrollmentAnalytics.upsertSnapshotRecords([], firstBatch);
+  const secondSave = COSEnrollmentAnalytics.upsertSnapshotRecords(firstSave.records, secondBatch);
+
+  assert.equal(firstSave.appended, 1);
+  assert.equal(secondSave.appended, 1);
+  assert.equal(secondSave.updated, 0);
+  assert.equal(secondSave.records.length, 2);
+  assert.equal(secondSave.records.map(record => record.crn).sort().join(','), '10001,10002');
+});
+
+test('snapshot manager updates same term CRN type instead of duplicating', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const first = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '22' }
+  ], { term: 'FALL 2027', snapshotType: 'First Day', snapshotDate: '2027-08-16' });
+  const updated = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '24' }
+  ], { term: 'FALL 2027', snapshotType: 'First Day', snapshotDate: '2027-08-18' });
+
+  const saved = COSEnrollmentAnalytics.upsertSnapshotRecords(first, updated);
+
+  assert.equal(saved.appended, 0);
+  assert.equal(saved.updated, 1);
+  assert.equal(saved.records.length, 1);
+  assert.equal(saved.records[0].enrollment, 24);
+  assert.equal(saved.records[0].snapshotDate, '2027-08-18');
+});
+
+test('stored first-day snapshots merge into lifecycle rows by term and CRN', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '20', CENSUS_ENROLL: '25' })
+  ];
+  const snapshots = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '12' }
+  ], { term: 'FALL 2027', snapshotType: 'First Day', snapshotDate: '2027-08-16' });
+
+  const merged = COSEnrollmentAnalytics.mergeSnapshotsIntoRows(rows, snapshots);
+
+  assert.equal(snapshots[0].sourceFieldUsed, 'ACTUAL_ENROLL');
+  assert.equal(merged[0].firstDay, 12);
+  assert.match(merged[0].firstDaySource, /Stored FIRST DAY snapshot/);
+});
+
+test('snapshot coverage counts missing first-day sections', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10002', Subject: 'MATH', Course: '021' })
+  ];
+  const snapshots = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '12' }
+  ], { term: 'FALL 2027', snapshotType: 'First Day', snapshotDate: '2027-08-16' });
+
+  const coverage = COSEnrollmentAnalytics.snapshotCoverage(rows, snapshots, 'FALL 2027');
+
+  assert.equal(coverage.sectionsInFocusTerm, 2);
+  assert.equal(coverage.sectionsWithFirstDaySnapshot, 1);
+  assert.equal(coverage.sectionsMissingFirstDaySnapshot, 1);
+  assert.equal(coverage.firstDayCoveragePct, 0.5);
+});
+
 test('future lifecycle milestone fields normalize when present', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const row = COSEnrollmentAnalytics.normalizeRow({
@@ -651,6 +722,29 @@ test('enrollment analytics report labels are operational', () => {
   assert.match(text, /Open Student Presence Report/);
   assert.match(text, /REPORTS\.studentPresence/);
   assert.match(text, /Instructor Availability - Planning View/);
+  assert.match(text, /Enrollment Snapshot Manager/);
+  assert.match(text, /REPORTS\.snapshotManager/);
+  assert.match(text, /spArchiveTerms/);
+  assert.match(text, /iaDivision/);
+  assert.match(text, /iaSubject/);
+  assert.match(text, /Select All Visible Instructors/);
+});
+
+test('modality balance includes dual enrollment toggle and methodology note', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  assert.match(index, /modality-include-de/);
+  assert.match(index, /Dual Enrollment is excluded by default/);
+  assert.match(app, /includeDualEnrollment/);
+  assert.match(app, /category === 'Dual Enrollment'/);
+});
+
+test('duration graph uses nice y-axis tick steps', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  assert.match(app, /niceTickStep/);
+  assert.match(app, /\[2, 5, 10, 20, 25, 50/);
 });
 
 test('dashboard compact tables use short headers and nowrap CSS', () => {

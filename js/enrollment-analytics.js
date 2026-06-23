@@ -8,8 +8,10 @@
     demand: 'enrollment-demand-forecast',
     utilization: 'room-utilization',
     studentPresence: 'student-presence-analytics',
-    instructorAvailability: 'instructor-availability'
+    instructorAvailability: 'instructor-availability',
+    snapshotManager: 'enrollment-snapshot-manager'
   };
+  const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
   const ACCOUNTING_METHODS = {
     W: { category: 'weekly', label: 'Weekly Census', reportable: true },
     D: { category: 'daily', label: 'Daily Census', reportable: true },
@@ -38,7 +40,10 @@
     consolidationTerms: [],
     demandRan: false,
     demandTerms: [],
-    archivedAnalyticsTerms: []
+    archivedAnalyticsTerms: [],
+    enrollmentSnapshots: [],
+    snapshotRows: [],
+    snapshotLastUpdated: null
   };
   const analyticsChoices = new Map();
   const metrics = window.COSEnrollmentMetrics;
@@ -111,13 +116,15 @@
     census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment'],
     firstDay: ['First Day Enrollment', 'First_Day_Enrollment', 'FIRST_DAY_ENROLLMENT', 'First Day'],
     census1: ['Census 1', 'Census_1', 'CENSUS_1'],
-    census2: ['Census 2', 'Census_2', 'CENSUS_2'],
+    census2: ['Census 2', 'Census_2', 'CENSUS_2', 'CENSUS_ENROLL2', 'Census Enroll 2', 'Census Enrollment 2'],
     finalEnrollment: ['Final Enrollment', 'FINAL_ENROLLMENT', 'End Enrollment', 'END_ENROLLMENT'],
     waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WAIT COUNT', 'WAIT_COUNT', 'WL Count', 'WAITLISTED'],
     fill: ['Fill_Rate', 'Fill Rate', 'Percent Full', '% Full'],
     closed: ['Closed Prior to Census', 'CLOSED_PRIOR_TO_CENSUS', 'Closed Before Census', 'Closed', 'CLOSED'],
     status: ['Status', 'STATUS', 'Section Status']
   };
+  fields.startDate = ['Start_Date', 'START_DATE', 'Start Date', 'Class Start Date', 'Begin Date'];
+  fields.endDate = ['End_Date', 'END_DATE', 'End Date', 'Class End Date', 'Stop Date'];
 
   function val(row, names) {
     for (const name of names) {
@@ -426,6 +433,152 @@
     return section.crn ? `${section.term}|${section.crn}` : [section.term, section.subject, section.course, section.section].join('|');
   }
 
+  function snapshotKey(record) {
+    return [canon(record?.term), canon(record?.crn), canon(record?.snapshotType)].join('|');
+  }
+
+  function normalizeSnapshotType(value) {
+    const raw = canon(value);
+    if (/FIRST/.test(raw)) return 'FIRST DAY';
+    if (/CENSUS\s*1|CENSUS_?1/.test(raw)) return 'CENSUS 1';
+    if (/CENSUS\s*2|CENSUS_?2/.test(raw)) return 'CENSUS 2';
+    if (/FINAL|END/.test(raw)) return 'FINAL';
+    return raw || 'CUSTOM';
+  }
+
+  function snapshotSourceValue(row, type) {
+    const normalizedType = normalizeSnapshotType(type);
+    const raw = row || {};
+    const actualText = val(raw, fields.actual);
+    const censusText = val(raw, fields.census);
+    const census2Text = val(raw, fields.census2);
+    if (normalizedType === 'CENSUS 1') {
+      if (censusText !== '') return { enrollment: num(censusText), sourceFieldUsed: 'CENSUS_ENROLL' };
+      if (actualText !== '') return { enrollment: num(actualText), sourceFieldUsed: 'ACTUAL_ENROLL fallback' };
+    }
+    if (normalizedType === 'CENSUS 2') {
+      if (census2Text !== '') return { enrollment: num(census2Text), sourceFieldUsed: 'CENSUS_ENROLL2' };
+      if (censusText !== '') return { enrollment: num(censusText), sourceFieldUsed: 'CENSUS_ENROLL fallback' };
+      if (actualText !== '') return { enrollment: num(actualText), sourceFieldUsed: 'ACTUAL_ENROLL fallback' };
+    }
+    if (normalizedType === 'FIRST DAY' || normalizedType === 'FINAL' || normalizedType === 'CUSTOM') {
+      if (actualText !== '') return { enrollment: num(actualText), sourceFieldUsed: 'ACTUAL_ENROLL' };
+    }
+    return { enrollment: 0, sourceFieldUsed: 'Unavailable' };
+  }
+
+  function buildSnapshotRecords(rows, options = {}) {
+    const term = canon(options.term);
+    const snapshotType = normalizeSnapshotType(options.snapshotType);
+    const snapshotDate = String(options.snapshotDate || '').trim();
+    const uploadedAt = options.uploadedAt || new Date().toISOString();
+    const batchId = options.batchId || `${term}|${snapshotType}|${snapshotDate}|${uploadedAt}`;
+    if (!term || !snapshotType || !snapshotDate) return [];
+    return (rows || []).map((rawRow) => {
+      const row = normalize({ ...rawRow, __sourceTerm: term });
+      const source = snapshotSourceValue(rawRow, snapshotType);
+      if (!row.crn || source.sourceFieldUsed === 'Unavailable') return null;
+      return {
+        term,
+        crn: row.crn,
+        snapshotType,
+        snapshotDate,
+        enrollment: source.enrollment,
+        sourceFieldUsed: source.sourceFieldUsed,
+        subject: row.subject,
+        course: row.course,
+        section: row.section,
+        courseTitle: row.title,
+        division: row.division,
+        department: row.department,
+        campus: row.campus,
+        building: row.building,
+        room: row.roomOnly || row.room,
+        startDate: val(rawRow, fields.startDate),
+        endDate: val(rawRow, fields.endDate),
+        capacity: row.cap,
+        waitlist: row.waitlist,
+        uploadedAt,
+        batchId,
+        action: 'Pending'
+      };
+    }).filter(Boolean);
+  }
+
+  function upsertSnapshotRecords(existing = [], incoming = []) {
+    const map = new Map();
+    (existing || []).forEach(record => {
+      const key = snapshotKey(record);
+      if (key !== '||') map.set(key, { ...record, action: record.action || 'Existing' });
+    });
+    let appended = 0;
+    let updated = 0;
+    (incoming || []).forEach(record => {
+      const key = snapshotKey(record);
+      if (map.has(key)) {
+        updated += 1;
+        map.set(key, { ...map.get(key), ...record, action: 'Updated' });
+      } else {
+        appended += 1;
+        map.set(key, { ...record, action: 'Appended' });
+      }
+    });
+    return {
+      appended,
+      updated,
+      records: [...map.values()].sort((a, b) =>
+        canon(a.term).localeCompare(canon(b.term), undefined, { numeric: true }) ||
+        canon(a.snapshotType).localeCompare(canon(b.snapshotType)) ||
+        canon(a.crn).localeCompare(canon(b.crn), undefined, { numeric: true })
+      )
+    };
+  }
+
+  function mergeSnapshotsIntoRows(rows, snapshots = []) {
+    const byKeyType = new Map();
+    (snapshots || []).forEach(record => {
+      const key = snapshotKey(record);
+      if (key !== '||') byKeyType.set(key, record);
+    });
+    return (rows || []).map(row => {
+      const base = { ...row };
+      [
+        ['FIRST DAY', 'firstDay', 'firstDaySource'],
+        ['CENSUS 1', 'census1', 'census1Source'],
+        ['CENSUS 2', 'census2', 'census2Source'],
+        ['FINAL', 'finalEnrollment', 'finalEnrollmentSource']
+      ].forEach(([type, valueKey, sourceKey]) => {
+        const record = byKeyType.get(snapshotKey({ term: base.term, crn: base.crn, snapshotType: type }));
+        if (record && Number.isFinite(Number(record.enrollment))) {
+          base[valueKey] = Number(record.enrollment);
+          base[sourceKey] = `Stored ${type} snapshot ${record.snapshotDate}`;
+        } else if (base[valueKey] != null && base[valueKey] !== '') {
+          base[sourceKey] = 'Uploaded section seating field';
+        }
+      });
+      return base;
+    });
+  }
+
+  function snapshotCoverage(rows = [], snapshots = [], term = '') {
+    const focusRows = dedupeEnrollmentRows(rows).filter(row => !term || row.term === term);
+    const focusCrns = new Set(focusRows.map(row => row.crn).filter(Boolean));
+    const firstDay = (snapshots || []).filter(record => normalizeSnapshotType(record.snapshotType) === 'FIRST DAY' && (!term || canon(record.term) === canon(term)));
+    const firstDayCrns = new Set(firstDay.map(record => canon(record.crn)).filter(Boolean));
+    const covered = [...focusCrns].filter(crn => firstDayCrns.has(crn)).length;
+    const dates = (snapshots || []).map(record => record.snapshotDate).filter(Boolean).sort();
+    const batches = new Set((snapshots || []).map(record => record.batchId || [record.term, record.snapshotType, record.snapshotDate].join('|')).filter(Boolean));
+    return {
+      sectionsInFocusTerm: focusCrns.size,
+      sectionsWithFirstDaySnapshot: covered,
+      firstDayCoveragePct: focusCrns.size ? covered / focusCrns.size : 0,
+      sectionsMissingFirstDaySnapshot: Math.max(0, focusCrns.size - covered),
+      snapshotBatchesUploaded: batches.size,
+      latestSnapshotDate: dates[dates.length - 1] || '',
+      snapshotRecordsStored: snapshots.length
+    };
+  }
+
   function patternKey(section) {
     return [section.subject, section.course, section.campus, section.modality, section.dayPattern, section.start, section.end].join('-');
   }
@@ -593,6 +746,7 @@
             <option value="${REPORTS.utilization}">Room Utilization Map</option>
             <option value="${REPORTS.studentPresence}">Student Presence Analytics</option>
             <option value="${REPORTS.instructorAvailability}">Instructor Availability - Planning View</option>
+            <option value="${REPORTS.snapshotManager}">Enrollment Snapshot Manager</option>
           </select>
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
           <span class="em-workbench-note">Dashboard and factual reports support dean/division review. Scenario modeling and schedule simulation are future Enrollment Management Workbench tools.</span>
@@ -644,6 +798,53 @@
           <div id="dashboardRotationTable" class="analytics-table"></div>
           <div id="dashboardLegend" class="analytics-legend"></div>
         </div>
+        <div id="snapshotManagerReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Enrollment Snapshot Manager</h2>
+            <p>Stores partial lifecycle enrollment snapshots by term, CRN, snapshot type, and snapshot date. First Day snapshots are uploaded from Section Seating files pulled on the actual section start date.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Manager</h3>
+                <ul>
+                  <li>Select the term, snapshot type, and snapshot date, then upload the Section Seating export for that date.</li>
+                  <li>Snapshot uploads may contain only the sections that begin on the selected snapshot date. Missing CRNs will not delete or overwrite previously saved snapshot records.</li>
+                  <li>First Day and Final snapshots use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present. Census 2 uses CENSUS_ENROLL2 when present.</li>
+                  <li>If the uploaded file has no term field, the selected term is used. If the file has a conflicting term, the selected term remains authoritative for storage.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Lifecycle Integration</h3>
+                <ul>
+                  <li>Enrollment Attrition / Lifecycle merges stored snapshots by Term + CRN.</li>
+                  <li>Stored snapshot values are preferred over source-file milestone fields when the snapshot type matches the lifecycle milestone.</li>
+                  <li>The unique storage key is Term + CRN + Snapshot Type, so a later upload updates that milestone for the CRN instead of duplicating it.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Term <input id="snapTerm" type="text" placeholder="FALL 2027" required></label>
+            <label>Snapshot Type
+              <select id="snapType">
+                <option>First Day</option>
+                <option>Census 1</option>
+                <option>Census 2</option>
+                <option>Final</option>
+                <option>Custom</option>
+              </select>
+            </label>
+            <label>Snapshot Date <input id="snapDate" type="date" required></label>
+            <label>Snapshot CSV <input id="snapshotCsv" type="file" accept=".csv"></label>
+            <button id="saveSnapshotBatch" type="button">Archive/Save Snapshot</button>
+            <button id="viewStoredSnapshots" type="button">View Stored Snapshots</button>
+            <button id="exportStoredSnapshots" type="button">Export Stored Snapshots</button>
+            <button id="clearSnapshotBatch" type="button">Clear Selected Snapshot Batch</button>
+          </div>
+          <div id="snapshotWarnings" class="analytics-warning-list"></div>
+          <div id="snapshotMetrics" class="analytics-metrics"></div>
+          <div id="snapshotTable" class="analytics-table"></div>
+          <div id="snapshotLegend" class="analytics-legend"></div>
+        </div>
         <div id="studentPresenceReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Student Presence Analytics</h2>
@@ -668,6 +869,9 @@
             </div>
           </div>
           <div class="analytics-toolbar">
+            <label>Presence CSV(s) <input id="studentPresenceCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveStudentPresenceUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="spArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Focus Term <select id="spFocusTerm"></select></label>
             ${filters('sp', { includeGroup: false, includeCancelled: false, includeDivision: true, includeRoom: true })}
             <label>Group by
@@ -716,7 +920,10 @@
             </div>
           </div>
           <div class="analytics-toolbar">
+            <label>Division <select id="iaDivision"></select></label>
+            <label>Discipline <select id="iaSubject"></select></label>
             <label>Instructor <select id="iaInstructor" multiple size="4"></select></label>
+            <button id="iaSelectVisible" type="button">Select All Visible Instructors</button>
             <label>Day
               <select id="iaDay">
                 <option value="MO">Monday</option>
@@ -827,6 +1034,7 @@
             <button id="archiveConsolidationUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="conArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Decision term <select id="conDecisionTerm"></select></label>
+            <label>Manual future decision term <input id="conDecisionTermManual" type="text" placeholder="FALL 2027"></label>
             ${filters('con', { includeGroup: false, includeCancelled: true, includeDivision: true })}
             <label>Min sections <input id="conMinSections" type="number" min="2" value="5" title="Minimum number of decision-term in-person sections a course must have before it is considered for in-person flow review."></label>
             <label>Low enrollment <input id="conLowEnroll" type="number" min="0" value="" placeholder="optional"></label>
@@ -1180,9 +1388,96 @@
       setSelectOptions('attrArchiveTerms', options);
       setSelectOptions('conArchiveTerms', options);
       setSelectOptions('demArchiveTerms', options);
+      setSelectOptions('spArchiveTerms', options);
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
     }
+  }
+
+  function loadSnapshotsFromLocal() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SNAPSHOT_STORAGE_KEY) || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveSnapshotsToLocal(records) {
+    try {
+      localStorage.setItem(SNAPSHOT_STORAGE_KEY, JSON.stringify(records || []));
+    } catch (err) {
+      console.warn('Enrollment snapshot local save skipped:', err);
+    }
+  }
+
+  async function loadEnrollmentSnapshots() {
+    if (window.BACKEND_BASE_URL) {
+      try {
+        const payload = await fetch(`${window.BACKEND_BASE_URL}/api/enrollment-snapshots`).then(response => response.ok ? response.json() : { data: [] });
+        state.enrollmentSnapshots = Array.isArray(payload.data) ? payload.data : [];
+        state.snapshotLastUpdated = payload.lastUpdated || null;
+        saveSnapshotsToLocal(state.enrollmentSnapshots);
+        return state.enrollmentSnapshots;
+      } catch (err) {
+        console.warn('Backend enrollment snapshot load skipped:', err);
+      }
+    }
+    state.enrollmentSnapshots = loadSnapshotsFromLocal();
+    return state.enrollmentSnapshots;
+  }
+
+  async function persistEnrollmentSnapshots(incoming) {
+    const merged = upsertSnapshotRecords(state.enrollmentSnapshots || [], incoming || []);
+    if (window.BACKEND_BASE_URL && enrollmentManagementToken()) {
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/enrollment-snapshots`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${enrollmentManagementToken()}`
+        },
+        body: JSON.stringify({ records: incoming })
+      });
+      if (!response.ok) throw new Error(await response.text() || 'Snapshot archive failed.');
+      const payload = await response.json();
+      state.enrollmentSnapshots = payload.data || merged.records;
+      state.snapshotLastUpdated = payload.lastUpdated || new Date().toISOString();
+    } else {
+      state.enrollmentSnapshots = merged.records;
+      state.snapshotLastUpdated = new Date().toISOString();
+    }
+    saveSnapshotsToLocal(state.enrollmentSnapshots);
+    return { ...merged, records: state.enrollmentSnapshots };
+  }
+
+  async function clearSelectedSnapshotBatch() {
+    const term = canon(document.getElementById('snapTerm')?.value || '');
+    const snapshotType = normalizeSnapshotType(document.getElementById('snapType')?.value || '');
+    const snapshotDate = document.getElementById('snapDate')?.value || '';
+    if (!term || !snapshotType || !snapshotDate) {
+      alert('Term, snapshot type, and snapshot date are required to clear a snapshot batch.');
+      return;
+    }
+    if (!confirm(`Clear stored ${snapshotType} snapshots for ${term} on ${snapshotDate}? Other dates and missing CRNs will be kept.`)) return;
+    if (window.BACKEND_BASE_URL && enrollmentManagementToken()) {
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/enrollment-snapshots`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${enrollmentManagementToken()}`
+        },
+        body: JSON.stringify({ term, snapshotType, snapshotDate })
+      });
+      if (!response.ok) throw new Error(await response.text() || 'Snapshot clear failed.');
+      const payload = await response.json();
+      state.enrollmentSnapshots = payload.data || [];
+    } else {
+      state.enrollmentSnapshots = (state.enrollmentSnapshots || []).filter(record =>
+        canon(record.term) !== term || normalizeSnapshotType(record.snapshotType) !== snapshotType || String(record.snapshotDate || '') !== snapshotDate
+      );
+    }
+    saveSnapshotsToLocal(state.enrollmentSnapshots);
+    renderSnapshotManager();
   }
 
   async function archiveUploads(inputId) {
@@ -1285,6 +1580,10 @@
     else if (terms.includes(active)) select.value = active;
     else if (terms.length) select.value = terms[terms.length - 1];
     return select.value;
+  }
+
+  function consolidationDecisionTerm() {
+    return canon(document.getElementById('conDecisionTermManual')?.value || document.getElementById('conDecisionTerm')?.value || updateConsolidationTermOptions(state.consolidationTerms));
   }
 
   function updateDemandTermOptions(terms) {
@@ -1601,6 +1900,97 @@
     return `<section class="dashboard-panel"><h3>${escapeAttr(title)}</h3>${body}</section>`;
   }
 
+  async function saveSnapshotBatch() {
+    const term = canon(document.getElementById('snapTerm')?.value || '');
+    const snapshotType = normalizeSnapshotType(document.getElementById('snapType')?.value || '');
+    const snapshotDate = document.getElementById('snapDate')?.value || '';
+    const fileRows = await readCsv(document.getElementById('snapshotCsv'));
+    if (!term || !snapshotType || !snapshotDate) {
+      alert('Term, snapshot type, and snapshot date are required.');
+      return;
+    }
+    if (!fileRows.length) {
+      alert('Choose a snapshot CSV before saving.');
+      return;
+    }
+    const warnings = snapshotUploadWarnings(fileRows, term);
+    const records = buildSnapshotRecords(fileRows, { term, snapshotType, snapshotDate });
+    if (!records.length) {
+      alert('No snapshot records could be created. Confirm the file includes CRN and the required enrollment source field.');
+      return;
+    }
+    const result = await persistEnrollmentSnapshots(records);
+    state.snapshotRows = records;
+    renderSnapshotManager(warnings, result);
+    alert(`Saved ${records.length} snapshot row(s). Appended ${result.appended}; updated ${result.updated}.`);
+  }
+
+  function snapshotUploadWarnings(rows, selectedTerm) {
+    const fileTerms = [...new Set((rows || []).map(row => canon(val(row, fields.term) || row.__sourceTerm)).filter(Boolean))];
+    const warnings = [];
+    if (!fileTerms.length) warnings.push(`No term field found in the file. Stored snapshots will use selected term ${selectedTerm}.`);
+    const conflicts = fileTerms.filter(term => term !== selectedTerm);
+    if (conflicts.length) warnings.push(`Uploaded file term ${conflicts.join(', ')} differs from selected term ${selectedTerm}. Selected term will be used for storage.`);
+    return warnings;
+  }
+
+  async function renderSnapshotManager(warnings = [], saveResult = null) {
+    await loadEnrollmentSnapshots();
+    const rows = dashboardSourceRows();
+    const snapTermInput = document.getElementById('snapTerm');
+    const term = canon(snapTermInput?.value || attritionDecisionTerm() || currentTerm());
+    if (snapTermInput && !snapTermInput.value && term) snapTermInput.value = term;
+    const coverage = snapshotCoverage(rows, state.enrollmentSnapshots, term);
+    metric('snapshotMetrics', [
+      ['Sections in Focus Term', coverage.sectionsInFocusTerm],
+      ['Sections with First Day Snapshot', coverage.sectionsWithFirstDaySnapshot],
+      ['First Day Coverage', pct(coverage.firstDayCoveragePct)],
+      ['Missing First Day Snapshot', coverage.sectionsMissingFirstDaySnapshot],
+      ['Snapshot Batches Uploaded', coverage.snapshotBatchesUploaded],
+      ['Latest Snapshot Date', coverage.latestSnapshotDate || 'N/A'],
+      ['Snapshot Records Stored', coverage.snapshotRecordsStored],
+      ['Last Save', saveResult ? `+${saveResult.appended} / updated ${saveResult.updated}` : (state.snapshotLastUpdated || 'N/A')]
+    ]);
+    const warningNode = document.getElementById('snapshotWarnings');
+    if (warningNode) {
+      warningNode.innerHTML = warnings.length ? warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('') : '';
+    }
+    table('snapshotTable', state.enrollmentSnapshots || [], [
+      'term',
+      'snapshotType',
+      'snapshotDate',
+      'crn',
+      'course',
+      'section',
+      'startDate',
+      'enrollment',
+      'sourceFieldUsed',
+      'uploadedAt',
+      'action'
+    ]);
+    renderSnapshotLegend();
+  }
+
+  function renderSnapshotLegend() {
+    const legend = document.getElementById('snapshotLegend');
+    if (!legend) return;
+    renderMethodologyPanel(legend, {
+      title: 'Enrollment Snapshot Manager Methodology & Data Dictionary',
+      purpose: 'Captures lifecycle enrollment points that are not available as standing fields in the source system, especially First Day enrollment.',
+      methodology: 'Records are stored by Term + CRN + Snapshot Type. New CRNs append. Existing Term + CRN + Snapshot Type records update with the latest snapshot date/enrollment. Missing CRNs in later partial uploads are not deleted.',
+      assumptions: 'First Day and Final use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present, with ACTUAL_ENROLL fallback only when needed and visibly labeled. Census 2 uses CENSUS_ENROLL2 when present, then documented fallbacks.',
+      limitations: 'Snapshot coverage depends on the user uploading every partial start-date batch for the term. Coverage below 100% means First Day lifecycle measures are incomplete.',
+      items: [
+        ['Enrollment Snapshot', 'A point-in-time captured enrollment value for a section.'],
+        ['Snapshot Type', 'Lifecycle milestone being captured: First Day, Census 1, Census 2, Final, or Custom.'],
+        ['Snapshot Date', 'The actual date represented by the uploaded partial export.'],
+        ['Snapshot Coverage', 'Sections with a stored First Day snapshot divided by sections in the selected focus term.'],
+        ['Source Field Used', 'The upload column used to populate the snapshot enrollment value.']
+      ],
+      version: 'Methodology v1.0'
+    });
+  }
+
   function miniTable(rows, columns, tableType = '') {
     const display = (rows || []).slice(0, 12);
     if (!display.length) return '<p class="analytics-empty">No rows match the selected criteria.</p>';
@@ -1674,10 +2064,15 @@
     return `<p class="dashboard-note"><strong>Prime:</strong> ${structure.primeSections || 0} sections / ${structure.primeEnrollment || 0} enrollment <strong>Off-peak:</strong> ${structure.offPeakSections || 0} sections / ${structure.offPeakEnrollment || 0} enrollment</p>`;
   }
 
-  function runStudentPresence() {
+  async function runStudentPresence() {
     state.studentPresenceRan = true;
     const saved = captureFilterState('sp');
-    const sourceRows = dashboardSourceRows().filter(row => !isOmittedInstructionalMethod(row));
+    const uploadedRows = await readCsv(document.getElementById('studentPresenceCsv'));
+    const archivedRows = await readArchivedRows('spArchiveTerms');
+    const independentRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
+      .filter(row => !isOmittedInstructionalMethod(row));
+    const sourceRows = (independentRows.length ? independentRows : dashboardSourceRows())
+      .filter(row => !isOmittedInstructionalMethod(row));
     const focusTerm = updatePresenceFocusTermOptions(sourceRows);
     refreshAnalyticsFilters('sp', sourceRows, saved);
     const scopedRows = applyFilters(dashboardCurrentRows(sourceRows, focusTerm), 'sp');
@@ -1809,9 +2204,10 @@
   async function loadAttritionFiles() {
     const uploaded = await readCsv(document.getElementById('enrollmentCsv'));
     const archived = await readArchivedRows('attrArchiveTerms');
-    state.enrollment = dedupeEnrollmentRows([...uploaded, ...archived].map(normalize))
+    await loadEnrollmentSnapshots();
+    state.enrollment = mergeSnapshotsIntoRows(dedupeEnrollmentRows([...uploaded, ...archived].map(normalize)), state.enrollmentSnapshots)
       .filter(row => !isOmittedInstructionalMethod(row));
-    const fallbackRows = currentRows().filter(row => !isOmittedInstructionalMethod(row));
+    const fallbackRows = mergeSnapshotsIntoRows(currentRows(), state.enrollmentSnapshots).filter(row => !isOmittedInstructionalMethod(row));
     const allEnrollment = state.enrollment.length ? state.enrollment : fallbackRows;
     state.attritionTerms = collectTerms(allEnrollment);
     updateDecisionTermOptions(state.attritionTerms);
@@ -1879,12 +2275,15 @@
     const decisionRows = state.attritionRows.filter(row => row.decisionSections > 0);
     const filteredTerms = collectRowTerms(enrollment);
     const historicalTerms = collectRowTerms(enrollment.filter(row => row.term && row.term !== decisionTerm));
+    const coverage = snapshotCoverage(enrollment, state.enrollmentSnapshots, decisionTerm);
     metric('attritionMetrics', [
       ['Decision Term', decisionTerm || 'N/A'],
       ['Historical Terms Included', historicalTerms.length],
       ['Decision Term Included', decisionRows.length ? 1 : 0],
       ['Total Uploaded Terms', filteredTerms.length],
       ['Decision Sections', sum(decisionRows, 'decisionSections')],
+      ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
+      ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
       ['Historical Attrition', pct(safeDiv(sum(state.attritionRows, 'historicalAttritionCount'), sum(state.attritionRows, 'historyCensus')))]
     ]);
     table('attritionTable', state.attritionRows, [
@@ -1925,11 +2324,32 @@
 
   function populateInstructorAvailabilityFilters(rows = currentRows()) {
     const instructorSelect = document.getElementById('iaInstructor');
+    const divisionSelect = document.getElementById('iaDivision');
+    const subjectSelect = document.getElementById('iaSubject');
     const campusSelect = document.getElementById('iaCampus');
     if (!instructorSelect || !campusSelect) return;
     const selectedPrior = [...instructorSelect.selectedOptions].map(option => option.value);
+    const divisionPrior = divisionSelect?.value || '';
+    const subjectPrior = subjectSelect?.value || '';
     const campusPrior = campusSelect.value;
-    const instructors = [...new Set(rows.map(row => row.instructor).filter(Boolean))].sort();
+    const divisions = [...new Set(rows.map(row => row.division).filter(Boolean))].sort();
+    const subjectsForDivision = rows.filter(row => !divisionPrior || row.division === divisionPrior);
+    const subjects = [...new Set(subjectsForDivision.map(row => row.subject).filter(Boolean))].sort();
+    if (divisionSelect) {
+      divisionSelect.replaceChildren(new Option('All divisions', ''));
+      divisions.forEach(division => divisionSelect.add(new Option(division, division)));
+      if (divisions.includes(divisionPrior)) divisionSelect.value = divisionPrior;
+    }
+    if (subjectSelect) {
+      subjectSelect.replaceChildren(new Option('All disciplines', ''));
+      subjects.forEach(subject => subjectSelect.add(new Option(subject, subject)));
+      if (subjects.includes(subjectPrior)) subjectSelect.value = subjectPrior;
+    }
+    const scoped = rows.filter(row =>
+      (!divisionSelect?.value || row.division === divisionSelect.value) &&
+      (!subjectSelect?.value || row.subject === subjectSelect.value)
+    );
+    const instructors = [...new Set(scoped.map(row => row.instructor).filter(Boolean))].sort();
     const campuses = [...new Set(rows.map(row => row.campus).filter(Boolean))].sort();
     instructorSelect.replaceChildren();
     instructors.forEach(instructor => instructorSelect.add(new Option(instructor, instructor)));
@@ -1945,6 +2365,8 @@
     const rows = dedupeEnrollmentRows(currentRows()).filter(row => row.instructor);
     populateInstructorAvailabilityFilters(rows);
     const selectedInstructors = selectedInstructorAvailabilityInstructors();
+    const division = document.getElementById('iaDivision')?.value || '';
+    const subject = document.getElementById('iaSubject')?.value || '';
     const day = document.getElementById('iaDay')?.value || 'MO';
     const start = document.getElementById('iaStart')?.value || '';
     const end = document.getElementById('iaEnd')?.value || '';
@@ -1963,7 +2385,12 @@
       renderInstructorAvailabilityLegend();
       return;
     }
-    const scopedRows = rows.filter(row => (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) && (!campus || row.campus === campus));
+    const scopedRows = rows.filter(row =>
+      (!division || row.division === division) &&
+      (!subject || row.subject === subject) &&
+      (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) &&
+      (!campus || row.campus === campus)
+    );
     const instructors = selectedInstructors.length ? selectedInstructors : [...new Set(scopedRows.map(row => row.instructor).filter(Boolean))].sort();
     const conflictsByInstructor = group(scopedRows.filter(row => instructorHasConflict(row, day, startMinutes, endMinutes)), row => row.instructor);
     const results = instructors.map(name => {
@@ -2025,8 +2452,12 @@
 
   function clearInstructorAvailability() {
     const instructor = document.getElementById('iaInstructor');
+    const division = document.getElementById('iaDivision');
+    const subject = document.getElementById('iaSubject');
     const campus = document.getElementById('iaCampus');
     if (instructor) [...instructor.options].forEach(option => { option.selected = true; });
+    if (division) division.value = '';
+    if (subject) subject.value = '';
     if (campus) campus.value = '';
     const day = document.getElementById('iaDay');
     const start = document.getElementById('iaStart');
@@ -2275,7 +2706,7 @@
   async function runConsolidation() {
     state.consolidationRan = true;
     const allRows = await loadConsolidationRows();
-    const decisionTerm = document.getElementById('conDecisionTerm')?.value || updateConsolidationTermOptions(state.consolidationTerms);
+    const decisionTerm = consolidationDecisionTerm();
     const filteredRows = applyFilters(allRows, 'con');
     const rows = filteredRows.filter(row => !decisionTerm || row.term === decisionTerm);
     const comparisonRows = filteredRows.filter(row => row.term && row.term !== decisionTerm);
@@ -2294,18 +2725,24 @@
     };
     const onlineRows = rows.filter(isOnlineSection);
     const inPersonRows = rows.filter(row => !isOnlineSection(row));
-    const allCourseCount = group(rows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`).size;
+    const allCourseCount = rows.length
+      ? group(rows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`).size
+      : group(comparisonRows, (r) => `${r.subject} ${r.course}`).size;
     const byCourse = group(inPersonRows, (r) => `${r.term || currentTerm()}||${r.subject} ${r.course}`);
     const history = await historicalPatterns(allRows, decisionTerm, lowFill, lowEnroll);
     const historicalDemand = historicalDemandMap(comparisonRows.filter(row => !isOnlineSection(row)), options.vacancyBasis);
-    state.consolidationRows = onlineReductionRows(onlineRows, comparisonRows.filter(isOnlineSection), options);
-    byCourse.forEach((sections, key) => {
-      const course = key.split('||')[1] || key;
-      if (sections.length < minSections) return;
-      const estimatedSections = sections.map(section => withHistoricalEstimate(section, historicalDemand)).filter(Boolean);
-      consolidationGroupRows(course, estimatedSections, history, lowFill, lowEnroll, options)
-        .forEach(row => state.consolidationRows.push(row));
-    });
+    state.consolidationRows = rows.length
+      ? onlineReductionRows(onlineRows, comparisonRows.filter(isOnlineSection), options)
+      : historicalPlanningCandidates(comparisonRows, decisionTerm, lowFill, lowEnroll, minSections, options);
+    if (rows.length) {
+      byCourse.forEach((sections, key) => {
+        const course = key.split('||')[1] || key;
+        if (sections.length < minSections) return;
+        const estimatedSections = sections.map(section => withHistoricalEstimate(section, historicalDemand)).filter(Boolean);
+        consolidationGroupRows(course, estimatedSections, history, lowFill, lowEnroll, options)
+          .forEach(row => state.consolidationRows.push(row));
+      });
+    }
     state.consolidationRows.sort((a, b) => b.score - a.score);
     const onlineOpportunities = state.consolidationRows.filter(row => row.type === 'Online Reduction');
     const flowOpportunities = state.consolidationRows.filter(row => row.type !== 'Online Reduction');
@@ -2321,6 +2758,7 @@
       ['Online Reduction Candidates', onlineOpportunities.length],
       ['In-Person Consolidation Candidates', flowOpportunities.filter(row => row.type === 'In-Person Consolidation').length],
       ['Hybrid Consolidation Candidates', flowOpportunities.filter(row => row.type === 'Hybrid Consolidation').length],
+      ['Historical Planning Candidates', state.consolidationRows.filter(row => row.type === 'Historical Planning Candidate').length],
       ['Chronic Low Enrollment Threshold', lowEnroll == null ? `<= ${pct(lowFill)} census-based expected fill` : `<= ${lowEnroll} census-based expected enrollment`],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
@@ -2859,8 +3297,64 @@
     return finalized;
   }
 
+  function historicalPlanningCandidates(historicalRows, decisionTerm, lowFill, lowEnroll, minSections, options = {}) {
+    const rows = (historicalRows || []).filter(row => row.term && row.term !== decisionTerm);
+    const termsIncluded = collectRowTerms(rows).length;
+    const output = [];
+    group(rows, row => `${row.subject} ${row.course}|${row.modality}|${options.sameCampus ? row.campus : 'ANY'}`).forEach((courseRows, key) => {
+      const byTerm = group(courseRows, row => row.term || 'UNKNOWN');
+      const termStats = [...byTerm.entries()].map(([term, termRows]) => {
+        const sections = termRows.length;
+        const capacity = sum(termRows, 'cap');
+        const enrollment = termRows.reduce((total, row) => total + enrollmentForBasis(row, options.vacancyBasis), 0);
+        const fill = safeDiv(enrollment, capacity);
+        return {
+          term,
+          sections,
+          capacity,
+          enrollment,
+          fill,
+          low: sections >= minSections && (lowEnroll == null ? fill <= lowFill : enrollment <= lowEnroll)
+        };
+      });
+      const lowTerms = termStats.filter(item => item.low).length;
+      if (!lowTerms) return;
+      const [course, modality, campus] = key.split('|');
+      const avgSections = Math.round(average(termStats.map(item => item.sections)));
+      const avgEnrollment = Math.round(average(termStats.map(item => item.enrollment)));
+      const avgCapacity = Math.round(average(termStats.map(item => item.capacity)));
+      const avgFill = safeDiv(avgEnrollment, avgCapacity);
+      const score = Math.min(85, 45 + Math.min(25, lowTerms * 8) + (avgFill <= lowFill ? 10 : 0) + (termsIncluded >= 3 ? 5 : 0));
+      output.push({
+        type: 'Historical Planning Candidate',
+        decisionTerm,
+        score,
+        label: score >= 75 ? 'High Review Priority' : score >= 55 ? 'Review Candidate' : 'Lower Confidence Review',
+        course,
+        sectionsReviewed: avgSections,
+        potentialSectionsRemoved: '',
+        availableReceivingCapacity: Math.max(0, avgCapacity - avgEnrollment),
+        expectedEnrollment: avgEnrollment,
+        potentialSeatsRecovered: '',
+        projectionSource: `Historical pattern only (${termsIncluded} comparison term${termsIncluded === 1 ? '' : 's'})`,
+        finalEnrollmentContext: `Average historical ${options.vacancyBasis === 'actual' ? 'final/current' : 'census'} enrollment ${avgEnrollment}`,
+        sourceSummary: `${avgSections} average historical section(s); ${pct(avgFill)} average fill`,
+        targetSummary: 'No future CRN exists. Review future schedule build for possible section count adjustment.',
+        recommendation: 'Review future schedule build for possible section count adjustment.',
+        matchReason: `${lowTerms} historical term(s) met the selected low-enrollment rule.`,
+        historicalTerms: termsIncluded,
+        chronicLowFill: safeDiv(lowTerms, Math.max(1, termStats.length)) >= (options.chronicThreshold ?? 0.75) ? 'Yes' : 'No',
+        tba: courseRows.some(row => row.dayPattern === 'TBA'),
+        modality,
+        campus
+      });
+    });
+    return output;
+  }
+
   function flattenOpportunity(row) {
     const isOnline = row.type === 'Online Reduction';
+    const isHistoricalPlanning = row.type === 'Historical Planning Candidate';
     const removed = row.removedSections || [];
     const receiving = row.receivingSections || [];
     const removedList = removed.map(describe).join('; ');
@@ -2868,7 +3362,9 @@
     const targetOpenSeats = row.target ? expectedOpenSeats(row.target) : row.targetOpenSeats;
     const recommendation = isOnline
       ? `Reduce by ${row.recommendedReductions ?? 0} online section(s); retain buffer after ${row.possibleReductions ?? 0} possible reduction(s).`
-      : `Remove ${removedList || 'selected low-enrollment section(s)'}; redistribute ${row.requiredSeats ?? 0} projected students into remaining sections.`;
+      : isHistoricalPlanning
+        ? (row.recommendation || 'Review future schedule build for possible section count adjustment.')
+        : `Remove ${removedList || 'selected low-enrollment section(s)'}; redistribute ${row.requiredSeats ?? 0} projected students into remaining sections.`;
     const projectedRedistribution = isOnline ? '' : `${row.requiredSeats ?? 0} students`;
     const netAvailableCapacity = isOnline ? row.vacancies : row.availableReceivingCapacity;
     const sourceSummary = isOnline
@@ -2896,11 +3392,11 @@
       potentialSeatsRecovered: row.potentialSeatsRecovered ?? row.freedSeats ?? '',
       projectionSource: row.projectionSource || (row.historicalTerms ? `Historical Average (${row.historicalTerms} terms)` : 'N/A'),
       finalEnrollmentContext: row.finalEnrollmentContext || 'N/A',
-      sourceSummary,
+      sourceSummary: row.sourceSummary || sourceSummary,
       sourceSection: row.source ? describe(row.source) : 'Online aggregate',
       sourceEnroll: row.source ? expectedEnrollment(row.source) : row.sourceEnroll,
       sourceFill: row.source ? pct(expectedFillRate(row.source)) : pct(row.sourceFill),
-      targetSummary,
+      targetSummary: row.targetSummary || targetSummary,
       targetSection: row.target ? describe(row.target) : '',
       targetEnroll: row.target ? expectedEnrollment(row.target) : '',
       targetOpenSeats,
@@ -3515,6 +4011,7 @@
     document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
     document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
     document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
+    document.getElementById('snapshotManagerReport').style.display = unlocked && selected === REPORTS.snapshotManager ? 'block' : 'none';
     document.getElementById('studentPresenceReport').style.display = unlocked && selected === REPORTS.studentPresence ? 'block' : 'none';
     document.getElementById('instructorAvailabilityReport').style.display = unlocked && selected === REPORTS.instructorAvailability ? 'block' : 'none';
     const utilizationTool = document.getElementById('utilization-tool');
@@ -3544,11 +4041,14 @@
       window.COSScheduleApp?.renderUtilizationMap?.();
     }
     if (selected === REPORTS.studentPresence) {
-      runStudentPresence();
+      runStudentPresence().catch(err => console.warn('Student Presence failed:', err));
     }
     if (selected === REPORTS.instructorAvailability) {
       populateInstructorAvailabilityFilters(currentRows());
       runInstructorAvailability();
+    }
+    if (selected === REPORTS.snapshotManager) {
+      renderSnapshotManager();
     }
   }
 
@@ -3579,6 +4079,8 @@
       .analytics-toolbar input,.analytics-toolbar select{min-height:34px;border:1px solid #ccd6e2;border-radius:6px;padding:6px 8px}
       .analytics-toolbar input[type=checkbox]{min-height:auto}
       .analytics-toolbar button{min-height:36px;border:0;border-radius:18px;padding:0 16px;background:#cdeffc;color:#002b5c;font-weight:700;cursor:pointer}
+      .analytics-warning-list{display:grid;gap:6px;margin:0 0 12px}
+      .analytics-warning-list p{margin:0;padding:8px 10px;border:1px solid #f0c36d;border-radius:8px;background:#fff7dc;color:#6d4c00;font-weight:800;line-height:1.3}
       .analytics-toolbar .choices{min-width:170px;margin-bottom:0}
       .analytics-toolbar .choices__inner{min-height:34px;border:1px solid #ccd6e2;border-radius:6px;background:#fff;padding:3px 6px}
       .analytics-toolbar .choices__list--dropdown .choices__item,.analytics-toolbar .choices__list[aria-expanded] .choices__item{font-size:12px;line-height:1.2;white-space:nowrap}
@@ -3676,14 +4178,17 @@
       if (selectedEnrollmentReport() === REPORTS.dashboard) runDashboard();
       if (selectedEnrollmentReport() === REPORTS.consolidation) runConsolidation();
       if (selectedEnrollmentReport() === REPORTS.demand) runDemand();
-      if (selectedEnrollmentReport() === REPORTS.studentPresence) runStudentPresence();
+      if (selectedEnrollmentReport() === REPORTS.studentPresence) runStudentPresence().catch(err => console.warn(err));
     });
     document.getElementById('runDashboard')?.addEventListener('click', runDashboard);
     document.getElementById('dashFocusTerm')?.addEventListener('change', runDashboard);
     document.getElementById('exportDashboardSummary')?.addEventListener('click', exportDashboardSummary);
-    document.getElementById('runStudentPresence')?.addEventListener('click', runStudentPresence);
-    document.getElementById('spFocusTerm')?.addEventListener('change', runStudentPresence);
-    document.getElementById('spGroup')?.addEventListener('change', runStudentPresence);
+    document.getElementById('runStudentPresence')?.addEventListener('click', () => runStudentPresence().catch(err => alert(err.message || 'Student Presence failed.')));
+    document.getElementById('spFocusTerm')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
+    document.getElementById('spGroup')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
+    document.getElementById('studentPresenceCsv')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
+    document.getElementById('spArchiveTerms')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
+    document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('exportStudentPresence')?.addEventListener('click', () => exportRows(state.studentPresenceRows, `student-presence-${studentPresenceFocusTerm() || 'term'}.csv`));
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
@@ -3701,6 +4206,23 @@
     document.getElementById('demForecastScope')?.addEventListener('change', updateDemandTargetControls);
     document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
+    document.getElementById('saveSnapshotBatch')?.addEventListener('click', () => saveSnapshotBatch().catch(err => alert(err.message || 'Snapshot save failed.')));
+    document.getElementById('viewStoredSnapshots')?.addEventListener('click', () => renderSnapshotManager());
+    document.getElementById('exportStoredSnapshots')?.addEventListener('click', () => exportRows(state.enrollmentSnapshots, 'enrollment-snapshots.csv'));
+    document.getElementById('clearSnapshotBatch')?.addEventListener('click', () => clearSelectedSnapshotBatch().catch(err => alert(err.message || 'Snapshot clear failed.')));
+    document.getElementById('iaDivision')?.addEventListener('change', () => {
+      populateInstructorAvailabilityFilters(currentRows());
+      runInstructorAvailability();
+    });
+    document.getElementById('iaSubject')?.addEventListener('change', () => {
+      populateInstructorAvailabilityFilters(currentRows());
+      runInstructorAvailability();
+    });
+    document.getElementById('iaSelectVisible')?.addEventListener('click', () => {
+      const select = document.getElementById('iaInstructor');
+      if (select) [...select.options].forEach(option => { option.selected = true; });
+      runInstructorAvailability();
+    });
     document.getElementById('runInstructorAvailability')?.addEventListener('click', runInstructorAvailability);
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
@@ -3732,6 +4254,7 @@
     injectStyle();
     wire();
     refreshAnalyticsArchiveOptions();
+    loadEnrollmentSnapshots().catch(err => console.warn('Enrollment snapshot preload skipped:', err));
     updateVisibility();
   }
 
@@ -3742,7 +4265,13 @@
     dashboardHistoricalRows,
     dashboardScopeContext,
     dashboardScopeWarnings,
-    summaryLifecycleAvailability
+    summaryLifecycleAvailability,
+    buildSnapshotRecords,
+    upsertSnapshotRecords,
+    mergeSnapshotsIntoRows,
+    snapshotCoverage,
+    snapshotSourceValue,
+    normalizeSnapshotType
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

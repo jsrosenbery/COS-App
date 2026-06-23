@@ -654,13 +654,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const utilizationClearBtn = document.getElementById('utilization-clear-btn');
   const utilizationSummary = document.getElementById('utilization-summary');
   const utilizationMap = document.getElementById('utilization-map');
+  const modalityDecisionTermSelect = document.getElementById('modality-decision-term');
+  const modalityComparisonSelects = ['modality-comparison-1', 'modality-comparison-2', 'modality-comparison-3']
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
   const modalityCampusSelect = document.getElementById('modality-campus-select');
   const modalityDivisionSelect = document.getElementById('modality-division-select');
   const modalityDisciplineSelect = document.getElementById('modality-discipline-select');
   const modalityLevelSelect = document.getElementById('modality-level-select');
   const modalityCalGetcSelect = document.getElementById('modality-calgetc-select');
+  const modalityIncludeDe = document.getElementById('modality-include-de');
   const modalityClearBtn = document.getElementById('modality-clear-btn');
   const modalitySummary = document.getElementById('modality-summary');
+  const modalityComparison = document.getElementById('modality-comparison');
   const modalityChart = document.getElementById('modality-chart');
   const modalityTable = document.getElementById('modality-table');
   const table        = document.getElementById('schedule-table');
@@ -701,10 +707,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
   if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
+  if (modalityDecisionTermSelect) modalityDecisionTermSelect.addEventListener('change', renderModalityTool);
+  modalityComparisonSelects.forEach(select => select.addEventListener('change', renderModalityTool));
   if (modalityDivisionSelect) modalityDivisionSelect.addEventListener('change', renderModalityTool);
   if (modalityDisciplineSelect) modalityDisciplineSelect.addEventListener('change', renderModalityTool);
   if (modalityLevelSelect) modalityLevelSelect.addEventListener('change', renderModalityTool);
   if (modalityCalGetcSelect) modalityCalGetcSelect.addEventListener('change', renderModalityTool);
+  if (modalityIncludeDe) modalityIncludeDe.addEventListener('change', renderModalityTool);
   if (utilizationClearBtn) {
     utilizationClearBtn.onclick = () => {
       if (utilizationCampusSelect) utilizationCampusSelect.value = '';
@@ -719,6 +728,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (modalityDisciplineSelect) modalityDisciplineSelect.value = '';
       if (modalityLevelSelect) modalityLevelSelect.value = '';
       if (modalityCalGetcSelect) modalityCalGetcSelect.value = '';
+      if (modalityDecisionTermSelect) modalityDecisionTermSelect.value = '';
+      modalityComparisonSelects.forEach(select => { select.value = ''; });
+      if (modalityIncludeDe) modalityIncludeDe.checked = false;
       renderModalityTool();
     };
   }
@@ -2223,21 +2235,30 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function initModalityFilters() {
     if (!modalityCampusSelect || !modalityDivisionSelect || !modalityDisciplineSelect || !modalityLevelSelect) return;
+    const decisionTermValue = modalityDecisionTermSelect?.value || '';
+    const comparisonValues = modalityComparisonSelects.map(select => select.value);
     const campusValue = modalityCampusSelect.value;
     const divisionValue = modalityDivisionSelect.value;
     const disciplineValue = modalityDisciplineSelect.value;
     const levelValue = modalityLevelSelect.value;
     const calGetcValue = modalityCalGetcSelect?.value || '';
     const campuses = getUniqueCampuses(currentData);
+    const terms = [...new Set(currentData.map(getSectionTerm).filter(Boolean))].sort();
     const divisions = [...new Set(currentData.map(getDivision).filter(Boolean))].sort();
     const disciplines = [...new Set(currentData.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
     const levels = [...new Set(currentData.map(section => getCourseLevel(getCourseParts(section).courseNumber)).filter(Boolean))]
       .sort((a, b) => getCourseLevelSort(a) - getCourseLevelSort(b));
+    if (modalityDecisionTermSelect) resetSelect(modalityDecisionTermSelect, terms, 'Current loaded term', '');
+    modalityComparisonSelects.forEach(select => resetSelect(select, terms, 'None', ''));
     resetSelect(modalityCampusSelect, campuses, 'All', '');
     resetSelect(modalityDivisionSelect, divisions, 'All', '');
     resetSelect(modalityDisciplineSelect, disciplines, 'All', '');
     resetSelect(modalityLevelSelect, levels, 'All', '');
     if (modalityCalGetcSelect) resetSelect(modalityCalGetcSelect, calGetcFilterOptions, 'All', '');
+    if (terms.includes(decisionTermValue) && modalityDecisionTermSelect) modalityDecisionTermSelect.value = decisionTermValue;
+    modalityComparisonSelects.forEach((select, index) => {
+      if (terms.includes(comparisonValues[index])) select.value = comparisonValues[index];
+    });
     if (campuses.includes(campusValue)) modalityCampusSelect.value = campusValue;
     if (divisions.includes(divisionValue)) modalityDivisionSelect.value = divisionValue;
     if (disciplines.includes(disciplineValue)) modalityDisciplineSelect.value = disciplineValue;
@@ -2245,20 +2266,34 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (calGetcFilterOptions.some(option => option.value === calGetcValue) && modalityCalGetcSelect) modalityCalGetcSelect.value = calGetcValue;
   }
 
-  function calculateModalityBalance() {
+  function getSectionTerm(section) {
+    return extractField(section, ['Term', 'TERM', 'term']);
+  }
+
+  function getEnrollmentValue(section) {
+    const value = extractField(section, ['CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL', 'Actual_Enroll', 'Actual Enroll', 'Enrollment', 'Enroll']);
+    const parsed = Number(String(value || '').replace(/[%,$]/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function calculateModalityBalance(options = {}) {
+    const selectedTerm = options.term || modalityDecisionTermSelect?.value || '';
     const selectedCampus = modalityCampusSelect?.value || '';
     const selectedDivision = modalityDivisionSelect?.value || '';
     const selectedDiscipline = modalityDisciplineSelect?.value || '';
     const selectedLevel = modalityLevelSelect?.value || '';
     const selectedCalGetc = modalityCalGetcSelect?.value || '';
+    const includeDualEnrollment = Boolean(modalityIncludeDe?.checked);
     const seenSections = new Set();
     const categories = new Map();
 
     currentData.forEach((section, index) => {
       const campus = extractField(section, ['Campus', 'campus', 'CAMPUS']);
+      const term = getSectionTerm(section);
       const division = getDivision(section);
       const courseParts = getCourseParts(section);
       const courseLevel = getCourseLevel(courseParts.courseNumber);
+      if (selectedTerm && term !== selectedTerm) return;
       if (selectedCampus && campus !== selectedCampus) return;
       if (selectedDivision && division !== selectedDivision) return;
       if (selectedDiscipline && courseParts.discipline !== selectedDiscipline) return;
@@ -2270,44 +2305,53 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       seenSections.add(identity);
 
       const rawMethod = getInstructionalMethod(section) || 'Unspecified';
-      if (omittedModalityCodes.has(normalizeModalityCode(rawMethod))) return;
+      const methodCode = normalizeModalityCode(rawMethod);
       const category = getModalityCategory(rawMethod);
+      if (omittedModalityCodes.has(methodCode) && !(includeDualEnrollment && (methodCode === 'DE' || category === 'Dual Enrollment'))) return;
+      if (!includeDualEnrollment && (methodCode === 'DE' || category === 'Dual Enrollment')) return;
       if (!categories.has(category)) {
         categories.set(category, {
           category,
           count: 0,
+          enrollment: 0,
           methods: new Map()
         });
       }
       const bucket = categories.get(category);
       bucket.count += 1;
+      bucket.enrollment += getEnrollmentValue(section);
       bucket.methods.set(rawMethod, (bucket.methods.get(rawMethod) || 0) + 1);
     });
 
     const total = Array.from(categories.values()).reduce((sum, item) => sum + item.count, 0);
+    const totalEnrollment = Array.from(categories.values()).reduce((sum, item) => sum + item.enrollment, 0);
     const order = ['In Person', 'Online', 'Hybrid', 'Dual Enrollment', 'Flex', 'Other', 'Unspecified'];
     return Array.from(categories.values())
       .map(item => ({
         ...item,
         share: total ? item.count / total : 0,
+        enrollmentShare: totalEnrollment ? item.enrollment / totalEnrollment : 0,
         methodDetails: Array.from(item.methods.entries())
           .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       }))
       .sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category))
-      .map(item => ({ ...item, total }));
+      .map(item => ({ ...item, total, totalEnrollment }));
   }
 
   function renderModalityTool() {
     if (!modalitySummary || !modalityChart || !modalityTable) return;
     const rows = calculateModalityBalance();
     const total = rows[0]?.total || 0;
+    const totalEnrollment = rows[0]?.totalEnrollment || 0;
     modalitySummary.replaceChildren();
+    if (modalityComparison) modalityComparison.replaceChildren();
     modalityChart.replaceChildren();
     const tbody = modalityTable.querySelector('tbody');
     if (tbody) tbody.replaceChildren();
 
     const summaryItems = [
       `Sections: ${total}`,
+      `Enrollment: ${totalEnrollment}`,
       `In Person: ${rows.find(row => row.category === 'In Person')?.count || 0}`,
       `Online: ${rows.find(row => row.category === 'Online')?.count || 0}`,
       `Hybrid: ${rows.find(row => row.category === 'Hybrid')?.count || 0}`,
@@ -2327,6 +2371,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       return;
     }
 
+    renderModalityComparison(rows);
+
     rows.forEach(row => {
       const bar = document.createElement('div');
       bar.className = 'modality-bar';
@@ -2344,7 +2390,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
       if (tbody) {
         const tr = document.createElement('tr');
-        [row.category, row.count, `${(row.share * 100).toFixed(1)}%`].forEach(value => {
+        [row.category, row.count, row.enrollment, `${(row.share * 100).toFixed(1)}%`].forEach(value => {
           const td = document.createElement('td');
           td.textContent = value;
           tr.appendChild(td);
@@ -2373,6 +2419,26 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         tbody.appendChild(tr);
       }
     });
+  }
+
+  function renderModalityComparison(decisionRows) {
+    if (!modalityComparison) return;
+    const selectedTerms = modalityComparisonSelects.map(select => select.value).filter(Boolean);
+    if (!selectedTerms.length) return;
+    const decisionTerm = modalityDecisionTermSelect?.value || 'Current loaded term';
+    const decisionMap = new Map(decisionRows.map(row => [row.category, row]));
+    const categories = ['In Person', 'Online', 'Hybrid', 'Other', 'Unspecified'];
+    const sections = selectedTerms.map(term => {
+      const comparisonRows = calculateModalityBalance({ term });
+      const comparisonMap = new Map(comparisonRows.map(row => [row.category, row]));
+      const rows = categories.map(category => {
+        const decision = decisionMap.get(category) || { count: 0, enrollment: 0, share: 0, enrollmentShare: 0 };
+        const compare = comparisonMap.get(category) || { count: 0, enrollment: 0, share: 0, enrollmentShare: 0 };
+        return `<tr><td>${escapeHTML(category)}</td><td>${decision.count}</td><td>${compare.count}</td><td>${compare.count - decision.count}</td><td>${decision.enrollment}</td><td>${compare.enrollment}</td><td>${compare.enrollment - decision.enrollment}</td><td>${((compare.share - decision.share) * 100).toFixed(1)} pts</td></tr>`;
+      }).join('');
+      return `<section><h3>${escapeHTML(decisionTerm)} vs ${escapeHTML(term)}</h3><table><thead><tr><th>Modality</th><th>Decision Sections</th><th>Comparison Sections</th><th>Section Diff</th><th>Decision Enrollment</th><th>Comparison Enrollment</th><th>Enrollment Diff</th><th>Share Diff</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+    }).join('');
+    modalityComparison.innerHTML = sections;
   }
 
   function parseTime(t) {
@@ -2795,20 +2861,14 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }));
     let maxY = 0;
     datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
-    let tickCount = Math.max(3, Math.min(6, maxY));
-    let stepSize = 1;
-    let yMax = 1;
-    if (maxY <= 3) {
-      tickCount = 3;
-      yMax = 3;
-      stepSize = 1;
-    } else {
-      stepSize = Math.ceil(maxY / (tickCount - 1));
-      yMax = stepSize * (tickCount - 1);
-      if (yMax < maxY) {
-        yMax += stepSize;
-      }
-    }
+    const niceTickStep = (maxValue) => {
+      if (maxValue <= 5) return 1;
+      const candidates = [2, 5, 10, 20, 25, 50, 100, 200, 250, 500];
+      return candidates.find(step => Math.ceil(maxValue / step) <= 8) || 1000;
+    };
+    const stepSize = niceTickStep(maxY);
+    const yMax = Math.max(stepSize, Math.ceil(maxY / stepSize) * stepSize);
+    const tickCount = Math.min(9, Math.ceil(yMax / stepSize) + 1);
     lineChartInstance = new Chart(ctx, {
       type: 'line',
       data: { labels, datasets },

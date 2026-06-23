@@ -295,11 +295,11 @@
       <label>CAL-GETC:
         <select id="modality-calgetc-select"></select>
       </label>
-      <label><input id="modality-include-de" type="checkbox"> Include Dual Enrollment</label>
+      <label class="modality-de-toggle"><input id="modality-include-de" type="checkbox"> Include Dual Enrollment</label>
       <button id="modality-clear-btn" type="button">Clear</button>
     </div>
     <div class="modality-note">
-      This view uses the Instructional Method column from the uploaded CSV and counts unique CRNs when available, so multi-meeting sections are not counted more than once. Dual Enrollment rows are excluded by default; including them can change modality percentages.
+      This view uses the Instructional Method column from the uploaded CSV and counts unique CRNs when available, so multi-meeting sections are not counted more than once. Dual Enrollment is excluded by default because it can materially change modality balance; use the checkbox to include it intentionally.
     </div>
     <div id="modality-summary" class="modality-summary"></div>
     <div id="modality-comparison" class="modality-comparison"></div>
