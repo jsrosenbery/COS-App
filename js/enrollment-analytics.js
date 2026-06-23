@@ -246,7 +246,7 @@
       actual,
       census,
       firstDay: firstDayValue === '' ? null : num(firstDayValue),
-      census1: census1Value === '' ? null : num(census1Value),
+      census1: census1Value === '' ? census : num(census1Value),
       census2: census2Value === '' ? null : num(census2Value),
       finalEnrollment: finalEnrollmentValue === '' ? null : num(finalEnrollmentValue),
       waitlist: num(waitlistValue),
@@ -561,7 +561,8 @@
   }
 
   function snapshotCoverage(rows = [], snapshots = [], term = '') {
-    const focusRows = dedupeEnrollmentRows(rows).filter(row => !term || row.term === term);
+    const termKey = canon(term);
+    const focusRows = dedupeEnrollmentRows(rows).filter(row => !termKey || canon(row.term) === termKey);
     const focusCrns = new Set(focusRows.map(row => row.crn).filter(Boolean));
     const firstDay = (snapshots || []).filter(record => normalizeSnapshotType(record.snapshotType) === 'FIRST DAY' && (!term || canon(record.term) === canon(term)));
     const firstDayCrns = new Set(firstDay.map(record => canon(record.crn)).filter(Boolean));
@@ -959,7 +960,7 @@
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition / Lifecycle</h2>
-            <p>Upload enrollment snapshot CSV files for the decision term and any comparison terms. This report uses CENSUS_ENROLL as census enrollment and ACTUAL_ENROLL as end/current enrollment, while keeping the selected decision term separate from historical terms.</p>
+            <p>Upload enrollment snapshot CSV files for the decision term and any comparison terms. This report uses First Day snapshots when stored, CENSUS_ENROLL as Census 1, CENSUS_ENROLL2 as Census 2, and ACTUAL_ENROLL/final enrollment as End/Final, while keeping the selected decision term separate from historical terms.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -970,18 +971,17 @@
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
                   <li>Enter the decision season and year before running the report. The decision term can be a future term with no uploaded section seating report yet; in that case, decision-term columns will be zero and the report serves as a historical attrition baseline for planning.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
-                  <li>The report is lifecycle-ready: when future source files include First Day, Census 1, Census 2, and Final milestone fields, those values can be summarized without changing the current attrition workflow.</li>
+                  <li>First Day comes from stored First Day snapshots when available. If First Day snapshots are missing, start-based lifecycle calculations show N/A instead of zero.</li>
                 </ul>
               </div>
               <div>
                 <h3>Methodology</h3>
                 <ul>
                   <li>Sections are deduplicated by CRN within term, with subject/course/section used as fallback, so multi-meeting rows are not double counted.</li>
-                  <li>Attrition Count = CENSUS_ENROLL - ACTUAL_ENROLL. Attrition Rate = Attrition Count / CENSUS_ENROLL.</li>
+                  <li>Overall Attrition = Census 1 to End/Final attrition. Census 1 is CENSUS_ENROLL, Census 2 is CENSUS_ENROLL2, and End/Final is final enrollment or ACTUAL_ENROLL.</li>
                   <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
-                  <li>Current available lifecycle calculation uses Census Enrollment and Final/Current Enrollment because current Section Seating exports may not include all milestone fields.</li>
-                  <li>Future lifecycle support will use First Day, Census 1, Census 2, and Final Enrollment when those fields are available. Missing milestone fields display as N/A rather than zero.</li>
-                  <li>This report is lifecycle-ready but limited by available uploaded data until those IT report fields are delivered.</li>
+                  <li>Lifecycle intervals shown are Start to End, Start to Census 1, Start to Census 2, Census 1 to Census 2, Census 1 to End, Census 2 to End, and Overall Attrition.</li>
+                  <li>Decision term metrics, historical metrics, and all uploaded terms metrics are calculated separately. The decision term never contributes to historical attrition rates.</li>
                   <li>All Terms columns include the decision term plus comparison terms when decision-term rows exist. Historical Attrition excludes the decision term and uses comparison terms only, which is the correct planning view for future terms that have not opened for scheduling/enrollment yet.</li>
                   <li>Min sections controls the minimum section count a grouped row must have before it appears in the report.</li>
                 </ul>
@@ -2205,18 +2205,43 @@
     return {
       group,
       sections: 0,
+      allSections: 0,
+      allFirstDay: 0,
+      allCensus: 0,
+      allCensus2: 0,
+      allFinal: 0,
       census: 0,
+      census2: 0,
       final: 0,
       capacity: 0,
       terms: new Set(),
+      allCrns: new Set(),
+      allFirstDayCount: 0,
+      allCensus1Count: 0,
+      allCensus2Count: 0,
+      allFinalCount: 0,
       decisionSections: 0,
+      decisionCrns: new Set(),
+      decisionFirstDay: 0,
       decisionCensus: 0,
+      decisionCensus2: 0,
       decisionFinal: 0,
       decisionCapacity: 0,
+      decisionFirstDayCount: 0,
+      decisionCensus1Count: 0,
+      decisionCensus2Count: 0,
+      decisionFinalCount: 0,
       historySections: 0,
+      historyCrns: new Set(),
+      historyFirstDay: 0,
       historyCensus: 0,
+      historyCensus2: 0,
       historyFinal: 0,
       historyCapacity: 0,
+      historyFirstDayCount: 0,
+      historyCensus1Count: 0,
+      historyCensus2Count: 0,
+      historyFinalCount: 0,
       historyTerms: new Set()
     };
   }
@@ -2249,6 +2274,112 @@
     return [...map.values()].map(recalculateEstimatedFtes);
   }
 
+  function finiteOrNull(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function rowFirstDay(row) {
+    return finiteOrNull(row?.firstDay);
+  }
+
+  function rowCensus1(row) {
+    return finiteOrNull(row?.census1 ?? row?.census);
+  }
+
+  function rowCensus2(row) {
+    return finiteOrNull(row?.census2);
+  }
+
+  function rowEndEnrollment(row) {
+    return finiteOrNull(row?.finalEnrollment ?? finalEnrollment(row));
+  }
+
+  function addAttritionLifecycle(item, prefix, row) {
+    const firstDay = rowFirstDay(row);
+    const census1 = rowCensus1(row);
+    const census2 = rowCensus2(row);
+    const end = rowEndEnrollment(row);
+    if (firstDay != null) {
+      item[`${prefix}FirstDay`] += firstDay;
+      item[`${prefix}FirstDayCount`] += 1;
+    }
+    if (census1 != null) {
+      item[`${prefix}Census`] += census1;
+      item[`${prefix}Census1Count`] += 1;
+    }
+    if (census2 != null) {
+      item[`${prefix}Census2`] += census2;
+      item[`${prefix}Census2Count`] += 1;
+    }
+    if (end != null) {
+      item[`${prefix}Final`] += end;
+      item[`${prefix}FinalCount`] += 1;
+    }
+  }
+
+  function attritionCount(start, end, available = true) {
+    if (!available || start == null || end == null) return null;
+    return Math.max(0, start - end);
+  }
+
+  function attritionRate(start, end, available = true) {
+    const count = attritionCount(start, end, available);
+    if (count == null || !start) return null;
+    return count / start;
+  }
+
+  function lifecycleMetrics(prefix, item, sectionCount) {
+    const firstDay = item[`${prefix}FirstDay`];
+    const census1 = item[`${prefix}Census`];
+    const census2 = item[`${prefix}Census2`];
+    const end = item[`${prefix}Final`];
+    const hasAllFirstDay = sectionCount > 0 && item[`${prefix}FirstDayCount`] === sectionCount;
+    const hasCensus1 = item[`${prefix}Census1Count`] > 0;
+    const hasCensus2 = item[`${prefix}Census2Count`] > 0;
+    const hasEnd = item[`${prefix}FinalCount`] > 0;
+    return {
+      [`${prefix}StartToEndAttritionCount`]: attritionCount(firstDay, end, hasAllFirstDay && hasEnd),
+      [`${prefix}StartToEndAttritionRate`]: attritionRate(firstDay, end, hasAllFirstDay && hasEnd),
+      [`${prefix}StartToCensus1AttritionCount`]: attritionCount(firstDay, census1, hasAllFirstDay && hasCensus1),
+      [`${prefix}StartToCensus1AttritionRate`]: attritionRate(firstDay, census1, hasAllFirstDay && hasCensus1),
+      [`${prefix}StartToCensus2AttritionCount`]: attritionCount(firstDay, census2, hasAllFirstDay && hasCensus2),
+      [`${prefix}StartToCensus2AttritionRate`]: attritionRate(firstDay, census2, hasAllFirstDay && hasCensus2),
+      [`${prefix}Census1ToCensus2AttritionCount`]: attritionCount(census1, census2, hasCensus1 && hasCensus2),
+      [`${prefix}Census1ToCensus2AttritionRate`]: attritionRate(census1, census2, hasCensus1 && hasCensus2),
+      [`${prefix}Census1ToEndAttritionCount`]: attritionCount(census1, end, hasCensus1 && hasEnd),
+      [`${prefix}Census1ToEndAttritionRate`]: attritionRate(census1, end, hasCensus1 && hasEnd),
+      [`${prefix}Census2ToEndAttritionCount`]: attritionCount(census2, end, hasCensus2 && hasEnd),
+      [`${prefix}Census2ToEndAttritionRate`]: attritionRate(census2, end, hasCensus2 && hasEnd),
+      [`${prefix}OverallAttritionCount`]: attritionCount(census1, end, hasCensus1 && hasEnd),
+      [`${prefix}OverallAttritionRate`]: attritionRate(census1, end, hasCensus1 && hasEnd)
+    };
+  }
+
+  function summarizeAttritionRows(rows, prefix) {
+    const sections = sum(rows, `${prefix}Sections`);
+    const census1 = sum(rows, `${prefix}Census`);
+    const census2 = sum(rows, `${prefix}Census2`);
+    const final = sum(rows, `${prefix}Final`);
+    const overallCount = attritionCount(census1, final, census1 > 0);
+    return {
+      sections,
+      census1,
+      census2,
+      final,
+      overallCount,
+      overallRate: attritionRate(census1, final, census1 > 0),
+      census1ToEndRate: attritionRate(census1, final, census1 > 0),
+      census2ToEndRate: attritionRate(census2, final, census2 > 0),
+      census1ToCensus2Rate: attritionRate(census1, census2, census1 > 0 && census2 > 0)
+    };
+  }
+
+  function lifecycleMetricLabel(value) {
+    return value == null ? 'N/A' : pct(value);
+  }
+
   async function loadAttritionFiles() {
     const uploaded = await readCsv(document.getElementById('enrollmentCsv'));
     const archived = await readArchivedRows('attrArchiveTerms');
@@ -2268,71 +2399,98 @@
     const allEnrollment = await loadAttritionFiles();
     const decisionTerm = attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms);
     const includeHistory = document.getElementById('attrIncludeHistory')?.checked;
+    const decisionTermKey = canon(decisionTerm);
     const enrollment = applyFilters(allEnrollment, 'attr')
-      .filter(row => includeHistory || row.term === decisionTerm);
+      .filter(row => includeHistory || canon(row.term) === decisionTermKey);
     const grouped = new Map();
     const groupBy = document.getElementById('attrGroup')?.value || 'COURSE';
     enrollment.forEach((row) => {
       const key = groupKey(row, groupBy);
       const item = grouped.get(key) || emptyAttritionRecord(key);
-      const isDecisionTerm = row.term === decisionTerm;
-      const censusEnroll = censusEnrollment(row);
-      const finalEnroll = finalEnrollment(row);
-      item.sections += 1;
+      const isDecisionTerm = canon(row.term) === decisionTermKey;
+      const crnKey = sectionKey(row);
+      const censusEnroll = rowCensus1(row) ?? censusEnrollment(row);
+      const census2Enroll = rowCensus2(row);
+      const finalEnroll = rowEndEnrollment(row) ?? finalEnrollment(row);
+      item.allCrns.add(crnKey);
+      item.sections = item.allCrns.size;
+      item.allSections = item.allCrns.size;
       item.census += censusEnroll;
+      if (census2Enroll != null) item.census2 += census2Enroll;
       item.final += finalEnroll;
       item.capacity += row.cap;
       item.terms.add(row.term || 'UNKNOWN');
+      addAttritionLifecycle(item, 'all', row);
       if (isDecisionTerm) {
-        item.decisionSections += 1;
-        item.decisionCensus += censusEnroll;
-        item.decisionFinal += finalEnroll;
+        item.decisionCrns.add(crnKey);
+        item.decisionSections = item.decisionCrns.size;
         item.decisionCapacity += row.cap;
+        addAttritionLifecycle(item, 'decision', row);
       } else {
-        item.historySections += 1;
-        item.historyCensus += censusEnroll;
-        item.historyFinal += finalEnroll;
+        item.historyCrns.add(crnKey);
+        item.historySections = item.historyCrns.size;
         item.historyCapacity += row.cap;
+        addAttritionLifecycle(item, 'history', row);
         item.historyTerms.add(row.term || 'UNKNOWN');
       }
       grouped.set(key, item);
     });
     const min = Number(document.getElementById('attrMinSections')?.value || 1);
-    state.attritionRows = [...grouped.values()].filter((r) => r.sections >= min).map((r) => ({
-      ...r,
-      terms: r.terms.size,
-      historyTerms: r.historyTerms.size,
-      totalSeats: r.capacity,
-      courseHistoricalTermsIncluded: r.historyTerms.size,
-      overallHistoricalTermsIncluded: collectRowTerms(enrollment.filter(row => row.term && row.term !== decisionTerm)).length,
-      decisionTermIncluded: r.decisionSections > 0 ? 1 : 0,
-      totalUploadedTerms: r.terms.size,
-      decisionAttritionCount: Math.max(0, r.decisionCensus - r.decisionFinal),
-      decisionAttritionRate: r.decisionCensus > 0 ? Math.max(0, r.decisionCensus - r.decisionFinal) / r.decisionCensus : 0,
-      historicalAttritionCount: Math.max(0, r.historyCensus - r.historyFinal),
-      historicalAttritionRate: r.historyCensus > 0 ? Math.max(0, r.historyCensus - r.historyFinal) / r.historyCensus : 0,
-      attritionCount: Math.max(0, r.census - r.final),
-      attritionRate: r.census > 0 ? Math.max(0, r.census - r.final) / r.census : 0,
-      censusFillRate: r.capacity > 0 ? r.census / r.capacity : 0,
-      finalFillRate: r.capacity > 0 ? r.final / r.capacity : 0,
-      emptySeatsAtCensus: Math.max(0, r.capacity - r.census),
-      emptySeatsAtFinal: Math.max(0, r.capacity - r.final),
-      availableAtCensus: Math.max(0, r.capacity - r.census),
-      availableAtEnd: Math.max(0, r.capacity - r.final)
-    })).sort((a, b) => b.attritionCount - a.attritionCount || b.historicalAttritionCount - a.historicalAttritionCount);
+    state.attritionRows = [...grouped.values()].filter((r) => r.sections >= min).map((r) => {
+      const historyLifecycle = lifecycleMetrics('history', r, r.historySections);
+      const decisionLifecycle = lifecycleMetrics('decision', r, r.decisionSections);
+      const allLifecycle = lifecycleMetrics('all', r, r.sections);
+      return {
+        ...r,
+        terms: r.terms.size,
+        historyTerms: r.historyTerms.size,
+        totalSeats: r.capacity,
+        courseHistoricalTermsIncluded: r.historyTerms.size,
+        overallHistoricalTermsIncluded: collectRowTerms(enrollment.filter(row => row.term && canon(row.term) !== decisionTermKey)).length,
+        decisionTermIncluded: r.decisionSections > 0 ? 1 : 0,
+        totalUploadedTerms: r.terms.size,
+        decisionAttritionCount: decisionLifecycle.decisionOverallAttritionCount,
+        decisionAttritionRate: decisionLifecycle.decisionOverallAttritionRate,
+        historicalAttritionCount: historyLifecycle.historyOverallAttritionCount,
+        historicalAttritionRate: historyLifecycle.historyOverallAttritionRate,
+        attritionCount: allLifecycle.allOverallAttritionCount,
+        attritionRate: allLifecycle.allOverallAttritionRate,
+        censusFillRate: r.capacity > 0 ? r.census / r.capacity : 0,
+        finalFillRate: r.capacity > 0 ? r.final / r.capacity : 0,
+        emptySeatsAtCensus: Math.max(0, r.capacity - r.census),
+        emptySeatsAtFinal: Math.max(0, r.capacity - r.final),
+        availableAtCensus: Math.max(0, r.capacity - r.census),
+        availableAtEnd: Math.max(0, r.capacity - r.final),
+        ...historyLifecycle,
+        ...decisionLifecycle,
+        ...allLifecycle
+      };
+    }).sort((a, b) => (b.attritionCount || 0) - (a.attritionCount || 0) || (b.historicalAttritionCount || 0) - (a.historicalAttritionCount || 0));
     const decisionRows = state.attritionRows.filter(row => row.decisionSections > 0);
     const filteredTerms = collectRowTerms(enrollment);
-    const historicalTerms = collectRowTerms(enrollment.filter(row => row.term && row.term !== decisionTerm));
+    const historicalTerms = collectRowTerms(enrollment.filter(row => row.term && canon(row.term) !== decisionTermKey));
     const coverage = snapshotCoverage(enrollment, state.enrollmentSnapshots, decisionTerm);
+    const decisionSummary = summarizeAttritionRows(decisionRows, 'decision');
+    const historicalSummary = summarizeAttritionRows(state.attritionRows, 'history');
+    const allSummary = summarizeAttritionRows(state.attritionRows, 'all');
     metric('attritionMetrics', [
       ['Decision Term', decisionTerm || 'N/A'],
       ['Historical Terms Included', historicalTerms.length],
       ['Decision Term Included', decisionRows.length ? 1 : 0],
       ['Total Uploaded Terms', filteredTerms.length],
       ['Decision Sections', sum(decisionRows, 'decisionSections')],
+      ['Decision Census 1', decisionSummary.census1],
+      ['Decision Census 2', decisionSummary.census2],
+      ['Decision End/Final', decisionSummary.final],
+      ['Decision Overall Attrition', lifecycleMetricLabel(decisionSummary.overallRate)],
+      ['Historical Sections', historicalSummary.sections],
+      ['Historical Overall Attrition', lifecycleMetricLabel(historicalSummary.overallRate)],
+      ['Historical Census 1 to Census 2 Attrition', lifecycleMetricLabel(historicalSummary.census1ToCensus2Rate)],
+      ['Historical Census 2 to End Attrition', lifecycleMetricLabel(historicalSummary.census2ToEndRate)],
+      ['All Uploaded Overall Attrition', lifecycleMetricLabel(allSummary.overallRate)],
       ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
       ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
-      ['Historical Attrition', pct(safeDiv(sum(state.attritionRows, 'historicalAttritionCount'), sum(state.attritionRows, 'historyCensus')))]
+      ['Historical Census 1 to End Attrition', lifecycleMetricLabel(historicalSummary.census1ToEndRate)]
     ]);
     table('attritionTable', state.attritionRows, [
       'group',
@@ -2343,7 +2501,28 @@
       'sections',
       'totalSeats',
       'census',
+      'census2',
       'final',
+      'decisionCensus',
+      'decisionCensus2',
+      'decisionFinal',
+      'decisionOverallAttritionRate',
+      'historyCensus',
+      'historyCensus2',
+      'historyFinal',
+      'historyStartToEndAttritionRate',
+      'historyStartToCensus1AttritionRate',
+      'historyStartToCensus2AttritionRate',
+      'historyCensus1ToCensus2AttritionRate',
+      'historyCensus1ToEndAttritionRate',
+      'historyCensus2ToEndAttritionRate',
+      'historyOverallAttritionRate',
+      'decisionStartToEndAttritionRate',
+      'decisionStartToCensus1AttritionRate',
+      'decisionStartToCensus2AttritionRate',
+      'decisionCensus1ToCensus2AttritionRate',
+      'decisionCensus1ToEndAttritionRate',
+      'decisionCensus2ToEndAttritionRate',
       'attritionCount',
       'attritionRate',
       'historicalAttritionRate',
@@ -3632,12 +3811,27 @@
       ['Overall Historical Terms Included', 'Number of uploaded historical comparison terms used after filters are applied. The selected decision/future term is excluded.'],
       ['Total Uploaded Terms', 'Number of distinct uploaded terms represented in that row after filters are applied, including the decision term when present.'],
       ['Decision Sections', 'Number of sections for the selected decision term only.'],
+      ['Decision Census 1', 'Decision-term CENSUS_ENROLL total.'],
+      ['Decision Census 2', 'Decision-term CENSUS_ENROLL2 total when present.'],
+      ['Decision End/Final', 'Decision-term Final Enrollment when present, otherwise ACTUAL_ENROLL/current enrollment context.'],
+      ['Decision Overall Attrition', 'Decision-term Census 1 to End/Final attrition. This is separated from historical attrition because in-progress decision terms may not be final.'],
+      ['Historical Sections', 'Distinct CRNs from comparison terms only. The decision term is excluded.'],
+      ['Historical Overall Attrition', 'Historical Census 1 to End/Final attrition from comparison terms only. The decision term never contributes to this rate.'],
+      ['All Uploaded Overall Attrition', 'Census 1 to End/Final attrition across all uploaded terms when retained for context. This includes the decision term and should not be used as the historical planning rate.'],
       ['Total Seats', 'Total MAX ENROLL capacity across the row grouping and included terms.'],
-      ['Census Enrollment', 'CENSUS_ENROLL across included terms. If CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
+      ['Census Enrollment', 'CENSUS_ENROLL/Census 1 across included terms. If CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
+      ['Census 2 Enrollment', 'CENSUS_ENROLL2 across included terms where present. Missing Census 2 values remain unavailable and do not become zero.'],
       ['Final Enrollment', 'ACTUAL_ENROLL across included terms. This remains visible for attrition/retention context and does not drive consolidation or forecast recommendations.'],
-      ['Lifecycle Readiness', 'Current available calculations use Census Enrollment and Final/Current Enrollment. Future lifecycle support will use First Day, Census 1, Census 2, and Final Enrollment fields when those fields are available. Missing milestone fields display as N/A.'],
-      ['Attrition Count', 'Census Enrollment minus Final Enrollment, floored at zero.'],
-      ['Attrition Rate', 'Attrition Count divided by Census Enrollment.'],
+      ['Start to End Attrition', 'First Day minus End/Final divided by First Day. Shows N/A unless every section in the displayed group has a First Day value.'],
+      ['Start to Census 1 Attrition', 'First Day minus Census 1 divided by First Day. Shows N/A unless every section in the displayed group has a First Day value.'],
+      ['Start to Census 2 Attrition', 'First Day minus Census 2 divided by First Day. Shows N/A unless every section in the displayed group has a First Day value and Census 2 exists.'],
+      ['Census 1 to Census 2 Attrition', 'Census 1 minus Census 2 divided by Census 1.'],
+      ['Census 1 to End Attrition', 'Census 1 minus End/Final divided by Census 1. This is also the Overall Attrition rate.'],
+      ['Census 2 to End Attrition', 'Census 2 minus End/Final divided by Census 2.'],
+      ['Overall Attrition', 'Census 1 to End/Final attrition unless a more official lifecycle standard is adopted later.'],
+      ['Lifecycle Readiness', 'First Day comes from stored First Day snapshots when available. Census 1 comes from CENSUS_ENROLL. Census 2 comes from CENSUS_ENROLL2. End/Final comes from ACTUAL_ENROLL or Final Enrollment. Missing milestone fields display as N/A, not zero.'],
+      ['Attrition Count', 'All uploaded terms Census 1 minus Final Enrollment, floored at zero.'],
+      ['Attrition Rate', 'All uploaded terms Attrition Count divided by Census 1.'],
       ['Historical Attrition Rate', 'Historical attrition from comparison terms only; it excludes the decision term.'],
       ['All Terms Sections', 'Section count across the decision term plus included comparison terms.'],
       ['Census Fill Rate', 'Census Enrollment divided by Total Seats. Values above 100% mean sections exceeded listed capacity.'],
@@ -3822,6 +4016,26 @@
       group: 'Group',
       subject: 'Discipline',
       decisionSections: 'Decision Sections',
+      decisionCensus: 'Decision Census 1',
+      decisionCensus2: 'Decision Census 2',
+      decisionFinal: 'Decision End/Final',
+      decisionOverallAttritionRate: 'Decision Overall Attrition',
+      decisionStartToEndAttritionRate: 'Decision Start to End Attrition',
+      decisionStartToCensus1AttritionRate: 'Decision Start to Census 1 Attrition',
+      decisionStartToCensus2AttritionRate: 'Decision Start to Census 2 Attrition',
+      decisionCensus1ToCensus2AttritionRate: 'Decision Census 1 to Census 2 Attrition',
+      decisionCensus1ToEndAttritionRate: 'Decision Census 1 to End Attrition',
+      decisionCensus2ToEndAttritionRate: 'Decision Census 2 to End Attrition',
+      historyCensus: 'Historical Census 1',
+      historyCensus2: 'Historical Census 2',
+      historyFinal: 'Historical End/Final',
+      historyStartToEndAttritionRate: 'Historical Start to End Attrition',
+      historyStartToCensus1AttritionRate: 'Historical Start to Census 1 Attrition',
+      historyStartToCensus2AttritionRate: 'Historical Start to Census 2 Attrition',
+      historyCensus1ToCensus2AttritionRate: 'Historical Census 1 to Census 2 Attrition',
+      historyCensus1ToEndAttritionRate: 'Historical Census 1 to End Attrition',
+      historyCensus2ToEndAttritionRate: 'Historical Census 2 to End Attrition',
+      historyOverallAttritionRate: 'Historical Overall Attrition',
       totalSeats: 'Total Seats',
       emptySeatsAtCensus: 'Empty Seats at Census',
       emptySeatsAtFinal: 'Empty Seats at Final',
@@ -3833,6 +4047,7 @@
       historicalAttritionCount: 'Historical Avg Attrition Count',
       sections: 'All Terms Sections',
       census: 'Census Enrollment',
+      census2: 'Census 2 Enrollment',
       final: 'Final Enrollment',
       attritionCount: 'Attrition Count',
       attritionRate: 'All Terms Attrition Rate',
@@ -3942,6 +4157,7 @@
   }
 
   function format(value, column = '') {
+    if (value == null && /attrition/i.test(column)) return 'N/A';
     if (typeof value === 'number' && /(rate|fill|growth|pct)$/i.test(column)) return pct(value);
     if (typeof value === 'number' && /ftes/i.test(column)) return round1(value);
     return value ?? '';
@@ -4367,7 +4583,11 @@
     mergeSnapshotsIntoRows,
     snapshotCoverage,
     snapshotSourceValue,
-    normalizeSnapshotType
+    normalizeSnapshotType,
+    lifecycleMetrics,
+    emptyAttritionRecord,
+    addAttritionLifecycle,
+    lifecycleMetricLabel
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

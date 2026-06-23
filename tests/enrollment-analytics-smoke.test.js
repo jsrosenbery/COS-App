@@ -106,7 +106,7 @@ test('current CSV data without milestone fields still normalizes for attrition',
   assert.equal(row.actual, 18);
   assert.equal(row.census, 24);
   assert.equal(row.firstDay, null);
-  assert.equal(row.census1, null);
+  assert.equal(row.census1, 24);
   assert.equal(row.census2, null);
   assert.equal(row.finalEnrollment, null);
 });
@@ -215,6 +215,22 @@ test('snapshot coverage counts missing first-day sections', () => {
   assert.equal(coverage.firstDayCoveragePct, 0.5);
 });
 
+test('snapshot coverage counts all decision sections missing first-day snapshots', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'SPRING 2027', crn: 'A1' }),
+    section({ term: 'SPRING 2027', crn: 'A2' }),
+    section({ term: 'SPRING 2026', crn: 'H1' })
+  ];
+
+  const coverage = COSEnrollmentAnalytics.snapshotCoverage(rows, [], 'Spring 2027');
+
+  assert.equal(coverage.sectionsInFocusTerm, 2);
+  assert.equal(coverage.sectionsWithFirstDaySnapshot, 0);
+  assert.equal(coverage.sectionsMissingFirstDaySnapshot, 2);
+  assert.equal(coverage.firstDayCoveragePct, 0);
+});
+
 test('future lifecycle milestone fields normalize when present', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const row = COSEnrollmentAnalytics.normalizeRow({
@@ -235,6 +251,40 @@ test('future lifecycle milestone fields normalize when present', () => {
   assert.equal(row.finalEnrollment, 22);
   assert.equal(row.actual, 20);
   assert.equal(row.census, 25);
+});
+
+test('attrition lifecycle calculations use census 2 and preserve missing first-day as unavailable', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const record = COSEnrollmentAnalytics.emptyAttritionRecord('PS 200M');
+  const rows = [
+    section({ crn: 'L1', firstDay: 30, census1: 28, census2: 25, finalEnrollment: 20 }),
+    section({ crn: 'L2', firstDay: null, census1: 22, census2: 20, finalEnrollment: 18 })
+  ];
+  rows.forEach(row => COSEnrollmentAnalytics.addAttritionLifecycle(record, 'decision', row));
+
+  const metrics = COSEnrollmentAnalytics.lifecycleMetrics('decision', record, 2);
+
+  assert.equal(metrics.decisionStartToEndAttritionRate, null);
+  assert.equal(COSEnrollmentAnalytics.lifecycleMetricLabel(metrics.decisionStartToEndAttritionRate), 'N/A');
+  assert.equal(metrics.decisionCensus1ToCensus2AttritionCount, 5);
+  assert.equal(Math.round(metrics.decisionCensus1ToCensus2AttritionRate * 1000) / 1000, 0.1);
+  assert.equal(metrics.decisionCensus2ToEndAttritionCount, 7);
+});
+
+test('attrition lifecycle start-based calculations work when first-day coverage is complete', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const record = COSEnrollmentAnalytics.emptyAttritionRecord('PS 200M');
+  [
+    section({ crn: 'S1', firstDay: 30, census1: 28, census2: 26, finalEnrollment: 22 }),
+    section({ crn: 'S2', firstDay: 20, census1: 18, census2: 16, finalEnrollment: 12 })
+  ].forEach(row => COSEnrollmentAnalytics.addAttritionLifecycle(record, 'decision', row));
+
+  const metrics = COSEnrollmentAnalytics.lifecycleMetrics('decision', record, 2);
+
+  assert.equal(metrics.decisionStartToEndAttritionCount, 16);
+  assert.equal(metrics.decisionStartToCensus1AttritionCount, 4);
+  assert.equal(metrics.decisionStartToCensus2AttritionCount, 8);
+  assert.equal(metrics.decisionCensus1ToEndAttritionCount, 12);
 });
 
 test('dashboard focus term scopes current metrics and excludes focus from history', () => {
