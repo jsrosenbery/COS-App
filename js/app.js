@@ -3195,6 +3195,18 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return startsAtMidnight && (category === 'ONLINE' || /\b(ONLINE|ONL|WEB|REMOTE|VIRTUAL|TBA)\b/.test(modality) || endHour === 0);
   }
 
+  function normalizedHeatmapTimeBlock(row, startTime, endTime) {
+    const modality = String(row?.Modality || '').toUpperCase();
+    const category = String(row?.ModalityCategory || '').toUpperCase();
+    const block = String(row?.TimeBlock || '').trim();
+    const startHour = parseHour(startTime);
+    const endHour = parseHour(endTime);
+    const isOnline = category === 'ONLINE' || /\b(ONLINE|ONL|OL|ONN|ONS|O1|WEB|REMOTE|VIRTUAL|TBA)\b/.test(modality);
+    const placeholder = !startTime || !endTime || startHour === 0 || /^0?0:00\s*-\s*0?0:(?:00|59)/i.test(block) || endHour === 0;
+    if (isOnline && placeholder) return 'Online/TBA';
+    return block;
+  }
+
   function dedupeHeatmapRows(rows) {
     const map = new Map();
     (rows || []).forEach((row, index) => {
@@ -3343,7 +3355,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         Days: daysVal,
         Start_Time: startTime,
         End_Time: endTime,
-        TimeBlock: extractField(r, ['Time Block', 'Time_Block', 'TIME_BLOCK']),
+        TimeBlock: normalizedHeatmapTimeBlock({ Modality: instructionalMethod, ModalityCategory: modalityCategory, TimeBlock: extractField(r, ['Time Block', 'Time_Block', 'TIME_BLOCK']) }, startTime, endTime),
         Title: title,
         Start_Date: startDate,
         End_Date: endDate,

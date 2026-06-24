@@ -1012,19 +1012,82 @@ test('archive inspection exposes parsed archived schedule validation', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(text, /archiveInspection: 'archive-inspection'/);
-  assert.match(text, /Archive Inspection/);
+  assert.match(text, /Archived Schedule Inspector/);
   assert.match(text, /archiveInspectionTerm/);
+  assert.match(text, /archiveInspectionCsv/);
   assert.match(text, /inspectArchivedSchedule/);
   assert.match(text, /Export Parsed Archive CSV/);
-  assert.match(text, /Parsed Row Count/);
+  assert.match(text, /Raw Row Count/);
+  assert.match(text, /Normalized Row Count/);
   assert.match(text, /Distinct CRN Count/);
+  assert.match(text, /Distinct Physical CRNs/);
+  assert.match(text, /Online CRNs/);
+  assert.match(text, /TBA\/No Fixed Time Rows/);
+  assert.match(text, /Cross-Listed Rows/);
+  assert.match(text, /Dual Enrollment Rows/);
+  assert.match(text, /Work Experience Rows/);
   assert.match(text, /Term Value Detected/);
   assert.match(text, /Campus Distribution/);
   assert.match(text, /Modality Distribution/);
-  assert.match(text, /Day Distribution/);
-  assert.match(text, /Time Distribution/);
+  assert.match(text, /Instructional Method Code Distribution/);
+  assert.match(text, /Day\/Time Distribution/);
   assert.match(text, /archiveInspectionRows/);
   assert.match(text, /exportArchiveInspection/);
+});
+
+test('online placeholder times normalize to Online/TBA', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'SPRING 2027',
+    CRN: '90001',
+    Subject: 'HIST',
+    Course: '018',
+    'Instructional Method': 'ONL',
+    Days: 'TBA',
+    Start_Time: '00:00',
+    End_Time: '00:59',
+    CENSUS_ENROLL: '20',
+    'Max Enrollment': '40'
+  });
+
+  assert.equal(row.modality, 'ONLINE');
+  assert.equal(row.timeBlock, 'ONLINE/TBA');
+  assert.equal(COSEnrollmentAnalytics.isOnlinePlaceholderTime(row), true);
+});
+
+test('instructor availability keeps Monday-only lab separate from MWF lecture', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2027',
+      CRN: '70001',
+      Subject: 'BIOL',
+      Course: '001',
+      Section: '01',
+      Instructor: 'DOE, J',
+      Days: 'MWF',
+      Start_Time: '10:10',
+      End_Time: '11:00'
+    }),
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2027',
+      CRN: '70001',
+      Subject: 'BIOL',
+      Course: '001',
+      Section: '01',
+      Instructor: 'DOE, J',
+      Days: 'M',
+      Start_Time: '13:10',
+      End_Time: '19:00'
+    })
+  ];
+  const scheduleRows = COSEnrollmentAnalytics.instructorScheduleRows(rows);
+
+  assert.equal(scheduleRows.length, 2);
+  assert.equal(JSON.stringify(scheduleRows.map(row => `${row.dayPattern} ${row.start}-${row.end}`).sort()), JSON.stringify([
+    'M 13:10-19:00',
+    'MWF 10:10-11:00'
+  ]));
 });
 
 test('TIMBER report organization moves analytics tools into enrollment management', () => {
@@ -1074,6 +1137,8 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.doesNotMatch(text, /prompt\(/);
   assert.match(text, /type="password"/);
   assert.match(css, /password-eye/);
+  assert.match(text, /defaultCampusCodes = \['COS', 'TCC', 'HAC', 'ONT', 'ONH', 'ONC'\]/);
+  assert.match(text, /physicalCampusCodes = \['COS', 'TCC', 'HAC'\]/);
 });
 
 test('enrollment analytics supports supplemental work experience upload controls', () => {
@@ -1081,6 +1146,7 @@ test('enrollment analytics supports supplemental work experience upload controls
 
   assert.match(text, /Work Experience Enrollment Upload/);
   assert.match(text, /id="workExperienceCsv"/);
+  assert.match(text, /session only until archive support is added/);
   assert.match(text, /dashIncludeWorkExperience/);
   assert.match(text, /attrIncludeWorkExperience/);
   assert.match(text, /demIncludeWorkExperience/);
@@ -1090,6 +1156,15 @@ test('enrollment analytics supports supplemental work experience upload controls
   assert.match(text, /dashboardSourceRows/);
   assert.match(text, /rowsWithWorkExperience/);
   assert.match(text, /studentPresence.*filter\(row => !row\.isWorkExperience\)/s);
+});
+
+test('snapshot manager defaults first day as primary manual snapshot', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const snapBlock = text.slice(text.indexOf('<select id="snapType">'), text.indexOf('</select>', text.indexOf('<select id="snapType">')));
+
+  assert.ok(snapBlock.indexOf('<option>First Day</option>') < snapBlock.indexOf('<option>Census 1</option>'));
+  assert.match(text, /First Day is the primary manual snapshot/);
+  assert.match(text, /Census 1, Census 2, and Final are already present in Banner source exports/);
 });
 
 test('modality balance includes dual enrollment toggle and methodology note', () => {

@@ -249,7 +249,7 @@
       dayPattern: isWorkExperienceSource ? 'WORK EXPERIENCE' : dayPattern(days),
       start: isWorkExperienceSource ? '' : times.start,
       end: isWorkExperienceSource ? '' : times.end,
-      timeBlock: isWorkExperienceSource ? 'WORK EXPERIENCE' : timeBlock(times.start, modality),
+      timeBlock: isWorkExperienceSource ? 'WORK EXPERIENCE' : (isOnlinePlaceholderTime({ modality, start: times.start, end: times.end }) ? 'ONLINE/TBA' : timeBlock(times.start, modality)),
       building,
       roomOnly,
       room: canon([building, roomOnly].filter(Boolean).join(' ')),
@@ -468,6 +468,19 @@
     const hour = Number(start.slice(0, 2));
     if (!Number.isFinite(hour)) return 'ONLINE/TBA';
     return `${String(hour).padStart(2, '0')}:00-${String(hour).padStart(2, '0')}:59`;
+  }
+
+  function isOnlinePlaceholderTime(row) {
+    const modality = canon(row?.modality || row?.Modality || '');
+    const start = canon(row?.start || row?.Start_Time || row?.Start || '');
+    const end = canon(row?.end || row?.End_Time || row?.End || '');
+    const block = canon(row?.timeBlock || row?.TimeBlock || row?.['Time Block'] || '');
+    const isOnline = modality === 'ONLINE' || /\b(ONLINE|ONL|OL|ONN|ONS|O1|WEB|REMOTE|VIRTUAL|TBA)\b/.test(modality);
+    if (!isOnline) return false;
+    if (!start || !end || start === 'INVALID' || end === 'INVALID') return true;
+    if (/^0?0:00(?:\s*-\s*0?0:(?:00|59))?$/.test(block)) return true;
+    if (start >= '00:00' && start <= '00:59') return true;
+    return start === '00:00' && (end === '00:00' || end === '00:59');
   }
 
   function sectionKey(section) {
@@ -817,7 +830,7 @@
           <p>Upload Work Experience enrollment rows that are not present in Section Seating. These rows are included in enrollment, attrition, lifecycle, demand, and FTES calculations when the report toggle is on, and excluded from room, time, conflict, and physical presence tools.</p>
           <div class="analytics-toolbar">
             <label>Work Experience CSV(s) <input id="workExperienceCsv" type="file" accept=".csv" multiple></label>
-            <span id="workExperienceUploadStatus" class="analytics-note">No Work Experience rows loaded.</span>
+            <span id="workExperienceUploadStatus" class="analytics-note">No Work Experience rows loaded. Work Experience uploads are session only until archive support is added.</span>
           </div>
         </div>
         <div id="dashboardReport" class="analytics-view">
@@ -918,6 +931,7 @@
                 <option>Custom</option>
               </select>
             </label>
+            <span class="analytics-note snapshot-note">First Day is the primary manual snapshot. Census 1, Census 2, and Final are already present in Banner source exports and generally do not need manual snapshot capture; keep those options for correction or manual override only.</span>
             <label>Snapshot Date <input id="snapDate" type="date" required></label>
             <label>Snapshot CSV <input id="snapshotCsv" type="file" accept=".csv"></label>
             <button id="saveSnapshotBatch" type="button">Archive/Save Snapshot</button>
@@ -985,7 +999,7 @@
         </div>
         <div id="archiveInspectionReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Archive Inspection</h2>
+            <h2>Archived Schedule Inspector</h2>
             <p>Inspect one archived Section Seating upload exactly as the app parses it. Use this before running analytics when a term appears missing, duplicated, or misclassified.</p>
             <div class="analytics-methodology">
               <div>
@@ -1008,6 +1022,7 @@
           </div>
           <div class="analytics-toolbar">
             <label>Archived term <select id="archiveInspectionTerm"></select></label>
+            <label>Optional CSV <input id="archiveInspectionCsv" type="file" accept=".csv"></label>
             <button id="inspectArchivedSchedule" type="button">Inspect Archived Schedule</button>
             <button id="exportArchiveInspection" type="button">Export Parsed Archive CSV</button>
           </div>
@@ -1403,6 +1418,16 @@
     return uniqueOptions(rows, row => row.dayPattern);
   }
 
+  const defaultCampusCodes = ['COS', 'TCC', 'HAC', 'ONT', 'ONH', 'ONC'];
+  const physicalCampusCodes = ['COS', 'TCC', 'HAC'];
+
+  function defaultCampusesForPrefix(prefix, options) {
+    if (!String(prefix || '').endsWith('Campus')) return [];
+    const reportPrefix = String(prefix || '').replace(/Campus$/, '');
+    const defaults = reportPrefix === 'sp' ? physicalCampusCodes : defaultCampusCodes;
+    return defaults.filter(code => (options || []).some(option => canon(option.value) === code));
+  }
+
   function rowsForDependentOptions(prefix, rows) {
     const selectedDivisions = getSelectedValues(prefix + 'Division');
     const selectedDepartments = getSelectedValues(prefix + 'Department');
@@ -1443,6 +1468,7 @@
     const select = document.getElementById(id);
     if (!select) return;
     const selected = new Set(getSelectedValues(id));
+    const defaultCampuses = selected.size ? [] : defaultCampusesForPrefix(id, options);
     const choice = analyticsChoices.get(id);
     if (choice) {
       choice.destroy();
@@ -1450,9 +1476,12 @@
     }
     select.replaceChildren();
     options.forEach(option => {
-      const node = new Option(option.label, option.value, false, selected.has(canon(option.value)));
+      const optionKey = canon(option.value);
+      const defaultSelected = defaultCampuses.includes(optionKey) && select.dataset.defaultCampusApplied !== 'true';
+      const node = new Option(option.label, option.value, false, selected.has(optionKey) || defaultSelected);
       select.appendChild(node);
     });
+    if (defaultCampuses.length) select.dataset.defaultCampusApplied = 'true';
     if (window.Choices) {
       analyticsChoices.set(id, new Choices(select, {
         removeItemButton: true,
@@ -1647,8 +1676,8 @@
     const terms = collectRowTerms(rows);
     const missingFtes = rows.filter(row => row.ftesUnavailable).length;
     node.textContent = rows.length
-      ? `${rows.length} Work Experience row(s) loaded${terms.length ? ` for ${terms.join(', ')}` : ''}${missingFtes ? `; ${missingFtes} missing FTES inputs` : ''}.`
-      : 'No Work Experience rows loaded.';
+      ? `${rows.length} Work Experience row(s) loaded for this session${terms.length ? `; terms: ${terms.join(', ')}` : ''}${missingFtes ? `; ${missingFtes} missing FTES inputs` : ''}.`
+      : 'No Work Experience rows loaded. Work Experience uploads are session only until archive support is added.';
   }
 
   function workExperienceSummary(rows) {
@@ -2741,14 +2770,17 @@
 
   async function inspectArchivedSchedule() {
     const term = canon(document.getElementById('archiveInspectionTerm')?.value || '');
-    if (!term) {
+    const hasCsv = Boolean(document.getElementById('archiveInspectionCsv')?.files?.length);
+    if (!term && !hasCsv) {
       renderArchiveInspectionError('Select an archived term to inspect.');
       return [];
     }
-    const rawRows = await fetchArchivedTermRows(term, 'Archive Inspection');
-    state.archiveInspectionTerm = term;
+    const rawRows = hasCsv
+      ? await readCsv(document.getElementById('archiveInspectionCsv'), { sourceType: 'ARCHIVE_INSPECTION_UPLOAD' })
+      : await fetchArchivedTermRows(term, 'Archive Inspection');
+    state.archiveInspectionTerm = hasCsv ? (collectRowTerms(rawRows.map(normalize))[0] || term || 'UPLOADED CSV') : term;
     state.archiveInspectionRows = rawRows.map(normalize);
-    renderArchiveInspection(rawRows, state.archiveInspectionRows, term);
+    renderArchiveInspection(rawRows, state.archiveInspectionRows, state.archiveInspectionTerm);
     return state.archiveInspectionRows;
   }
 
@@ -2784,38 +2816,49 @@
   function renderArchiveInspection(rawRows, rows, selectedTerm) {
     const termsDetected = collectRowTerms(rows);
     const distinctCrns = new Set(rows.map(row => canon(row.crn)).filter(Boolean));
+    const physicalRows = rows.filter(row => row.modality !== 'ONLINE' && row.modality !== 'TBA' && row.timeBlock !== 'ONLINE/TBA' && row.days?.length);
+    const physicalCrns = new Set(physicalRows.map(row => canon(row.crn)).filter(Boolean));
+    const onlineCrns = new Set(rows.filter(row => row.modality === 'ONLINE' || row.timeBlock === 'ONLINE/TBA').map(row => canon(row.crn)).filter(Boolean));
+    const tbaRows = rows.filter(row => row.timeBlock === 'ONLINE/TBA' || !row.start || !row.end || row.dayPattern === 'TBA');
+    const crossListedRows = rows.filter(row => row.crossList).length;
+    const dualEnrollmentRows = rows.filter(row => row.modality === 'DUAL ENROLLMENT' || row.instructionalMethod === 'DE').length;
+    const workExperienceRows = rows.filter(row => row.isWorkExperience || row.modality === 'WORK EXPERIENCE').length;
     metric('archiveInspectionMetrics', [
       ['Selected Archive Term', selectedTerm || 'N/A'],
-      ['Parsed Row Count', rows.length],
       ['Raw Row Count', rawRows.length],
+      ['Normalized Row Count', rows.length],
       ['Distinct CRN Count', distinctCrns.size],
+      ['Distinct Physical CRNs', physicalCrns.size],
+      ['Online CRNs', onlineCrns.size],
+      ['TBA/No Fixed Time Rows', tbaRows.length],
+      ['Cross-Listed Rows', crossListedRows],
+      ['Dual Enrollment Rows', dualEnrollmentRows],
+      ['Work Experience Rows', workExperienceRows],
       ['Term Value Detected', termsDetected.length ? termsDetected.join(', ') : 'N/A']
     ]);
     document.getElementById('archiveInspectionSummary').innerHTML = [
       archiveDistributionPanel('Campus Distribution', rows, row => row.campus || 'Blank'),
       archiveDistributionPanel('Modality Distribution', rows, row => row.modality || 'Blank'),
-      archiveDistributionPanel('Day Distribution', rows, row => row.dayPattern || 'Blank/TBA'),
-      archiveDistributionPanel('Time Distribution', rows, row => row.timeBlock || 'Blank/TBA')
+      archiveDistributionPanel('Instructional Method Code Distribution', rows, row => row.instructionalMethod || 'Blank'),
+      archiveDistributionPanel('Day/Time Distribution', rows, row => `${row.dayPattern || 'Blank/TBA'} ${row.timeBlock || 'Blank/TBA'}`.trim())
     ].join('');
     table('archiveInspectionSamples', archiveInspectionRows().slice(0, 100), [
-      'sourceTerm',
       'term',
       'crn',
       'subject',
       'course',
       'section',
-      'title',
-      'division',
       'campus',
-      'modality',
-      'instructionalMethod',
-      'instructor',
+      'building',
+      'room',
       'days',
       'start',
       'end',
       'timeBlock',
-      'building',
-      'room',
+      'modality',
+      'instructionalMethod',
+      'crossList',
+      'censusEnrollment',
       'capacity'
     ]);
   }
@@ -3411,8 +3454,21 @@
     if (campuses.includes(campusPrior)) campusSelect.value = campusPrior;
   }
 
+  function instructorScheduleRows(rows) {
+    const map = new Map();
+    (rows || []).filter(row => row.instructor).forEach(row => {
+      const meeting = instructorMeetingMinutes(row);
+      if (!meeting || !row.days?.length) return;
+      const baseKey = row.crossList
+        ? ['XL', row.term, row.crossList, row.instructor, row.dayPattern, row.start, row.end, row.building, row.roomOnly || row.room].join('|')
+        : ['ROW', row.term, row.crn || row.subject, row.section, row.instructor, row.dayPattern, row.start, row.end, row.building, row.roomOnly || row.room].join('|');
+      if (!map.has(baseKey)) map.set(baseKey, row);
+    });
+    return [...map.values()];
+  }
+
   function runInstructorAvailability() {
-    const rows = dedupeEnrollmentRows(currentRows()).filter(row => row.instructor);
+    const rows = instructorScheduleRows(currentRows());
     populateInstructorAvailabilityFilters(rows);
     const selectedInstructors = selectedInstructorAvailabilityInstructors();
     const division = document.getElementById('iaDivision')?.value || '';
@@ -5633,6 +5689,8 @@
 
   window.COSEnrollmentAnalytics = {
     normalizeRow: normalize,
+    isOnlinePlaceholderTime,
+    instructorScheduleRows,
     dashboardAvailableTerms,
     dashboardCurrentRows,
     dashboardHistoricalRows,
