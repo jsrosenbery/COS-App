@@ -1046,12 +1046,19 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(index, /heatmap-prime-only/);
   assert.match(index, /heatmap-underutilized-only/);
   assert.match(index, /heatmap-summary-cards/);
+  assert.match(index, /distinct CRNs/);
+  assert.match(index, /00:00-00:59 placeholder/);
   assert.match(app, /heatmapMetricMode/);
   assert.match(app, /renderHeatmapSummaryCards/);
   assert.match(app, /isPrimeHeatmapSlot/);
   assert.match(app, /isUnderutilizedHeatmapRow/);
   assert.match(app, /rowEnrollment/);
   assert.match(app, /rowCapacity/);
+  assert.match(app, /title: 'CRN\(s\)'/);
+  assert.match(app, /function dedupeHeatmapRows/);
+  assert.match(app, /function heatmapCrnKey/);
+  assert.match(app, /function isOnlineTbaHeatmapRow/);
+  assert.match(app, /cells\[d\]\[startIndex\]\.crns\.has\(bucketKey\)/);
   assert.match(css, /\.analysis-summary-cards/);
 });
 

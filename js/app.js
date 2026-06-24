@@ -2821,6 +2821,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       data: [],
       columns: [
         { title: 'Course', render: $.fn.dataTable.render.text() },
+        { title: 'CRN(s)', render: $.fn.dataTable.render.text() },
         { title: 'Building', render: $.fn.dataTable.render.text() },
         { title: 'Room', render: $.fn.dataTable.render.text() },
         { title: 'Days', render: $.fn.dataTable.render.text() },
@@ -2829,7 +2830,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         { title: 'Capacity', visible: false },
         { title: 'Division', visible: false },
         { title: 'Discipline', visible: false },
-        { title: 'Campus', visible: false }
+        { title: 'Campus', visible: false },
+        { title: 'Term', visible: false },
+        { title: 'Modality', visible: false }
       ],
       destroy: true,
       searching: true
@@ -2863,9 +2866,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function rowMatchesHeatmapCell(row, filter) {
     if (!filter) return true;
-    const days = normalizeMeetingDays(row[3]);
+    const days = normalizeMeetingDays(row[4]);
     if (!days.includes(filter.day)) return false;
-    const startTime = row[4]?.split('-')[0]?.trim();
+    const startTime = row[5]?.split('-')[0]?.trim();
     const startHour = parseHour(startTime);
     if (!Number.isFinite(startHour)) return false;
     return Math.floor(startHour * 2) / 2 === filter.hour;
@@ -2879,11 +2882,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function rowEnrollment(row) {
-    return heatmapNumber(row[5]);
+    return heatmapNumber(row[6]);
   }
 
   function rowCapacity(row) {
-    return heatmapNumber(row[6]);
+    return heatmapNumber(row[7]);
   }
 
   function rowFillRate(row) {
@@ -2898,6 +2901,57 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function isUnderutilizedHeatmapRow(row) {
     const capacity = rowCapacity(row);
     return capacity > 0 && rowFillRate(row) < 0.7;
+  }
+
+  function heatmapCrnKey(row, fallback = '') {
+    const crns = String(Array.isArray(row) ? row[1] : row?.CRN || '').split(/[;,]/).map(value => value.trim()).filter(Boolean);
+    if (crns.length) return crns.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(',');
+    if (Array.isArray(row)) return [row[10], row[0], row[4], row[5], fallback].filter(Boolean).join('|');
+    return [row?.Term, row?.key, row?.Days?.join(','), row?.Start_Time, fallback].filter(Boolean).join('|');
+  }
+
+  function isOnlineTbaHeatmapRow(row) {
+    const modality = String(row?.Modality || '').toUpperCase();
+    const category = String(row?.ModalityCategory || '').toUpperCase();
+    const startHour = parseHour(row?.Start_Time);
+    const endHour = parseHour(row?.End_Time);
+    const timeBlock = String(row?.TimeBlock || '').trim();
+    const startsAtMidnight = startHour === 0 || /^0?0:00\s*-\s*0?0:59/i.test(timeBlock);
+    return startsAtMidnight && (category === 'ONLINE' || /\b(ONLINE|ONL|WEB|REMOTE|VIRTUAL|TBA)\b/.test(modality) || endHour === 0);
+  }
+
+  function dedupeHeatmapRows(rows) {
+    const map = new Map();
+    (rows || []).forEach((row, index) => {
+      const days = Array.isArray(row.Days) ? row.Days.join(',') : row.Days || '';
+      const key = [
+        row.Term || '',
+        heatmapCrnKey(row, index),
+        row.key || '',
+        days,
+        row.Start_Time || '',
+        row.End_Time || ''
+      ].join('|');
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          ...row,
+          Rooms: new Set([row.Room].filter(Boolean)),
+          Buildings: new Set([row.Building].filter(Boolean)),
+          Crns: new Set([row.CRN].filter(Boolean))
+        });
+        return;
+      }
+      if (row.Room) existing.Rooms.add(row.Room);
+      if (row.Building) existing.Buildings.add(row.Building);
+      if (row.CRN) existing.Crns.add(row.CRN);
+      existing.Room = [...existing.Rooms].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join('; ');
+      existing.Building = [...existing.Buildings].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join('; ');
+      existing.CRN = [...existing.Crns].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join('; ');
+      existing.Enrollment = Math.max(existing.Enrollment || 0, row.Enrollment || 0);
+      existing.Capacity = Math.max(existing.Capacity || 0, row.Capacity || 0);
+    });
+    return [...map.values()];
   }
 
   function heatmapMetricMode() {
@@ -2988,6 +3042,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
       const enrollment = heatmapNumber(extractField(r, ['CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL', 'Actual_Enroll', 'Actual Enroll', 'Enrollment', 'Enroll']));
       const capacity = heatmapNumber(extractField(r, ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL']));
+      const instructionalMethod = getInstructionalMethod(r);
+      const modalityCategory = getModalityCategory(instructionalMethod);
 
       const building = r.Building || r.BUILDING || '';
       const room = r.Room || r.ROOM || '';
@@ -3005,12 +3061,14 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       return {
         key,
         Subject_Course: r.Subject_Course || '',
-        CRN: r.CRN || '',
+        CRN: extractField(r, ['CRN', 'Course Reference Number']) || '',
+        Term: getSectionTerm(r),
         Building: building,
         Room: room,
         Days: daysVal,
         Start_Time: startTime,
         End_Time: endTime,
+        TimeBlock: extractField(r, ['Time Block', 'Time_Block', 'TIME_BLOCK']),
         Title: title,
         Start_Date: startDate,
         End_Date: endDate,
@@ -3019,11 +3077,14 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         Capacity: capacity,
         Campus: extractField(r, ['Campus', 'campus', 'CAMPUS']),
         Division: getDivision(r),
-        Discipline: getCourseParts(r).discipline
+        Discipline: getCourseParts(r).discipline,
+        Modality: instructionalMethod,
+        ModalityCategory: modalityCategory
       };
     }).filter(r => {
       // Omit if room is blank, N/A, LIVE, ONLINE
       if (!isValidRoom(r.Building, r.Room)) return false;
+      if (isOnlineTbaHeatmapRow(r)) return false;
       if (!Array.isArray(r.Days) || !r.Days.length) return false;
       let dayField = r.Days;
       if (Array.isArray(dayField)) dayField = dayField.join(',');
@@ -3034,6 +3095,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;
       return true;
     });
+    hmRaw = dedupeHeatmapRows(hmRaw);
 
     const campuses = getUniqueCampuses(hmRaw);
     const divisions = [...new Set(hmRaw.map(r => r.Division).filter(Boolean))].sort();
@@ -3115,10 +3177,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }).filter(r => {
       const startHour = parseHour(r.Start_Time);
       if (primeOnly && !r.Days.some(day => isPrimeHeatmapSlot(day, startHour))) return false;
-      if (underutilizedOnly && !isUnderutilizedHeatmapRow([r.key, r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time, r.Enrollment || 0, r.Capacity || 0])) return false;
+      if (underutilizedOnly && !isUnderutilizedHeatmapRow([r.key, r.CRN || '', r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time, r.Enrollment || 0, r.Capacity || 0])) return false;
       return true;
     }).map(r => [
       r.key,
+      r.CRN || '',
       r.Building,
       r.Room,
       Array.isArray(r.Days) ? r.Days.join(',') : '',
@@ -3127,7 +3190,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       r.Capacity || 0,
       r.Division || '',
       r.Discipline || '',
-      r.Campus || ''
+      r.Campus || '',
+      r.Term || '',
+      r.ModalityCategory || r.Modality || ''
     ]);
     hmTable.clear().rows.add(rows).draw();
   }
@@ -3164,9 +3229,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (minHour >= maxHour) { minHour = 6; maxHour = 22; }
     const hours = buildHalfHourSlots(minHour, maxHour);
     const cells = {};
-    hmDays.forEach(d => cells[d] = hours.map(() => ({ sections: 0, enrollment: 0, capacity: 0 })));
-    filtered.forEach(row => {
-      const [ course, bld, room, daysStr, timeStr ] = row;
+    hmDays.forEach(d => cells[d] = hours.map(() => ({ sections: 0, enrollment: 0, capacity: 0, crns: new Set() })));
+    filtered.forEach((row, rowIndex) => {
+      const [ course, crns, bld, room, daysStr, timeStr ] = row;
       const dayList = normalizeMeetingDays(daysStr);
       const timeParts = timeStr.split('-');
       const st = timeParts[0]?.trim();
@@ -3179,6 +3244,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (startIndex < 0) return;
       dayList.forEach(d => {
         if (!cells[d]) return;
+        const bucketKey = heatmapCrnKey(row, rowIndex);
+        if (cells[d][startIndex].crns.has(bucketKey)) return;
+        cells[d][startIndex].crns.add(bucketKey);
         cells[d][startIndex].sections++;
         cells[d][startIndex].enrollment += rowEnrollment(row);
         cells[d][startIndex].capacity += rowCapacity(row);

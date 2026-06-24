@@ -134,13 +134,13 @@
     <div class="analysis-explainer">
       <h3>How to Read This View</h3>
       <p>
-        The heatmap counts how many classes start in each day and half-hour time slot. Calculation: cell count = sections whose meeting day includes that row and whose start time rounds down into that half-hour column. Darker cells mean more course starts at that moment, which helps identify scheduling pressure points such as too many sections beginning at the same time. Click a non-empty cell to show only the matching sections in the table below.
+        The heatmap counts how many classes start in each day and half-hour time slot. Calculation: cell count = distinct CRNs whose meeting day includes that row and whose start time rounds down into that half-hour column. A CRN may appear in multiple cells when it truly meets on multiple days or at different times, but repeated meeting rows, non-recurring dates, or paired-room rows for the same CRN/day/start bucket are counted once. Darker cells mean more course starts at that moment. Click a non-empty cell to show only the matching sections in the table below.
       </p>
       <p>
         The table supports the heatmap by showing the actual courses behind each count. Used together, the heatmap shows the pattern while the table shows the underlying schedule records, so a busy cell can be investigated immediately instead of treated as an abstract number.
       </p>
       <p>
-        Optional metric modes keep the same day/start-time layout: Section count counts starts, Enrollment-weighted sums census/current enrollment, Seat capacity sums section capacity, and Fill-rate shows enrollment divided by capacity. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM. Underutilized periods use the current planning threshold of less than 70% fill.
+        Optional metric modes keep the same day/start-time layout: Section count counts distinct CRNs, Enrollment-weighted sums census/current enrollment once per CRN per bucket, Seat capacity sums section capacity once per CRN per bucket, and Fill-rate shows enrollment divided by capacity after that deduplication. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM. Underutilized periods use the current planning threshold of less than 70% fill. Online/TBA rows using a 00:00-00:59 placeholder block are excluded from physical start-time heatmap counts.
       </p>
     </div>
     <div id="controls">
