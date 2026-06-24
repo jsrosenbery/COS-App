@@ -127,7 +127,8 @@
     waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WAIT COUNT', 'WAIT_COUNT', 'WL Count', 'WAITLISTED'],
     fill: ['Fill_Rate', 'Fill Rate', 'Percent Full', '% Full'],
     closed: ['Closed Prior to Census', 'CLOSED_PRIOR_TO_CENSUS', 'Closed Before Census', 'Closed', 'CLOSED'],
-    status: ['Status', 'STATUS', 'Section Status']
+    status: ['Status', 'STATUS', 'Section Status'],
+    crossList: ['CROSS_LIST', 'Cross List', 'Cross_List', 'Cross Listed', 'Cross-Listed', 'XLIST', 'X_LIST']
   };
   fields.startDate = ['Start_Date', 'START_DATE', 'Start Date', 'Class Start Date', 'Begin Date'];
   fields.endDate = ['End_Date', 'END_DATE', 'End Date', 'Class End Date', 'Stop Date'];
@@ -230,6 +231,7 @@
       division: canon(val(row, fields.division)),
       department: canon(val(row, fields.department)),
       section: canon(val(row, fields.section)),
+      crossList: canon(val(row, fields.crossList)),
       campus,
       modality: isWorkExperienceSource ? 'WORK EXPERIENCE' : modality,
       instructor: canon(val(row, fields.instructor)),
@@ -900,6 +902,7 @@
                   <li>Upload or select archived Section Seating files, choose the term, then select one or more conflict modes.</li>
                   <li>Use filters to narrow the review by division, discipline, course, campus, room, modality, instructor, day, or start hour.</li>
                   <li>Online/TBA rows are excluded unless they contain fixed meeting days and times.</li>
+                  <li>Cross-listed pairs are omitted by default when both rows share the same CROSS_LIST value. Uncheck the omit option to inspect them.</li>
                 </ul>
               </div>
               <div>
@@ -908,6 +911,7 @@
                   <li>Only fixed meeting days and valid start/end times are compared.</li>
                   <li>Duplicate meeting rows for the same Term + CRN + day + start + end are counted once.</li>
                   <li>Conflicts are based on partial time overlap, not only identical start/end times. Exact time modes require same day, same start, and same end.</li>
+                  <li>Same room and same instructor matches are combined into one row by default to reduce duplicate review items.</li>
                 </ul>
               </div>
             </div>
@@ -926,13 +930,18 @@
                 <option value="coursePattern">Same course/day/time pattern</option>
               </select>
             </label>
+            <label><input id="conflictOmitCrossListed" type="checkbox" checked> Omit Cross-Listed Sections</label>
+            <label><input id="conflictSeparateTypes" type="checkbox"> Show separate conflict types</label>
             ${filters('conflict', { includeGroup: false, includeCancelled: false, includeDivision: true, includeRoom: true })}
             <button id="runConflictCheck" type="button">Run</button>
             <button id="clearConflictCheck" type="button">Clear</button>
             <button id="exportConflictCheck" type="button">Export CSV</button>
+            <button id="inspectConflictArchive" type="button">Inspect Parsed Schedule</button>
+            <button id="exportConflictArchiveInspection" type="button">Export Parsed Schedule</button>
           </div>
           <div id="conflictMetrics" class="analytics-metrics"></div>
           <div id="conflictTable" class="analytics-table"></div>
+          <div id="conflictArchiveInspection" class="analytics-table"></div>
           <div id="conflictLegend" class="analytics-legend"></div>
         </div>
         <div id="studentPresenceReport" class="analytics-view">
@@ -1399,6 +1408,12 @@
     }
     if (prefix === 'dash') {
       runDashboard();
+    }
+    if (prefix === 'conflict') {
+      const omitCrossListed = document.getElementById('conflictOmitCrossListed');
+      if (omitCrossListed) omitCrossListed.checked = true;
+      const separateTypes = document.getElementById('conflictSeparateTypes');
+      if (separateTypes) separateTypes.checked = false;
     }
   }
 
@@ -2301,12 +2316,17 @@
     const selectedTerm = canon(document.getElementById('conflictTerm')?.value || updateConflictTermOptions(state.conflictTerms));
     const scopedRows = applyFilters(allRows.filter(row => !selectedTerm || canon(row.term) === selectedTerm), 'conflict');
     const modes = getSelectedValues('conflictModes');
-    state.conflictRows = conflictRows(scopedRows, modes.length ? modes : ['ROOMOVERLAP', 'INSTRUCTOROVERLAP']);
+    state.conflictRows = conflictRows(scopedRows, modes.length ? modes : ['ROOMOVERLAP', 'INSTRUCTOROVERLAP'], {
+      omitCrossListed: document.getElementById('conflictOmitCrossListed')?.checked !== false,
+      separateConflictTypes: document.getElementById('conflictSeparateTypes')?.checked === true
+    });
     renderConflictCheck();
   }
 
-  function conflictRows(rows, modes) {
+  function conflictRows(rows, modes, options = {}) {
     const selectedModes = new Set((modes || []).map(canon));
+    const omitCrossListed = options.omitCrossListed !== false;
+    const separateConflictTypes = options.separateConflictTypes === true;
     const meetings = fixedMeetingRecords(rows);
     const conflicts = [];
     const seen = new Set();
@@ -2315,14 +2335,25 @@
         const a = meetings[i];
         const b = meetings[j];
         if (a.term !== b.term || a.day !== b.day || a.sectionKey === b.sectionKey) continue;
+        if (omitCrossListed && sameCrossList(a, b)) continue;
         const overlapStart = Math.max(a.startMinutes, b.startMinutes);
         const overlapEnd = Math.min(a.endMinutes, b.endMinutes);
         const overlap = overlapEnd - overlapStart;
         if (overlap <= 0) continue;
         const exactTime = a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
+        const roomOverlap = sameRoom(a, b);
+        const instructorOverlap = sameInstructor(a, b);
+        if (!separateConflictTypes && selectedModes.has('ROOMOVERLAP') && selectedModes.has('INSTRUCTOROVERLAP') && roomOverlap && instructorOverlap) {
+          const key = ['ROOMINSTRUCTOROVERLAP', a.sectionKey, b.sectionKey, a.day, a.startMinutes, b.startMinutes].join('|');
+          if (!seen.has(key)) {
+            seen.add(key);
+            conflicts.push(conflictRecord('Same Room + Same Instructor', a, b, overlapStart, overlapEnd, overlap));
+          }
+          continue;
+        }
         const checks = [
-          ['ROOMOVERLAP', 'Same room overlap', sameRoom(a, b)],
-          ['INSTRUCTOROVERLAP', 'Same instructor overlap', sameInstructor(a, b)],
+          ['ROOMOVERLAP', 'Same room overlap', roomOverlap],
+          ['INSTRUCTOROVERLAP', 'Same instructor overlap', instructorOverlap],
           ['ROOMEXACT', 'Same room + same time', sameRoom(a, b) && exactTime],
           ['INSTRUCTOREXACT', 'Same instructor + same time', sameInstructor(a, b) && exactTime],
           ['COURSEPATTERN', 'Same course/day/time pattern', sameCourse(a, b) && exactTime]
@@ -2367,7 +2398,8 @@
           instructor: row.instructor || '',
           room: row.room || [row.building, row.roomOnly].filter(Boolean).join(' '),
           roomKey: canon(row.room || [row.building, row.roomOnly].filter(Boolean).join(' ')),
-          courseKey: canon(`${row.subject || ''} ${row.course || ''}`.trim())
+          courseKey: canon(`${row.subject || ''} ${row.course || ''}`.trim()),
+          crossList: canon(row.crossList)
         });
       });
     });
@@ -2390,6 +2422,10 @@
     return Boolean(a.courseKey && b.courseKey && a.courseKey === b.courseKey);
   }
 
+  function sameCrossList(a, b) {
+    return Boolean(a.crossList && b.crossList && a.crossList === b.crossList);
+  }
+
   function conflictRecord(conflictType, a, b, overlapStart, overlapEnd, overlapMinutesValue) {
     return {
       conflictType,
@@ -2400,10 +2436,12 @@
       course1: a.course,
       instructor1: a.instructor,
       room1: a.room,
+      crossList1: a.crossList,
       crn2: b.crn,
       course2: b.course,
       instructor2: b.instructor,
       room2: b.room,
+      crossList2: b.crossList,
       overlapMinutes: overlapMinutesValue
     };
   }
@@ -2415,7 +2453,9 @@
     metric('conflictMetrics', [
       ['Term', document.getElementById('conflictTerm')?.value || 'N/A'],
       ['Conflicts Found', rows.length],
-      ['Conflict Types', [...typeCounts.entries()].map(([type, count]) => `${type}: ${count}`).join('; ') || 'None']
+      ['Conflict Types', [...typeCounts.entries()].map(([type, count]) => `${type}: ${count}`).join('; ') || 'None'],
+      ['Cross-Listed Pairs', document.getElementById('conflictOmitCrossListed')?.checked !== false ? 'Omitted when same CROSS_LIST' : 'Included'],
+      ['Duplicate Type Rows', document.getElementById('conflictSeparateTypes')?.checked === true ? 'Separate' : 'Combined']
     ]);
     table('conflictTable', rows, [
       'conflictType',
@@ -2426,13 +2466,64 @@
       'course1',
       'instructor1',
       'room1',
+      'crossList1',
       'crn2',
       'course2',
       'instructor2',
       'room2',
+      'crossList2',
       'overlapMinutes'
     ]);
     renderConflictLegend();
+  }
+
+  function conflictInspectionRows() {
+    const selectedTerm = canon(document.getElementById('conflictTerm')?.value || '');
+    return (state.conflictInput || [])
+      .filter(row => !selectedTerm || canon(row.term) === selectedTerm)
+      .map(row => ({
+        sourceTerm: row.raw?.__sourceTerm || row.__sourceTerm || row.term,
+        term: row.term,
+        crn: row.crn,
+        subject: row.subject,
+        course: row.course,
+        section: row.section,
+        title: row.title,
+        division: row.division,
+        campus: row.campus,
+        modality: row.modality,
+        instructor: row.instructor,
+        days: row.dayPattern,
+        start: row.start,
+        end: row.end,
+        building: row.building,
+        room: row.roomOnly || row.room,
+        crossList: row.crossList,
+        sourceType: row.sourceType
+      }));
+  }
+
+  function renderConflictArchiveInspection() {
+    table('conflictArchiveInspection', conflictInspectionRows(), [
+      'sourceTerm',
+      'term',
+      'crn',
+      'subject',
+      'course',
+      'section',
+      'title',
+      'division',
+      'campus',
+      'modality',
+      'instructor',
+      'days',
+      'start',
+      'end',
+      'building',
+      'room',
+      'crossList',
+      'sourceType'
+    ]);
   }
 
   function renderConflictLegend() {
@@ -2441,15 +2532,17 @@
     renderMethodologyPanel(legend, {
       title: 'Conflict Check Methodology & Data Dictionary',
       purpose: 'Identifies loaded class meetings that overlap by room, instructor, exact room/time, exact instructor/time, or same course/day/time pattern.',
-      methodology: 'The report creates one meeting record per Term + CRN + day + start + end, removes duplicate meeting rows, then compares every fixed meeting pair in the selected term. A conflict is flagged when the two meetings share the selected basis and their time intervals overlap.',
-      assumptions: 'Rows without fixed meeting days and valid start/end times are excluded. Fully online or TBA rows only appear if they include fixed meeting days and times. Same room uses the normalized building/room text. Same instructor uses the uploaded instructor field.',
+      methodology: 'The report creates one meeting record per Term + CRN + day + start + end, removes duplicate meeting rows, then compares every fixed meeting pair in the selected term. A conflict is flagged when the two meetings share the selected basis and their time intervals overlap. When same room and same instructor both match, the pair is shown once as Same Room + Same Instructor unless Show separate conflict types is selected.',
+      assumptions: 'Rows without fixed meeting days and valid start/end times are excluded. Fully online or TBA rows only appear if they include fixed meeting days and times. Same room uses the normalized building/room text. Same instructor uses the uploaded instructor field. CROSS_LIST identifies intentional cross-listed pairs; matching nonblank CROSS_LIST values are omitted by default.',
       limitations: 'This report identifies schedule conflicts for review. It does not decide whether intentional cross-listing, arranged meetings, room-sharing, instructor load rules, or special events make an overlap acceptable.',
       items: [
         ['Conflict Type', 'The selected conflict basis that matched: same room overlap, same instructor overlap, exact room/time, exact instructor/time, or same course/day/time pattern.'],
         ['Time Overlap', 'The intersecting portion of the two class meeting intervals. Partial overlaps are included.'],
         ['CRN 1 / CRN 2', 'The two distinct CRNs involved. A CRN is never compared against itself.'],
+        ['Cross List 1 / Cross List 2', 'Parsed CROSS_LIST values for each section. If Omit Cross-Listed Sections is on, pairs with the same nonblank value do not appear in conflict results.'],
         ['Overlap Minutes', 'Number of minutes shared by both meetings on the same day. Formula: min(end times) - max(start times).'],
-        ['Deduplication', 'Duplicate meeting rows for the same Term + CRN + day + start + end are counted once. Distinct meeting patterns for the same CRN remain available for comparison against other sections.']
+        ['Deduplication', 'Duplicate meeting rows for the same Term + CRN + day + start + end are counted once. Distinct meeting patterns for the same CRN remain available for comparison against other sections.'],
+        ['Parsed Schedule Inspection', 'A review/export table showing the normalized rows loaded from selected archived terms and/or current uploads so archived terms such as Spring 2027 can be verified before interpreting conflicts.']
       ],
       version: 'Methodology v1.0'
     });
@@ -4913,15 +5006,29 @@
     document.getElementById('runConflictCheck')?.addEventListener('click', () => runConflictCheck().catch(err => alert(err.message || 'Conflict check failed.')));
     document.getElementById('conflictCsv')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
     document.getElementById('conflictArchiveTerms')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
-    document.getElementById('conflictTerm')?.addEventListener('change', () => { if (state.conflictRan) runConflictCheck().catch(err => console.warn(err)); });
+    document.getElementById('conflictTerm')?.addEventListener('change', () => {
+      if (state.conflictRan) runConflictCheck().catch(err => console.warn(err));
+      const inspection = document.getElementById('conflictArchiveInspection');
+      if (inspection?.querySelector('table')) renderConflictArchiveInspection();
+    });
     document.getElementById('conflictModes')?.addEventListener('change', () => { if (state.conflictRan) runConflictCheck().catch(err => console.warn(err)); });
+    document.getElementById('conflictOmitCrossListed')?.addEventListener('change', () => { if (state.conflictRan) runConflictCheck().catch(err => console.warn(err)); });
+    document.getElementById('conflictSeparateTypes')?.addEventListener('change', () => { if (state.conflictRan) runConflictCheck().catch(err => console.warn(err)); });
     document.getElementById('archiveConflictUploads')?.addEventListener('click', () => archiveUploads('conflictCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearConflictCheck')?.addEventListener('click', () => {
       resetAnalyticsControls('conflict');
       state.conflictRows = [];
       document.getElementById('conflictTable').innerHTML = '<p class="analytics-empty">Conflict filters cleared. Click Run to scan again.</p>';
+      const inspection = document.getElementById('conflictArchiveInspection');
+      if (inspection) inspection.innerHTML = '';
     });
     document.getElementById('exportConflictCheck')?.addEventListener('click', () => exportRows(state.conflictRows, `conflict-check-${document.getElementById('conflictTerm')?.value || 'term'}.csv`));
+    document.getElementById('inspectConflictArchive')?.addEventListener('click', () => loadConflictRows()
+      .then(renderConflictArchiveInspection)
+      .catch(err => alert(err.message || 'Parsed schedule inspection failed.')));
+    document.getElementById('exportConflictArchiveInspection')?.addEventListener('click', () => loadConflictRows()
+      .then(() => exportRowsWithoutMethodology(conflictInspectionRows(), `parsed-schedule-${document.getElementById('conflictTerm')?.value || 'selected-terms'}.csv`))
+      .catch(err => alert(err.message || 'Parsed schedule export failed.')));
     document.getElementById('saveSnapshotBatch')?.addEventListener('click', () => saveSnapshotBatch().catch(err => alert(err.message || 'Snapshot save failed.')));
     document.getElementById('snapSeason')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('snapYear')?.addEventListener('change', () => renderSnapshotManager());
