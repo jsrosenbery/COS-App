@@ -920,6 +920,9 @@ test('enrollment analytics supports supplemental work experience upload controls
   assert.match(text, /WORK EXPERIENCE/);
   assert.match(text, /FTES unavailable/);
   assert.match(text, /!row\.isWorkExperience/);
+  assert.match(text, /dashboardSourceRows/);
+  assert.match(text, /rowsWithWorkExperience/);
+  assert.match(text, /studentPresence.*filter\(row => !row\.isWorkExperience\)/s);
 });
 
 test('modality balance includes dual enrollment toggle and methodology note', () => {
@@ -938,11 +941,48 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(app, /category === 'Dual Enrollment'/);
   assert.match(app, /loadModalityArchiveRowsFromBackend/);
   assert.match(app, /api\/analytics-archive/);
+  assert.match(app, /const terms = \[\.\.\.new Set\(rows\.map\(getSectionTerm\)/);
+  assert.match(app, /modalityComparisonSelects\.forEach\(select => resetSelect\(select, terms, 'None', ''\)\)/);
   assert.match(app, /selectedValues\(modalityCampusSelect\)/);
   assert.match(app, /selectedValues\(modalityCourseSelect\)/);
   assert.match(app, /selectedValues\(modalityModalitySelect\)/);
   assert.match(app, /getModalitySourceRows\(\)\.forEach/);
   assert.match(app, /decision\.share - compare\.share/);
+});
+
+test('requested analytics regression coverage is represented in smoke tests', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  [
+    /function conflictRows/,
+    /overlapMinutes/,
+    /CENSUS_ENROLL2/,
+    /lifecycleMetricLabel\(value\)/,
+    /sectionsMissingFirstDaySnapshot/,
+    /conDecisionSeason/,
+    /conDecisionYear/,
+    /function consolidationDecisionTerm/,
+    /dashDecisionSeason/,
+    /dashDecisionYear/,
+    /function dashboardFocusTerm/,
+    /snapSeason/,
+    /snapYear/,
+    /function snapshotTerm/,
+    /spHideOnline/,
+    /distinctCrns/,
+    /meetingRowsIncluded/
+  ].forEach(pattern => assert.match(text, pattern));
+
+  [
+    /getModalityCategory/,
+    /code === 'DE'/,
+    /modality-include-de/,
+    /calculateRoomFitFlags/,
+    /Under-utilized room assignment/,
+    /Over-capacity risk/,
+    /Enrollment over room capacity/
+  ].forEach(pattern => assert.match(app, pattern));
 });
 
 test('room utilization includes room capacity fit flags', () => {
