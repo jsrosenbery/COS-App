@@ -34,6 +34,8 @@
     rotationRows: [],
     dashboardRan: false,
     studentPresenceRows: [],
+    studentPresenceSourceRows: [],
+    studentPresenceComparisonRows: [],
     studentPresenceRan: false,
     conflictRows: [],
     conflictInput: [],
@@ -348,7 +350,8 @@
   function normalizeModality(text, row) {
     const raw = canon(text);
     const code = canon(val(row, ['INSTRUCTIONAL_METHOD_CODE', 'Instructional Method Code', 'Method Code']) || text);
-    if (modalityGroups.omitted.has(code) || /DUAL\s*ENROLL/.test(raw)) return 'OMIT';
+    if (code === 'DE' || /DUAL\s*ENROLL/.test(raw)) return 'DUAL ENROLLMENT';
+    if (modalityGroups.omitted.has(code)) return 'OMIT';
     if (modalityGroups.online.has(code)) return 'ONLINE';
     if (modalityGroups.inPerson.has(code)) return 'IN PERSON';
     if (modalityGroups.hybrid.has(code)) return 'HYBRID';
@@ -365,6 +368,16 @@
       row.accountingReportable === false ||
       modalityGroups.omitted.has(rawMethod) ||
       /DUAL\s*ENROLL/.test(rawMethod);
+  }
+
+  function isDualEnrollmentRow(row) {
+    const rawMethod = canon(val(row?.raw || {}, fields.modality));
+    return row?.modality === 'DUAL ENROLLMENT' || rawMethod === 'DE' || /DUAL\s*ENROLL/.test(rawMethod);
+  }
+
+  function isStudentPresenceOmitted(row) {
+    if (isDualEnrollmentRow(row)) return false;
+    return isOmittedInstructionalMethod(row);
   }
 
   function normalizeDays(raw, row = {}) {
@@ -947,12 +960,12 @@
         <div id="studentPresenceReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Student Presence Analytics</h2>
-            <p>Estimates physical student presence from loaded scheduled sections and enrollment. It excludes fully online sections, TBA/no fixed meeting times, and online/web/virtual campuses.</p>
+            <p>Estimates physical student presence from loaded scheduled sections and enrollment. By default it includes only in-person and hybrid sections on physical COS/TCC/HAC campus codes, excludes Dual Enrollment, and omits online/TBA/no fixed-time rows.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Select a focus term, then filter by division, department, discipline, course, campus, building, room, modality, day, or time block.</li>
+                  <li>Select a focus term and optional comparison terms, then filter by division, department, discipline, course, campus, building, room, modality, day, or time block.</li>
                   <li>Use grouping to switch between campus, building, room, day, hour, and day/hour combinations.</li>
                   <li>Use this as a physical presence estimate for scheduling and facilities planning, not a full campus traffic count.</li>
                 </ul>
@@ -960,8 +973,8 @@
               <div>
                 <h3>Methodology</h3>
                 <ul>
-                  <li>Students present uses census enrollment when available and current enrollment otherwise, counted once per CRN within each applicable day/hour bucket.</li>
-                  <li>Only in-person and hybrid sections with fixed day/time patterns are included; online and TBA/no fixed time rows are excluded from physical presence.</li>
+                  <li>Students present uses census enrollment when available and current enrollment otherwise, counted once per CRN within each applicable half-hour bucket.</li>
+                  <li>Only in-person and hybrid sections with fixed day/time patterns are included by default; use the expansion controls to include other modalities or Dual Enrollment for review.</li>
                   <li>Distinct CRNs and meeting rows are shown separately so cross-listed or multi-meeting data does not inflate active section counts.</li>
                   <li>This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.</li>
                 </ul>
@@ -973,7 +986,11 @@
             <button id="archiveStudentPresenceUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="spArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Focus Term <select id="spFocusTerm"></select></label>
+            <label>Compare Terms <select id="spCompareTerms" multiple data-placeholder="No comparison terms"></select></label>
             ${filters('sp', { includeGroup: false, includeCancelled: false, includeDivision: true, includeRoom: true })}
+            <label><input id="spIncludeDualEnrollment" type="checkbox"> include Dual Enrollment</label>
+            <label><input id="spIncludeOtherModalities" type="checkbox"> include other modalities</label>
+            <label><input id="spIncludeAllCampuses" type="checkbox"> include non-COS/TCC/HAC campuses</label>
             <label>Group by
               <select id="spGroup">
                 <option value="all">All campuses</option>
@@ -981,7 +998,7 @@
                 <option value="building">Building</option>
                 <option value="room">Room</option>
                 <option value="day">Day</option>
-                <option value="hour">Hour/time block</option>
+                <option value="hour">Half-hour time block</option>
                 <option value="campusDayHour" selected>Campus + Day + Hour</option>
                 <option value="buildingDayHour">Building + Day + Hour</option>
                 <option value="roomDayHour">Room + Day + Hour</option>
@@ -992,6 +1009,7 @@
           </div>
           <div id="studentPresenceMetrics" class="analytics-metrics"></div>
           <div id="studentPresenceHeatmap" class="analytics-insights"></div>
+          <div id="studentPresenceCurve" class="analytics-insights"></div>
           <div id="studentPresenceTable" class="analytics-table"></div>
           <div id="studentPresenceLegend" class="analytics-legend"></div>
         </div>
@@ -1893,8 +1911,8 @@
 
   function updatePresenceFocusTermOptions(rows) {
     const select = document.getElementById('spFocusTerm');
-    if (!select) return '';
     const terms = dashboardAvailableTerms(rows);
+    if (!select) return '';
     const prior = select.value;
     const active = canon(currentTerm());
     const defaultTerm = terms.includes(prior) ? prior :
@@ -1903,7 +1921,25 @@
     select.replaceChildren();
     terms.forEach(term => select.appendChild(new Option(term, term, false, term === defaultTerm)));
     select.value = defaultTerm;
+    updatePresenceCompareTermOptions(terms, defaultTerm);
     return defaultTerm;
+  }
+
+  function updatePresenceCompareTermOptions(terms, focusTerm) {
+    const select = document.getElementById('spCompareTerms');
+    if (!select) return;
+    const prior = getSelectedValues('spCompareTerms');
+    const options = (terms || []).filter(term => term !== focusTerm).map(term => ({ value: term, label: term }));
+    setSelectOptions('spCompareTerms', options);
+    const preserved = prior.filter(term => term !== focusTerm && terms.includes(term));
+    Array.from(select.options || []).forEach(option => {
+      option.selected = preserved.includes(option.value);
+    });
+    const choice = analyticsChoices.get('spCompareTerms');
+    if (choice) {
+      choice.removeActiveItems();
+      preserved.forEach(value => choice.setChoiceByValue(value));
+    }
   }
 
   function dashboardFocusTerm() {
@@ -2271,16 +2307,41 @@
     const uploadedRows = await readCsv(document.getElementById('studentPresenceCsv'));
     const archivedRows = await readArchivedRows('spArchiveTerms');
     const independentRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
-      .filter(row => !isOmittedInstructionalMethod(row));
+      .filter(row => !isStudentPresenceOmitted(row));
     const sourceRows = (independentRows.length ? independentRows : dashboardSourceRows())
       .filter(row => !row.isWorkExperience)
-      .filter(row => !isOmittedInstructionalMethod(row));
+      .filter(row => !isStudentPresenceOmitted(row));
+    state.studentPresenceSourceRows = sourceRows;
     const focusTerm = updatePresenceFocusTermOptions(sourceRows);
     refreshAnalyticsFilters('sp', sourceRows, saved);
-    const scopedRows = applyFilters(dashboardCurrentRows(sourceRows, focusTerm), 'sp');
-    const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour');
+    const filteredRows = applyFilters(sourceRows, 'sp');
+    const scopedRows = dashboardCurrentRows(filteredRows, focusTerm);
+    const options = studentPresenceOptions();
+    const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour', options);
+    state.studentPresenceComparisonRows = buildStudentPresenceComparisonRows(filteredRows, options);
     state.studentPresenceRows = report.rows;
     renderStudentPresenceReport(report);
+  }
+
+  function studentPresenceOptions() {
+    return {
+      includeDualEnrollment: document.getElementById('spIncludeDualEnrollment')?.checked === true,
+      includeOtherModalities: document.getElementById('spIncludeOtherModalities')?.checked === true,
+      physicalCampuses: document.getElementById('spIncludeAllCampuses')?.checked === true ? [] : ['COS', 'TCC', 'TCCB', 'HAC', 'HACE', 'HACEDU', 'VIS', 'VISALIA', 'TUL', 'TULARE', 'HAN', 'HANFORD']
+    };
+  }
+
+  function buildStudentPresenceComparisonRows(rows, options) {
+    const terms = [studentPresenceFocusTerm(), ...getSelectedValues('spCompareTerms')].filter(Boolean);
+    return terms.map(term => {
+      const termRows = dashboardCurrentRows(rows, term);
+      const report = dashboard.studentPresenceReport(termRows, 'hour', options);
+      return {
+        term,
+        rows: report.rows || [],
+        metrics: report.metrics || {}
+      };
+    });
   }
 
   async function loadConflictRows() {
@@ -2566,6 +2627,7 @@
       ['Peak Room', presenceMetricLabel(metrics.peakRoom)]
     ]);
     renderPresenceHeatmap(report.rows || []);
+    renderStudentPresenceCurve(state.studentPresenceComparisonRows || []);
     table('studentPresenceTable', report.rows || [], [
       'group',
       'campus',
@@ -2605,20 +2667,56 @@
     node.innerHTML = cells || '<p class="analytics-empty">No fixed in-person or hybrid presence rows match the selected filters.</p>';
   }
 
+  function renderStudentPresenceCurve(series) {
+    const node = document.getElementById('studentPresenceCurve');
+    if (!node) return;
+    const terms = (series || []).filter(item => item.term);
+    if (!terms.length) {
+      node.innerHTML = '<p class="analytics-empty">No student presence curve is available for the selected term scope.</p>';
+      return;
+    }
+    const slots = [...new Set(terms.flatMap(item => (item.rows || []).map(row => row.hour).filter(Boolean)))]
+      .sort((a, b) => (minutesFromTime(a) ?? 0) - (minutesFromTime(b) ?? 0));
+    const maxStudents = Math.max(1, ...terms.flatMap(item => (item.rows || []).map(row => Number(row.studentsPresent) || 0)));
+    const rows = terms.map(item => {
+      const byHour = new Map((item.rows || []).map(row => [row.hour, row]));
+      return `<tr><th>${escapeAttr(item.term)}</th>${slots.map(slot => {
+        const value = Number(byHour.get(slot)?.studentsPresent) || 0;
+        const width = Math.max(2, Math.round(value / maxStudents * 100));
+        return `<td title="${escapeAttr(`${item.term} ${slot}: ${value} students present`)}"><span class="presence-bar" style="width:${width}%"></span><strong>${value || ''}</strong></td>`;
+      }).join('')}</tr>`;
+    }).join('');
+    node.innerHTML = `
+      <section class="presence-curve">
+        <h3>Half-Hour Physical Presence Curve</h3>
+        <p>Each cell shows students physically present during that half-hour interval. Enrollment is counted once per CRN per interval, so duplicate meeting rows or paired-room rows do not inflate the curve.</p>
+        <div class="analytics-table">
+          <table>
+            <thead><tr><th>Term</th>${slots.map(slot => `<th>${escapeAttr(slot)}</th>`).join('')}</tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </section>`;
+  }
+
   function renderStudentPresenceLegend() {
     const legend = document.getElementById('studentPresenceLegend');
     if (!legend) return;
     renderMethodologyPanel(legend, {
       title: 'Student Presence Analytics Methodology & Data Dictionary',
       purpose: 'Estimates physical student presence from loaded scheduled sections and enrollment for the selected focus term.',
-      methodology: 'Rows are included only when they are in-person or hybrid, have fixed meeting days and times, and do not use online, web, virtual, or TBA campus values. Students present uses census enrollment when available and current enrollment otherwise. Each CRN is counted once within a day/hour bucket even if the source file has multiple rows for that same section.',
-      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included meeting buckets. A multi-day section contributes to each scheduled meeting day/hour bucket, but overall active sections count distinct CRNs across the selected scope.',
+      methodology: 'Rows are included by default only when they are in-person or hybrid, have fixed meeting days and times, use physical COS/TCC/HAC campus codes or their local aliases, and do not use online, web, virtual, or TBA campus values. Dual Enrollment is excluded by default and can be included with the report toggle. Students present uses census enrollment when available and current enrollment otherwise. Each CRN is counted once within each half-hour day/time bucket even if the source file has multiple rows for the same section, non-recurring dates, or paired rooms.',
+      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included meeting buckets. A multi-day or long-duration section contributes to each applicable half-hour bucket, but overall active sections count distinct CRNs across the selected scope. Comparison curves use the same filters and inclusion toggles for each selected term.',
       limitations: 'This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.',
       items: [
         ['Students Present', 'Sum of census/current enrollment once per CRN in the selected physical presence bucket.'],
         ['Sections Active', 'Distinct CRNs represented in the bucket, not raw meeting rows.'],
         ['Distinct CRNs Included', 'Overall count of unique CRNs included after filters and physical-presence exclusions.'],
         ['Meeting Rows Included', 'Raw included meeting rows after filters. This can be higher than distinct CRNs when a section has multiple meeting rows.'],
+        ['Half-Hour Physical Presence Curve', 'Compares selected terms across half-hour intervals. A section contributes to every half-hour interval overlapped by its meeting time, and duplicate rows for the same CRN/interval are counted once.'],
+        ['Include Dual Enrollment', 'Optional control. Default OFF. When enabled, Dual Enrollment rows with physical campus/day/time data may be included.'],
+        ['Include Other Modalities', 'Optional control. Default OFF. When enabled, fixed-time non-online rows outside In-Person/Hybrid can be reviewed. Hide Online can then be used to remove online rows from that expanded scope.'],
+        ['Include Non-COS/TCC/HAC Campuses', 'Optional control. Default OFF. When enabled, campus values outside the default physical campus aliases can be included if they otherwise have fixed physical meeting data.'],
         ['Available Room Capacity', 'Scheduled capacity minus enrollment for the bucket, floored at zero.'],
         ['Seats Scheduled', 'Total scheduled section capacity in the bucket.'],
         ['Average Fill Rate', 'Students Present divided by Seats Scheduled.'],
@@ -4870,6 +4968,12 @@
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
       .analytics-insights ul{margin:0;padding-left:18px;color:#334862}
       .analytics-insights li{margin:4px 0;line-height:1.3}
+      .presence-curve{grid-column:1/-1}
+      .presence-curve p{margin:0 0 10px;color:#51657c;font-size:13px}
+      .presence-curve table{min-width:760px}
+      .presence-curve td{position:relative;min-width:72px;height:34px;vertical-align:middle;overflow:hidden}
+      .presence-curve .presence-bar{position:absolute;left:6px;right:auto;top:8px;bottom:8px;border-radius:999px;background:linear-gradient(90deg,#1f5f99,#2aa889);opacity:.26}
+      .presence-curve td strong{position:relative;z-index:1;color:#123367}
       .dashboard-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
       .dashboard-actions button,.dashboard-panel button{min-height:32px;border:1px solid #ccd6e2;border-radius:8px;padding:0 12px;background:#fff;color:#123367;font-weight:800;cursor:pointer}
       .dashboard-actions button:hover,.dashboard-panel button:hover{border-color:#8ba6c2;background:#f8fbff}
@@ -4964,11 +5068,18 @@
     });
     document.getElementById('exportDashboardSummary')?.addEventListener('click', exportDashboardSummary);
     document.getElementById('runStudentPresence')?.addEventListener('click', () => runStudentPresence().catch(err => alert(err.message || 'Student Presence failed.')));
-    document.getElementById('spFocusTerm')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
+    document.getElementById('spFocusTerm')?.addEventListener('change', () => {
+      updatePresenceCompareTermOptions(dashboardAvailableTerms(state.studentPresenceSourceRows), studentPresenceFocusTerm());
+      runStudentPresence().catch(err => console.warn(err));
+    });
+    document.getElementById('spCompareTerms')?.addEventListener('change', () => { if (state.studentPresenceRan) runStudentPresence().catch(err => console.warn(err)); });
     document.getElementById('spGroup')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('studentPresenceCsv')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('spArchiveTerms')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('spHideOnline')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
+    ['spIncludeDualEnrollment', 'spIncludeOtherModalities', 'spIncludeAllCampuses'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => { if (state.studentPresenceRan) runStudentPresence().catch(err => console.warn(err)); });
+    });
     document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('exportStudentPresence')?.addEventListener('click', () => exportRows(state.studentPresenceRows, `student-presence-${studentPresenceFocusTerm() || 'term'}.csv`));
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);

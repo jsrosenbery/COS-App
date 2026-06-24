@@ -241,16 +241,18 @@
     return hour * 60 + minute;
   }
 
-  function studentPresence(rows) {
-    const physicalRows = (rows || []).filter(isPhysicalPresenceRow);
+  function studentPresence(rows, options = {}) {
+    const physicalRows = (rows || []).filter(row => isPhysicalPresenceRow(row, options));
     const buckets = new Map();
     physicalRows.forEach(row => {
-      const hour = row.start ? `${String(row.start).slice(0, 2)}:00` : 'TBA';
-      (row.days || []).forEach(day => {
-        const key = [row.campus || 'UNKNOWN', day, hour].join('|');
-        const item = buckets.get(key) || presenceBucket({ campus: row.campus || 'UNKNOWN', day, hour });
-        addPresenceRow(item, row);
-        buckets.set(key, item);
+      presenceHalfHourSlots(row).forEach(hour => {
+        (row.days || []).forEach(day => {
+          if (!dayOrder.includes(day)) return;
+          const key = [row.campus || 'UNKNOWN', day, hour].join('|');
+          const item = buckets.get(key) || presenceBucket({ campus: row.campus || 'UNKNOWN', day, hour });
+          addPresenceRow(item, row);
+          buckets.set(key, item);
+        });
       });
     });
     const rowsOut = [...buckets.values()].map(finalizePresenceBucket).sort((a, b) => b.studentsPresent - a.studentsPresent);
@@ -261,24 +263,25 @@
     };
   }
 
-  function studentPresenceReport(rows, groupBy = 'campusDayHour') {
-    const physicalRows = (rows || []).filter(isPhysicalPresenceRow);
+  function studentPresenceReport(rows, groupBy = 'campusDayHour', options = {}) {
+    const physicalRows = (rows || []).filter(row => isPhysicalPresenceRow(row, options));
     const buckets = new Map();
     physicalRows.forEach(row => {
-      const hour = row.start ? `${String(row.start).slice(0, 2)}:00` : 'TBA';
-      (row.days || []).filter(day => dayOrder.includes(day)).forEach(day => {
-        const key = presenceGroupKey(row, groupBy, day, hour);
-        const item = buckets.get(key) || {
-          ...presenceBucket(),
-          group: key,
-          campus: row.campus || 'UNKNOWN',
-          building: row.building || '',
-          room: row.roomOnly || row.room || '',
-          day,
-          hour
-        };
-        addPresenceRow(item, row);
-        buckets.set(key, item);
+      presenceHalfHourSlots(row).forEach(hour => {
+        (row.days || []).filter(day => dayOrder.includes(day)).forEach(day => {
+          const key = presenceGroupKey(row, groupBy, day, hour);
+          const item = buckets.get(key) || {
+            ...presenceBucket(),
+            group: key,
+            campus: row.campus || 'UNKNOWN',
+            building: row.building || '',
+            room: row.roomOnly || row.room || '',
+            day,
+            hour
+          };
+          addPresenceRow(item, row);
+          buckets.set(key, item);
+        });
       });
     });
     const rowsOut = [...buckets.values()].map(finalizePresenceBucket).sort((a, b) => b.studentsPresent - a.studentsPresent);
@@ -303,7 +306,7 @@
   }
 
   function presenceCrn(row) {
-    return String(row?.crn || [row?.term, row?.subject, row?.course, row?.section, row?.instructor].filter(Boolean).join('|') || Math.random()).trim();
+    return String(row?.crn || [row?.term, row?.subject, row?.course, row?.section, row?.instructor, row?.start, row?.end].filter(Boolean).join('|') || Math.random()).trim();
   }
 
   function addPresenceRow(item, row) {
@@ -390,6 +393,24 @@
     return [...map.values()];
   }
 
+  function presenceHalfHourSlots(row) {
+    const start = minutesFromTime(row?.start);
+    const end = minutesFromTime(row?.end);
+    if (start == null || end == null || end <= start) return [];
+    const slots = [];
+    for (let minute = Math.floor(start / 30) * 30; minute < end; minute += 30) {
+      if (minute + 30 <= start) continue;
+      slots.push(formatHalfHour(minute));
+    }
+    return slots;
+  }
+
+  function formatHalfHour(minutes) {
+    const hour = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+
   function distinctCrnCount(rows) {
     const crns = new Set();
     (rows || []).forEach(row => crns.add(presenceCrn(row)));
@@ -400,14 +421,20 @@
     return (rows || []).reduce((total, row) => total + (row.distinctCrns || row.sectionsActive || 0), 0);
   }
 
-  function isPhysicalPresenceRow(row) {
+  function isPhysicalPresenceRow(row, options = {}) {
     const modality = String(row?.modality || '').toUpperCase();
     const campus = String(row?.campus || '').toUpperCase();
     const start = String(row?.start || '').trim();
+    const end = String(row?.end || '').trim();
     const days = row?.days || [];
-    if (modality === 'ONLINE' || modality === 'TBA') return false;
+    const defaultPhysicalCampuses = ['COS', 'TCC', 'TCCB', 'HAC', 'HACE', 'HACEDU', 'VIS', 'VISALIA', 'TUL', 'TULARE', 'HAN', 'HANFORD'];
+    const allowedCampuses = options.physicalCampuses || defaultPhysicalCampuses;
+    if (modality === 'DUAL ENROLLMENT' && !options.includeDualEnrollment) return false;
+    if (!options.includeOtherModalities && !options.includeDualEnrollment && !['IN PERSON', 'HYBRID'].includes(modality)) return false;
+    if (!options.includeOtherModalities && options.includeDualEnrollment && !['IN PERSON', 'HYBRID', 'DUAL ENROLLMENT'].includes(modality)) return false;
+    if (allowedCampuses.length && !allowedCampuses.includes(campus)) return false;
     if (/ONLINE|WEB|VIRTUAL|TBA/.test(campus)) return false;
-    if (!start || start === '00:00') return false;
+    if (!start || !end || start === '00:00' || end === '00:00') return false;
     if (!days.length || days.includes('TBA')) return false;
     return days.some(day => dayOrder.includes(day));
   }

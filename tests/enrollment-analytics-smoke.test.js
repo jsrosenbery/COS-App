@@ -652,9 +652,9 @@ test('student presence analytics excludes online sections', () => {
     section({ modality: 'IN PERSON', census: 30, days: ['TBA'], campus: 'VIS', start: '00:00' })
   ]);
 
-  assert.equal(presence.rows.length, 1);
-  assert.equal(presence.rows[0].studentsPresent, 20);
-  assert.equal(presence.rows[0].campus, 'VIS');
+  assert.equal(presence.rows.length, 3);
+  assert.equal(presence.rows.reduce((sum, row) => sum + row.studentsPresent, 0), 60);
+  assert.equal(presence.rows.every(row => row.campus === 'VIS'), true);
 });
 
 test('detailed student presence report excludes non-physical rows and groups room buckets', () => {
@@ -700,12 +700,35 @@ test('student presence counts one CRN in multiple buckets but only once overall'
     section({ crn: 'MULTI1', campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['WE'], start: '09:00', census: 20, cap: 30 })
   ], 'campusDayHour');
 
-  assert.equal(report.rows.length, 2);
-  assert.equal(report.rows.reduce((sum, row) => sum + row.studentsPresent, 0), 40);
+  assert.equal(report.rows.length, 6);
+  assert.equal(report.rows.reduce((sum, row) => sum + row.studentsPresent, 0), 120);
   assert.equal(report.rows.every(row => row.sectionsActive === 1), true);
   assert.equal(report.metrics.totalSections, 1);
   assert.equal(report.metrics.distinctCrns, 1);
   assert.equal(report.metrics.meetingRowsIncluded, 2);
+});
+
+test('student presence defaults to physical in-person hybrid rows and supports explicit expansion', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const rows = [
+    section({ crn: 'IP1', modality: 'IN PERSON', campus: 'COS', days: ['MO'], start: '09:00', end: '09:30', census: 10 }),
+    section({ crn: 'HY1', modality: 'HYBRID', campus: 'TCC', days: ['MO'], start: '09:00', end: '09:30', census: 20 }),
+    section({ crn: 'DE1', modality: 'DUAL ENROLLMENT', campus: 'COS', days: ['MO'], start: '09:00', end: '09:30', census: 30 }),
+    section({ crn: 'ON1', modality: 'ONLINE', campus: 'COS', days: ['MO'], start: '09:00', end: '09:30', census: 40 }),
+    section({ crn: 'OT1', modality: 'IN PERSON', campus: 'SATELLITE', days: ['MO'], start: '09:00', end: '09:30', census: 50 })
+  ];
+
+  const defaults = COSEnrollmentDashboard.studentPresenceReport(rows, 'hour');
+  assert.equal(defaults.metrics.totalStudents, 30);
+  assert.equal(defaults.metrics.totalSections, 2);
+
+  const withDualEnrollment = COSEnrollmentDashboard.studentPresenceReport(rows, 'hour', { includeDualEnrollment: true });
+  assert.equal(withDualEnrollment.metrics.totalStudents, 60);
+  assert.equal(withDualEnrollment.metrics.totalSections, 3);
+
+  const expanded = COSEnrollmentDashboard.studentPresenceReport(rows, 'hour', { includeDualEnrollment: true, includeOtherModalities: true, physicalCampuses: [] });
+  assert.equal(expanded.metrics.totalStudents, 150);
+  assert.equal(expanded.metrics.totalSections, 5);
 });
 
 test('conflict check flags partial overlaps and deduplicates duplicate meetings', () => {
@@ -755,21 +778,12 @@ test('conflict check omits cross-listed pairs and combines room instructor overl
 
 test('detailed student presence report supports campus and building group metrics', () => {
   const { COSEnrollmentDashboard } = loadEnrollmentModules();
-  const campusReport = COSEnrollmentDashboard.studentPresenceReport([
+  const rows = [
     section({ campus: 'VIS', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '09:00', census: 20, cap: 30 }),
-    section({ campus: 'TCCB', building: 'TCCB', roomOnly: '201', room: 'TCCB 201', days: ['TU'], start: '11:00', census: 40, cap: 50 })
-  ], 'campus');
-  const buildingReport = COSEnrollmentDashboard.studentPresenceReport(campusReport.rows.map(row => ({
-    ...section(),
-    campus: row.campus,
-    building: row.building,
-    roomOnly: row.room,
-    room: row.room,
-    days: [row.day],
-    start: row.hour.replace(':00', ':00'),
-    census: row.studentsPresent,
-    cap: row.seatsScheduled
-  })), 'building');
+    section({ campus: 'TCCB', building: 'TCCB', roomOnly: '201', room: 'TCCB 201', days: ['TU'], start: '11:00', end: '12:15', census: 40, cap: 50 })
+  ];
+  const campusReport = COSEnrollmentDashboard.studentPresenceReport(rows, 'campus');
+  const buildingReport = COSEnrollmentDashboard.studentPresenceReport(rows, 'building');
 
   assert.equal(campusReport.rows.length, 2);
   assert.equal(campusReport.metrics.peakCampus.group, 'TCCB');
@@ -1001,6 +1015,11 @@ test('requested analytics regression coverage is represented in smoke tests', ()
     /snapYear/,
     /function snapshotTerm/,
     /spHideOnline/,
+    /spIncludeDualEnrollment/,
+    /spIncludeOtherModalities/,
+    /spIncludeAllCampuses/,
+    /spCompareTerms/,
+    /function renderStudentPresenceCurve/,
     /distinctCrns/,
     /meetingRowsIncluded/
   ].forEach(pattern => assert.match(text, pattern));
