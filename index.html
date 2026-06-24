@@ -50,9 +50,6 @@
     <label for="viewSelect">View: </label>
     <select id="viewSelect">
       <option value="calendar">Room Availability Grid</option>
-      <option value="heatmap">Heatmap</option>
-      <option value="modality">Modality Balance</option>
-      <option value="linechart">Course Duration Graph</option>
       <option value="fullcalendar">Calendar</option>
     </select>
   </div>
@@ -144,6 +141,13 @@
       </p>
     </div>
     <div id="controls">
+      <label>Heatmap CSV(s):
+        <input id="heatmap-source-csv" type="file" accept=".csv" multiple>
+      </label>
+      <label>Archived Terms:
+        <select id="heatmap-archive-terms" multiple data-placeholder="No archived terms"></select>
+      </label>
+      <button id="heatmap-load-source-btn" type="button">Load Source</button>
       <label>Campus:
         <select id="heatmap-campus-select"></select>
       </label>
@@ -316,6 +320,13 @@
   <div id="modality-tool" style="display:none;">
     <h2>Modality Balance</h2>
     <div id="modality-controls">
+      <label>Modality CSV(s):
+        <input id="modality-source-csv" type="file" accept=".csv" multiple>
+      </label>
+      <label>Archived Terms:
+        <select id="modality-archive-terms" multiple data-placeholder="No archived terms"></select>
+      </label>
+      <button id="modality-load-source-btn" type="button">Load Source</button>
       <label>Decision Term:
         <select id="modality-decision-term"></select>
       </label>
@@ -401,6 +412,13 @@
       </p>
     </div>
     <div id="linechart-controls">
+      <label>Duration CSV(s):
+        <input id="linechart-source-csv" type="file" accept=".csv" multiple>
+      </label>
+      <label>Archived Terms:
+        <select id="linechart-archive-terms" multiple data-placeholder="No archived terms"></select>
+      </label>
+      <button id="linechart-load-source-btn" type="button">Load Source</button>
       <label>Campus:
         <select id="linechart-campus-select"></select>
       </label>

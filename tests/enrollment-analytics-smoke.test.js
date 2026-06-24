@@ -1027,6 +1027,55 @@ test('archive inspection exposes parsed archived schedule validation', () => {
   assert.match(text, /exportArchiveInspection/);
 });
 
+test('TIMBER report organization moves analytics tools into enrollment management', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+  const selectorBlock = text.slice(text.indexOf('<select id="emReportSelect">'), text.indexOf('</select>', text.indexOf('<select id="emReportSelect">')));
+
+  [
+    'Archived Schedule Inspector',
+    'Conflict Check Report',
+    'Course Duration / Concurrent Courses',
+    'Enrollment Analytics Dashboard',
+    'Enrollment Attrition / Lifecycle',
+    'Enrollment Demand Forecast',
+    'Enrollment Snapshot Manager',
+    'Heatmap Analytics',
+    'Instructor Availability - Planning View',
+    'Modality Balance',
+    'Room Fit Analysis',
+    'Room Utilization Map',
+    'Section Consolidation Opportunities',
+    'Student Presence Analytics',
+    'Work Experience Enrollment'
+  ].reduce((lastIndex, label) => {
+    const indexOfLabel = selectorBlock.indexOf(label);
+    assert.ok(indexOfLabel > lastIndex, `${label} should appear in sorted EM report order`);
+    return indexOfLabel;
+  }, -1);
+
+  assert.doesNotMatch(index, /<option value="heatmap">/);
+  assert.doesNotMatch(index, /<option value="modality">/);
+  assert.doesNotMatch(index, /<option value="linechart">/);
+  assert.match(text, /document\.getElementById\('analyticsReports'\)\.appendChild\(tool\)/);
+  assert.match(text, /roomFitReport/);
+  assert.match(index, /heatmap-archive-terms/);
+  assert.match(index, /modality-archive-terms/);
+  assert.match(index, /linechart-archive-terms/);
+  assert.match(text, /roomFitArchiveTerms/);
+  assert.match(app, /renderRoomFitReport/);
+  assert.match(app, /Underutilized Room/);
+  assert.match(app, /Over Capacity Risk/);
+  assert.match(app, /Enrollment Exceeds Room Capacity/);
+  assert.match(app, /requestPassword/);
+  assert.doesNotMatch(app, /prompt\(/);
+  assert.doesNotMatch(text, /prompt\(/);
+  assert.match(text, /type="password"/);
+  assert.match(css, /password-eye/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
@@ -1110,9 +1159,9 @@ test('requested analytics regression coverage is represented in smoke tests', ()
     /code === 'DE'/,
     /modality-include-de/,
     /calculateRoomFitFlags/,
-    /Under-utilized room assignment/,
-    /Over-capacity risk/,
-    /Enrollment over room capacity/
+    /Underutilized Room/,
+    /Over Capacity Risk/,
+    /Enrollment Exceeds Room Capacity/
   ].forEach(pattern => assert.match(app, pattern));
 });
 
@@ -1127,9 +1176,9 @@ test('room utilization includes room capacity fit flags', () => {
   assert.match(index, /Census\/Current Enrollment/);
   assert.match(index, /Fit Ratio/);
   assert.match(app, /calculateRoomFitFlags/);
-  assert.match(app, /Under-utilized room assignment/);
-  assert.match(app, /Over-capacity risk/);
-  assert.match(app, /Enrollment over room capacity/);
+  assert.match(app, /Underutilized Room/);
+  assert.match(app, /Over Capacity Risk/);
+  assert.match(app, /Enrollment Exceeds Room Capacity/);
   assert.match(app, /room-capacity-fit-flags\.csv/);
   assert.match(css, /\.room-fit-table/);
 });

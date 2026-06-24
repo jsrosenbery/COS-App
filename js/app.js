@@ -707,6 +707,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let snapshotRoomFilter = null;
   let calendarRoomFilter = null;
   let modalityArchiveRows = [];
+  let modalityUploadRows = [];
+  let scheduleAnalysisRows = null;
+  let roomFitReportRows = null;
 
   initHeatmap();
   initLineChartChoices();
@@ -717,13 +720,26 @@ document.addEventListener('DOMContentLoaded', () => {
   loadRoomCatalogFromBackend();
   loadModalityDefinitionsFromBackend();
   loadModalityArchiveRowsFromBackend();
+  refreshAnalysisArchiveSelectors();
   loadCalGetcMappingFromBackend();
   loadCurriculumCrosswalkFromBackend();
 
   window.COSScheduleApp = {
     getCurrentData: () => currentData,
     getCurrentTerm: () => currentTerm,
-    renderUtilizationMap: () => renderUtilizationMap()
+    renderUtilizationMap: () => renderUtilizationMap(),
+    renderHeatmapAnalytics: () => {
+      feedHeatmapTool(getScheduleAnalysisRows());
+      updateAllHeatmap();
+    },
+    renderDurationAnalytics: () => {
+      feedHeatmapTool(getScheduleAnalysisRows());
+      renderLineChart();
+    },
+    renderModalityBalance: () => renderModalityTool(),
+    renderRoomFitReport: () => renderRoomFitReport().catch(err => alert(err.message || 'Room Fit Analysis failed.')),
+    renderRoomFitReportTable: () => renderRoomFitReportTable(),
+    exportRoomFitReport: () => exportRoomFitReport()
   };
 
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
@@ -752,6 +768,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (modalityLevelSelect) modalityLevelSelect.addEventListener('change', renderModalityTool);
   if (modalityCalGetcSelect) modalityCalGetcSelect.addEventListener('change', renderModalityTool);
   if (modalityIncludeDe) modalityIncludeDe.addEventListener('change', renderModalityTool);
+  document.getElementById('heatmap-load-source-btn')?.addEventListener('click', () => loadScheduleAnalysisSource('heatmap').catch(err => alert(err.message || 'Heatmap source load failed.')));
+  document.getElementById('linechart-load-source-btn')?.addEventListener('click', () => loadScheduleAnalysisSource('linechart').catch(err => alert(err.message || 'Duration source load failed.')));
+  document.getElementById('modality-load-source-btn')?.addEventListener('click', () => loadModalitySelectedSource().catch(err => alert(err.message || 'Modality source load failed.')));
   if (utilizationClearBtn) {
     utilizationClearBtn.onclick = () => {
       if (utilizationCampusSelect) utilizationCampusSelect.value = '';
@@ -1123,37 +1142,78 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
   }
 
-  function getRoomCatalogPassword(action) {
-    const password = prompt(`Enter upload password to ${action} room catalog:`);
+  function requestPassword(message, cancelMessage = 'Password action cancelled.') {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'password-dialog-backdrop';
+      overlay.innerHTML = `
+        <form class="password-dialog">
+          <label>${escapeHTML(message)}
+            <span class="password-input-wrap">
+              <input type="password" autocomplete="current-password" required>
+              <button type="button" class="password-eye" aria-label="Show password">Show</button>
+            </span>
+          </label>
+          <div class="password-dialog-actions">
+            <button type="submit">Submit</button>
+            <button type="button" data-cancel>Cancel</button>
+          </div>
+        </form>`;
+      const input = overlay.querySelector('input');
+      const eye = overlay.querySelector('.password-eye');
+      const close = value => {
+        overlay.remove();
+        resolve(value);
+      };
+      eye.addEventListener('click', () => {
+        const showing = input.type === 'text';
+        input.type = showing ? 'password' : 'text';
+        eye.textContent = showing ? 'Show' : 'Hide';
+        eye.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+      });
+      overlay.querySelector('form').addEventListener('submit', event => {
+        event.preventDefault();
+        close(input.value);
+      });
+      overlay.querySelector('[data-cancel]').addEventListener('click', () => close(null));
+      document.body.appendChild(overlay);
+      input.focus();
+    }).then(password => {
+      if (!password) {
+        alert(cancelMessage);
+        return null;
+      }
+      return password;
+    });
+  }
+
+  async function getRoomCatalogPassword(action) {
+    const password = await requestPassword(`Enter upload password to ${action} room catalog:`, 'Room catalog action cancelled.');
     if (!password) {
-      alert('Room catalog action cancelled.');
       return null;
     }
     return password;
   }
 
-  function getModalityImportPassword() {
-    const password = prompt('Enter upload password to import modality definitions:');
+  async function getModalityImportPassword() {
+    const password = await requestPassword('Enter upload password to import modality definitions:', 'Modality import cancelled.');
     if (!password) {
-      alert('Modality import cancelled.');
       return null;
     }
     return password;
   }
 
-  function getCalGetcImportPassword() {
-    const password = prompt('Enter upload password to import CAL-GETC mapping:');
+  async function getCalGetcImportPassword() {
+    const password = await requestPassword('Enter upload password to import CAL-GETC mapping:', 'CAL-GETC import cancelled.');
     if (!password) {
-      alert('CAL-GETC import cancelled.');
       return null;
     }
     return password;
   }
 
-  function getCurriculumCrosswalkImportPassword() {
-    const password = prompt('Enter upload password to import CCN/Curriculum crosswalk:');
+  async function getCurriculumCrosswalkImportPassword() {
+    const password = await requestPassword('Enter upload password to import CCN/Curriculum crosswalk:', 'Curriculum crosswalk import cancelled.');
     if (!password) {
-      alert('Curriculum crosswalk import cancelled.');
       return null;
     }
     return password;
@@ -1216,8 +1276,97 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     URL.revokeObjectURL(url);
   }
 
-  function exportRoomCatalog(format = 'csv') {
-    const password = getRoomCatalogPassword('export');
+  function selectedOptions(select) {
+    return Array.from(select?.selectedOptions || []).map(option => option.value).filter(Boolean);
+  }
+
+  function readCsvFiles(input) {
+    const files = Array.from(input?.files || []);
+    if (!files.length) return Promise.resolve([]);
+    return Promise.all(files.map(file => new Promise((resolve, reject) => {
+      const sourceTerm = termFromFilename(file.name);
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: result => resolve((result.data || []).map(row => ({ ...row, __sourceTerm: sourceTerm }))),
+        error: reject
+      });
+    }))).then(batches => batches.flat());
+  }
+
+  function termFromFilename(filename = '') {
+    const text = String(filename || '').toUpperCase();
+    const code = text.match(/\b(20\d{4})\b/)?.[1];
+    if (code) {
+      const year = Number(code.slice(0, 4));
+      const suffix = code.slice(4);
+      if (suffix === '10') return `FALL ${year - 1}`;
+      if (suffix === '20') return `SPRING ${year}`;
+      if (suffix === '30') return `SUMMER ${year}`;
+    }
+    const named = text.match(/\b(FALL|SPRING|SUMMER)\b\D*(20\d{2})/) || text.match(/\b(20\d{2})\D*(FALL|SPRING|SUMMER)\b/);
+    if (named) {
+      const season = /\d/.test(named[1]) ? named[2] : named[1];
+      const year = /\d/.test(named[1]) ? named[1] : named[2];
+      return `${season} ${year}`;
+    }
+    return '';
+  }
+
+  async function fetchArchivedScheduleRows(terms) {
+    if (!terms.length) return [];
+    const batches = await Promise.all(terms.map(async term => {
+      const response = await fetch(`${BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`Could not load archived term ${term}: ${payload.error || payload.message || response.statusText}`);
+      return (payload.data || []).map(row => ({ ...row, __sourceTerm: payload.term || term }));
+    }));
+    return batches.flat();
+  }
+
+  async function refreshAnalysisArchiveSelectors() {
+    if (!BACKEND_BASE_URL) return;
+    try {
+      const payload = await fetch(`${BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
+      const terms = (payload.data || []).map(item => item.term).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      ['heatmap-archive-terms', 'linechart-archive-terms', 'modality-archive-terms'].forEach(id => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        const selected = new Set(selectedOptions(select));
+        select.replaceChildren();
+        terms.forEach(term => select.appendChild(new Option(term, term, false, selected.has(term))));
+      });
+    } catch (err) {
+      console.warn('Analysis archive selectors skipped:', err);
+    }
+  }
+
+  function getScheduleAnalysisRows() {
+    return scheduleAnalysisRows?.length ? scheduleAnalysisRows : currentData;
+  }
+
+  async function loadScheduleAnalysisSource(prefix) {
+    const uploadRows = await readCsvFiles(document.getElementById(`${prefix}-source-csv`));
+    const archivedRows = await fetchArchivedScheduleRows(selectedOptions(document.getElementById(`${prefix}-archive-terms`)));
+    const rows = [...uploadRows, ...archivedRows].map(normalizeRow);
+    scheduleAnalysisRows = rows.length ? rows : null;
+    feedHeatmapTool(getScheduleAnalysisRows());
+    if (prefix === 'linechart') renderLineChart();
+    else updateAllHeatmap();
+    return getScheduleAnalysisRows();
+  }
+
+  async function loadModalitySelectedSource() {
+    const uploaded = await readCsvFiles(document.getElementById('modality-source-csv'));
+    const archived = await fetchArchivedScheduleRows(selectedOptions(document.getElementById('modality-archive-terms')));
+    modalityUploadRows = [...uploaded, ...archived].map(normalizeRow);
+    initModalityFilters();
+    renderModalityTool();
+    return modalityUploadRows;
+  }
+
+  async function exportRoomCatalog(format = 'csv') {
+    const password = await getRoomCatalogPassword('export');
     if (!password) return;
     fetch(`${BACKEND_BASE_URL}/api/rooms/export`, {
       method: 'POST',
@@ -1343,7 +1492,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   async function importModalityDefinitions(file) {
-    const password = getModalityImportPassword();
+    const password = await getModalityImportPassword();
     if (!password) return;
     try {
       const parsedDefinitions = await parseModalityDefinitionsFile(file);
@@ -1400,7 +1549,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function refreshCalGetcViews(lastUpdated = null) {
     refreshCalGetcFilterControls();
-    feedHeatmapTool(currentData);
+    feedHeatmapTool(getScheduleAnalysisRows());
     initModalityFilters();
     if (document.getElementById('viewSelect').value === 'modality') {
       renderModalityTool();
@@ -1494,7 +1643,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   async function importCalGetcMapping(file) {
-    const password = getCalGetcImportPassword();
+    const password = await getCalGetcImportPassword();
     if (!password) return;
     try {
       const parsedMapping = await parseCalGetcMappingFile(file);
@@ -1635,7 +1784,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   async function importCurriculumCrosswalk(file) {
-    const password = getCurriculumCrosswalkImportPassword();
+    const password = await getCurriculumCrosswalkImportPassword();
     if (!password) return;
     try {
       const parsedCrosswalk = await parseCurriculumCrosswalkFile(file);
@@ -1687,7 +1836,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   async function importRoomCatalog(file) {
-    const password = getRoomCatalogPassword('import');
+    const password = await getRoomCatalogPassword('import');
     if (!password) return;
     try {
       const parsedRooms = await parseRoomCatalogFile(file);
@@ -1722,7 +1871,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
         buildRoomDropdowns();
         renderSchedule();
-        feedHeatmapTool(currentData);
+        feedHeatmapTool(getScheduleAnalysisRows());
         initUtilizationFilters();
         initModalityFilters();
         if (isUtilizationViewActive()) {
@@ -1775,10 +1924,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     input.accept = '.csv';
     label.appendChild(input);
     uploadDiv.appendChild(label);
-    input.onchange = e => {
-      const password = prompt('Enter upload password:');
+    input.onchange = async e => {
+      const password = await requestPassword('Enter upload password:', 'Upload cancelled.');
       if (!password) {
-        alert('Upload cancelled.');
         e.target.value = '';
         return;
       }
@@ -2188,9 +2336,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function calculateRoomFitFlags(options = {}) {
     const threshold = Number(options.threshold || 0.7);
+    const sourceRows = options.rows || currentData;
     const seen = new Set();
-    return currentData.reduce((rows, section, index) => {
+    return sourceRows.reduce((rows, section, index) => {
       if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return rows;
+      const modality = getModalityCategory(getInstructionalMethod(section));
+      if (['ONLINE', 'WORK EXPERIENCE'].includes(String(modality || '').toUpperCase())) return rows;
       const key = getRoomKey(section);
       if (String(key || '').toUpperCase().startsWith('VISFSC-')) return rows;
       const roomMeta = roomCatalogByKey.get(key);
@@ -2209,15 +2360,15 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const flags = [];
       const recommendations = [];
       if (sectionCapacity != null && sectionCapacity > roomCapacity) {
-        flags.push('Over-capacity risk');
+        flags.push('Over Capacity Risk');
         recommendations.push('Review room assignment or reduce section cap below room capacity.');
       }
       if (enrollment != null && enrollment > roomCapacity) {
-        flags.push('Enrollment over room capacity');
+        flags.push('Enrollment Exceeds Room Capacity');
         recommendations.push('Move section to a larger room or resolve enrollment/room-capacity mismatch.');
       }
       if (fitRatio < threshold) {
-        flags.push('Under-utilized room assignment');
+        flags.push('Underutilized Room');
         recommendations.push('Consider a smaller room or reserve this larger room for higher-capacity demand.');
       }
       if (!flags.length) return rows;
@@ -2227,6 +2378,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         course: getSectionCourseLabel(section),
         section: getSectionNumber(section),
         campus: section.Campus || extractField(section, ['Campus', 'CAMPUS']),
+        division: getDivision(section),
+        subject: getCourseParts(section).discipline,
         building: section.Building || section.BUILDING || roomMeta?.building || '',
         room: section.Room || section.ROOM || roomMeta?.room || '',
         roomCapacity,
@@ -2263,9 +2416,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     roomFitSummary.replaceChildren();
     [
       `Fit flags: ${rows.length}`,
-      `Under-utilized: ${counts['Under-utilized room assignment'] || 0}`,
-      `Over-capacity risk: ${counts['Over-capacity risk'] || 0}`,
-      `Enrollment over room capacity: ${counts['Enrollment over room capacity'] || 0}`
+      `Underutilized Room: ${counts['Underutilized Room'] || 0}`,
+      `Over Capacity Risk: ${counts['Over Capacity Risk'] || 0}`,
+      `Enrollment Exceeds Room Capacity: ${counts['Enrollment Exceeds Room Capacity'] || 0}`
     ].forEach(text => {
       const pill = document.createElement('div');
       pill.className = 'utilization-pill';
@@ -2334,6 +2487,128 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         Recommendation: row.recommendation
       }));
     downloadTextFile('room-capacity-fit-flags.csv', Papa.unparse(rows), 'text/csv;charset=utf-8');
+  }
+
+  async function getRoomFitReportSourceRows() {
+    const uploaded = await readCsvFiles(document.getElementById('roomFitCsv'));
+    const archived = await fetchArchivedScheduleRows(selectedOptions(document.getElementById('roomFitArchiveTerms')));
+    const rows = [...uploaded, ...archived].map(normalizeRow);
+    roomFitReportRows = rows.length ? rows : currentData;
+    return roomFitReportRows;
+  }
+
+  function setSimpleSelectOptions(id, values, allLabel = 'All') {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const prior = select.value;
+    select.replaceChildren(new Option(allLabel, ''));
+    [...new Set((values || []).filter(Boolean))]
+      .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }))
+      .forEach(value => select.appendChild(new Option(value, value, false, value === prior)));
+    if ([...select.options].some(option => option.value === prior)) select.value = prior;
+  }
+
+  function roomFitFilteredRows() {
+    const rows = calculateRoomFitFlags({ rows: roomFitReportRows || currentData });
+    const selected = {
+      term: document.getElementById('roomFitTerm')?.value || '',
+      campus: document.getElementById('roomFitCampus')?.value || '',
+      building: document.getElementById('roomFitBuilding')?.value || '',
+      room: document.getElementById('roomFitRoom')?.value || '',
+      division: document.getElementById('roomFitDivision')?.value || '',
+      subject: document.getElementById('roomFitSubject')?.value || '',
+      course: document.getElementById('roomFitCourse')?.value || '',
+      flag: document.getElementById('roomFitFlag')?.value || ''
+    };
+    return rows.filter(row => {
+      if (selected.term && row.term !== selected.term) return false;
+      if (selected.campus && row.campus !== selected.campus) return false;
+      if (selected.building && row.building !== selected.building) return false;
+      if (selected.room && row.room !== selected.room) return false;
+      if (selected.division && row.division !== selected.division) return false;
+      if (selected.subject && row.subject !== selected.subject) return false;
+      if (selected.course && row.course !== selected.course) return false;
+      if (selected.flag && !row.flag.split('; ').includes(selected.flag)) return false;
+      return true;
+    });
+  }
+
+  function populateRoomFitReportFilters() {
+    const rows = calculateRoomFitFlags({ rows: roomFitReportRows || currentData });
+    setSimpleSelectOptions('roomFitTerm', rows.map(row => row.term));
+    setSimpleSelectOptions('roomFitCampus', rows.map(row => row.campus));
+    setSimpleSelectOptions('roomFitBuilding', rows.map(row => row.building));
+    setSimpleSelectOptions('roomFitRoom', rows.map(row => row.room));
+    setSimpleSelectOptions('roomFitDivision', rows.map(row => row.division));
+    setSimpleSelectOptions('roomFitSubject', rows.map(row => row.subject));
+    setSimpleSelectOptions('roomFitCourse', rows.map(row => row.course));
+  }
+
+  async function renderRoomFitReport() {
+    await getRoomFitReportSourceRows();
+    populateRoomFitReportFilters();
+    renderRoomFitReportTable();
+  }
+
+  function renderRoomFitReportTable() {
+    const metricsNode = document.getElementById('roomFitReportMetrics');
+    const tableNode = document.getElementById('roomFitReportTable');
+    if (!metricsNode || !tableNode) return;
+    const rows = roomFitFilteredRows();
+    const countFlag = flag => rows.filter(row => row.flag.split('; ').includes(flag)).length;
+    const cards = [
+      ['All', rows.length, ''],
+      ['Underutilized Room', countFlag('Underutilized Room'), 'Underutilized Room'],
+      ['Over Capacity Risk', countFlag('Over Capacity Risk'), 'Over Capacity Risk'],
+      ['Enrollment Exceeds Room Capacity', countFlag('Enrollment Exceeds Room Capacity'), 'Enrollment Exceeds Room Capacity']
+    ];
+    const selectedFlag = document.getElementById('roomFitFlag')?.value || '';
+    metricsNode.innerHTML = cards.map(([label, value, flag]) => `<button type="button" class="room-fit-card${selectedFlag === flag ? ' is-active' : ''}" data-room-fit-flag="${escapeHTML(flag)}"><strong>${value}</strong><span>${escapeHTML(label)}</span></button>`).join('');
+    metricsNode.querySelectorAll('[data-room-fit-flag]').forEach(button => {
+      button.addEventListener('click', () => {
+        const flagSelect = document.getElementById('roomFitFlag');
+        if (flagSelect) flagSelect.value = button.dataset.roomFitFlag || '';
+        renderRoomFitReportTable();
+      });
+    });
+    const headers = ['Term', 'CRN', 'Course', 'Section', 'Campus', 'Building', 'Room', 'Room Capacity', 'Section Capacity', 'Census/Current Enrollment', 'Fit Ratio', 'Flag', 'Recommendation'];
+    const body = rows.map(row => `<tr>${[
+      row.term,
+      row.crn,
+      row.course,
+      row.section,
+      row.campus,
+      row.building,
+      row.room,
+      row.roomCapacity,
+      row.sectionCapacity,
+      row.enrollment,
+      `${Math.round(row.fitRatio * 100)}%`,
+      row.flag,
+      row.recommendation
+    ].map(value => `<td>${escapeHTML(value ?? '')}</td>`).join('')}</tr>`).join('');
+    tableNode.innerHTML = rows.length
+      ? `<table><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`
+      : '<p class="analytics-empty">No room fit flags match the selected filters.</p>';
+  }
+
+  function exportRoomFitReport() {
+    const rows = roomFitFilteredRows().map(row => ({
+      Term: row.term,
+      CRN: row.crn,
+      Course: row.course,
+      Section: row.section,
+      Campus: row.campus,
+      Building: row.building,
+      Room: row.room,
+      'Room Capacity': row.roomCapacity,
+      'Section Capacity': row.sectionCapacity,
+      'Census/Current Enrollment': row.enrollment,
+      'Fit Ratio': `${Math.round(row.fitRatio * 100)}%`,
+      Flag: row.flag,
+      Recommendation: row.recommendation
+    }));
+    downloadTextFile('room-fit-analysis.csv', Papa.unparse(rows), 'text/csv;charset=utf-8');
   }
 
   function renderUtilizationMap() {
@@ -2459,7 +2734,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function getModalitySourceRows() {
-    return [...currentData, ...modalityArchiveRows];
+    return [...currentData, ...modalityArchiveRows, ...modalityUploadRows];
   }
 
   function normalizeTermLabel(value) {

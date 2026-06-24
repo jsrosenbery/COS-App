@@ -5,8 +5,13 @@
     dashboard: 'enrollment-dashboard',
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation',
+    duration: 'course-duration-concurrent',
     demand: 'enrollment-demand-forecast',
+    heatmap: 'heatmap-analytics',
     utilization: 'room-utilization',
+    modality: 'modality-balance',
+    roomFit: 'room-fit-analysis',
+    workExperience: 'work-experience-enrollment',
     studentPresence: 'student-presence-analytics',
     instructorAvailability: 'instructor-availability',
     conflictCheck: 'conflict-check',
@@ -772,20 +777,37 @@
         <div id="emAccessPanel" class="em-access-panel">
           <button id="unlockEnrollmentManagement" type="button" class="em-unlock">Enrollment Management</button>
           <span class="em-access-note">Decision-support summaries are hidden until opened.</span>
+          <form id="emPasswordPanel" class="em-password-panel" hidden>
+            <label>Enrollment Management Password
+              <span class="password-input-wrap">
+                <input id="emPasswordInput" type="password" autocomplete="current-password">
+                <button id="emPasswordToggle" type="button" class="password-eye" aria-label="Show password">Show</button>
+              </span>
+            </label>
+            <div class="em-password-actions">
+              <button type="submit">Unlock</button>
+              <button id="emPasswordCancel" type="button">Cancel</button>
+            </div>
+          </form>
         </div>
         <div id="emReportControls" class="em-report-controls" hidden>
           <label for="emReportSelect">Enrollment Management Report:</label>
           <select id="emReportSelect">
-            <option value="${REPORTS.dashboard}">Enrollment Analytics Dashboard</option>
-            <option value="${REPORTS.demand}">Enrollment Demand Forecast</option>
-            <option value="${REPORTS.attrition}">Enrollment Attrition / Lifecycle</option>
-            <option value="${REPORTS.consolidation}">Section Consolidation Opportunities</option>
-            <option value="${REPORTS.utilization}">Room Utilization Map</option>
+            <option value="${REPORTS.archiveInspection}">Archived Schedule Inspector</option>
             <option value="${REPORTS.conflictCheck}">Conflict Check Report</option>
-            <option value="${REPORTS.archiveInspection}">Archive Inspection</option>
-            <option value="${REPORTS.studentPresence}">Student Presence Analytics</option>
-            <option value="${REPORTS.instructorAvailability}">Instructor Availability - Planning View</option>
+            <option value="${REPORTS.duration}">Course Duration / Concurrent Courses</option>
+            <option value="${REPORTS.dashboard}">Enrollment Analytics Dashboard</option>
+            <option value="${REPORTS.attrition}">Enrollment Attrition / Lifecycle</option>
+            <option value="${REPORTS.demand}">Enrollment Demand Forecast</option>
             <option value="${REPORTS.snapshotManager}">Enrollment Snapshot Manager</option>
+            <option value="${REPORTS.heatmap}">Heatmap Analytics</option>
+            <option value="${REPORTS.instructorAvailability}">Instructor Availability - Planning View</option>
+            <option value="${REPORTS.modality}">Modality Balance</option>
+            <option value="${REPORTS.roomFit}">Room Fit Analysis</option>
+            <option value="${REPORTS.utilization}">Room Utilization Map</option>
+            <option value="${REPORTS.consolidation}">Section Consolidation Opportunities</option>
+            <option value="${REPORTS.studentPresence}">Student Presence Analytics</option>
+            <option value="${REPORTS.workExperience}">Work Experience Enrollment</option>
           </select>
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
           <span class="em-workbench-note">Dashboard and factual reports support dean/division review. Scenario modeling and schedule simulation are future Enrollment Management Workbench tools.</span>
@@ -992,6 +1014,48 @@
           <div id="archiveInspectionMetrics" class="analytics-metrics"></div>
           <div id="archiveInspectionSummary" class="dashboard-grid"></div>
           <div id="archiveInspectionSamples" class="analytics-table"></div>
+        </div>
+        <div id="roomFitReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Room Fit Analysis</h2>
+            <p>Flags section-to-room capacity mismatches so oversized room assignments, room-cap risks, and enrollment-over-cap issues can be reviewed separately from utilization scoring.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Upload a Section Seating CSV or select archived terms, then choose the term and filters to review.</li>
+                  <li>Click a flag card to filter the table to that flag. Export CSV respects the active filters.</li>
+                  <li>Work Experience, online, TBA, and no-room rows are excluded because they do not represent physical room assignments.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Underutilized Room flags when section capacity or enrollment uses less than 70% of room capacity.</li>
+                  <li>Over Capacity Risk flags when section capacity exceeds room capacity.</li>
+                  <li>Enrollment Exceeds Room Capacity flags when census/current enrollment exceeds room capacity.</li>
+                  <li>Fit Ratio = max(section capacity, census/current enrollment) / room capacity.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Room Fit CSV(s) <input id="roomFitCsv" type="file" accept=".csv" multiple></label>
+            <label>Archived terms <select id="roomFitArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
+            <label>Term <select id="roomFitTerm"></select></label>
+            <label>Campus <select id="roomFitCampus"></select></label>
+            <label>Building <select id="roomFitBuilding"></select></label>
+            <label>Room <select id="roomFitRoom"></select></label>
+            <label>Division <select id="roomFitDivision"></select></label>
+            <label>Discipline <select id="roomFitSubject"></select></label>
+            <label>Course <select id="roomFitCourse"></select></label>
+            <label>Flag <select id="roomFitFlag"><option value="">All</option><option>Underutilized Room</option><option>Over Capacity Risk</option><option>Enrollment Exceeds Room Capacity</option></select></label>
+            <button id="runRoomFit" type="button">Run</button>
+            <button id="clearRoomFit" type="button">Clear</button>
+            <button id="exportRoomFitReport" type="button">Export CSV</button>
+          </div>
+          <div id="roomFitReportMetrics" class="analytics-metrics"></div>
+          <div id="roomFitReportTable" class="analytics-table"></div>
         </div>
         <div id="studentPresenceReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -1277,10 +1341,22 @@
       </section>`);
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) {
+      utilizationTool.querySelector('.room-fit-section')?.remove();
       utilizationTool.classList.add('analytics-view');
       utilizationTool.style.display = 'none';
       document.getElementById('analyticsReports').appendChild(utilizationTool);
     }
+    [
+      ['heatmap-tool', 'analytics-view'],
+      ['modality-tool', 'analytics-view'],
+      ['linechart-tool', 'analytics-view']
+    ].forEach(([id, className]) => {
+      const tool = document.getElementById(id);
+      if (!tool) return;
+      tool.classList.add(className);
+      tool.style.display = 'none';
+      document.getElementById('analyticsReports').appendChild(tool);
+    });
   }
 
   function filters(prefix, options = {}) {
@@ -1628,6 +1704,7 @@
       setSelectOptions('demArchiveTerms', options);
       setSelectOptions('spArchiveTerms', options);
       setSelectOptions('conflictArchiveTerms', options);
+      setSelectOptions('roomFitArchiveTerms', options);
       setArchiveInspectionTermOptions();
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
@@ -5081,8 +5158,19 @@
       alert('Backend is not configured, so Enrollment Management cannot be opened.');
       return;
     }
-    const password = prompt('Enter Enrollment Management password:');
-    if (password == null) return;
+    const panel = document.getElementById('emPasswordPanel');
+    const input = document.getElementById('emPasswordInput');
+    if (panel?.hidden) {
+      panel.hidden = false;
+      input?.focus();
+      return;
+    }
+    const password = input?.value || '';
+    if (!password) {
+      alert('Enter the Enrollment Management password.');
+      input?.focus();
+      return;
+    }
     const response = await fetch(`${window.BACKEND_BASE_URL}/api/auth/enrollment-management`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -5095,6 +5183,8 @@
     const payload = await response.json();
     sessionStorage.setItem('cos-em-token', payload.token || '');
     sessionStorage.setItem('cos-em-token-expires-at', String(Date.parse(payload.expiresAt || '') || Date.now()));
+    if (input) input.value = '';
+    if (panel) panel.hidden = true;
     updateVisibility();
   }
 
@@ -5105,7 +5195,7 @@
     const unlocked = isEnrollmentManagementUnlocked();
     wrap.style.display = 'block';
     document.getElementById('emReportControls').hidden = !unlocked;
-    document.getElementById('workExperienceUploadPanel').hidden = !unlocked;
+    document.getElementById('workExperienceUploadPanel').hidden = !unlocked || selected !== REPORTS.workExperience;
     document.getElementById('unlockEnrollmentManagement').hidden = unlocked;
     const note = document.querySelector('.em-access-note');
     if (note) note.textContent = unlocked ? 'Decision-support reports are open for this browser session.' : 'Decision-support summaries are hidden until opened.';
@@ -5115,11 +5205,18 @@
     document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
     document.getElementById('conflictCheckReport').style.display = unlocked && selected === REPORTS.conflictCheck ? 'block' : 'none';
     document.getElementById('archiveInspectionReport').style.display = unlocked && selected === REPORTS.archiveInspection ? 'block' : 'none';
+    document.getElementById('roomFitReport').style.display = unlocked && selected === REPORTS.roomFit ? 'block' : 'none';
     document.getElementById('snapshotManagerReport').style.display = unlocked && selected === REPORTS.snapshotManager ? 'block' : 'none';
     document.getElementById('studentPresenceReport').style.display = unlocked && selected === REPORTS.studentPresence ? 'block' : 'none';
     document.getElementById('instructorAvailabilityReport').style.display = unlocked && selected === REPORTS.instructorAvailability ? 'block' : 'none';
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = unlocked && selected === REPORTS.utilization ? 'block' : 'none';
+    const heatmapTool = document.getElementById('heatmap-tool');
+    if (heatmapTool) heatmapTool.style.display = unlocked && selected === REPORTS.heatmap ? 'block' : 'none';
+    const modalityTool = document.getElementById('modality-tool');
+    if (modalityTool) modalityTool.style.display = unlocked && selected === REPORTS.modality ? 'block' : 'none';
+    const linechartTool = document.getElementById('linechart-tool');
+    if (linechartTool) linechartTool.style.display = unlocked && selected === REPORTS.duration ? 'block' : 'none';
     if (!unlocked) return;
     if (selected === REPORTS.dashboard) {
       runDashboard();
@@ -5162,6 +5259,18 @@
     }
     if (selected === REPORTS.utilization) {
       window.COSScheduleApp?.renderUtilizationMap?.();
+    }
+    if (selected === REPORTS.heatmap) {
+      window.COSScheduleApp?.renderHeatmapAnalytics?.();
+    }
+    if (selected === REPORTS.modality) {
+      window.COSScheduleApp?.renderModalityBalance?.();
+    }
+    if (selected === REPORTS.duration) {
+      window.COSScheduleApp?.renderDurationAnalytics?.();
+    }
+    if (selected === REPORTS.roomFit) {
+      window.COSScheduleApp?.renderRoomFitReport?.();
     }
     if (selected === REPORTS.studentPresence) {
       runStudentPresence().catch(err => console.warn('Student Presence failed:', err));
@@ -5305,6 +5414,25 @@
     document.getElementById('viewSelect')?.addEventListener('change', updateVisibility);
     document.getElementById('emReportSelect')?.addEventListener('change', updateVisibility);
     document.getElementById('unlockEnrollmentManagement')?.addEventListener('click', unlockEnrollmentManagement);
+    document.getElementById('emPasswordPanel')?.addEventListener('submit', event => {
+      event.preventDefault();
+      unlockEnrollmentManagement();
+    });
+    document.getElementById('emPasswordToggle')?.addEventListener('click', () => {
+      const input = document.getElementById('emPasswordInput');
+      const toggle = document.getElementById('emPasswordToggle');
+      if (!input || !toggle) return;
+      const showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      toggle.textContent = showing ? 'Show' : 'Hide';
+      toggle.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+    });
+    document.getElementById('emPasswordCancel')?.addEventListener('click', () => {
+      const panel = document.getElementById('emPasswordPanel');
+      const input = document.getElementById('emPasswordInput');
+      if (input) input.value = '';
+      if (panel) panel.hidden = true;
+    });
     document.getElementById('termSelect')?.addEventListener('change', () => {
       if (!isEnrollmentManagementUnlocked()) return;
       if (selectedEnrollmentReport() === REPORTS.dashboard) runDashboard();
@@ -5436,6 +5564,18 @@
         return;
       }
       exportRowsWithoutMethodology(rows, `archive-inspection-${state.archiveInspectionTerm || 'selected-term'}.csv`);
+    });
+    document.getElementById('runRoomFit')?.addEventListener('click', () => window.COSScheduleApp?.renderRoomFitReport?.());
+    document.getElementById('exportRoomFitReport')?.addEventListener('click', () => window.COSScheduleApp?.exportRoomFitReport?.());
+    document.getElementById('clearRoomFit')?.addEventListener('click', () => {
+      ['roomFitTerm', 'roomFitCampus', 'roomFitBuilding', 'roomFitRoom', 'roomFitDivision', 'roomFitSubject', 'roomFitCourse', 'roomFitFlag'].forEach(id => {
+        const node = document.getElementById(id);
+        if (node) node.value = '';
+      });
+      window.COSScheduleApp?.renderRoomFitReport?.();
+    });
+    ['roomFitTerm', 'roomFitCampus', 'roomFitBuilding', 'roomFitRoom', 'roomFitDivision', 'roomFitSubject', 'roomFitCourse', 'roomFitFlag'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => window.COSScheduleApp?.renderRoomFitReportTable?.());
     });
     document.getElementById('saveSnapshotBatch')?.addEventListener('click', () => saveSnapshotBatch().catch(err => alert(err.message || 'Snapshot save failed.')));
     document.getElementById('snapSeason')?.addEventListener('change', () => renderSnapshotManager());
