@@ -1379,7 +1379,7 @@
       if (minSections) minSections.value = '1';
       const includeHistory = document.getElementById('attrIncludeHistory');
       if (includeHistory) includeHistory.checked = true;
-      if ((state.enrollment.length || currentRows().length) && state.attritionRan) runAttrition();
+      if ((state.enrollment.length || currentRows().length) && state.attritionRan) runAttrition().catch(handleAttritionError);
     }
     if (prefix === 'con') {
       const minSections = document.getElementById('conMinSections');
@@ -2926,14 +2926,40 @@
     return allEnrollment;
   }
 
+  function setAttritionStatus(message, clearMetrics = false) {
+    const tableNode = document.getElementById('attritionTable');
+    if (tableNode) tableNode.innerHTML = `<p class="analytics-empty">${escapeAttr(message)}</p>`;
+    if (clearMetrics) metric('attritionMetrics', []);
+  }
+
+  function handleAttritionError(err) {
+    console.error('Attrition report failed:', err);
+    setAttritionStatus(`Attrition report failed: ${err?.message || 'Unknown error'}`, true);
+    alert(err?.message || 'Attrition report failed.');
+  }
+
   async function runAttrition() {
     state.attritionRan = true;
+    setAttritionStatus('Running enrollment attrition/lifecycle report...', true);
     const allEnrollment = await loadAttritionFiles();
     const decisionTerm = attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms);
     const includeHistory = document.getElementById('attrIncludeHistory')?.checked;
     const decisionTermKey = canon(decisionTerm);
     const enrollment = applyFilters(allEnrollment, 'attr')
       .filter(row => includeHistory || canon(row.term) === decisionTermKey);
+    if (!enrollment.length) {
+      state.attritionRows = [];
+      metric('attritionMetrics', [
+        ['Decision Term', decisionTerm || 'N/A'],
+        ['Historical Terms Included', 0],
+        ['Decision Sections', 0],
+        ['First Day Snapshot Coverage', 'N/A'],
+        ['Missing First Day Snapshots', 0]
+      ]);
+      setAttritionStatus('No enrollment rows match the selected decision term, archived terms, uploads, and filters.');
+      renderAttritionLegend();
+      return;
+    }
     const grouped = new Map();
     const groupBy = document.getElementById('attrGroup')?.value || 'COURSE';
     enrollment.forEach((row) => {
@@ -5090,7 +5116,7 @@
         .then(() => {
           const selected = selectedEnrollmentReport();
           if (selected === REPORTS.dashboard) runDashboard();
-          if (selected === REPORTS.attrition) runAttrition();
+          if (selected === REPORTS.attrition) runAttrition().catch(handleAttritionError);
           if (selected === REPORTS.demand) runDemand();
         })
         .catch(err => alert(err.message || 'Work Experience upload failed.'));
@@ -5127,12 +5153,12 @@
     });
     document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('exportStudentPresence')?.addEventListener('click', () => exportRows(state.studentPresenceRows, `student-presence-${studentPresenceFocusTerm() || 'term'}.csv`));
-    document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
+    document.getElementById('runAttrition')?.addEventListener('click', () => runAttrition().catch(handleAttritionError));
     document.getElementById('dashIncludeWorkExperience')?.addEventListener('change', runDashboard);
-    document.getElementById('attrIncludeWorkExperience')?.addEventListener('change', runAttrition);
+    document.getElementById('attrIncludeWorkExperience')?.addEventListener('change', () => runAttrition().catch(handleAttritionError));
     document.getElementById('demIncludeWorkExperience')?.addEventListener('change', runDemand);
-    document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
-    document.getElementById('attrArchiveTerms')?.addEventListener('change', loadAttritionFiles);
+    document.getElementById('enrollmentCsv')?.addEventListener('change', () => loadAttritionFiles().catch(handleAttritionError));
+    document.getElementById('attrArchiveTerms')?.addEventListener('change', () => loadAttritionFiles().catch(handleAttritionError));
     document.getElementById('archiveAttritionUploads')?.addEventListener('click', () => archiveUploads('enrollmentCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearAttrition')?.addEventListener('click', () => resetAnalyticsControls('attr'));
     document.getElementById('runConsolidation')?.addEventListener('click', runConsolidation);

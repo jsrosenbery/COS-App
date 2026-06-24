@@ -1043,6 +1043,8 @@ test('requested analytics regression coverage is represented in smoke tests', ()
     /CENSUS_ENROLL2/,
     /lifecycleMetricLabel\(value\)/,
     /sectionsMissingFirstDaySnapshot/,
+    /handleAttritionError/,
+    /runAttrition\(\)\.catch\(handleAttritionError\)/,
     /conDecisionSeason/,
     /conDecisionYear/,
     /function consolidationDecisionTerm/,
