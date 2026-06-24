@@ -494,6 +494,31 @@ test('online reduction candidates stay course-level and census-based', () => {
   assert.match(rows[0].projectionSource, /Historical Average \(2 terms\)/);
 });
 
+test('consolidation crosswalk maps old English history into ENGL C1000 online demand', () => {
+  const runtime = loadEnrollmentAnalyticsRuntime();
+  const { COSConsolidationAnalytics, COSEnrollmentAnalytics } = runtime;
+  runtime.CURRICULUM_CROSSWALK = [
+    { sourceCourse: 'ENGL 001', synonymCourse: 'ENGL C1000' }
+  ];
+  const decision = COSEnrollmentAnalytics.applyCurriculumCrosswalkToRows([
+    section({ term: 'FALL 2026', subject: 'ENGL', course: 'C1000', modality: 'ONLINE', crn: 'D1', cap: 25 }),
+    section({ term: 'FALL 2026', subject: 'ENGL', course: 'C1000', modality: 'ONLINE', crn: 'D2', cap: 25 }),
+    section({ term: 'FALL 2026', subject: 'ENGL', course: 'C1000', modality: 'ONLINE', crn: 'D2', cap: 25 })
+  ]);
+  const historical = COSEnrollmentAnalytics.applyCurriculumCrosswalkToRows([
+    section({ term: 'FALL 2025', subject: 'ENGL', course: '001', modality: 'ONLINE', crn: 'H1', census: 20, cap: 25 }),
+    section({ term: 'FALL 2024', subject: 'ENGL', course: '001', modality: 'ONLINE', crn: 'H2', census: 18, cap: 25 })
+  ]);
+
+  const rows = COSConsolidationAnalytics.onlineReductionRows(decision, historical, { vacancyBasis: 'census' });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].course, 'ENGL C1000');
+  assert.equal(rows[0].sectionsReviewed, 2);
+  assert.equal(rows[0].expectedEnrollment, 19);
+  assert.equal(rows[0].historicalAverageEnrollment, 19);
+});
+
 test('division filter changes consolidation row count and exported rows', () => {
   const { COSConsolidationAnalytics, COSEnrollmentFilters } = loadEnrollmentModules();
   const rows = [
@@ -931,8 +956,21 @@ test('consolidation scope is limited to selected report inputs', () => {
 
   assert.match(loadBlock, /const rows = uploaded;/);
   assert.doesNotMatch(loadBlock, /currentRows\(\)/);
+  assert.match(loadBlock, /readArchivedRows\('conArchiveTerms'\)/);
+  assert.match(loadBlock, /applyCurriculumCrosswalkToRows/);
   assert.doesNotMatch(historicalBlock, /api\/schedule/);
   assert.doesNotMatch(historicalBlock, /visibleScheduleTerms/);
+  assert.match(text, /Selected Archived Terms/);
+  assert.match(text, /Uploaded Terms/);
+  assert.match(text, /Historical Comparison Terms Used/);
+  assert.match(text, /Current Rows Count/);
+  assert.match(text, /Historical Rows Count/);
+  assert.match(text, /does not silently pull every archived term/);
+  assert.match(text, /Curriculum Crosswalk/);
+  assert.match(text, /ENGL 001 history can support ENGL C1000/);
+  assert.match(text, /ONL, 71, 72, O1, OL, ONN, ONS, OO, OS, OSS, OT, OTS/);
+  assert.match(text, /IP, 02, 22, 022, 02H, 02O, 02S, 02T, 02N/);
+  assert.match(text, /HYB, OH, OHF, FLX, and OHS/);
 });
 
 test('dashboard source does not silently load all archived terms', () => {

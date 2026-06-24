@@ -38,6 +38,20 @@
     return `${section.subject} ${section.course}`;
   }
 
+  function sectionIdentity(section, index = 0) {
+    if (section?.crn) return `${section.term || 'UNKNOWN'}|${section.crn}`;
+    return [section?.term, section?.subject, section?.course, section?.section, section?.modality, section?.campus, index].filter(Boolean).join('|');
+  }
+
+  function dedupeSections(rows) {
+    const map = new Map();
+    (rows || []).forEach((row, index) => {
+      const key = sectionIdentity(row, index);
+      if (!map.has(key)) map.set(key, row);
+    });
+    return [...map.values()];
+  }
+
   function patternKey(section) {
     return [section.subject, section.course, section.campus, section.modality, section.dayPattern, section.start, section.end].join('-');
   }
@@ -244,8 +258,8 @@
   }
 
   function onlineReductionRows(rows, historicalRows, options = {}) {
-    const byOnlineCourse = group(rows, row => `${row.term || ''}||${row.subject} ${row.course}`);
-    const historicalByCourse = group(historicalRows, row => `${row.subject} ${row.course}`);
+    const byOnlineCourse = group(dedupeSections(rows), row => `${row.term || ''}||${row.subject} ${row.course}`);
+    const historicalByCourse = group(dedupeSections(historicalRows), row => `${row.subject} ${row.course}`);
     const output = [];
     const onlineMinSections = 2;
     byOnlineCourse.forEach((sections, key) => {
@@ -290,6 +304,9 @@
         potentialSectionsRemoved: recommendedReductions,
         availableReceivingCapacity: vacancies,
         expectedEnrollment: enrollment,
+        historicalAverageEnrollment: enrollment,
+        historicalAverageVacancies: historicalVacancies,
+        decisionVacancies,
         potentialSeatsRecovered: recommendedReductions * sectionCap,
         projectionSource: `Historical Average (${historicalByTerm.size} terms)`,
         finalEnrollmentContext: 'N/A',

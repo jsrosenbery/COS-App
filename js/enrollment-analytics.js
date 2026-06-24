@@ -4022,18 +4022,62 @@
     return `${section.subject} ${section.course}`;
   }
 
+  function curriculumCourseKey(subject, course) {
+    return canon(`${subject || ''} ${course || ''}`).replace(/\s+/g, ' ').trim();
+  }
+
+  function curriculumCrosswalkMap() {
+    const rows = Array.isArray(window.CURRICULUM_CROSSWALK) ? window.CURRICULUM_CROSSWALK : [];
+    const map = new Map();
+    rows.forEach(item => {
+      const source = curriculumCourseKey(
+        item.sourceSubject || item.SourceSubject || String(item.sourceCourse || item.SourceCourse || item['Source Course'] || item.oldCourse || item['Old Course'] || '').split(/\s+/)[0],
+        item.sourceCatalog || item.SourceCatalog || String(item.sourceCourse || item.SourceCourse || item['Source Course'] || item.oldCourse || item['Old Course'] || '').split(/\s+/).slice(1).join(' ')
+      );
+      const target = curriculumCourseKey(
+        item.synonymSubject || item.SynonymSubject || item.newSubject || item.NewSubject || String(item.synonymCourse || item.SynonymCourse || item['Synonym Course'] || item.newCourse || item['New Course'] || item.commonCourse || item['Common Course'] || '').split(/\s+/)[0],
+        item.synonymCatalog || item.SynonymCatalog || item.newCatalog || item.NewCatalog || String(item.synonymCourse || item.SynonymCourse || item['Synonym Course'] || item.newCourse || item['New Course'] || item.commonCourse || item['Common Course'] || '').split(/\s+/).slice(1).join(' ')
+      );
+      if (source && target && source !== target) map.set(source, target);
+    });
+    return map;
+  }
+
+  function applyCurriculumCrosswalkToRows(rows) {
+    const map = curriculumCrosswalkMap();
+    if (!map.size) return rows || [];
+    return (rows || []).map(row => {
+      const current = curriculumCourseKey(row.subject, row.course);
+      const mapped = map.get(current);
+      if (!mapped) return row;
+      const [subject, ...courseParts] = mapped.split(' ');
+      return {
+        ...row,
+        originalSubject: row.originalSubject || row.subject,
+        originalCourse: row.originalCourse || row.course,
+        originalCourseKey: row.originalCourseKey || current,
+        subject,
+        course: courseParts.join(' '),
+        crosswalkMappedCourse: mapped
+      };
+    });
+  }
+
   async function loadConsolidationRows() {
     const saved = captureFilterState('con');
     const uploadedRows = await readCsv(document.getElementById('consolidationCsv'));
     const archivedRows = await readArchivedRows('conArchiveTerms');
-    const uploaded = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
+    const normalizedUploadedRows = uploadedRows.map(normalize);
+    const normalizedArchivedRows = archivedRows.map(normalize);
+    const uploaded = applyCurriculumCrosswalkToRows(dedupeEnrollmentRows([...normalizedUploadedRows, ...normalizedArchivedRows]))
       .filter(row => !isOmittedInstructionalMethod(row));
     state.consolidationInput = uploaded;
     const rows = uploaded;
     state.consolidationTerms = collectRowTerms(rows);
     state.consolidationScope = {
-      uploadedTerms: collectRowTerms(uploadedRows.map(normalize)),
+      uploadedTerms: collectRowTerms(normalizedUploadedRows),
       selectedArchivedTerms: getSelectedValues('conArchiveTerms'),
+      selectedArchiveRowsCount: normalizedArchivedRows.length,
       totalRows: rows.length
     };
     updateConsolidationTermOptions(state.consolidationTerms);
@@ -4156,7 +4200,7 @@
       ? ''
       : `Receive into: ${receivingList || 'remaining matching sections'}; available receiving capacity ${row.availableReceivingCapacity ?? 0}`;
     const onlineSummary = isOnline
-      ? `${row.vacancies ?? 0} expected vacancies; median cap ${row.sectionCap ?? 0}; possible reductions ${row.possibleReductions ?? 0}`
+      ? `${row.vacancies ?? 0} expected vacancies; historical avg enrollment ${row.historicalAverageEnrollment ?? row.sourceEnroll ?? 'N/A'}; historical avg vacancies ${row.historicalAverageVacancies ?? 'N/A'}; decision vacancies ${row.decisionVacancies ?? 'N/A'}; median cap ${row.sectionCap ?? 0}; possible reductions ${row.possibleReductions ?? 0}`
       : '';
     return {
       type: row.type || 'In-Person Consolidation',
@@ -4397,9 +4441,10 @@
     const legend = document.getElementById('consolidationLegend');
     if (!legend) return;
     const items = [
-      ['Consolidation CSV(s)', 'Optional upload for this report. If no file is uploaded, the report uses the currently loaded dashboard schedule.'],
-      ['Instructional methods', 'Online, In Person, and Hybrid are derived from instructional method codes. CPL, DE, CBE, and unmapped archived code 98 are omitted from these analytics datasets.'],
+      ['Consolidation CSV(s)', 'Optional upload for this report. Calculations use only selected Consolidation CSV upload files and archived terms selected in the Consolidation archived-term selector. The report does not silently pull every archived term or the current room grid.'],
+      ['Instructional methods', 'Online, In Person, and Hybrid are derived from instructional method codes. Online codes include ONL, 71, 72, O1, OL, ONN, ONS, OO, OS, OSS, OT, OTS, ON, and OSL. In-person codes include IP, 02, 22, 022, 02H, 02O, 02S, 02T, 02N, 04, 06, 07, 08, 09, 12, XX, and YY. Hybrid codes include HYB, OH, OHF, FLX, and OHS. CPL, DE, CBE, and unmapped archived code 98 are omitted from this report.'],
       ['Decision term', 'The term being reviewed for planned consolidation opportunities. For in-person rows, the decision term supplies planned sections, meeting patterns, and capacity, not the enrollment demand used to trigger recommendations.'],
+      ['Curriculum Crosswalk', 'Configured curriculum/CCN crosswalk rows map old course numbers to current/synonym course numbers before historical demand, online reduction, and in-person consolidation groupings are calculated. Example: ENGL 001 history can support ENGL C1000 when that crosswalk row exists.'],
       ['Min sections', 'Minimum number of decision-term in-person or hybrid sections a course must have before consolidation groups are considered. Online reduction rows use a separate minimum of two online sections, then require enough historical vacancy to remove at least one section.'],
       ['Low enrollment', 'Optional strict enrollment threshold. If entered, an in-person source section is considered low when its census-based historical expected enrollment is at or below this number.'],
       ['Low fill %', 'Percentage threshold used only when Low enrollment is blank. An in-person source section is low-filled when census-based historical expected enrollment divided by decision-term capacity is at or below this threshold.'],
@@ -5213,7 +5258,8 @@
     addAttritionLifecycle,
     lifecycleMetricLabel,
     conflictRows,
-    fixedMeetingRecords
+    fixedMeetingRecords,
+    applyCurriculumCrosswalkToRows
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
