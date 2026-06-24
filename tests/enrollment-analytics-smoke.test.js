@@ -986,6 +986,28 @@ test('dashboard source does not silently load all archived terms', () => {
   assert.match(sourceBlock, /state\.consolidationInput/);
 });
 
+test('demand forecast is scoped to selected demand uploads and archives', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const loadStart = text.indexOf('async function loadDemandRows');
+  const loadEnd = text.indexOf('async function runDemand', loadStart);
+  const defaultsStart = text.indexOf('function setDemandTargetDefaults');
+  const defaultsEnd = text.indexOf('function captureFilterState', defaultsStart);
+  const archiveStart = text.indexOf('async function readArchivedRows');
+  const archiveEnd = text.indexOf('async function refreshAnalyticsArchiveOptions', archiveStart);
+  const loadBlock = text.slice(loadStart, loadEnd);
+  const defaultsBlock = text.slice(defaultsStart, defaultsEnd);
+  const archiveBlock = text.slice(archiveStart, archiveEnd);
+
+  assert.match(loadBlock, /readArchivedRows\('demArchiveTerms', \{ reportLabel: 'Demand Forecast' \}\)/);
+  assert.match(loadBlock, /const rows = rowsWithWorkExperience\(uploaded, 'dem'\)/);
+  assert.doesNotMatch(loadBlock, /currentRows\(\)/);
+  assert.match(archiveBlock, /Could not load archived term/);
+  assert.match(archiveBlock, /reportLabel/);
+  assert.match(defaultsBlock, /academicYearTrailingYear/);
+  assert.match(defaultsBlock, /dataset\.autoDefault/);
+  assert.match(text, /Demand source load failed:/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

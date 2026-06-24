@@ -1547,12 +1547,33 @@
     };
   }
 
-  async function readArchivedRows(selectId) {
+  async function readArchivedRows(selectId, options = {}) {
     const terms = getSelectedValues(selectId);
     if (!terms.length || !window.BACKEND_BASE_URL) return [];
-    const batches = await Promise.all(terms.map(term => fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`)
-      .then(response => response.ok ? response.json() : { data: [] })
-      .then(payload => (payload.data || []).map(row => ({ ...row, __sourceTerm: payload.term || term })))));
+    const reportLabel = options.reportLabel || 'analytics archive';
+    const batches = await Promise.all(terms.map(async (term) => {
+      try {
+        const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`);
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch (parseErr) {
+          payload = {};
+        }
+        if (!response.ok) {
+          const detail = payload.error || payload.message || `${response.status} ${response.statusText}`.trim();
+          throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${detail}`);
+        }
+        if (!Array.isArray(payload.data)) {
+          const detail = payload.error || payload.message || 'archive response did not include a data array';
+          throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${detail}`);
+        }
+        return payload.data.map(row => ({ ...row, __sourceTerm: payload.term || term }));
+      } catch (err) {
+        if (/Could not load archived term/.test(err?.message || '')) throw err;
+        throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${err?.message || err}`);
+      }
+    }));
     return batches.flat();
   }
 
@@ -1799,16 +1820,18 @@
     const seasonSelect = document.getElementById('demForecastSeason');
     if (!yearInput || !seasonSelect) return;
     updateDemandTargetControls();
-    if (yearInput.value && seasonSelect.value) return;
-    const activeParts = termParts(currentTerm());
     const latestParts = (terms || [])
       .map(termParts)
       .filter(parts => parts.year && ['FALL', 'SPRING', 'SUMMER'].includes(parts.season))
       .sort((a, b) => termSortValue(`${a.season} ${a.year}`) - termSortValue(`${b.season} ${b.year}`))
       .pop();
-    const basis = activeParts.year ? activeParts : latestParts || { season: 'FALL', year: new Date().getFullYear() };
+    const activeParts = termParts(currentTerm());
+    const basis = latestParts || (activeParts.year ? activeParts : { season: 'FALL', year: new Date().getFullYear() });
+    const proposedFiscalYear = academicYearTrailingYear(`${basis.season} ${basis.year}`) || (basis.year + 1);
+    if (yearInput.value && seasonSelect.value && yearInput.dataset.autoDefault !== 'true') return;
     seasonSelect.value = basis.season || 'FALL';
-    yearInput.value = String((basis.year || new Date().getFullYear()) + 1);
+    yearInput.value = String(proposedFiscalYear);
+    yearInput.dataset.autoDefault = 'true';
   }
 
   function captureFilterState(prefix) {
@@ -3588,12 +3611,12 @@
   async function loadDemandRows() {
     const saved = captureFilterState('dem');
     const uploadedRows = await readCsv(document.getElementById('demandCsv'));
-    const archivedRows = await readArchivedRows('demArchiveTerms');
+    const archivedRows = await readArchivedRows('demArchiveTerms', { reportLabel: 'Demand Forecast' });
     await loadWorkExperienceRows();
     const uploaded = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
       .filter(row => !isOmittedInstructionalMethod(row));
     state.demandInput = uploaded;
-    const rows = rowsWithWorkExperience(uploaded.length ? uploaded : currentRows().filter(row => !isOmittedInstructionalMethod(row)), 'dem');
+    const rows = rowsWithWorkExperience(uploaded, 'dem');
     state.demandTerms = collectRowTerms(rows);
     updateDemandTermOptions(state.demandTerms);
     refreshAnalyticsFilters('dem', rows, saved);
@@ -3679,7 +3702,7 @@
 
   function setDemandMessage(message) {
     const tableNode = document.getElementById('demandTable');
-    if (tableNode) tableNode.innerHTML = `<p class="analytics-empty">${message}</p>`;
+    if (tableNode) tableNode.innerHTML = `<p class="analytics-empty">${escapeAttr(message)}</p>`;
   }
 
   function renderEmptyDemand(message) {
@@ -5180,9 +5203,15 @@
     document.getElementById('archiveConsolidationUploads')?.addEventListener('click', () => archiveUploads('consolidationCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearConsolidation')?.addEventListener('click', () => resetAnalyticsControls('con'));
     document.getElementById('runDemand')?.addEventListener('click', runDemand);
-    document.getElementById('demandCsv')?.addEventListener('change', loadDemandRows);
-    document.getElementById('demArchiveTerms')?.addEventListener('change', loadDemandRows);
+    document.getElementById('demandCsv')?.addEventListener('change', () => loadDemandRows().catch(err => renderEmptyDemand(`Demand source load failed: ${err.message || err}`)));
+    document.getElementById('demArchiveTerms')?.addEventListener('change', () => loadDemandRows().catch(err => renderEmptyDemand(`Demand source load failed: ${err.message || err}`)));
     document.getElementById('demForecastScope')?.addEventListener('change', updateDemandTargetControls);
+    ['demForecastSeason', 'demForecastYear'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        const yearInput = document.getElementById('demForecastYear');
+        if (yearInput) yearInput.dataset.autoDefault = 'false';
+      });
+    });
     document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
     document.getElementById('runConflictCheck')?.addEventListener('click', () => runConflictCheck().catch(err => alert(err.message || 'Conflict check failed.')));
