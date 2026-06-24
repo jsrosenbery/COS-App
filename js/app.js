@@ -1345,14 +1345,35 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return scheduleAnalysisRows?.length ? scheduleAnalysisRows : currentData;
   }
 
+  function setScheduleAnalysisStatus(prefix, message, isError = false) {
+    const node = document.getElementById(`${prefix}-source-status`);
+    if (!node) return;
+    node.textContent = message || '';
+    node.classList.toggle('is-error', Boolean(isError));
+  }
+
   async function loadScheduleAnalysisSource(prefix) {
-    const uploadRows = await readCsvFiles(document.getElementById(`${prefix}-source-csv`));
-    const archivedRows = await fetchArchivedScheduleRows(selectedOptions(document.getElementById(`${prefix}-archive-terms`)));
+    const uploadInput = document.getElementById(`${prefix}-source-csv`);
+    const archiveSelect = document.getElementById(`${prefix}-archive-terms`);
+    const selectedArchiveTerms = selectedOptions(archiveSelect);
+    if (!uploadInput?.files?.length && !selectedArchiveTerms.length) {
+      setScheduleAnalysisStatus(prefix, 'Choose a CSV or archived term, then click Load Source.', true);
+      return getScheduleAnalysisRows();
+    }
+    setScheduleAnalysisStatus(prefix, 'Loading source...');
+    const uploadRows = await readCsvFiles(uploadInput);
+    const archivedRows = await fetchArchivedScheduleRows(selectedArchiveTerms);
     const rows = [...uploadRows, ...archivedRows].map(normalizeRow);
-    scheduleAnalysisRows = rows.length ? rows : null;
+    if (!rows.length) {
+      setScheduleAnalysisStatus(prefix, 'No rows were found in the selected source.', true);
+      return getScheduleAnalysisRows();
+    }
+    scheduleAnalysisRows = rows;
     feedHeatmapTool(getScheduleAnalysisRows());
     if (prefix === 'linechart') renderLineChart();
     else updateAllHeatmap();
+    const terms = [...new Set(rows.map(row => getSectionTerm(row)).filter(Boolean))].sort();
+    setScheduleAnalysisStatus(prefix, `Loaded ${rows.length} row(s)${terms.length ? ` for ${terms.join(', ')}` : ''}.`);
     return getScheduleAnalysisRows();
   }
 
@@ -3509,7 +3530,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
     const metric = heatmapMetricMode();
     const startHours = filtered
-      .map(row => parseHour(row[4]?.split('-')[0]?.trim()))
+      .map(row => parseHour(row[5]?.split('-')[0]?.trim()))
       .filter(hour => Number.isFinite(hour));
     let minHour = startHours.length ? Math.floor(Math.min(...startHours) * 2) / 2 : 6;
     let maxHour = startHours.length ? (Math.ceil(Math.max(...startHours) * 2) / 2) + 0.5 : 22;

@@ -429,6 +429,16 @@ button:hover,
   padding: 0.75rem 0;
 }
 
+.analysis-source-status {
+  color: #51657c;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.analysis-source-status.is-error {
+  color: #b91c1c;
+}
+
 .password-dialog-backdrop {
   position: fixed;
   inset: 0;

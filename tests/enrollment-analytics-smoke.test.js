@@ -1125,10 +1125,16 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(text, /document\.getElementById\('analyticsReports'\)\.appendChild\(tool\)/);
   assert.match(text, /roomFitReport/);
   assert.match(index, /heatmap-archive-terms/);
+  assert.match(index, /heatmap-source-status/);
   assert.match(index, /modality-archive-terms/);
   assert.match(index, /linechart-archive-terms/);
+  assert.match(index, /linechart-source-status/);
   assert.match(text, /roomFitArchiveTerms/);
   assert.match(app, /renderRoomFitReport/);
+  assert.match(app, /function setScheduleAnalysisStatus/);
+  assert.match(app, /Choose a CSV or archived term, then click Load Source/);
+  assert.match(app, /Loaded \$\{rows\.length\} row\(s\)/);
+  assert.match(app, /parseHour\(row\[5\]\?\.split/);
   assert.match(app, /Underutilized Room/);
   assert.match(app, /Over Capacity Risk/);
   assert.match(app, /Enrollment Exceeds Room Capacity/);
