@@ -111,6 +111,39 @@ test('current CSV data without milestone fields still normalizes for attrition',
   assert.equal(row.finalEnrollment, null);
 });
 
+test('work experience rows normalize as supplemental enrollment source', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const directFtes = COSEnrollmentAnalytics.normalizeRow({
+    __sourceType: 'WORK_EXPERIENCE',
+    Term: 'SPRING 2027',
+    Subject: 'WKEX',
+    Course: '101',
+    Section: '001',
+    'Current Enrollment': '12',
+    FTES: '1.8',
+    'ACCOUNTING METHOD': 'I'
+  });
+  const missingFtes = COSEnrollmentAnalytics.normalizeRow({
+    __sourceType: 'WORK_EXPERIENCE',
+    Term: 'SPRING 2027',
+    Subject: 'WKEX',
+    Course: '102',
+    Section: '002',
+    'Current Enrollment': '8',
+    'ACCOUNTING METHOD': 'I'
+  });
+
+  assert.equal(directFtes.isWorkExperience, true);
+  assert.equal(directFtes.sourceType, 'WORK EXPERIENCE');
+  assert.equal(directFtes.modality, 'WORK EXPERIENCE');
+  assert.equal(directFtes.days.length, 0);
+  assert.equal(directFtes.timeBlock, 'WORK EXPERIENCE');
+  assert.equal(directFtes.accountingReportable, true);
+  assert.equal(directFtes.ftes, 1.8);
+  assert.equal(missingFtes.ftesUnavailable, true);
+  assert.match(missingFtes.ftesWarning, /FTES unavailable/);
+});
+
 test('campus normalization does not use building or location as campus', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const row = COSEnrollmentAnalytics.normalizeRow({
@@ -874,6 +907,19 @@ test('dashboard source does not silently load all archived terms', () => {
   assert.match(sourceBlock, /state\.enrollment/);
   assert.match(sourceBlock, /state\.demandInput/);
   assert.match(sourceBlock, /state\.consolidationInput/);
+});
+
+test('enrollment analytics supports supplemental work experience upload controls', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /Work Experience Enrollment Upload/);
+  assert.match(text, /id="workExperienceCsv"/);
+  assert.match(text, /dashIncludeWorkExperience/);
+  assert.match(text, /attrIncludeWorkExperience/);
+  assert.match(text, /demIncludeWorkExperience/);
+  assert.match(text, /WORK EXPERIENCE/);
+  assert.match(text, /FTES unavailable/);
+  assert.match(text, /!row\.isWorkExperience/);
 });
 
 test('modality balance includes dual enrollment toggle and methodology note', () => {

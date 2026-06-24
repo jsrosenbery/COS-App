@@ -29,6 +29,7 @@
     consolidationRows: [],
     demandInput: [],
     demandRows: [],
+    workExperienceInput: [],
     dashboardRows: [],
     rotationRows: [],
     dashboardRan: false,
@@ -117,12 +118,12 @@
     totalContactHours: ['TOTAL_CONTACT_HOURS', 'Total Contact Hours', 'Contact Hours'],
     accountingMethod: ['ACCOUNTING METHOD', 'Accounting Method', 'ACCOUNTING_METHOD'],
     ftes: ['FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
-    actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment'],
-    census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment'],
+    actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment', 'Current Enrollment / ACTUAL_ENROLL', 'Current_Enrollment'],
+    census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment', 'Census Enrollment / CENSUS_ENROLL'],
     firstDay: ['First Day Enrollment', 'First_Day_Enrollment', 'FIRST_DAY_ENROLLMENT', 'First Day'],
     census1: ['Census 1', 'Census_1', 'CENSUS_1'],
     census2: ['Census 2', 'Census_2', 'CENSUS_2', 'CENSUS_ENROLL2', 'Census Enroll 2', 'Census Enrollment 2'],
-    finalEnrollment: ['Final Enrollment', 'FINAL_ENROLLMENT', 'End Enrollment', 'END_ENROLLMENT'],
+    finalEnrollment: ['Final Enrollment', 'FINAL_ENROLLMENT', 'End Enrollment', 'END_ENROLLMENT', 'Final Enrollment, if available'],
     waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WAIT COUNT', 'WAIT_COUNT', 'WL Count', 'WAITLISTED'],
     fill: ['Fill_Rate', 'Fill Rate', 'Percent Full', '% Full'],
     closed: ['Closed Prior to Census', 'CLOSED_PRIOR_TO_CENSUS', 'Closed Before Census', 'Closed', 'CLOSED'],
@@ -189,6 +190,7 @@
   }
 
   function normalize(row) {
+    const isWorkExperienceSource = canon(row.__sourceType) === 'WORK_EXPERIENCE';
     const subjectCourse = val(row, ['Subject_Course', 'Subject Course', 'Course ID', 'SUBJECT/COURSE']);
     const subject = canon(val(row, fields.subject) || (subjectCourse.match(/^([A-Z]+)/i) || [])[1]);
     const course = courseNumber(row);
@@ -215,6 +217,9 @@
     const ftesValue = val(row, fields.ftes);
     const enrollmentForFtes = census == null ? actual : census;
     const enrollmentForPlanning = census == null ? actual : census;
+    const hasFtesEstimationInputs = units > 0 || weeklyHours > 0 || totalContactHours > 0;
+    const estimatedFtesValue = estimatedFtes(enrollmentForFtes, { units, weeklyHours, dailyHours, totalContactHours, accountingMethod, allowOmitted: isWorkExperienceSource });
+    const ftesUnavailable = isWorkExperienceSource && ftesValue === '' && !hasFtesEstimationInputs;
     const normalized = {
       raw: row,
       term: canon(val(row, fields.term) || row.__sourceTerm || currentTerm()),
@@ -226,13 +231,13 @@
       department: canon(val(row, fields.department)),
       section: canon(val(row, fields.section)),
       campus,
-      modality,
+      modality: isWorkExperienceSource ? 'WORK EXPERIENCE' : modality,
       instructor: canon(val(row, fields.instructor)),
-      days,
-      dayPattern: dayPattern(days),
-      start: times.start,
-      end: times.end,
-      timeBlock: timeBlock(times.start, modality),
+      days: isWorkExperienceSource ? [] : days,
+      dayPattern: isWorkExperienceSource ? 'WORK EXPERIENCE' : dayPattern(days),
+      start: isWorkExperienceSource ? '' : times.start,
+      end: isWorkExperienceSource ? '' : times.end,
+      timeBlock: isWorkExperienceSource ? 'WORK EXPERIENCE' : timeBlock(times.start, modality),
       building,
       roomOnly,
       room: canon([building, roomOnly].filter(Boolean).join(' ')),
@@ -244,10 +249,14 @@
       accountingMethod,
       accountingCategory: accountingMethodInfo(accountingMethod).category,
       accountingMethodLabel: accountingMethodInfo(accountingMethod).label,
-      accountingReportable: accountingMethodInfo(accountingMethod).reportable,
-      ftes: ftesValue === '' ? estimatedFtes(enrollmentForFtes, { units, weeklyHours, dailyHours, totalContactHours, accountingMethod }) : num(ftesValue),
-      hasFtesData: ftesValue !== '' || units > 0 || weeklyHours > 0 || totalContactHours > 0,
+      accountingReportable: isWorkExperienceSource ? true : accountingMethodInfo(accountingMethod).reportable,
+      sourceType: isWorkExperienceSource ? 'WORK EXPERIENCE' : 'SECTION SEATING',
+      isWorkExperience: isWorkExperienceSource,
+      ftes: ftesValue === '' ? estimatedFtesValue : num(ftesValue),
+      hasFtesData: ftesValue !== '' || hasFtesEstimationInputs,
       hasDirectFtesData: ftesValue !== '',
+      ftesUnavailable,
+      ftesWarning: ftesUnavailable ? 'FTES unavailable: direct FTES, contact hours, and units are missing.' : '',
       actual,
       census,
       firstDay: firstDayValue === '' ? null : num(firstDayValue),
@@ -296,7 +305,7 @@
 
   function estimatedFtes(enrollment, details = {}) {
     const info = accountingMethodInfo(details.accountingMethod);
-    if (!info.reportable) return 0;
+    if (!info.reportable && !details.allowOmitted) return 0;
     const weeklyHours = details.weeklyHours || 0;
     const totalContactHours = details.totalContactHours || 0;
     const units = details.units || details.sessionCreditHours || 0;
@@ -325,9 +334,12 @@
       weeklyHours: row.weeklyHours,
       dailyHours: row.dailyHours,
       totalContactHours: row.totalContactHours,
-      accountingMethod: row.accountingMethod
+      accountingMethod: row.accountingMethod,
+      allowOmitted: row.isWorkExperience
     });
     row.hasFtesData = row.hasFtesData || row.weeklyHours > 0 || row.totalContactHours > 0 || row.units > 0;
+    row.ftesUnavailable = Boolean(row.isWorkExperience && !row.hasDirectFtesData && !row.hasFtesData);
+    row.ftesWarning = row.ftesUnavailable ? 'FTES unavailable: direct FTES, contact hours, and units are missing.' : row.ftesWarning || '';
     return row;
   }
 
@@ -345,6 +357,7 @@
   }
 
   function isOmittedInstructionalMethod(row) {
+    if (row?.isWorkExperience) return false;
     const rawMethod = canon(val(row.raw || {}, fields.modality));
     return row.modality === 'OMIT' ||
       row.accountingReportable === false ||
@@ -758,6 +771,14 @@
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
           <span class="em-workbench-note">Dashboard and factual reports support dean/division review. Scenario modeling and schedule simulation are future Enrollment Management Workbench tools.</span>
         </div>
+        <div id="workExperienceUploadPanel" class="analytics-upload-panel" hidden>
+          <h3>Work Experience Enrollment Upload</h3>
+          <p>Upload Work Experience enrollment rows that are not present in Section Seating. These rows are included in enrollment, attrition, lifecycle, demand, and FTES calculations when the report toggle is on, and excluded from room, time, conflict, and physical presence tools.</p>
+          <div class="analytics-toolbar">
+            <label>Work Experience CSV(s) <input id="workExperienceCsv" type="file" accept=".csv" multiple></label>
+            <span id="workExperienceUploadStatus" class="analytics-note">No Work Experience rows loaded.</span>
+          </div>
+        </div>
         <div id="dashboardReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Analytics Dashboard</h2>
@@ -795,6 +816,7 @@
             </label>
             <label>Decision year <input id="dashDecisionYear" type="number" min="2022" max="2035" step="1"></label>
             ${filters('dash', { includeGroup: false, includeCancelled: false, includeDivision: true })}
+            <label><input id="dashIncludeWorkExperience" type="checkbox" checked> include Work Experience</label>
             <button id="runDashboard" type="button">Refresh Dashboard</button>
             <button id="exportDashboardSummary" type="button">Export Dashboard Summary CSV</button>
             <button id="exportRotation" type="button">Export Course Rotation CSV</button>
@@ -1061,6 +1083,7 @@
             <label>Decision year <input id="attrDecisionYear" type="number" min="2022" max="2035" step="1"></label>
             <label><input id="attrIncludeHistory" type="checkbox" checked> include historical comparison terms</label>
             ${filters('attr', { includeGroup: true, includeCancelled: false, includeDivision: true })}
+            <label><input id="attrIncludeWorkExperience" type="checkbox" checked> include Work Experience</label>
             <button id="runAttrition" type="button">Run</button>
             <button id="clearAttrition" type="button">Clear</button>
             <button id="exportAttrition" type="button">Export CSV</button>
@@ -1177,6 +1200,7 @@
             <label>Known/projected Summer FTES <input id="demKnownSummerFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
             <label>Known/projected Fall FTES <input id="demKnownFallFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
             <label>Known/projected Spring FTES <input id="demKnownSpringFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
+            <label><input id="demIncludeWorkExperience" type="checkbox" checked> include Work Experience</label>
             <button id="runDemand" type="button">Run</button>
             <button id="clearDemand" type="button">Clear</button>
             <button id="exportDemand" type="button">Export CSV</button>
@@ -1320,6 +1344,8 @@
     const hideZero = document.getElementById(prefix + 'HideZero');
     if (hideZero) hideZero.checked = true;
     if (prefix === 'attr') {
+      const workExperience = document.getElementById('attrIncludeWorkExperience');
+      if (workExperience) workExperience.checked = true;
       const group = document.getElementById('attrGroup');
       if (group) group.value = 'COURSE';
       const minSections = document.getElementById('attrMinSections');
@@ -1356,6 +1382,8 @@
       if (state.consolidationRows.length) runConsolidation();
     }
     if (prefix === 'dem') {
+      const workExperience = document.getElementById('demIncludeWorkExperience');
+      if (workExperience) workExperience.checked = true;
       setDemandTargetDefaults();
       const windowInput = document.getElementById('demWindow');
       if (windowInput) windowInput.value = '5';
@@ -1431,7 +1459,7 @@
     });
   }
 
-  async function readCsv(input) {
+  async function readCsv(input, options = {}) {
     const files = Array.from(input?.files || []);
     if (!files.length) return [];
     const batches = await Promise.all(files.map(file => new Promise((resolve, reject) => {
@@ -1439,11 +1467,51 @@
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
-        complete: (r) => resolve((r.data || []).map(row => ({ ...row, __sourceTerm: sourceTerm }))),
+        complete: (r) => resolve((r.data || []).map(row => ({ ...row, __sourceTerm: sourceTerm, __sourceType: options.sourceType || '' }))),
         error: reject
       });
     })));
     return batches.flat();
+  }
+
+  async function loadWorkExperienceRows() {
+    const raw = await readCsv(document.getElementById('workExperienceCsv'), { sourceType: 'WORK_EXPERIENCE' });
+    state.workExperienceInput = dedupeEnrollmentRows(raw.map(normalize));
+    renderWorkExperienceUploadStatus();
+    return state.workExperienceInput;
+  }
+
+  function workExperienceRows() {
+    return state.workExperienceInput || [];
+  }
+
+  function includeWorkExperience(prefix) {
+    return document.getElementById(prefix + 'IncludeWorkExperience')?.checked !== false;
+  }
+
+  function rowsWithWorkExperience(rows, prefix) {
+    const base = rows || [];
+    if (!includeWorkExperience(prefix)) return base.filter(row => !row.isWorkExperience);
+    return dedupeEnrollmentRows([...base, ...workExperienceRows()]);
+  }
+
+  function renderWorkExperienceUploadStatus() {
+    const node = document.getElementById('workExperienceUploadStatus');
+    if (!node) return;
+    const rows = workExperienceRows();
+    const terms = collectRowTerms(rows);
+    const missingFtes = rows.filter(row => row.ftesUnavailable).length;
+    node.textContent = rows.length
+      ? `${rows.length} Work Experience row(s) loaded${terms.length ? ` for ${terms.join(', ')}` : ''}${missingFtes ? `; ${missingFtes} missing FTES inputs` : ''}.`
+      : 'No Work Experience rows loaded.';
+  }
+
+  function workExperienceSummary(rows) {
+    const included = (rows || []).filter(row => row.isWorkExperience);
+    return {
+      rows: included.length,
+      missingFtes: included.filter(row => row.ftesUnavailable).length
+    };
   }
 
   async function readArchivedRows(selectId) {
@@ -1775,7 +1843,8 @@
       ...(state.demandInput || []),
       ...(state.consolidationInput || [])
     ].filter(Boolean);
-    return rows.length ? dedupeEnrollmentRows(rows) : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+    const base = rows.length ? dedupeEnrollmentRows(rows) : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+    return rowsWithWorkExperience(base, 'dash');
   }
 
   function dashboardAvailableTerms(rows) {
@@ -1974,6 +2043,7 @@
     if (scopeContext) renderDashboardScopePanel(scopeContext);
     const health = summary.health || {};
     const lifecycle = health.lifecycle || [];
+    const workExperience = workExperienceSummary(state.dashboardRows || []);
     metric('dashboardMetrics', [
       ['Current Enrollment', health.currentEnrollment ?? 0],
       ['Expected Enrollment', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment],
@@ -1981,6 +2051,8 @@
       ['Courses Reviewed', health.coursesReviewed ?? 0],
       ['Sections Reviewed', health.sectionsReviewed ?? 0],
       ['FTES', round1(health.ftes || 0)],
+      ['Work Experience Rows Included', workExperience.rows],
+      ['Work Experience FTES Warnings', workExperience.missingFtes],
       ...lifecycle.map(item => [item.label, item.value == null ? 'N/A' : item.value])
     ]);
 
@@ -2186,6 +2258,7 @@
     const independentRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
       .filter(row => !isOmittedInstructionalMethod(row));
     const sourceRows = (independentRows.length ? independentRows : dashboardSourceRows())
+      .filter(row => !row.isWorkExperience)
       .filter(row => !isOmittedInstructionalMethod(row));
     const focusTerm = updatePresenceFocusTermOptions(sourceRows);
     refreshAnalyticsFilters('sp', sourceRows, saved);
@@ -2530,7 +2603,13 @@
       existing.accountingMethod = existing.accountingMethod || row.accountingMethod;
       existing.accountingCategory = accountingMethodInfo(existing.accountingMethod).category;
       existing.accountingMethodLabel = accountingMethodInfo(existing.accountingMethod).label;
-      existing.accountingReportable = accountingMethodInfo(existing.accountingMethod).reportable;
+      existing.isWorkExperience = existing.isWorkExperience || row.isWorkExperience;
+      existing.sourceType = existing.isWorkExperience ? 'WORK EXPERIENCE' : existing.sourceType || row.sourceType;
+      existing.accountingReportable = existing.isWorkExperience ? true : accountingMethodInfo(existing.accountingMethod).reportable;
+      existing.hasDirectFtesData = existing.hasDirectFtesData || row.hasDirectFtesData;
+      existing.hasFtesData = existing.hasFtesData || row.hasFtesData;
+      existing.ftesUnavailable = existing.ftesUnavailable && row.ftesUnavailable;
+      existing.ftesWarning = existing.ftesUnavailable ? existing.ftesWarning || row.ftesWarning : '';
     });
     return [...map.values()].map(recalculateEstimatedFtes);
   }
@@ -2645,10 +2724,11 @@
     const uploaded = await readCsv(document.getElementById('enrollmentCsv'));
     const archived = await readArchivedRows('attrArchiveTerms');
     await loadEnrollmentSnapshots();
+    await loadWorkExperienceRows();
     state.enrollment = mergeSnapshotsIntoRows(dedupeEnrollmentRows([...uploaded, ...archived].map(normalize)), state.enrollmentSnapshots)
       .filter(row => !isOmittedInstructionalMethod(row));
     const fallbackRows = mergeSnapshotsIntoRows(currentRows(), state.enrollmentSnapshots).filter(row => !isOmittedInstructionalMethod(row));
-    const allEnrollment = state.enrollment.length ? state.enrollment : fallbackRows;
+    const allEnrollment = rowsWithWorkExperience(state.enrollment.length ? state.enrollment : fallbackRows, 'attr');
     state.attritionTerms = collectTerms(allEnrollment);
     updateDecisionTermOptions(state.attritionTerms);
     populateAnalyticsFilters('attr', allEnrollment);
@@ -2734,6 +2814,7 @@
     const decisionSummary = summarizeAttritionRows(decisionRows, 'decision');
     const historicalSummary = summarizeAttritionRows(state.attritionRows, 'history');
     const allSummary = summarizeAttritionRows(state.attritionRows, 'all');
+    const workExperience = workExperienceSummary(enrollment);
     metric('attritionMetrics', [
       ['Decision Term', decisionTerm || 'N/A'],
       ['Historical Terms Included', historicalTerms.length],
@@ -2749,6 +2830,8 @@
       ['Historical Census 1 to Census 2 Attrition', lifecycleMetricLabel(historicalSummary.census1ToCensus2Rate)],
       ['Historical Census 2 to End Attrition', lifecycleMetricLabel(historicalSummary.census2ToEndRate)],
       ['All Uploaded Overall Attrition', lifecycleMetricLabel(allSummary.overallRate)],
+      ['Work Experience Rows Included', workExperience.rows],
+      ['Work Experience FTES Warnings', workExperience.missingFtes],
       ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
       ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
       ['Historical Census 1 to End Attrition', lifecycleMetricLabel(historicalSummary.census1ToEndRate)]
@@ -3289,10 +3372,11 @@
     const saved = captureFilterState('dem');
     const uploadedRows = await readCsv(document.getElementById('demandCsv'));
     const archivedRows = await readArchivedRows('demArchiveTerms');
+    await loadWorkExperienceRows();
     const uploaded = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
       .filter(row => !isOmittedInstructionalMethod(row));
     state.demandInput = uploaded;
-    const rows = uploaded.length ? uploaded : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+    const rows = rowsWithWorkExperience(uploaded.length ? uploaded : currentRows().filter(row => !isOmittedInstructionalMethod(row)), 'dem');
     state.demandTerms = collectRowTerms(rows);
     updateDemandTermOptions(state.demandTerms);
     refreshAnalyticsFilters('dem', rows, saved);
@@ -3346,6 +3430,7 @@
       const yearSeasonForecast = demandYearSeasonForecast(target, rows, annualFtes.annualFtes);
       const capComparisonFtes = annualFtes.annualFtes;
       const ftesCapDelta = ftesCap > 0 ? ftesCap - capComparisonFtes : null;
+      const workExperience = workExperienceSummary(rows);
       metric('demandMetrics', [
         ['Forecast Target', target.label],
         ['Forecast Scope', target.scope === 'year' ? 'Academic year' : 'Single term'],
@@ -3359,6 +3444,8 @@
         ['Annual FTES Projection', round1(capComparisonFtes)],
         ...(yearSeasonForecast ? yearSeasonForecast.seasons.map(row => [`${row.termLabel} Est. FTES`, round1(row.forecastFtes)]) : []),
         ['FTES Cap Position', ftesCapDelta == null ? 'No cap entered' : (ftesCapDelta >= 0 ? `${round1(ftesCapDelta)} under cap` : `${round1(Math.abs(ftesCapDelta))} over cap`)],
+        ['Work Experience Rows Included', workExperience.rows],
+        ['Work Experience FTES Warnings', workExperience.missingFtes],
         ['Expanding Demand', expanding.length],
         ['Softening Demand', softening.length],
         ['Avg Forecast Growth', pct(safeDiv(sum(state.demandRows, 'adjustedForecastGrowth'), state.demandRows.length))]
@@ -4027,6 +4114,8 @@
       limitations: 'The dashboard is a planning summary, not an automatic add, cancel, consolidation, or staffing directive. It does not include student intent, budget constraints, contractual constraints, equity review, or leadership decisions unless those factors are represented in the uploaded data.',
       items: [
         ['Enrollment Health', 'Current enrollment, expected enrollment, variance, courses reviewed, sections reviewed, FTES, and available lifecycle milestones for the selected filters.'],
+        ['Work Experience Rows Included', 'Metric card. Count of separate Work Experience Enrollment Upload rows included in the dashboard because the include Work Experience toggle is on. These rows contribute to enrollment and FTES summaries, but not physical room/time reports.'],
+        ['Work Experience FTES Warnings', 'Metric card. Count of included Work Experience rows where FTES was not directly provided and could not be estimated from available units/contact-hour fields.'],
         ['Registration Pace Monitor', 'Current focus-term enrollment versus average expected enrollment from comparable same-season historical terms by Course, Division, Modality, Campus, Day Pattern, and Time Block. The selected focus term and future terms are excluded. Status is Ahead of Pace, On Pace, Behind Pace, or N/A.'],
         ['Growth Opportunities', 'Courses with waitlist pressure or very high fill. Added capacity is considered only when viable open seats appear insufficient after reviewing same modality, online, same campus, time-window, and compatible-day seats.'],
         ['Reduction Opportunities', 'Top rows from the existing consolidation report output. Open the consolidation report for the full methodology and candidate details.'],
@@ -4079,6 +4168,8 @@
       ['Historical Sections', 'Distinct CRNs from comparison terms only. The decision term is excluded.'],
       ['Historical Overall Attrition', 'Historical Census 1 to End/Final attrition from comparison terms only. The decision term never contributes to this rate.'],
       ['All Uploaded Overall Attrition', 'Census 1 to End/Final attrition across all uploaded terms when retained for context. This includes the decision term and should not be used as the historical planning rate.'],
+      ['Work Experience Rows Included', 'Metric card. Count of rows loaded from the separate Work Experience Enrollment Upload and included by the report toggle. These rows are eligible for enrollment, lifecycle, demand, and FTES calculations, but not physical room/time reports.'],
+      ['Work Experience FTES Warnings', 'Metric card. Count of included Work Experience rows where direct FTES was not provided and the upload also lacked enough units/contact-hour fields to estimate FTES. Those rows still count for enrollment/lifecycle metrics, but FTES should be treated as unavailable rather than a confirmed zero.'],
       ['Total Seats', 'Total MAX ENROLL capacity across the row grouping and included terms.'],
       ['Census Enrollment', 'CENSUS_ENROLL/Census 1 across included terms. If CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
       ['Census 2 Enrollment', 'CENSUS_ENROLL2 across included terms where present. Missing Census 2 values remain unavailable and do not become zero.'],
@@ -4103,7 +4194,7 @@
     renderMethodologyPanel(legend, {
       title: 'Enrollment Attrition Methodology & Data Dictionary',
       purpose: 'Identifies enrollment loss between census and final/current enrollment and compares decision-term attrition against historical comparison terms.',
-      methodology: 'The selected decision term is tracked separately from historical comparison terms. Historical term counts and historical attrition exclude the decision/future term. Census enrollment is the demand basis; final/current enrollment remains visible as attrition context. The report is lifecycle-ready but limited by available uploaded data until First Day, Census 1, Census 2, and Final milestone fields are delivered.',
+      methodology: 'The selected decision term is tracked separately from historical comparison terms. Historical term counts and historical attrition exclude the decision/future term. Census enrollment is the demand basis; final/current enrollment remains visible as attrition context. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on. The report is lifecycle-ready but limited by available uploaded data until First Day, Census 1, Census 2, and Final milestone fields are delivered.',
       assumptions: 'CENSUS_ENROLL is treated as census enrollment. ACTUAL_ENROLL is treated as final enrollment when the source file is final and as current enrollment when the source file is an in-progress snapshot.',
       limitations: 'This report does not know why students left, whether a term file is final unless the uploaded source reflects that, or whether external retention interventions occurred.',
       items,
@@ -4177,6 +4268,8 @@
       ['Summer/Fall/Spring Estimated FTES', 'Metric cards shown only for Academic year forecasts. Formula: Annual FTES Projection x the selected historical season share. Season share uses historical FTES by season divided by total historical FTES across the selected academic-year buckets; if historical FTES is unavailable, census enrollment share is used as the fallback basis.'],
       ['FTES Cap', 'Input. Optional state-sanctioned FTES cap used only for comparison against the annual FTES projection; it does not change forecast growth or section estimates.'],
       ['FTES Cap Position', 'Metric card. Formula: FTES cap - Annual FTES Projection. Positive values are under cap; negative values are over cap.'],
+      ['Work Experience Rows Included', 'Metric card. Count of rows loaded from the separate Work Experience Enrollment Upload and included in the forecast input. Default is ON because Work Experience contributes to enrollment and FTES planning.'],
+      ['Work Experience FTES Warnings', 'Metric card. Count of included Work Experience rows where direct FTES was not provided and FTES could not be estimated from available units/contact-hour fields. These rows remain in enrollment demand counts, while FTES is treated as unavailable for review.'],
       ['Expanding Demand', 'Metric card. Count of rows whose Capacity Guidance indicates expanding or increasing demand. Includes College, Division, Discipline, and Course rows.'],
       ['Softening Demand', 'Metric card. Count of rows whose Capacity Guidance indicates softening demand. Includes College, Division, Discipline, and Course rows.'],
       ['Average Forecast Growth', 'Metric card. Average adjusted forecast growth across all visible hierarchy rows.'],
@@ -4189,7 +4282,7 @@
       ['Average Sections Offered', 'Table column. Average historical sections per included term or FY/AY bucket. For an Academic year forecast, this is the annual average section count across the included historical years.'],
       ['Historical Avg Census Enrollment', 'Table column. Average historical census enrollment across included terms or FY/AY buckets. For an Academic year forecast, this is the annual average census enrollment. Formula: average of bucket-level sum(CENSUS_ENROLL); if CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
       ['Historical Avg Final Enrollment', 'Table column. Average historical final/current enrollment across included terms or FY/AY buckets. Formula: average of bucket-level sum(ACTUAL_ENROLL). This is context only and does not drive the forecast.'],
-      ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates FTES from ACCOUNTING METHOD and available contact-hour fields. W/IW/unknown use census enrollment x weekly hours x 17.5 / 525. D/ID/P/E use census enrollment x TOTAL_CONTACT_HOURS / 525. If contact hours are unavailable but units are present, fallback formula is census enrollment x units / 30. If FTES, contact hours, and units are unavailable, FTES is 0.'],
+      ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates FTES from ACCOUNTING METHOD and available contact-hour fields. W/IW/unknown use census enrollment x weekly hours x 17.5 / 525. D/ID/P/E use census enrollment x TOTAL_CONTACT_HOURS / 525. If contact hours are unavailable but units are present, fallback formula is census enrollment x units / 30. For Work Experience upload rows with no direct FTES and no usable contact-hour/unit fields, FTES is flagged as unavailable for review.'],
       ['Historical Census Fill Rate', 'Table column. Average of term-level census fill rates. Formula per term: sum(census enrollment) / sum(MAX ENROLL).'],
       ['Historical Final Fill Rate', 'Table column. Average of term-level final fill rates. Formula per term: sum(ACTUAL_ENROLL) / sum(MAX ENROLL).'],
       ['Historical Avg Attrition Count', 'Table column. Average of term-level attrition counts. Formula per term: max(0, census enrollment - actual enrollment). This is context only and does not drive cancellation logic.'],
@@ -4224,15 +4317,16 @@
       ['ACCOUNTING METHOD ID', 'Independent/Alternative Daily Census. Estimated FTES formula when direct FTES is missing: census enrollment x TOTAL_CONTACT_HOURS / 525.'],
       ['ACCOUNTING METHOD I', 'Independent Study/Work Experience. Omitted from reporting and FTES forecast calculations.'],
       ['ACCOUNTING METHOD O', 'Not reportable for 320. Omitted from reporting and FTES forecast calculations.'],
+      ['Work Experience Upload Source', 'Separate Work Experience upload rows override the normal ACCOUNTING METHOD I omission because they are the supplemental source for Work Experience enrollment/FTES that does not appear in Section Seating. Direct FTES is used when present. If direct FTES is absent, FTES is estimated only when units or contact-hour fields are available; otherwise the row is counted for enrollment and flagged as FTES unavailable.'],
       ['Not Included', 'This report does not use applications, registration intent, student education plans, section-level waitlist snapshots over time, room constraints, faculty availability, budget limits, or external labor-market demand. It also excludes rows omitted by instructional-method rules such as CPL, DE, CBE, and unmapped archived code 98, plus any rows removed by active filters.'],
-      ['Data Limitations', 'Forecasts depend on uploaded columns. Missing FTES, contact-hour, unit, and accounting-method columns produce 0 estimated FTES. Missing waitlist columns make waitlist demand unknown, not zero. Missing division, department, or course title values appear blank or UNKNOWN. Terms that are still enrolling should not be selected as historical archives unless they are intentionally being reviewed as incomplete scenario data.']
+      ['Data Limitations', 'Forecasts depend on uploaded columns. Missing FTES, contact-hour, unit, and accounting-method columns reduce FTES reliability. Missing Work Experience FTES inputs are flagged rather than treated as a confirmed zero. Missing waitlist columns make waitlist demand unknown, not zero. Missing division, department, or course title values appear blank or UNKNOWN. Terms that are still enrolling should not be selected as historical archives unless they are intentionally being reviewed as incomplete scenario data.']
     ];
     renderMethodologyPanel(legend, {
       title: 'Enrollment Demand Forecast Methodology & Data Dictionary',
       purpose: 'Forecasts future enrollment demand from finalized historical growth patterns at the college, division, discipline, and course levels. It supports schedule planning, enrollment growth, apportionment context, FTES cap planning, and capacity assumptions.',
       methodology: 'Forecast growth blends course, discipline, division, and college trends, then applies the optional modifier. Single-term forecasts compare like terms only. Academic-year forecasts aggregate Summer, Fall, and Spring into FY/AY buckets before calculating growth.',
-      assumptions: 'Forecast growth is capped between -75% and +150%. FTES is direct-upload FTES when present; otherwise it is estimated from ACCOUNTING METHOD, census enrollment, and contact-hour fields. I and O accounting methods are omitted from reporting. E is treated as open-entry/open-exit positive attendance.',
-      limitations: 'Forecasts are planning estimates, not guarantees. Positive attendance FTES is estimated from available section-seating fields unless manual/official production values are entered elsewhere. Missing waitlist, contact-hour, division, department, or title fields reduce reliability.',
+      assumptions: 'Forecast growth is capped between -75% and +150%. FTES is direct-upload FTES when present; otherwise it is estimated from ACCOUNTING METHOD, census enrollment, and contact-hour fields. I and O accounting methods are omitted from ordinary Section Seating rows. Separate Work Experience upload rows are included when toggled on because they are not available in Section Seating. E is treated as open-entry/open-exit positive attendance.',
+      limitations: 'Forecasts are planning estimates, not guarantees. Positive attendance and Work Experience FTES are estimated from available fields unless official production values are entered directly. Missing waitlist, FTES, contact-hour, unit, division, department, or title fields reduce reliability.',
       items,
       version: 'Methodology v1.1'
     });
@@ -4511,7 +4605,7 @@
   }
 
   function dashboardDataSourceLabel() {
-    if (state.enrollment.length || state.demandInput.length || state.consolidationInput.length) return 'Uploaded and/or archived enrollment CSV rows';
+    if (state.enrollment.length || state.demandInput.length || state.consolidationInput.length || state.workExperienceInput.length) return 'Uploaded and/or archived enrollment CSV rows';
     return 'Currently loaded schedule rows';
   }
 
@@ -4560,6 +4654,7 @@
     const unlocked = isEnrollmentManagementUnlocked();
     wrap.style.display = 'block';
     document.getElementById('emReportControls').hidden = !unlocked;
+    document.getElementById('workExperienceUploadPanel').hidden = !unlocked;
     document.getElementById('unlockEnrollmentManagement').hidden = unlocked;
     const note = document.querySelector('.em-access-note');
     if (note) note.textContent = unlocked ? 'Decision-support reports are open for this browser session.' : 'Decision-support summaries are hidden until opened.';
@@ -4578,7 +4673,7 @@
       runDashboard();
     }
     if (selected === REPORTS.attrition && !state.attritionRan) {
-      const rows = state.enrollment.length ? state.enrollment : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+      const rows = rowsWithWorkExperience(state.enrollment.length ? state.enrollment : currentRows().filter(row => !isOmittedInstructionalMethod(row)), 'attr');
       updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(rows));
       populateAnalyticsFilters('attr', rows);
       document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload enrollment CSV files, then click Run.</p>';
@@ -4589,7 +4684,7 @@
       renderConsolidationLegend();
     }
     if (selected === REPORTS.demand && !state.demandRan) {
-      const rows = state.demandInput.length ? state.demandInput : currentRows().filter(row => !isOmittedInstructionalMethod(row));
+      const rows = rowsWithWorkExperience(state.demandInput.length ? state.demandInput : currentRows().filter(row => !isOmittedInstructionalMethod(row)), 'dem');
       updateDemandTermOptions(state.demandTerms.length ? state.demandTerms : collectTerms(rows));
       populateAnalyticsFilters('dem', rows);
       document.getElementById('demandTable').innerHTML = '<p class="analytics-empty">Upload or select archived historical CSV files, then click Run.</p>';
@@ -4643,6 +4738,9 @@
       .analytics-toolbar input,.analytics-toolbar select{min-height:34px;border:1px solid #ccd6e2;border-radius:6px;padding:6px 8px}
       .analytics-toolbar input[type=checkbox]{min-height:auto}
       .analytics-toolbar button{min-height:36px;border:0;border-radius:18px;padding:0 16px;background:#cdeffc;color:#002b5c;font-weight:700;cursor:pointer}
+      .analytics-upload-panel{margin:0 0 16px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff}
+      .analytics-upload-panel h3{margin:0 0 6px;color:#123367;font-size:15px}
+      .analytics-upload-panel p,.analytics-note{margin:0;color:#51657c;font-size:13px;line-height:1.35}
       .analytics-warning-list{display:grid;gap:6px;margin:0 0 12px}
       .analytics-warning-list p{margin:0;padding:8px 10px;border:1px solid #f0c36d;border-radius:8px;background:#fff7dc;color:#6d4c00;font-weight:800;line-height:1.3}
       .analytics-toolbar .choices{min-width:170px;margin-bottom:0}
@@ -4745,6 +4843,16 @@
       if (selectedEnrollmentReport() === REPORTS.studentPresence) runStudentPresence().catch(err => console.warn(err));
     });
     document.getElementById('runDashboard')?.addEventListener('click', runDashboard);
+    document.getElementById('workExperienceCsv')?.addEventListener('change', () => {
+      loadWorkExperienceRows()
+        .then(() => {
+          const selected = selectedEnrollmentReport();
+          if (selected === REPORTS.dashboard) runDashboard();
+          if (selected === REPORTS.attrition) runAttrition();
+          if (selected === REPORTS.demand) runDemand();
+        })
+        .catch(err => alert(err.message || 'Work Experience upload failed.'));
+    });
     document.getElementById('dashFocusTerm')?.addEventListener('change', () => {
       const value = document.getElementById('dashFocusTerm')?.value || '';
       const parts = termParts(value);
@@ -4771,6 +4879,9 @@
     document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('exportStudentPresence')?.addEventListener('click', () => exportRows(state.studentPresenceRows, `student-presence-${studentPresenceFocusTerm() || 'term'}.csv`));
     document.getElementById('runAttrition')?.addEventListener('click', runAttrition);
+    document.getElementById('dashIncludeWorkExperience')?.addEventListener('change', runDashboard);
+    document.getElementById('attrIncludeWorkExperience')?.addEventListener('change', runAttrition);
+    document.getElementById('demIncludeWorkExperience')?.addEventListener('change', runDemand);
     document.getElementById('enrollmentCsv')?.addEventListener('change', loadAttritionFiles);
     document.getElementById('attrArchiveTerms')?.addEventListener('change', loadAttritionFiles);
     document.getElementById('archiveAttritionUploads')?.addEventListener('click', () => archiveUploads('enrollmentCsv').catch(err => alert(err.message || 'Archive failed.')));
