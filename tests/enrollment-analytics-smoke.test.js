@@ -963,6 +963,27 @@ test('room utilization includes room capacity fit flags', () => {
   assert.match(css, /\.room-fit-table/);
 });
 
+test('heatmap exposes optional metric modes and summary cards', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+
+  assert.match(index, /heatmap-metric-select/);
+  assert.match(index, /Enrollment-weighted/);
+  assert.match(index, /Seat capacity/);
+  assert.match(index, /Fill-rate/);
+  assert.match(index, /heatmap-prime-only/);
+  assert.match(index, /heatmap-underutilized-only/);
+  assert.match(index, /heatmap-summary-cards/);
+  assert.match(app, /heatmapMetricMode/);
+  assert.match(app, /renderHeatmapSummaryCards/);
+  assert.match(app, /isPrimeHeatmapSlot/);
+  assert.match(app, /isUnderutilizedHeatmapRow/);
+  assert.match(app, /rowEnrollment/);
+  assert.match(app, /rowCapacity/);
+  assert.match(css, /\.analysis-summary-cards/);
+});
+
 test('duration graph uses nice y-axis tick steps', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
 

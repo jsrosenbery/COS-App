@@ -139,6 +139,9 @@
       <p>
         The table supports the heatmap by showing the actual courses behind each count. Used together, the heatmap shows the pattern while the table shows the underlying schedule records, so a busy cell can be investigated immediately instead of treated as an abstract number.
       </p>
+      <p>
+        Optional metric modes keep the same day/start-time layout: Section count counts starts, Enrollment-weighted sums census/current enrollment, Seat capacity sums section capacity, and Fill-rate shows enrollment divided by capacity. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM. Underutilized periods use the current planning threshold of less than 70% fill.
+      </p>
     </div>
     <div id="controls">
       <label>Campus:
@@ -153,10 +156,25 @@
       <label>CAL-GETC:
         <select id="heatmap-calgetc-select"></select>
       </label>
+      <label>Heatmap metric:
+        <select id="heatmap-metric-select">
+          <option value="sections">Section count</option>
+          <option value="enrollment">Enrollment-weighted</option>
+          <option value="capacity">Seat capacity</option>
+          <option value="fillRate">Fill-rate</option>
+        </select>
+      </label>
+      <label class="inline-check">
+        <input id="heatmap-prime-only" type="checkbox"> Show only prime time
+      </label>
+      <label class="inline-check">
+        <input id="heatmap-underutilized-only" type="checkbox"> Show only underutilized periods
+      </label>
       <select id="courseSelect" multiple placeholder="Filter by course"></select>
       <input type="text" id="textSearch" placeholder="Type to search table…"/>
       <button id="heatmap-clear-btn" type="button">Clear</button>
     </div>
+    <div id="heatmap-summary-cards" class="analysis-summary-cards"></div>
     <div id="heatmapContainer"></div>
     <div id="heatmap-cell-filter-note" class="analysis-filter-note" hidden></div>
     <table id="dataTable" class="display"></table>

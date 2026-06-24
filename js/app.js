@@ -731,6 +731,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('heatmap-division-select').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-discipline-select').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-calgetc-select').addEventListener('change', updateAllHeatmap);
+  document.getElementById('heatmap-metric-select').addEventListener('change', updateHeatmap);
+  document.getElementById('heatmap-prime-only').addEventListener('change', updateAllHeatmap);
+  document.getElementById('heatmap-underutilized-only').addEventListener('change', updateAllHeatmap);
   document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-division-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-discipline-select').addEventListener('change', renderLineChart);
@@ -779,6 +782,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const select = document.getElementById(id);
       if (select) select.value = '';
     });
+    const metric = document.getElementById('heatmap-metric-select');
+    if (metric) metric.value = 'sections';
+    const primeOnly = document.getElementById('heatmap-prime-only');
+    const underutilizedOnly = document.getElementById('heatmap-underutilized-only');
+    if (primeOnly) primeOnly.checked = false;
+    if (underutilizedOnly) underutilizedOnly.checked = false;
     clearHeatmapCellFilter(false);
     if (document.getElementById('textSearch')) {
       document.getElementById('textSearch').value = '';
@@ -2815,7 +2824,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         { title: 'Building', render: $.fn.dataTable.render.text() },
         { title: 'Room', render: $.fn.dataTable.render.text() },
         { title: 'Days', render: $.fn.dataTable.render.text() },
-        { title: 'Time', render: $.fn.dataTable.render.text() }
+        { title: 'Time', render: $.fn.dataTable.render.text() },
+        { title: 'Enrollment', visible: false },
+        { title: 'Capacity', visible: false },
+        { title: 'Division', visible: false },
+        { title: 'Discipline', visible: false },
+        { title: 'Campus', visible: false }
       ],
       destroy: true,
       searching: true
@@ -2855,6 +2869,60 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const startHour = parseHour(startTime);
     if (!Number.isFinite(startHour)) return false;
     return Math.floor(startHour * 2) / 2 === filter.hour;
+  }
+
+  function heatmapNumber(value) {
+    const parsed = Number(String(value ?? '').replace(/[%,$]/g, '').trim());
+    if (Number.isFinite(parsed)) return parsed;
+    const match = String(value ?? '').match(/-?\d+(?:\.\d+)?/);
+    return match ? Number(match[0]) : 0;
+  }
+
+  function rowEnrollment(row) {
+    return heatmapNumber(row[5]);
+  }
+
+  function rowCapacity(row) {
+    return heatmapNumber(row[6]);
+  }
+
+  function rowFillRate(row) {
+    const capacity = rowCapacity(row);
+    return capacity > 0 ? rowEnrollment(row) / capacity : 0;
+  }
+
+  function isPrimeHeatmapSlot(day, hour) {
+    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday'].includes(day) && hour >= 9 && hour < 15;
+  }
+
+  function isUnderutilizedHeatmapRow(row) {
+    const capacity = rowCapacity(row);
+    return capacity > 0 && rowFillRate(row) < 0.7;
+  }
+
+  function heatmapMetricMode() {
+    return document.getElementById('heatmap-metric-select')?.value || 'sections';
+  }
+
+  function formatHeatmapValue(value, metric) {
+    if (!value) return '';
+    if (metric === 'fillRate') return `${Math.round(value * 100)}%`;
+    return String(Math.round(value));
+  }
+
+  function heatmapMetricLabel(metric = heatmapMetricMode()) {
+    return {
+      sections: 'section start',
+      enrollment: 'enrolled student',
+      capacity: 'seat capacity',
+      fillRate: 'average fill rate'
+    }[metric] || 'section start';
+  }
+
+  function formatHeatmapCardValue(item, metric = 'sections') {
+    if (!item) return 'N/A';
+    const value = metric === 'fillRate' ? `${Math.round(item.value * 100)}%` : Math.round(item.value);
+    return `${item.day} ${formatHourLabel(item.hour)} (${value})`;
   }
 
   function registerHeatmapDataTableFilter() {
@@ -2918,6 +2986,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
       const endDate = extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
       const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
+      const enrollment = heatmapNumber(extractField(r, ['CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL', 'Actual_Enroll', 'Actual Enroll', 'Enrollment', 'Enroll']));
+      const capacity = heatmapNumber(extractField(r, ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL']));
 
       const building = r.Building || r.BUILDING || '';
       const room = r.Room || r.ROOM || '';
@@ -2945,6 +3015,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         Start_Date: startDate,
         End_Date: endDate,
         Instructor: instructor,
+        Enrollment: enrollment,
+        Capacity: capacity,
         Campus: extractField(r, ['Campus', 'campus', 'CAMPUS']),
         Division: getDivision(r),
         Discipline: getCourseParts(r).discipline
@@ -3032,18 +3104,58 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function updateAllHeatmap() {
     clearHeatmapCellFilter(false);
+    const primeOnly = document.getElementById('heatmap-prime-only')?.checked;
+    const underutilizedOnly = document.getElementById('heatmap-underutilized-only')?.checked;
     const rows = filterAnalysisRows({
       campusId: 'heatmap-campus-select',
       divisionId: 'heatmap-division-select',
       disciplineId: 'heatmap-discipline-select',
       calGetcId: 'heatmap-calgetc-select',
       courseChoices: hmChoices
-    }).map(r => [r.key, r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time]);
+    }).filter(r => {
+      const startHour = parseHour(r.Start_Time);
+      if (primeOnly && !r.Days.some(day => isPrimeHeatmapSlot(day, startHour))) return false;
+      if (underutilizedOnly && !isUnderutilizedHeatmapRow([r.key, r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time, r.Enrollment || 0, r.Capacity || 0])) return false;
+      return true;
+    }).map(r => [
+      r.key,
+      r.Building,
+      r.Room,
+      Array.isArray(r.Days) ? r.Days.join(',') : '',
+      r.Start_Time + '-' + r.End_Time,
+      r.Enrollment || 0,
+      r.Capacity || 0,
+      r.Division || '',
+      r.Discipline || '',
+      r.Campus || ''
+    ]);
     hmTable.clear().rows.add(rows).draw();
+  }
+
+  function renderHeatmapSummaryCards(cells) {
+    const node = document.getElementById('heatmap-summary-cards');
+    if (!node) return;
+    const usable = (cells || []).filter(cell => cell.sections > 0);
+    if (!usable.length) {
+      node.innerHTML = '<div><strong>N/A</strong><span>No matching heatmap periods</span></div>';
+      return;
+    }
+    const bySections = [...usable].sort((a, b) => b.sections - a.sections || b.enrollment - a.enrollment);
+    const byEnrollment = [...usable].sort((a, b) => b.enrollment - a.enrollment || b.sections - a.sections);
+    const lightest = [...usable].sort((a, b) => a.sections - b.sections || a.enrollment - b.enrollment)[0];
+    const lowestEnrollment = [...usable].sort((a, b) => a.enrollment - b.enrollment || a.sections - b.sections)[0];
+    const card = (label, value, detail) => `<div><strong>${escapeHTML(value)}</strong><span>${escapeHTML(label)}</span>${detail ? `<small>${escapeHTML(detail)}</small>` : ''}</div>`;
+    node.innerHTML = [
+      card('Busiest day/time', formatHeatmapCardValue(bySections[0], 'sections'), `${bySections[0].enrollment} enrolled / ${bySections[0].capacity} seats`),
+      card('Lightest day/time', formatHeatmapCardValue(lightest, 'sections'), `${lightest.enrollment} enrolled / ${lightest.capacity} seats`),
+      card('Highest enrolled time block', formatHeatmapCardValue(byEnrollment[0], 'enrollment'), `${byEnrollment[0].sections} section start${byEnrollment[0].sections === 1 ? '' : 's'}`),
+      card('Lowest enrolled time block', formatHeatmapCardValue(lowestEnrollment, 'enrollment'), `${lowestEnrollment.sections} section start${lowestEnrollment.sections === 1 ? '' : 's'}`)
+    ].join('');
   }
 
   function updateHeatmap() {
     const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
+    const metric = heatmapMetricMode();
     const startHours = filtered
       .map(row => parseHour(row[4]?.split('-')[0]?.trim()))
       .filter(hour => Number.isFinite(hour));
@@ -3051,8 +3163,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     let maxHour = startHours.length ? (Math.ceil(Math.max(...startHours) * 2) / 2) + 0.5 : 22;
     if (minHour >= maxHour) { minHour = 6; maxHour = 22; }
     const hours = buildHalfHourSlots(minHour, maxHour);
-    const counts = {};
-    hmDays.forEach(d => counts[d] = hours.map(() => 0));
+    const cells = {};
+    hmDays.forEach(d => cells[d] = hours.map(() => ({ sections: 0, enrollment: 0, capacity: 0 })));
     filtered.forEach(row => {
       const [ course, bld, room, daysStr, timeStr ] = row;
       const dayList = normalizeMeetingDays(daysStr);
@@ -3066,24 +3178,41 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const startIndex = hours.indexOf(Math.floor(startHour * 2) / 2);
       if (startIndex < 0) return;
       dayList.forEach(d => {
-        if (counts[d]) counts[d][startIndex]++;
+        if (!cells[d]) return;
+        cells[d][startIndex].sections++;
+        cells[d][startIndex].enrollment += rowEnrollment(row);
+        cells[d][startIndex].capacity += rowCapacity(row);
       });
     });
-    const maxC = Math.max(...Object.values(counts).flat());
+    const cellValue = (cell) => {
+      if (metric === 'enrollment') return cell.enrollment;
+      if (metric === 'capacity') return cell.capacity;
+      if (metric === 'fillRate') return cell.capacity > 0 ? cell.enrollment / cell.capacity : 0;
+      return cell.sections;
+    };
+    const allCells = [];
+    Object.entries(cells).forEach(([day, row]) => {
+      row.forEach((cell, index) => allCells.push({ ...cell, day, hour: hours[index], value: cellValue(cell) }));
+    });
+    const nonEmptyCells = allCells.filter(cell => cell.sections > 0);
+    const maxC = Math.max(0, ...nonEmptyCells.map(cell => cell.value));
+    renderHeatmapSummaryCards(nonEmptyCells);
     let html = '<table class="heatmap">';
-    html += '<thead><tr><th>Day/Start Time</th>';
+    html += `<thead><tr><th>Day/Start Time<br><span>${escapeHTML(heatmapMetricLabel(metric))}</span></th>`;
     hours.forEach(h=>{
       html+=`<th>${formatHourLabel(h)}</th>`;
     });
     html+='</tr></thead><tbody>';
     hmDays.forEach(d=>{
       html+=`<tr><th>${d}</th>`;
-      counts[d].forEach((c, i)=>{
+      cells[d].forEach((cell, i)=>{
         const h = hours[i];
-        const op=maxC?c/maxC:0;
+        const value = cellValue(cell);
+        const op=maxC?value/maxC:0;
         const level = op >= 0.8 ? 'high' : op >= 0.45 ? 'medium' : op > 0 ? 'low' : 'empty';
         const selected = heatmapCellFilter && heatmapCellFilter.day === d && heatmapCellFilter.hour === h ? ' is-selected' : '';
-        html+=`<td class="heatmap-cell heatmap-${level}${selected}" data-day="${escapeHTML(d)}" data-hour="${h}" title="${escapeHTML(d)} ${escapeHTML(formatHourLabel(h))}: ${c} start${c === 1 ? '' : 's'}" style="--heat:${op.toFixed(3)}">${c||''}</td>`;
+        const title = `${d} ${formatHourLabel(h)}: ${formatHeatmapValue(value, metric) || 0} ${heatmapMetricLabel(metric)}${metric === 'sections' && value === 1 ? '' : 's'}; ${cell.sections} section${cell.sections === 1 ? '' : 's'}, ${cell.enrollment} enrolled, ${cell.capacity} seats`;
+        html+=`<td class="heatmap-cell heatmap-${level}${selected}" data-day="${escapeHTML(d)}" data-hour="${h}" title="${escapeHTML(title)}" style="--heat:${op.toFixed(3)}">${formatHeatmapValue(value, metric)}</td>`;
       });
       html+='</tr>';
     });

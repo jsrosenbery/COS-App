@@ -429,6 +429,55 @@ button:hover,
   padding: 0.75rem 0;
 }
 
+.inline-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.45rem !important;
+}
+
+.inline-check input {
+  min-height: auto;
+}
+
+.analysis-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+  margin: 1rem 0 0.2rem;
+}
+
+.analysis-summary-cards div {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.85rem 1rem;
+  box-shadow: 0 8px 20px rgba(16, 32, 51, 0.06);
+}
+
+.analysis-summary-cards strong,
+.analysis-summary-cards span,
+.analysis-summary-cards small {
+  display: block;
+}
+
+.analysis-summary-cards strong {
+  color: var(--brand);
+  font-size: 1.15rem;
+}
+
+.analysis-summary-cards span {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.analysis-summary-cards small {
+  margin-top: 0.3rem;
+  color: var(--ink);
+}
+
 .heatmap {
   width: 100%;
   min-width: 820px;
