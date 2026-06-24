@@ -10,7 +10,8 @@
     studentPresence: 'student-presence-analytics',
     instructorAvailability: 'instructor-availability',
     conflictCheck: 'conflict-check',
-    snapshotManager: 'enrollment-snapshot-manager'
+    snapshotManager: 'enrollment-snapshot-manager',
+    archiveInspection: 'archive-inspection'
   };
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
   const ACCOUNTING_METHODS = {
@@ -41,6 +42,8 @@
     conflictInput: [],
     conflictTerms: [],
     conflictRan: false,
+    archiveInspectionRows: [],
+    archiveInspectionTerm: '',
     attritionRows: [],
     attritionRan: false,
     attritionTerms: [],
@@ -779,6 +782,7 @@
             <option value="${REPORTS.consolidation}">Section Consolidation Opportunities</option>
             <option value="${REPORTS.utilization}">Room Utilization Map</option>
             <option value="${REPORTS.conflictCheck}">Conflict Check Report</option>
+            <option value="${REPORTS.archiveInspection}">Archive Inspection</option>
             <option value="${REPORTS.studentPresence}">Student Presence Analytics</option>
             <option value="${REPORTS.instructorAvailability}">Instructor Availability - Planning View</option>
             <option value="${REPORTS.snapshotManager}">Enrollment Snapshot Manager</option>
@@ -956,6 +960,38 @@
           <div id="conflictTable" class="analytics-table"></div>
           <div id="conflictArchiveInspection" class="analytics-table"></div>
           <div id="conflictLegend" class="analytics-legend"></div>
+        </div>
+        <div id="archiveInspectionReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Archive Inspection</h2>
+            <p>Inspect one archived Section Seating upload exactly as the app parses it. Use this before running analytics when a term appears missing, duplicated, or misclassified.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Tool</h3>
+                <ul>
+                  <li>Select one archived term, then click Inspect Archived Schedule.</li>
+                  <li>Review parsed row count, distinct CRNs, detected term values, campus/modality/day/time distributions, and sample rows.</li>
+                  <li>Export the parsed inspection CSV when you need to verify what the backend archive returned.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>The inspection reads only the selected archived term from the analytics archive endpoint.</li>
+                  <li>Rows are normalized with the same parser used by the analytics reports.</li>
+                  <li>Distinct CRNs count unique CRN values after parsing; rows without CRNs remain visible in samples but are not counted as distinct CRNs.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Archived term <select id="archiveInspectionTerm"></select></label>
+            <button id="inspectArchivedSchedule" type="button">Inspect Archived Schedule</button>
+            <button id="exportArchiveInspection" type="button">Export Parsed Archive CSV</button>
+          </div>
+          <div id="archiveInspectionMetrics" class="analytics-metrics"></div>
+          <div id="archiveInspectionSummary" class="dashboard-grid"></div>
+          <div id="archiveInspectionSamples" class="analytics-table"></div>
         </div>
         <div id="studentPresenceReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -1551,30 +1587,34 @@
     const terms = getSelectedValues(selectId);
     if (!terms.length || !window.BACKEND_BASE_URL) return [];
     const reportLabel = options.reportLabel || 'analytics archive';
-    const batches = await Promise.all(terms.map(async (term) => {
-      try {
-        const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`);
-        let payload = {};
-        try {
-          payload = await response.json();
-        } catch (parseErr) {
-          payload = {};
-        }
-        if (!response.ok) {
-          const detail = payload.error || payload.message || `${response.status} ${response.statusText}`.trim();
-          throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${detail}`);
-        }
-        if (!Array.isArray(payload.data)) {
-          const detail = payload.error || payload.message || 'archive response did not include a data array';
-          throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${detail}`);
-        }
-        return payload.data.map(row => ({ ...row, __sourceTerm: payload.term || term }));
-      } catch (err) {
-        if (/Could not load archived term/.test(err?.message || '')) throw err;
-        throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${err?.message || err}`);
-      }
-    }));
+    const batches = await Promise.all(terms.map(term => fetchArchivedTermRows(term, reportLabel)));
     return batches.flat();
+  }
+
+  async function fetchArchivedTermRows(term, reportLabel = 'analytics archive') {
+    if (!term) return [];
+    if (!window.BACKEND_BASE_URL) throw new Error(`Cannot load archived term ${term} for ${reportLabel}: backend URL is not configured.`);
+    try {
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`);
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (parseErr) {
+        payload = {};
+      }
+      if (!response.ok) {
+        const detail = payload.error || payload.message || `${response.status} ${response.statusText}`.trim();
+        throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${detail}`);
+      }
+      if (!Array.isArray(payload.data)) {
+        const detail = payload.error || payload.message || 'archive response did not include a data array';
+        throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${detail}`);
+      }
+      return payload.data.map(row => ({ ...row, __sourceTerm: payload.term || term }));
+    } catch (err) {
+      if (/Could not load archived term|Cannot load archived term/.test(err?.message || '')) throw err;
+      throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${err?.message || err}`);
+    }
   }
 
   async function refreshAnalyticsArchiveOptions() {
@@ -1588,9 +1628,21 @@
       setSelectOptions('demArchiveTerms', options);
       setSelectOptions('spArchiveTerms', options);
       setSelectOptions('conflictArchiveTerms', options);
+      setArchiveInspectionTermOptions();
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
     }
+  }
+
+  function setArchiveInspectionTermOptions() {
+    const select = document.getElementById('archiveInspectionTerm');
+    if (!select) return;
+    const prior = select.value;
+    const terms = [...(state.archivedAnalyticsTerms || [])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    select.replaceChildren();
+    terms.forEach(term => select.appendChild(new Option(term, term, false, term === prior)));
+    if (terms.includes(prior)) select.value = prior;
+    else if (terms.length) select.value = terms[terms.length - 1];
   }
 
   function loadSnapshotsFromLocal() {
@@ -2608,6 +2660,116 @@
       'crossList',
       'sourceType'
     ]);
+  }
+
+  async function inspectArchivedSchedule() {
+    const term = canon(document.getElementById('archiveInspectionTerm')?.value || '');
+    if (!term) {
+      renderArchiveInspectionError('Select an archived term to inspect.');
+      return [];
+    }
+    const rawRows = await fetchArchivedTermRows(term, 'Archive Inspection');
+    state.archiveInspectionTerm = term;
+    state.archiveInspectionRows = rawRows.map(normalize);
+    renderArchiveInspection(rawRows, state.archiveInspectionRows, term);
+    return state.archiveInspectionRows;
+  }
+
+  function archiveInspectionRows() {
+    return (state.archiveInspectionRows || []).map(row => ({
+      sourceTerm: row.raw?.__sourceTerm || row.__sourceTerm || state.archiveInspectionTerm || row.term,
+      term: row.term,
+      crn: row.crn,
+      subject: row.subject,
+      course: row.course,
+      section: row.section,
+      title: row.title,
+      division: row.division,
+      department: row.department,
+      campus: row.campus,
+      modality: row.modality,
+      instructionalMethod: row.instructionalMethod,
+      instructor: row.instructor,
+      days: row.dayPattern,
+      start: row.start,
+      end: row.end,
+      timeBlock: row.timeBlock,
+      building: row.building,
+      room: row.roomOnly || row.room,
+      capacity: row.cap,
+      censusEnrollment: row.census,
+      finalEnrollment: row.actual,
+      crossList: row.crossList,
+      sourceType: row.sourceType
+    }));
+  }
+
+  function renderArchiveInspection(rawRows, rows, selectedTerm) {
+    const termsDetected = collectRowTerms(rows);
+    const distinctCrns = new Set(rows.map(row => canon(row.crn)).filter(Boolean));
+    metric('archiveInspectionMetrics', [
+      ['Selected Archive Term', selectedTerm || 'N/A'],
+      ['Parsed Row Count', rows.length],
+      ['Raw Row Count', rawRows.length],
+      ['Distinct CRN Count', distinctCrns.size],
+      ['Term Value Detected', termsDetected.length ? termsDetected.join(', ') : 'N/A']
+    ]);
+    document.getElementById('archiveInspectionSummary').innerHTML = [
+      archiveDistributionPanel('Campus Distribution', rows, row => row.campus || 'Blank'),
+      archiveDistributionPanel('Modality Distribution', rows, row => row.modality || 'Blank'),
+      archiveDistributionPanel('Day Distribution', rows, row => row.dayPattern || 'Blank/TBA'),
+      archiveDistributionPanel('Time Distribution', rows, row => row.timeBlock || 'Blank/TBA')
+    ].join('');
+    table('archiveInspectionSamples', archiveInspectionRows().slice(0, 100), [
+      'sourceTerm',
+      'term',
+      'crn',
+      'subject',
+      'course',
+      'section',
+      'title',
+      'division',
+      'campus',
+      'modality',
+      'instructionalMethod',
+      'instructor',
+      'days',
+      'start',
+      'end',
+      'timeBlock',
+      'building',
+      'room',
+      'capacity'
+    ]);
+  }
+
+  function renderArchiveInspectionError(message) {
+    metric('archiveInspectionMetrics', [
+      ['Parsed Rows', 0],
+      ['Distinct CRNs', 0],
+      ['Term Value Detected', 'N/A']
+    ]);
+    document.getElementById('archiveInspectionSummary').innerHTML = `<p class="analytics-empty">${escapeAttr(message)}</p>`;
+    document.getElementById('archiveInspectionSamples').innerHTML = `<p class="analytics-empty">${escapeAttr(message)}</p>`;
+  }
+
+  function archiveDistributionPanel(title, rows, keyer) {
+    const counts = distributionRows(rows, keyer).slice(0, 15);
+    const body = counts.length
+      ? `<table class="dashboard-mini-table"><thead><tr><th>Value</th><th>Rows</th><th>Share</th></tr></thead><tbody>${counts.map(row => `<tr><td>${escapeAttr(row.value)}</td><td>${row.count}</td><td>${pct(row.share)}</td></tr>`).join('')}</tbody></table>`
+      : '<p class="analytics-empty">No values found.</p>';
+    return `<section class="dashboard-panel"><h3>${escapeAttr(title)}</h3>${body}</section>`;
+  }
+
+  function distributionRows(rows, keyer) {
+    const counts = new Map();
+    rows.forEach(row => {
+      const key = canon(keyer(row) || 'Blank');
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return [...counts.entries()]
+      .map(([value, count]) => ({ value, count, share: safeDiv(count, rows.length) }))
+      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, undefined, { numeric: true }));
   }
 
   function renderConflictLegend() {
@@ -4772,6 +4934,10 @@
       compatibleDaySeats: 'Compatible Day Seats',
       action: 'Recommendation',
       conflictType: 'Conflict Type',
+      sourceTerm: 'Source Term',
+      instructionalMethod: 'Instructional Method',
+      timeBlock: 'Time Block',
+      censusEnrollment: 'Census Enrollment',
       timeOverlap: 'Time Overlap',
       crn1: 'CRN 1',
       course1: 'Course 1',
@@ -4948,6 +5114,7 @@
     document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
     document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
     document.getElementById('conflictCheckReport').style.display = unlocked && selected === REPORTS.conflictCheck ? 'block' : 'none';
+    document.getElementById('archiveInspectionReport').style.display = unlocked && selected === REPORTS.archiveInspection ? 'block' : 'none';
     document.getElementById('snapshotManagerReport').style.display = unlocked && selected === REPORTS.snapshotManager ? 'block' : 'none';
     document.getElementById('studentPresenceReport').style.display = unlocked && selected === REPORTS.studentPresence ? 'block' : 'none';
     document.getElementById('instructorAvailabilityReport').style.display = unlocked && selected === REPORTS.instructorAvailability ? 'block' : 'none';
@@ -4980,6 +5147,18 @@
         document.getElementById('conflictTable').innerHTML = '<p class="analytics-empty">Upload/select schedule CSVs or use the current loaded schedule, then click Run.</p>';
         renderConflictLegend();
       }).catch(err => console.warn(err));
+    }
+    if (selected === REPORTS.archiveInspection) {
+      setArchiveInspectionTermOptions();
+      if (!state.archiveInspectionRows.length) {
+        metric('archiveInspectionMetrics', [
+          ['Parsed Rows', 0],
+          ['Distinct CRNs', 0],
+          ['Detected Terms', 'N/A']
+        ]);
+        document.getElementById('archiveInspectionSummary').innerHTML = '<p class="analytics-empty">Select an archived term, then click Inspect Archived Schedule.</p>';
+        document.getElementById('archiveInspectionSamples').innerHTML = '<p class="analytics-empty">No archive inspection has been run.</p>';
+      }
     }
     if (selected === REPORTS.utilization) {
       window.COSScheduleApp?.renderUtilizationMap?.();
@@ -5240,6 +5419,24 @@
     document.getElementById('exportConflictArchiveInspection')?.addEventListener('click', () => loadConflictRows()
       .then(() => exportRowsWithoutMethodology(conflictInspectionRows(), `parsed-schedule-${document.getElementById('conflictTerm')?.value || 'selected-terms'}.csv`))
       .catch(err => alert(err.message || 'Parsed schedule export failed.')));
+    document.getElementById('inspectArchivedSchedule')?.addEventListener('click', () => inspectArchivedSchedule()
+      .catch(err => {
+        renderArchiveInspectionError(err.message || 'Archived schedule inspection failed.');
+        alert(err.message || 'Archived schedule inspection failed.');
+      }));
+    document.getElementById('archiveInspectionTerm')?.addEventListener('change', () => {
+      state.archiveInspectionRows = [];
+      state.archiveInspectionTerm = '';
+      renderArchiveInspectionError('Archived term changed. Click Inspect Archived Schedule to load the selected term.');
+    });
+    document.getElementById('exportArchiveInspection')?.addEventListener('click', () => {
+      const rows = archiveInspectionRows();
+      if (!rows.length) {
+        renderArchiveInspectionError('Run Inspect Archived Schedule before exporting.');
+        return;
+      }
+      exportRowsWithoutMethodology(rows, `archive-inspection-${state.archiveInspectionTerm || 'selected-term'}.csv`);
+    });
     document.getElementById('saveSnapshotBatch')?.addEventListener('click', () => saveSnapshotBatch().catch(err => alert(err.message || 'Snapshot save failed.')));
     document.getElementById('snapSeason')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('snapYear')?.addEventListener('change', () => renderSnapshotManager());

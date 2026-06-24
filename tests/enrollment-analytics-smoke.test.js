@@ -1008,6 +1008,25 @@ test('demand forecast is scoped to selected demand uploads and archives', () => 
   assert.match(text, /Demand source load failed:/);
 });
 
+test('archive inspection exposes parsed archived schedule validation', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /archiveInspection: 'archive-inspection'/);
+  assert.match(text, /Archive Inspection/);
+  assert.match(text, /archiveInspectionTerm/);
+  assert.match(text, /inspectArchivedSchedule/);
+  assert.match(text, /Export Parsed Archive CSV/);
+  assert.match(text, /Parsed Row Count/);
+  assert.match(text, /Distinct CRN Count/);
+  assert.match(text, /Term Value Detected/);
+  assert.match(text, /Campus Distribution/);
+  assert.match(text, /Modality Distribution/);
+  assert.match(text, /Day Distribution/);
+  assert.match(text, /Time Distribution/);
+  assert.match(text, /archiveInspectionRows/);
+  assert.match(text, /exportArchiveInspection/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
