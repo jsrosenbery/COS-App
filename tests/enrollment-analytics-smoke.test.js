@@ -1347,7 +1347,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   const reportOrderEnd = text.indexOf('];', reportOrderStart);
   const reportOrderBlock = text.slice(reportOrderStart, reportOrderEnd);
 
-  assert.match(text, /REPORT_GROUP_ORDER = \['dean', 'em', 'development', 'admin'\]/);
+  assert.match(text, /REPORT_GROUP_ORDER = \['dean', 'em', 'admin', 'development'\]/);
   assert.match(text, /function reportGroupsHtml/);
   assert.match(text, /class="em-report-groups"/);
   assert.match(text, /class="em-report-button"/);

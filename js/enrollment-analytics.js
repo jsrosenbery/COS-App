@@ -66,7 +66,7 @@
     [REPORTS.studentPresence]: 'Student Presence Analytics',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
-  const REPORT_GROUP_ORDER = ['dean', 'em', 'development', 'admin'];
+  const REPORT_GROUP_ORDER = ['dean', 'em', 'admin', 'development'];
   const REPORT_ORDER = [
     REPORTS.archiveInspection,
     REPORTS.snapshotManager,
