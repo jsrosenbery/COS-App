@@ -1347,7 +1347,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   const reportOrderEnd = text.indexOf('];', reportOrderStart);
   const reportOrderBlock = text.slice(reportOrderStart, reportOrderEnd);
 
-  assert.match(text, /REPORT_GROUP_ORDER = \['general', 'dean', 'em', 'development', 'admin'\]/);
+  assert.match(text, /REPORT_GROUP_ORDER = \['dean', 'em', 'development', 'admin'\]/);
   assert.match(text, /function reportGroupsHtml/);
   assert.match(text, /class="em-report-groups"/);
   assert.match(text, /class="em-report-button"/);
@@ -1422,7 +1422,9 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /\[REPORTS\.dashboard\]: 'dean'/);
   assert.match(text, /\[REPORTS\.modality\]: 'dean'/);
   assert.match(text, /\[REPORTS\.consolidation\]: 'em'/);
-  assert.match(text, /\[REPORTS\.archiveInspection\]: 'general'/);
+  assert.match(text, /\[REPORTS\.archiveInspection\]: 'admin'/);
+  assert.match(text, /\[REPORTS\.snapshotManager\]: 'admin'/);
+  assert.match(text, /\[REPORTS\.workExperience\]: 'admin'/);
   assert.match(text, /function canAccess\(reportName\)/);
   assert.match(text, /Access Level/);
   assert.match(text, /id="currentAccessLevel"/);
@@ -1431,7 +1433,8 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /Requires \$\{ROLE_LABEL\[requiredRole\]\}/);
   assert.match(text, /data-unlock-report/);
   assert.match(text, /api\/auth\/role/);
-  assert.match(text, /General supports data upload and maintenance/);
+  assert.match(text, /General supports file upload and maintenance passwords only/);
+  assert.match(text, /Administrator is reserved for system configuration, archive inspection, snapshot management, Work Experience uploads/);
   assert.match(text, /Development is for experimental and in-progress reports/);
   assert.doesNotMatch(text, /Developer/);
   assert.doesNotMatch(text, /Upload2025/);

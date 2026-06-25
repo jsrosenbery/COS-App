@@ -33,9 +33,9 @@
     admin: 'Administrator'
   };
   const REPORT_ACCESS = {
-    [REPORTS.archiveInspection]: 'general',
-    [REPORTS.snapshotManager]: 'general',
-    [REPORTS.workExperience]: 'general',
+    [REPORTS.archiveInspection]: 'admin',
+    [REPORTS.snapshotManager]: 'admin',
+    [REPORTS.workExperience]: 'admin',
     [REPORTS.dashboard]: 'dean',
     [REPORTS.duration]: 'dean',
     [REPORTS.heatmap]: 'dean',
@@ -66,7 +66,7 @@
     [REPORTS.studentPresence]: 'Student Presence Analytics',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
-  const REPORT_GROUP_ORDER = ['general', 'dean', 'em', 'development', 'admin'];
+  const REPORT_GROUP_ORDER = ['dean', 'em', 'development', 'admin'];
   const REPORT_ORDER = [
     REPORTS.archiveInspection,
     REPORTS.snapshotManager,
@@ -974,7 +974,7 @@
                   <li>Part-Time Faculty terminology is used for part-time instructional staffing references.</li>
                   <li>Student Presence Analytics excludes online rows and summarizes in-person/hybrid sections by campus, day, and hour.</li>
                   <li>Dashboard exports include the selected term, division, campus, modality, data source, and methodology version when methodology export is enabled.</li>
-                  <li>Access tiers: General supports data upload and maintenance; Dean / Division Chair supports division-level analytics and planning; Enrollment Management supports institution-wide planning and scheduling; Development is for experimental and in-progress reports; Administrator is reserved for system configuration and application management.</li>
+                  <li>Access tiers: General supports file upload and maintenance passwords only; Dean / Division Chair supports division-level analytics and planning; Enrollment Management supports institution-wide planning and scheduling; Development is for experimental and in-progress reports; Administrator is reserved for system configuration, archive inspection, snapshot management, Work Experience uploads, and application management.</li>
                 </ul>
               </div>
             </div>
