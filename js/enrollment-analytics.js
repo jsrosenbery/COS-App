@@ -955,7 +955,7 @@
                   <li>Upload or select archived Section Seating files, choose the term, then select one or more conflict modes.</li>
                   <li>Use filters to narrow the review by division, discipline, course, campus, room, modality, instructor, day, or start hour.</li>
                   <li>Online/TBA rows are excluded unless they contain fixed meeting days and times.</li>
-                  <li>Cross-listed pairs are omitted by default when both rows share the same CROSS_LIST value. Uncheck the omit option to inspect them.</li>
+                  <li>Cross-listed rows are omitted by default when either side of a conflict pair has a CROSS_LIST value. Uncheck the omit option to inspect them.</li>
                 </ul>
               </div>
               <div>
@@ -2577,7 +2577,7 @@
         const a = meetings[i];
         const b = meetings[j];
         if (a.term !== b.term || a.day !== b.day || a.sectionKey === b.sectionKey) continue;
-        if (omitCrossListed && sameCrossList(a, b)) continue;
+        if (omitCrossListed && hasCrossList(a, b)) continue;
         const overlapStart = Math.max(a.startMinutes, b.startMinutes);
         const overlapEnd = Math.min(a.endMinutes, b.endMinutes);
         const overlap = overlapEnd - overlapStart;
@@ -2664,8 +2664,8 @@
     return Boolean(a.courseKey && b.courseKey && a.courseKey === b.courseKey);
   }
 
-  function sameCrossList(a, b) {
-    return Boolean(a.crossList && b.crossList && a.crossList === b.crossList);
+  function hasCrossList(a, b) {
+    return Boolean(a.crossList || b.crossList);
   }
 
   function conflictRecord(conflictType, a, b, overlapStart, overlapEnd, overlapMinutesValue) {
@@ -2696,7 +2696,7 @@
       ['Term', document.getElementById('conflictTerm')?.value || 'N/A'],
       ['Conflicts Found', rows.length],
       ['Conflict Types', [...typeCounts.entries()].map(([type, count]) => `${type}: ${count}`).join('; ') || 'None'],
-      ['Cross-Listed Pairs', document.getElementById('conflictOmitCrossListed')?.checked !== false ? 'Omitted when same CROSS_LIST' : 'Included'],
+      ['Cross-Listed Pairs', document.getElementById('conflictOmitCrossListed')?.checked !== false ? 'Omitted when either row has CROSS_LIST' : 'Included'],
       ['Duplicate Type Rows', document.getElementById('conflictSeparateTypes')?.checked === true ? 'Separate' : 'Combined']
     ]);
     table('conflictTable', rows, [
@@ -2899,13 +2899,13 @@
       title: 'Conflict Check Methodology & Data Dictionary',
       purpose: 'Identifies loaded class meetings that overlap by room, instructor, exact room/time, exact instructor/time, or same course/day/time pattern.',
       methodology: 'The report creates one meeting record per Term + CRN + day + start + end, removes duplicate meeting rows, then compares every fixed meeting pair in the selected term. A conflict is flagged when the two meetings share the selected basis and their time intervals overlap. When same room and same instructor both match, the pair is shown once as Same Room + Same Instructor unless Show separate conflict types is selected.',
-      assumptions: 'Rows without fixed meeting days and valid start/end times are excluded. Fully online or TBA rows only appear if they include fixed meeting days and times. Same room uses the normalized building/room text. Same instructor uses the uploaded instructor field. CROSS_LIST identifies intentional cross-listed pairs; matching nonblank CROSS_LIST values are omitted by default.',
+      assumptions: 'Rows without fixed meeting days and valid start/end times are excluded. Fully online or TBA rows only appear if they include fixed meeting days and times. Same room uses the normalized building/room text. Same instructor uses the uploaded instructor field. CROSS_LIST identifies cross-listed rows; rows with nonblank CROSS_LIST values are omitted by default.',
       limitations: 'This report identifies schedule conflicts for review. It does not decide whether intentional cross-listing, arranged meetings, room-sharing, instructor load rules, or special events make an overlap acceptable.',
       items: [
         ['Conflict Type', 'The selected conflict basis that matched: same room overlap, same instructor overlap, exact room/time, exact instructor/time, or same course/day/time pattern.'],
         ['Time Overlap', 'The intersecting portion of the two class meeting intervals. Partial overlaps are included.'],
         ['CRN 1 / CRN 2', 'The two distinct CRNs involved. A CRN is never compared against itself.'],
-        ['Cross List 1 / Cross List 2', 'Parsed CROSS_LIST values for each section. If Omit Cross-Listed Sections is on, pairs with the same nonblank value do not appear in conflict results.'],
+        ['Cross List 1 / Cross List 2', 'Parsed CROSS_LIST values for each section. If Omit Cross-Listed Sections is on, conflict pairs where either row has a nonblank value do not appear in conflict results.'],
         ['Overlap Minutes', 'Number of minutes shared by both meetings on the same day. Formula: min(end times) - max(start times).'],
         ['Deduplication', 'Duplicate meeting rows for the same Term + CRN + day + start + end are counted once. Distinct meeting patterns for the same CRN remain available for comparison against other sections.'],
         ['Parsed Schedule Inspection', 'A review/export table showing the normalized rows loaded from selected archived terms and/or current uploads so archived terms such as Spring 2027 can be verified before interpreting conflicts.']

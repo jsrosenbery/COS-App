@@ -781,6 +781,7 @@ test('conflict check omits cross-listed pairs and combines room instructor overl
   const rows = [
     section({ term: 'SPRING 2027', crn: 'X1', subject: 'COMM', course: 'C1000', instructor: 'ONE, A', room: 'KERN 101', days: ['MO'], start: '09:00', end: '10:00', crossList: 'XL100' }),
     section({ term: 'SPRING 2027', crn: 'X2', subject: 'COMM', course: 'C1000', instructor: 'ONE, A', room: 'KERN 101', days: ['MO'], start: '09:00', end: '10:00', crossList: 'XL100' }),
+    section({ term: 'SPRING 2027', crn: 'X3', subject: 'COMM', course: 'C1000', instructor: 'ONE, A', room: 'KERN 101', days: ['MO'], start: '09:00', end: '10:00', crossList: 'XL200' }),
     section({ term: 'SPRING 2027', crn: 'C1', subject: 'HIST', course: '018', instructor: 'TWO, B', room: 'KERN 102', days: ['MO'], start: '11:00', end: '12:00', crossList: '' }),
     section({ term: 'SPRING 2027', crn: 'C2', subject: 'HIST', course: '018', instructor: 'TWO, B', room: 'KERN 102', days: ['MO'], start: '11:15', end: '12:15', crossList: '' })
   ];
@@ -791,9 +792,10 @@ test('conflict check omits cross-listed pairs and combines room instructor overl
   assert.equal(defaultConflicts[0].overlapMinutes, 45);
 
   const withCrossListed = COSEnrollmentAnalytics.conflictRows(rows, ['roomOverlap', 'instructorOverlap'], { omitCrossListed: false });
-  assert.equal(withCrossListed.length, 2);
-  assert.equal(withCrossListed.filter(row => row.conflictType === 'Same Room + Same Instructor').length, 2);
+  assert.equal(withCrossListed.length, 4);
+  assert.equal(withCrossListed.filter(row => row.conflictType === 'Same Room + Same Instructor').length, 4);
   assert.equal(withCrossListed.some(row => row.crossList1 === 'XL100' && row.crossList2 === 'XL100'), true);
+  assert.equal(withCrossListed.some(row => row.crossList1 === 'XL100' && row.crossList2 === 'XL200'), true);
 
   const separateTypes = COSEnrollmentAnalytics.conflictRows(rows, ['roomOverlap', 'instructorOverlap'], { separateConflictTypes: true });
   assert.equal(separateTypes.length, 2);
@@ -1213,6 +1215,7 @@ test('requested analytics regression coverage is represented in smoke tests', ()
     /crossList: \['CROSS_LIST'/,
     /conflictOmitCrossListed/,
     /conflictSeparateTypes/,
+    /hasCrossList/,
     /Same Room \+ Same Instructor/,
     /function conflictInspectionRows/,
     /inspectConflictArchive/,
