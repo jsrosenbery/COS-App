@@ -1218,14 +1218,20 @@ test('consolidation scope is limited to selected report inputs', () => {
 test('dashboard source does not silently load all archived terms', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const sourceStart = text.indexOf('function dashboardSourceRows');
-  const sourceEnd = text.indexOf('function dashboardAvailableTerms', sourceStart);
-  const sourceBlock = text.slice(sourceStart, sourceEnd);
+  const loadStart = text.indexOf('async function loadDashboardRows');
+  const loadEnd = text.indexOf('function dashboardAvailableTerms', loadStart);
+  const sourceBlock = text.slice(sourceStart, loadStart);
+  const loadBlock = text.slice(loadStart, loadEnd);
 
   assert.doesNotMatch(sourceBlock, /readArchivedRows/);
   assert.doesNotMatch(sourceBlock, /analytics-archive/);
-  assert.match(sourceBlock, /state\.enrollment/);
-  assert.match(sourceBlock, /state\.demandInput/);
-  assert.match(sourceBlock, /state\.consolidationInput/);
+  assert.match(sourceBlock, /state\.dashboardInput/);
+  assert.doesNotMatch(sourceBlock, /state\.enrollment/);
+  assert.doesNotMatch(sourceBlock, /state\.demandInput/);
+  assert.doesNotMatch(sourceBlock, /state\.consolidationInput/);
+  assert.match(text, /id="dashboardCsv"/);
+  assert.match(text, /id="dashArchiveTerms"/);
+  assert.match(loadBlock, /readArchivedRows\('dashArchiveTerms', \{ reportLabel: 'Enrollment Analytics Dashboard' \}\)/);
 });
 
 test('demand forecast is scoped to selected demand uploads and archives', () => {

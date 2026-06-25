@@ -36,6 +36,7 @@
     demandInput: [],
     demandRows: [],
     workExperienceInput: [],
+    dashboardInput: [],
     dashboardRows: [],
     rotationRows: [],
     dashboardRan: false,
@@ -865,6 +866,7 @@
               <div>
                 <h3>How to Use This Dashboard</h3>
                 <ul>
+                  <li>Select one or more archived dashboard terms, or upload dashboard CSVs, before refreshing. If no dashboard source is selected, the dashboard falls back to the active room availability grid term.</li>
                   <li>Use the filters to focus the summary by division, campus, modality, discipline, course, instructor, day, or start hour.</li>
                   <li>Review the top cards first, then use the drill-down buttons for detailed factual demand, attrition, consolidation, rotation, room, and methodology views.</li>
                   <li>Scenario modeling and schedule simulation are intentionally not enabled here yet; those controls are reserved for a future Enrollment Management Workbench once backend support exists.</li>
@@ -884,6 +886,9 @@
             </div>
           </div>
           <div class="analytics-toolbar dashboard-toolbar">
+            <label>Dashboard CSV(s) <input id="dashboardCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveDashboardUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="dashArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Loaded decision term <select id="dashFocusTerm"></select></label>
             <label>Decision season
               <select id="dashDecisionSeason">
@@ -1608,7 +1613,7 @@
       if (state.demandRows.length) runDemand();
     }
     if (prefix === 'dash') {
-      runDashboard();
+      rerunDashboard();
     }
     if (prefix === 'conflict') {
       const omitCrossListed = document.getElementById('conflictOmitCrossListed');
@@ -1787,6 +1792,7 @@
       const options = state.archivedAnalyticsTerms.map(term => ({ value: term, label: term }));
       setSelectOptions('attrArchiveTerms', options);
       setSelectOptions('conArchiveTerms', options);
+      setSelectOptions('dashArchiveTerms', options);
       setSelectOptions('demArchiveTerms', options);
       setSelectOptions('spArchiveTerms', options);
       setSelectOptions('conflictArchiveTerms', options);
@@ -2109,13 +2115,16 @@
   }
 
   function dashboardSourceRows() {
-    const rows = [
-      ...(state.enrollment || []),
-      ...(state.demandInput || []),
-      ...(state.consolidationInput || [])
-    ].filter(Boolean);
+    const rows = (state.dashboardInput || []).filter(Boolean);
     const base = rows.length ? dedupeEnrollmentRows(rows) : currentRows().filter(row => !isOmittedInstructionalMethod(row));
     return rowsWithWorkExperience(base, 'dash');
+  }
+
+  async function loadDashboardRows() {
+    const uploadedRows = await readCsv(document.getElementById('dashboardCsv'), { sourceType: 'DASHBOARD_UPLOAD' });
+    const archivedRows = await readArchivedRows('dashArchiveTerms', { reportLabel: 'Enrollment Analytics Dashboard' });
+    state.dashboardInput = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
+    return state.dashboardInput;
   }
 
   function dashboardAvailableTerms(rows) {
@@ -2199,12 +2208,7 @@
   }
 
   function dashboardHistoricalRows(rows, focusTerm) {
-    const pool = [
-      ...(state.enrollment || []),
-      ...(state.demandInput || []),
-      ...(state.consolidationInput || []),
-      ...(rows || [])
-    ].filter(row => row && !isOmittedInstructionalMethod(row));
+    const pool = (rows || []).filter(row => row && !isOmittedInstructionalMethod(row));
     const focusParts = termParts(focusTerm);
     const focusSort = termSortValue(focusTerm);
     return dedupeEnrollmentRows(pool).filter(row => {
@@ -2222,9 +2226,10 @@
     return rows.filter(row => (!row.term && !row.decisionTerm) || row.term === focusTerm || row.decisionTerm === focusTerm);
   }
 
-  function runDashboard() {
+  async function runDashboard() {
     state.dashboardRan = true;
     const saved = captureFilterState('dash');
+    await loadDashboardRows();
     const sourceRows = dashboardSourceRows().filter(row => !isOmittedInstructionalMethod(row));
     updateDashboardFocusTermOptions(sourceRows);
     refreshAnalyticsFilters('dash', sourceRows, saved);
@@ -2241,8 +2246,20 @@
     renderDashboard(summary, dashboardScopeContext(currentRows, historicalRows, selectedFocusTerm));
   }
 
+  function handleDashboardError(err) {
+    console.warn('Dashboard failed:', err);
+    alert(err.message || 'Dashboard failed.');
+  }
+
+  function rerunDashboard() {
+    runDashboard().catch(handleDashboardError);
+  }
+
   function exportDashboardSummary() {
-    if (!state.dashboardSummary) runDashboard();
+    if (!state.dashboardSummary) {
+      alert('Refresh the dashboard before exporting.');
+      return;
+    }
     const rows = dashboard.dashboardSummaryExportRows(state.dashboardSummary, dashboardExportContext());
     exportRowsWithoutMethodology(rows, `enrollment-dashboard-summary-${dashboardFocusSlug()}.csv`);
   }
@@ -2273,9 +2290,15 @@
     const currentTerms = collectRowTerms(currentRows);
     const historicalTerms = collectRowTerms(historicalRows);
     const lifecycle = summaryLifecycleAvailability(currentRows);
+    const sourceTerms = collectRowTerms(dashboardSourceRows());
+    const uploadedFiles = Array.from(document.getElementById('dashboardCsv')?.files || []).map(file => file.name);
+    const selectedArchivedTerms = getSelectedValues('dashArchiveTerms');
     return {
       focusTerm,
       focusLabel: focusTerm || 'All Loaded Terms',
+      selectedArchivedTerms,
+      uploadedFiles,
+      sourceTerms,
       currentRowsCount: currentRows.length,
       historicalRowsCount: historicalRows.length,
       historicalTerms,
@@ -2313,6 +2336,9 @@
     const node = document.getElementById('dashboardScopePanel');
     if (!node) return;
     const missing = context.missingMilestones.length ? context.missingMilestones.join(', ') : 'None';
+    const selectedArchivedTerms = context.selectedArchivedTerms.length ? context.selectedArchivedTerms.join(', ') : 'None selected';
+    const uploadedFiles = context.uploadedFiles.length ? context.uploadedFiles.join(', ') : 'None selected';
+    const sourceTerms = context.sourceTerms.length ? context.sourceTerms.join(', ') : 'Active room-grid term fallback';
     const historicalTerms = context.historicalTerms.length ? context.historicalTerms.join(', ') : 'None';
     const warnings = context.warnings.length
       ? `<div class="dashboard-scope-warnings">${context.warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('')}</div>`
@@ -2322,6 +2348,9 @@
       ${warnings}
       <dl>
         <div><dt>Focus Term</dt><dd>${escapeAttr(context.focusLabel)}</dd></div>
+        <div><dt>Selected Archived Terms</dt><dd>${escapeAttr(selectedArchivedTerms)}</dd></div>
+        <div><dt>Uploaded Dashboard Files</dt><dd>${escapeAttr(uploadedFiles)}</dd></div>
+        <div><dt>Dashboard Source Terms</dt><dd>${escapeAttr(sourceTerms)}</dd></div>
         <div><dt>Current Rows Included</dt><dd>${context.currentRowsCount}</dd></div>
         <div><dt>Historical Rows Included</dt><dd>${context.historicalRowsCount}</dd></div>
         <div><dt>Historical Terms Used</dt><dd>${escapeAttr(historicalTerms)}</dd></div>
@@ -5821,7 +5850,8 @@
   }
 
   function dashboardDataSourceLabel() {
-    if (state.enrollment.length || state.demandInput.length || state.consolidationInput.length || state.workExperienceInput.length) return 'Uploaded and/or archived enrollment CSV rows';
+    if (state.dashboardInput.length) return 'Selected dashboard CSV and/or archived term rows';
+    if (state.workExperienceInput.length) return 'Currently loaded schedule rows with Work Experience rows included';
     return 'Currently loaded schedule rows';
   }
 
@@ -5907,7 +5937,7 @@
     if (linechartTool) linechartTool.style.display = unlocked && selected === REPORTS.duration ? 'block' : 'none';
     if (!unlocked) return;
     if (selected === REPORTS.dashboard) {
-      runDashboard();
+      rerunDashboard();
     }
     if (selected === REPORTS.attrition && !state.attritionRan) {
       const rows = rowsWithWorkExperience(state.enrollment.length ? state.enrollment : currentRows().filter(row => !isOmittedInstructionalMethod(row)), 'attr');
@@ -6129,17 +6159,20 @@
     });
     document.getElementById('termSelect')?.addEventListener('change', () => {
       if (!isEnrollmentManagementUnlocked()) return;
-      if (selectedEnrollmentReport() === REPORTS.dashboard) runDashboard();
+      if (selectedEnrollmentReport() === REPORTS.dashboard) rerunDashboard();
       if (selectedEnrollmentReport() === REPORTS.consolidation) runConsolidation();
       if (selectedEnrollmentReport() === REPORTS.demand) runDemand();
       if (selectedEnrollmentReport() === REPORTS.studentPresence) runStudentPresence().catch(err => console.warn(err));
     });
-    document.getElementById('runDashboard')?.addEventListener('click', runDashboard);
+    document.getElementById('runDashboard')?.addEventListener('click', rerunDashboard);
+    document.getElementById('dashboardCsv')?.addEventListener('change', rerunDashboard);
+    document.getElementById('dashArchiveTerms')?.addEventListener('change', rerunDashboard);
+    document.getElementById('archiveDashboardUploads')?.addEventListener('click', () => archiveUploads('dashboardCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('workExperienceCsv')?.addEventListener('change', () => {
       loadWorkExperienceRows()
         .then(() => {
           const selected = selectedEnrollmentReport();
-          if (selected === REPORTS.dashboard) runDashboard();
+          if (selected === REPORTS.dashboard) rerunDashboard();
           if (selected === REPORTS.attrition) runAttrition().catch(handleAttritionError);
           if (selected === REPORTS.demand) runDemand();
         })
@@ -6152,13 +6185,13 @@
       const year = document.getElementById('dashDecisionYear');
       if (parts.season && season) season.value = parts.season;
       if (parts.year && year) year.value = String(parts.year);
-      runDashboard();
+      rerunDashboard();
     });
     ['dashDecisionSeason', 'dashDecisionYear'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {
         const select = document.getElementById('dashFocusTerm');
         if (select) select.value = '__MANUAL__';
-        runDashboard();
+        rerunDashboard();
       });
     });
     document.getElementById('exportDashboardSummary')?.addEventListener('click', exportDashboardSummary);
@@ -6178,7 +6211,7 @@
     document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('exportStudentPresence')?.addEventListener('click', () => exportRows(state.studentPresenceRows, `student-presence-${studentPresenceFocusTerm() || 'term'}.csv`));
     document.getElementById('runAttrition')?.addEventListener('click', () => runAttrition().catch(handleAttritionError));
-    document.getElementById('dashIncludeWorkExperience')?.addEventListener('change', runDashboard);
+    document.getElementById('dashIncludeWorkExperience')?.addEventListener('change', rerunDashboard);
     document.getElementById('attrIncludeWorkExperience')?.addEventListener('change', () => runAttrition().catch(handleAttritionError));
     document.getElementById('demIncludeWorkExperience')?.addEventListener('change', runDemand);
     document.getElementById('enrollmentCsv')?.addEventListener('change', () => loadAttritionFiles().catch(handleAttritionError));
