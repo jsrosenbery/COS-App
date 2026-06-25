@@ -506,7 +506,7 @@ function normalizeRow(r) {
   const daysMap = {M:"Monday",T:"Tuesday",W:"Wednesday",R:"Thursday",F:"Friday",U:"Sunday",S:"Saturday"};
   const rawDays = extractField(r, [
     'DAYS', 'Days', 'Meeting Days', 'Meet Days', 'Day', 'Days Of Week',
-    'Mtg Days', 'Meeting Pattern', 'Meeting_Pattern'
+    'Mtg Days', 'Meeting Pattern', 'Meeting_Pattern', 'dayPattern', 'Day Pattern'
   ]);
   let daysArr = [];
   if (rawDays) {
@@ -522,6 +522,8 @@ function normalizeRow(r) {
       : rawDays.replace(/TH/gi, 'R').split('').map(d => daysMap[d.toUpperCase()] || d);
   } else if (Array.isArray(r.Days)) {
     daysArr = r.Days;
+  } else if (Array.isArray(r.days)) {
+    daysArr = r.days;
   }
   // Parse Time to Start_Time and End_Time
   let start24 = "00:00", end24 = "00:00";
@@ -546,8 +548,8 @@ function normalizeRow(r) {
       end24 = to24(parts[1]);
     }
   } else {
-    start24 = to24(extractField(r, ['Start_Time', 'Start Time', 'Start', 'Begin Time', 'Begin_Time', 'Class Begin Time', 'Meeting Start', 'Mtg Start']));
-    end24 = to24(extractField(r, ['End_Time', 'End Time', 'End', 'Stop Time', 'Stop_Time', 'Class End Time', 'Meeting End', 'Mtg End']));
+    start24 = to24(extractField(r, ['Start_Time', 'Start Time', 'Start', 'start', 'Begin Time', 'Begin_Time', 'Class Begin Time', 'Meeting Start', 'Mtg Start']));
+    end24 = to24(extractField(r, ['End_Time', 'End Time', 'End', 'end', 'Stop Time', 'Stop_Time', 'Class End Time', 'Meeting End', 'Mtg End']));
   }
 
   return {
@@ -559,15 +561,15 @@ function normalizeRow(r) {
     Discipline: getCourseParts(r).discipline,
     Course_Number: getCourseParts(r).courseNumber,
     Instructional_Method: extractField(r, ['Instructional Method', 'Instructional_Method', 'Instr Method', 'Instruction Method', 'Method', 'Modality']),
-    Building: extractField(r, ['BUILDING', 'Building', 'Bldg', 'Bldg Code', 'Building Code', 'Facility Building']),
-    Room: extractField(r, ['ROOM', 'Room', 'Room Number', 'Room No', 'Facility Room']),
+    Building: extractField(r, ['BUILDING', 'Building', 'building', 'Bldg', 'Bldg Code', 'Building Code', 'Facility Building']),
+    Room: extractField(r, ['ROOM', 'Room', 'roomOnly', 'room', 'Room Number', 'Room No', 'Facility Room']),
     Days: daysArr,
     Start_Time: start24,
     End_Time: end24,
     Start_Date: extractField(r, ['Start_Date', 'Start Date', 'Start', 'Section Start Date']),
     End_Date: extractField(r, ['End_Date', 'End Date', 'End', 'Section End Date']),
     Instructor: extractField(r, ['Instructor', 'Faculty', 'Primary Instructor']),
-    Campus: extractField(r, ['CAMPUS', 'Campus', 'Campus Code']),
+    Campus: extractField(r, ['CAMPUS', 'Campus', 'campus', 'Campus Code']),
   }
 }
 
@@ -2708,8 +2710,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       'Instr Method',
       'Instruction Method',
       'InstructionalMethod',
+      'instructionalMethod',
       'Method',
       'Modality',
+      'modality',
       'Schedule Type'
     ]);
   }
@@ -3076,8 +3080,38 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function normalizeMeetingDays(days) {
     const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const codeMap = {
+      U: 'Sunday',
+      SU: 'Sunday',
+      SUNDAY: 'Sunday',
+      M: 'Monday',
+      MO: 'Monday',
+      MON: 'Monday',
+      MONDAY: 'Monday',
+      T: 'Tuesday',
+      TU: 'Tuesday',
+      TUE: 'Tuesday',
+      TUESDAY: 'Tuesday',
+      W: 'Wednesday',
+      WE: 'Wednesday',
+      WED: 'Wednesday',
+      WEDNESDAY: 'Wednesday',
+      R: 'Thursday',
+      TH: 'Thursday',
+      THU: 'Thursday',
+      THURSDAY: 'Thursday',
+      F: 'Friday',
+      FR: 'Friday',
+      FRI: 'Friday',
+      FRIDAY: 'Friday',
+      S: 'Saturday',
+      SA: 'Saturday',
+      SAT: 'Saturday',
+      SATURDAY: 'Saturday'
+    };
     let recDays = Array.isArray(days) ? days : (typeof days === 'string' ? days.split(',') : []);
     recDays = recDays.map(day => String(day || '').trim()).filter(Boolean);
+    recDays = recDays.map(day => codeMap[day.toUpperCase()] || day);
     if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !dayNames.includes(recDays[0])) {
       const abbrevDayMap = { U:'Sunday', M:'Monday', T:'Tuesday', W:'Wednesday', R:'Thursday', F:'Friday', S:'Saturday' };
       recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
@@ -3342,22 +3376,22 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function feedHeatmapTool(dataArray) {
     hmRaw = dataArray.map(r => {
       const key = getCourseKey(r);
-      const daysVal = normalizeMeetingDays(r.Days);
+      const daysVal = normalizeMeetingDays(r.Days || r.days || r.dayPattern);
 
       const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
       const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
       const endDate = extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
       const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
-      const enrollment = heatmapNumber(extractField(r, ['CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL', 'Actual_Enroll', 'Actual Enroll', 'Enrollment', 'Enroll']));
-      const capacity = heatmapNumber(extractField(r, ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL']));
+      const enrollment = heatmapNumber(extractField(r, ['CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'census', 'ACTUAL_ENROLL', 'Actual_Enroll', 'Actual Enroll', 'actual', 'Enrollment', 'Enroll']));
+      const capacity = heatmapNumber(extractField(r, ['Capacity', 'CAPACITY', 'cap', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL']));
       const instructionalMethod = getInstructionalMethod(r);
       const modalityCategory = getModalityCategory(instructionalMethod);
 
-      const building = r.Building || r.BUILDING || '';
-      const room = r.Room || r.ROOM || '';
+      const building = extractField(r, ['Building', 'BUILDING', 'building', 'Bldg', 'Building Code']);
+      const room = extractField(r, ['Room', 'ROOM', 'roomOnly', 'room', 'Room Number']);
 
-      let startTime = r.Start_Time || '';
-      let endTime = r.End_Time || '';
+      let startTime = extractField(r, ['Start_Time', 'Start Time', 'start', 'Start']) || '';
+      let endTime = extractField(r, ['End_Time', 'End Time', 'end', 'End']) || '';
       if ((!startTime || !endTime) && r.Time) {
         let parts = r.Time.split('-');
         if (parts.length === 2) {
