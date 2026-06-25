@@ -1343,28 +1343,36 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
-  const selectorBlock = text.slice(text.indexOf('<select id="emReportSelect">'), text.indexOf('</select>', text.indexOf('<select id="emReportSelect">')));
+  const reportOrderStart = text.indexOf('const REPORT_ORDER = [');
+  const reportOrderEnd = text.indexOf('];', reportOrderStart);
+  const reportOrderBlock = text.slice(reportOrderStart, reportOrderEnd);
 
+  assert.match(text, /REPORT_GROUP_ORDER = \['general', 'dean', 'em', 'development', 'admin'\]/);
+  assert.match(text, /function reportGroupsHtml/);
+  assert.match(text, /class="em-report-groups"/);
+  assert.match(text, /class="em-report-button"/);
+  assert.match(text, /data-report-role="\$\{role\}"/);
+  assert.match(text, /id="emReportSelect" hidden/);
   [
-    'Archived Schedule Inspector',
-    'Conflict Check Report',
-    'Course Duration / Concurrent Courses',
-    'Enrollment Analytics Dashboard',
-    'Enrollment Attrition Trend',
-    'Enrollment Demand Forecast',
-    'Enrollment Snapshot Manager',
-    'Heatmap Analytics',
-    'Instructor Availability - Planning View',
-    'Modality Balance',
-    'Room Fit Analysis',
-    'Room Utilization Map',
-    'Section Consolidation Opportunities',
-    'Student Presence Analytics',
-    'Work Experience Enrollment'
-  ].reduce((lastIndex, label) => {
-    const indexOfLabel = selectorBlock.indexOf(label);
-    assert.ok(indexOfLabel > lastIndex, `${label} should appear in sorted EM report order`);
-    return indexOfLabel;
+    'REPORTS.archiveInspection',
+    'REPORTS.snapshotManager',
+    'REPORTS.workExperience',
+    'REPORTS.duration',
+    'REPORTS.dashboard',
+    'REPORTS.heatmap',
+    'REPORTS.instructorAvailability',
+    'REPORTS.modality',
+    'REPORTS.conflictCheck',
+    'REPORTS.attrition',
+    'REPORTS.demand',
+    'REPORTS.roomFit',
+    'REPORTS.utilization',
+    'REPORTS.consolidation',
+    'REPORTS.studentPresence'
+  ].reduce((lastIndex, report) => {
+    const indexOfReport = reportOrderBlock.indexOf(report);
+    assert.ok(indexOfReport > lastIndex, `${report} should appear in grouped report order`);
+    return indexOfReport;
   }, -1);
 
   assert.doesNotMatch(index, /<option value="heatmap">/);

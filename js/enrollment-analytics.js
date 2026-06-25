@@ -66,6 +66,24 @@
     [REPORTS.studentPresence]: 'Student Presence Analytics',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
+  const REPORT_GROUP_ORDER = ['general', 'dean', 'em', 'development', 'admin'];
+  const REPORT_ORDER = [
+    REPORTS.archiveInspection,
+    REPORTS.snapshotManager,
+    REPORTS.workExperience,
+    REPORTS.duration,
+    REPORTS.dashboard,
+    REPORTS.heatmap,
+    REPORTS.instructorAvailability,
+    REPORTS.modality,
+    REPORTS.conflictCheck,
+    REPORTS.attrition,
+    REPORTS.demand,
+    REPORTS.roomFit,
+    REPORTS.utilization,
+    REPORTS.consolidation,
+    REPORTS.studentPresence
+  ];
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
   const ROLE_STORAGE_KEY = 'cos-access-role';
   const ROLE_TOKEN_KEY = 'cos-role-token';
@@ -861,10 +879,38 @@
     // Enrollment Management reports are intentionally kept out of the main Scheduling view selector.
   }
 
+  function reportOptionsHtml() {
+    return REPORT_ORDER
+      .map(report => `<option value="${report}">${escapeAttr(REPORT_LABEL[report] || report)}</option>`)
+      .join('');
+  }
+
+  function reportGroupsHtml() {
+    return REPORT_GROUP_ORDER.map(role => {
+      const reports = REPORT_ORDER.filter(report => (REPORT_ACCESS[report] || 'general') === role);
+      const buttons = reports.length
+        ? reports.map(report => `
+            <button type="button" class="em-report-button" data-report-target="${report}" data-required-role="${role}">
+              <span>${escapeAttr(REPORT_LABEL[report] || report)}</span>
+              <small>Requires ${escapeAttr(ROLE_LABEL[role])}</small>
+            </button>
+          `).join('')
+        : '<p class="em-report-empty">No reports assigned.</p>';
+      return `
+        <section class="em-report-group" data-report-role="${role}">
+          <h3>${escapeAttr(ROLE_LABEL[role])}</h3>
+          <div class="em-report-button-list">${buttons}</div>
+        </section>
+      `;
+    }).join('');
+  }
+
   function buildUi() {
     if (document.getElementById('analyticsReports')) return;
     const anchor = document.getElementById('admin-tools') || document.body;
     const position = anchor === document.body ? 'beforeend' : 'beforebegin';
+    const reportOptions = reportOptionsHtml();
+    const reportGroups = reportGroupsHtml();
     anchor.insertAdjacentHTML(position, `
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="emAccessPanel" class="em-access-panel">
@@ -890,24 +936,9 @@
           </form>
         </div>
         <div id="emReportControls" class="em-report-controls" hidden>
-          <label for="emReportSelect">Enrollment Management Report:</label>
-          <select id="emReportSelect">
-            <option value="${REPORTS.archiveInspection}">Archived Schedule Inspector</option>
-            <option value="${REPORTS.conflictCheck}">Conflict Check Report</option>
-            <option value="${REPORTS.duration}">Course Duration / Concurrent Courses</option>
-            <option value="${REPORTS.dashboard}">Enrollment Analytics Dashboard</option>
-            <option value="${REPORTS.attrition}">Enrollment Attrition Trend</option>
-            <option value="${REPORTS.demand}">Enrollment Demand Forecast</option>
-            <option value="${REPORTS.snapshotManager}">Enrollment Snapshot Manager</option>
-            <option value="${REPORTS.heatmap}">Heatmap Analytics</option>
-            <option value="${REPORTS.instructorAvailability}">Instructor Availability - Planning View</option>
-            <option value="${REPORTS.modality}">Modality Balance</option>
-            <option value="${REPORTS.roomFit}">Room Fit Analysis</option>
-            <option value="${REPORTS.utilization}">Room Utilization Map</option>
-            <option value="${REPORTS.consolidation}">Section Consolidation Opportunities</option>
-            <option value="${REPORTS.studentPresence}">Student Presence Analytics</option>
-            <option value="${REPORTS.workExperience}">Work Experience Enrollment</option>
-          </select>
+          <label class="sr-only" for="emReportSelect">Selected report</label>
+          <select id="emReportSelect" hidden>${reportOptions}</select>
+          <div class="em-report-groups" aria-label="Reports grouped by access level">${reportGroups}</div>
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
           <span class="em-workbench-note">Dashboard and factual reports support dean/division review. Scenario modeling and schedule simulation are future Enrollment Management Workbench tools.</span>
         </div>
@@ -6050,8 +6081,8 @@
 
   function updateReportAccessOptions() {
     const select = document.getElementById('emReportSelect');
-    if (!select) return;
-    Array.from(select.options || []).forEach(option => {
+    const selected = selectedEnrollmentReport();
+    Array.from(select?.options || []).forEach(option => {
       const report = option.value;
       const requiredRole = REPORT_ACCESS[report] || 'general';
       const locked = !canAccess(report);
@@ -6060,6 +6091,17 @@
       option.textContent = locked
         ? `[Locked] ${REPORT_LABEL[report] || option.textContent} - Requires ${ROLE_LABEL[requiredRole]}`
         : (REPORT_LABEL[report] || option.textContent.replace(/^\[Locked\]\s*/, '').replace(/\s+- Requires .+$/, ''));
+    });
+    document.querySelectorAll('.em-report-button[data-report-target]').forEach(button => {
+      const report = button.dataset.reportTarget || '';
+      const requiredRole = REPORT_ACCESS[report] || 'general';
+      const locked = !canAccess(report);
+      button.classList.toggle('is-active', report === selected);
+      button.classList.toggle('is-locked', locked);
+      button.setAttribute('aria-current', report === selected ? 'page' : 'false');
+      button.setAttribute('aria-disabled', locked ? 'true' : 'false');
+      const note = button.querySelector('small');
+      if (note) note.textContent = locked ? `Locked - requires ${ROLE_LABEL[requiredRole]}` : ROLE_LABEL[requiredRole];
     });
   }
 
@@ -6205,6 +6247,19 @@
       .em-report-controls .em-methodology-export input{margin-right:6px}
       .em-workbench-note{flex-basis:100%;color:#6b7d91;font-size:12px;line-height:1.35}
       .em-report-controls select{min-height:36px;border:1px solid #ccd6e2;border-radius:8px;padding:6px 10px;background:#fff;color:#123367;font-weight:700}
+      .sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+      .em-report-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;flex-basis:100%}
+      .em-report-group{min-width:0;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:10px}
+      .em-report-group h3{margin:0 0 8px;color:#123367;font-size:14px}
+      .em-report-button-list{display:grid;gap:7px}
+      .em-report-button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:44px;border:1px solid #c7d5e4;border-radius:8px;background:#fff;color:#123367;text-align:left;padding:8px 10px;cursor:pointer}
+      .em-report-button span{font-weight:800;line-height:1.2}
+      .em-report-button small{color:#51657c;font-size:11px;line-height:1.2}
+      .em-report-button:hover{border-color:#8ba6c2;background:#fafdff}
+      .em-report-button.is-active{border-color:#1f7aa8;background:#e8f7fc;box-shadow:inset 4px 0 0 #1f7aa8}
+      .em-report-button.is-locked{background:#f4f6f8;color:#6b7d91;border-style:dashed;opacity:.78}
+      .em-report-button.is-locked small{color:#8a5660}
+      .em-report-empty{margin:0;color:#6b7d91;font-size:12px}
       .analytics-report-intro{margin-bottom:16px;color:#51657c;line-height:1.45}
       .analytics-report-intro h2{margin:0 0 6px;color:#123367;font-size:24px}
       .analytics-report-intro p{margin:0;max-width:980px}
