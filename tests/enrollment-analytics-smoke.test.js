@@ -1301,6 +1301,7 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   });
   assert.match(index, /% of Sections/);
   assert.match(index, /% of Enrollment/);
+  assert.match(index, /Class counts and enrollment are shown as separate comparison views/);
   assert.match(app, /includeDualEnrollment/);
   assert.match(app, /code === 'DE'/);
   assert.match(app, /category === 'Dual Enrollment'/);
@@ -1311,8 +1312,13 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(app, /selectedValues\(modalityCampusSelect\)/);
   assert.match(app, /selectedValues\(modalityCourseSelect\)/);
   assert.match(app, /selectedValues\(modalityModalitySelect\)/);
-  assert.match(app, /getModalitySourceRows\(\)\.forEach/);
-  assert.match(app, /decision\.share - compare\.share/);
+  assert.match(app, /const sourceRows = selectedTerm \? getModalitySourceRows\(\) : \(currentData\.length \? currentData : getModalitySourceRows\(\)\)/);
+  assert.match(app, /modalityPieCard\('Class Count Mix'/);
+  assert.match(app, /modalityPieCard\('Enrollment Mix'/);
+  assert.match(app, /Class Count by Modality/);
+  assert.match(app, /Enrollment by Modality/);
+  assert.match(app, /signedPctChange/);
+  assert.match(app, /Current Loaded Term/);
 });
 
 test('requested analytics regression coverage is represented in smoke tests', () => {

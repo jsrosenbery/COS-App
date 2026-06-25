@@ -2927,8 +2927,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     let tutoringOpenLabRowsExcluded = 0;
     const seenSections = new Set();
     const categories = new Map();
+    const sourceRows = selectedTerm ? getModalitySourceRows() : (currentData.length ? currentData : getModalitySourceRows());
 
-    getModalitySourceRows().forEach((section, index) => {
+    sourceRows.forEach((section, index) => {
       const campus = extractField(section, ['Campus', 'campus', 'CAMPUS']);
       const term = getSectionTerm(section);
       const division = getDivision(section);
@@ -3028,6 +3029,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
 
     renderModalityComparison(rows);
+    renderModalityPieCharts(rows);
 
     rows.forEach(row => {
       const bar = document.createElement('div');
@@ -3077,22 +3079,159 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
   }
 
+  const modalityColors = {
+    'In Person': '#1d4f8f',
+    Online: '#7c3aed',
+    Hybrid: '#f59e0b',
+    'Dual Enrollment': '#16a34a',
+    Flex: '#db2777',
+    Other: '#64748b',
+    Unspecified: '#334155'
+  };
+
+  function modalityColor(category) {
+    return modalityColors[category] || '#64748b';
+  }
+
+  function renderModalityPieCharts(rows) {
+    if (!modalityChart) return;
+    const existingBars = Array.from(modalityChart.children);
+    modalityChart.replaceChildren();
+    const charts = document.createElement('div');
+    charts.className = 'modality-pie-grid';
+    charts.append(
+      modalityPieCard('Class Count Mix', 'Share of unique CRNs by modality for the current loaded/selected focus term.', rows, 'count', 'share'),
+      modalityPieCard('Enrollment Mix', 'Share of enrollment by modality for the current loaded/selected focus term.', rows, 'enrollment', 'enrollmentShare')
+    );
+    modalityChart.appendChild(charts);
+    existingBars.forEach(bar => modalityChart.appendChild(bar));
+  }
+
+  function modalityPieCard(title, description, rows, metricKey, shareKey) {
+    const card = document.createElement('section');
+    card.className = 'modality-pie-card';
+    const sortedRows = rows.filter(row => row[metricKey] > 0);
+    let cursor = 0;
+    const segments = sortedRows.map(row => {
+      const start = cursor;
+      const end = cursor + row[shareKey] * 100;
+      cursor = end;
+      return `${modalityColor(row.category)} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
+    });
+    const pie = document.createElement('div');
+    pie.className = 'modality-pie';
+    pie.style.background = segments.length ? `conic-gradient(${segments.join(', ')})` : 'rgba(32, 66, 96, 0.12)';
+    const content = document.createElement('div');
+    const heading = document.createElement('h3');
+    heading.textContent = title;
+    const body = document.createElement('p');
+    body.textContent = description;
+    const legend = document.createElement('div');
+    legend.className = 'modality-pie-legend';
+    sortedRows.forEach(row => {
+      const item = document.createElement('span');
+      const swatch = document.createElement('i');
+      swatch.style.background = modalityColor(row.category);
+      item.append(swatch, document.createTextNode(`${row.category}: ${row[metricKey]} (${(row[shareKey] * 100).toFixed(1)}%)`));
+      legend.appendChild(item);
+    });
+    content.append(heading, body, legend);
+    card.append(pie, content);
+    return card;
+  }
+
+  function signedNumber(value) {
+    const rounded = Math.round(value);
+    return rounded > 0 ? `+${rounded}` : String(rounded);
+  }
+
+  function signedPctChange(current, comparison) {
+    if (!comparison && !current) return '0.0%';
+    if (!comparison) return 'N/A';
+    const change = (current - comparison) / comparison;
+    const pct = change * 100;
+    return `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%`;
+  }
+
+  function signedPointChange(currentShare, comparisonShare) {
+    const points = (currentShare - comparisonShare) * 100;
+    return `${points > 0 ? '+' : ''}${points.toFixed(1)} pts`;
+  }
+
+  function modalityComparisonRows(decisionMap, comparisonMap, metricKey, shareKey) {
+    const categories = [...new Set([...decisionMap.keys(), ...comparisonMap.keys()])];
+    return categories.map(category => {
+      const decision = decisionMap.get(category) || { count: 0, enrollment: 0, share: 0, enrollmentShare: 0 };
+      const compare = comparisonMap.get(category) || { count: 0, enrollment: 0, share: 0, enrollmentShare: 0 };
+      return {
+        category,
+        current: decision[metricKey] || 0,
+        comparison: compare[metricKey] || 0,
+        diff: (decision[metricKey] || 0) - (compare[metricKey] || 0),
+        pctIncrease: signedPctChange(decision[metricKey] || 0, compare[metricKey] || 0),
+        currentShare: decision[shareKey] || 0,
+        comparisonShare: compare[shareKey] || 0,
+        shareDiff: signedPointChange(decision[shareKey] || 0, compare[shareKey] || 0)
+      };
+    });
+  }
+
+  function modalityComparisonTable(title, focusLabel, compareLabel, rows) {
+    const body = rows.map(row => `
+      <tr>
+        <td>${escapeHTML(row.category)}</td>
+        <td>${row.current}</td>
+        <td>${row.comparison}</td>
+        <td>${signedNumber(row.diff)}</td>
+        <td>${row.pctIncrease}</td>
+        <td>${(row.currentShare * 100).toFixed(1)}%</td>
+        <td>${(row.comparisonShare * 100).toFixed(1)}%</td>
+        <td>${row.shareDiff}</td>
+      </tr>
+    `).join('');
+    return `
+      <section class="modality-comparison-card">
+        <h4>${escapeHTML(title)}</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Modality</th>
+              <th>${escapeHTML(focusLabel)}</th>
+              <th>${escapeHTML(compareLabel)}</th>
+              <th>Diff</th>
+              <th>% Increase</th>
+              <th>${escapeHTML(focusLabel)} Share</th>
+              <th>${escapeHTML(compareLabel)} Share</th>
+              <th>Share Diff</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </section>
+    `;
+  }
+
   function renderModalityComparison(decisionRows) {
     if (!modalityComparison) return;
     const selectedTerms = modalityComparisonSelects.map(select => select.value).filter(Boolean);
     if (!selectedTerms.length) return;
-    const decisionTerm = modalityDecisionTermSelect?.value || 'Current loaded term';
+    const decisionTerm = modalityDecisionTermSelect?.value || 'Current Loaded Term';
     const decisionMap = new Map(decisionRows.map(row => [row.category, row]));
     const sections = selectedTerms.map(term => {
       const comparisonRows = calculateModalityBalance({ term });
       const comparisonMap = new Map(comparisonRows.map(row => [row.category, row]));
-      const categories = [...new Set([...decisionMap.keys(), ...comparisonMap.keys()])];
-      const rows = categories.map(category => {
-        const decision = decisionMap.get(category) || { count: 0, enrollment: 0, share: 0, enrollmentShare: 0 };
-        const compare = comparisonMap.get(category) || { count: 0, enrollment: 0, share: 0, enrollmentShare: 0 };
-        return `<tr><td>${escapeHTML(category)}</td><td>${decision.count}</td><td>${compare.count}</td><td>${decision.count - compare.count}</td><td>${decision.enrollment}</td><td>${compare.enrollment}</td><td>${decision.enrollment - compare.enrollment}</td><td>${((decision.share - compare.share) * 100).toFixed(1)} pts</td><td>${((decision.enrollmentShare - compare.enrollmentShare) * 100).toFixed(1)} pts</td></tr>`;
-      }).join('');
-      return `<section><h3>${escapeHTML(decisionTerm)} vs ${escapeHTML(term)}</h3><table><thead><tr><th>Modality</th><th>Decision Sections</th><th>Comparison Sections</th><th>Section Diff</th><th>Decision Enrollment</th><th>Comparison Enrollment</th><th>Enrollment Diff</th><th>Section Share Diff</th><th>Enrollment Share Diff</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+      const countRows = modalityComparisonRows(decisionMap, comparisonMap, 'count', 'share');
+      const enrollmentRows = modalityComparisonRows(decisionMap, comparisonMap, 'enrollment', 'enrollmentShare');
+      return `
+        <section class="modality-comparison-term">
+          <h3>${escapeHTML(decisionTerm)} vs ${escapeHTML(term)}</h3>
+          <p>Class count and enrollment are intentionally shown as separate data sets. Count answers how many unique CRNs are in each modality. Enrollment answers how many students are represented in each modality.</p>
+          <div class="modality-comparison-grid">
+            ${modalityComparisonTable('Class Count by Modality', `${decisionTerm} Count`, `${term} Count`, countRows)}
+            ${modalityComparisonTable('Enrollment by Modality', `${decisionTerm} Enrollment`, `${term} Enrollment`, enrollmentRows)}
+          </div>
+        </section>
+      `;
     }).join('');
     modalityComparison.innerHTML = sections;
   }

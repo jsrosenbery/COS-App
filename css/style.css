@@ -909,6 +909,104 @@ button:hover,
   margin: 1rem 0 1.25rem;
 }
 
+.modality-pie-grid,
+.modality-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.modality-pie-card,
+.modality-comparison-card,
+.modality-comparison-term {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: var(--shadow);
+}
+
+.modality-pie-card {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+}
+
+.modality-pie {
+  width: 132px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 12px rgba(255, 255, 255, 0.82);
+}
+
+.modality-pie-card h3,
+.modality-comparison-term h3,
+.modality-comparison-card h4 {
+  margin: 0 0 0.35rem;
+  color: var(--brand);
+}
+
+.modality-pie-card p,
+.modality-comparison-term p {
+  margin: 0 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.modality-pie-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.modality-pie-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.modality-pie-legend i {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+}
+
+.modality-comparison {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.modality-comparison-term {
+  padding: 1rem;
+}
+
+.modality-comparison-card {
+  overflow-x: auto;
+  padding: 0.85rem;
+}
+
+.modality-comparison-card table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.modality-comparison-card th,
+.modality-comparison-card td {
+  padding: 0.5rem;
+  border: 1px solid rgba(32, 66, 96, 0.14);
+  text-align: left;
+}
+
+.modality-comparison-card th {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+}
+
 .modality-bar-label {
   margin-bottom: 0.35rem;
   color: var(--ink);
