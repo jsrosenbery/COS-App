@@ -1404,6 +1404,37 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(text, /physicalCampusCodes = \['COS', 'TCC', 'HAC'\]/);
 });
 
+test('TIMBER role-based access is centralized and report scoped', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const backend = fs.readFileSync(path.join(__dirname, '..', '..', 'App-Backend', 'server.js'), 'utf8');
+
+  assert.match(text, /const ROLE_LEVEL = \{/);
+  assert.match(text, /development: 4/);
+  assert.match(text, /const REPORT_ACCESS = \{/);
+  assert.match(text, /\[REPORTS\.dashboard\]: 'dean'/);
+  assert.match(text, /\[REPORTS\.modality\]: 'dean'/);
+  assert.match(text, /\[REPORTS\.consolidation\]: 'em'/);
+  assert.match(text, /\[REPORTS\.archiveInspection\]: 'general'/);
+  assert.match(text, /function canAccess\(reportName\)/);
+  assert.match(text, /Access Level/);
+  assert.match(text, /id="currentAccessLevel"/);
+  assert.match(text, /Lock Reports/);
+  assert.match(text, /\[Locked\]/);
+  assert.match(text, /Requires \$\{ROLE_LABEL\[requiredRole\]\}/);
+  assert.match(text, /data-unlock-report/);
+  assert.match(text, /api\/auth\/role/);
+  assert.match(text, /General supports data upload and maintenance/);
+  assert.match(text, /Development is for experimental and in-progress reports/);
+  assert.doesNotMatch(text, /Developer/);
+  assert.doesNotMatch(text, /Upload2025/);
+  assert.match(backend, /GENERAL_PASSWORD/);
+  assert.match(backend, /DEAN_PASSWORD/);
+  assert.match(backend, /EM_PASSWORD/);
+  assert.match(backend, /DEV_PASSWORD/);
+  assert.match(backend, /ADMIN_PASSWORD/);
+  assert.match(backend, /app\.post\('\/api\/auth\/role'/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

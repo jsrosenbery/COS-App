@@ -68,17 +68,18 @@ Important endpoints used by the frontend:
 - `GET /api/analytics-archive`
 - `GET /api/analytics-archive/:term`
 - `POST /api/analytics-archive/:term`
+- `POST /api/auth/role`
 - `POST /api/auth/enrollment-management`
 
-Write endpoints are protected by the backend `UPLOAD_PASSWORD` environment variable. Do not commit upload or admin passwords to this public frontend repository.
+Write endpoints are protected by the backend `GENERAL_PASSWORD` environment variable, with `UPLOAD_PASSWORD` retained as a compatibility fallback. Do not commit upload or admin passwords to this public frontend repository.
 
-Enrollment Management unlock uses `POST /api/auth/enrollment-management`. The backend validates the entered password and returns a short-lived session token; the frontend stores only that token in `sessionStorage`.
+TIMBER role unlock uses `POST /api/auth/role`. Configure `GENERAL_PASSWORD`, `DEAN_PASSWORD`, `EM_PASSWORD`, `DEV_PASSWORD`, and `ADMIN_PASSWORD` in the backend environment. Higher roles inherit lower permissions. The legacy `POST /api/auth/enrollment-management` endpoint remains available for Enrollment Management-compatible sessions. The frontend stores only the short-lived token, expiration, and resolved role in `sessionStorage`; passwords are not stored.
 
 ## Data Notes
 
 Schedule uploads are expected to include fields such as term, CRN, subject/course, title, division, campus, building, room, days, meeting time, date range, instructor, modality/instructional method, capacity, enrollment, census, waitlist, FTES/contact-hour fields, and accounting method. The frontend contains normalization helpers for common header variants.
 
-Developer schema references:
+Schema references:
 
 - [Schedule CSV schema](docs/csv-schema.md)
 - [Room catalog schema](docs/room-catalog-schema.md)

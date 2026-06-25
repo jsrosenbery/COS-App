@@ -18,7 +18,60 @@
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
   };
+  const ROLE_LEVEL = {
+    general: 1,
+    dean: 2,
+    em: 3,
+    development: 4,
+    admin: 5
+  };
+  const ROLE_LABEL = {
+    general: 'General',
+    dean: 'Dean / Division Chair',
+    em: 'Enrollment Management',
+    development: 'Development',
+    admin: 'Administrator'
+  };
+  const REPORT_ACCESS = {
+    [REPORTS.archiveInspection]: 'general',
+    [REPORTS.snapshotManager]: 'general',
+    [REPORTS.workExperience]: 'general',
+    [REPORTS.dashboard]: 'dean',
+    [REPORTS.duration]: 'dean',
+    [REPORTS.heatmap]: 'dean',
+    [REPORTS.instructorAvailability]: 'dean',
+    [REPORTS.modality]: 'dean',
+    [REPORTS.conflictCheck]: 'em',
+    [REPORTS.attrition]: 'em',
+    [REPORTS.demand]: 'em',
+    [REPORTS.roomFit]: 'em',
+    [REPORTS.utilization]: 'em',
+    [REPORTS.consolidation]: 'em',
+    [REPORTS.studentPresence]: 'em'
+  };
+  const REPORT_LABEL = {
+    [REPORTS.archiveInspection]: 'Archived Schedule Inspector',
+    [REPORTS.conflictCheck]: 'Conflict Check Report',
+    [REPORTS.duration]: 'Course Duration / Concurrent Courses',
+    [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
+    [REPORTS.attrition]: 'Enrollment Attrition Trend',
+    [REPORTS.demand]: 'Enrollment Demand Forecast',
+    [REPORTS.snapshotManager]: 'Enrollment Snapshot Manager',
+    [REPORTS.heatmap]: 'Heatmap Analytics',
+    [REPORTS.instructorAvailability]: 'Instructor Availability - Planning View',
+    [REPORTS.modality]: 'Modality Balance',
+    [REPORTS.roomFit]: 'Room Fit Analysis',
+    [REPORTS.utilization]: 'Room Utilization Map',
+    [REPORTS.consolidation]: 'Section Consolidation Opportunities',
+    [REPORTS.studentPresence]: 'Student Presence Analytics',
+    [REPORTS.workExperience]: 'Work Experience Enrollment'
+  };
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
+  const ROLE_STORAGE_KEY = 'cos-access-role';
+  const ROLE_TOKEN_KEY = 'cos-role-token';
+  const ROLE_EXPIRES_KEY = 'cos-role-token-expires-at';
+  const LEGACY_EM_TOKEN_KEY = 'cos-em-token';
+  const LEGACY_EM_EXPIRES_KEY = 'cos-em-token-expires-at';
   const ACCOUNTING_METHODS = {
     W: { category: 'weekly', label: 'Weekly Census', reportable: true },
     D: { category: 'daily', label: 'Daily Census', reportable: true },
@@ -60,7 +113,9 @@
     archivedAnalyticsTerms: [],
     enrollmentSnapshots: [],
     snapshotRows: [],
-    snapshotLastUpdated: null
+    snapshotLastUpdated: null,
+    pendingAccessRole: '',
+    pendingAccessReport: ''
   };
   const analyticsChoices = new Map();
   const metrics = window.COSEnrollmentMetrics;
@@ -813,15 +868,21 @@
     anchor.insertAdjacentHTML(position, `
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="emAccessPanel" class="em-access-panel">
-          <button id="unlockEnrollmentManagement" type="button" class="em-unlock">Enrollment Management</button>
-          <span class="em-access-note">Decision-support summaries are hidden until opened.</span>
+          <div class="em-access-status">
+            <span>Access Level</span>
+            <strong id="currentAccessLevel">General</strong>
+          </div>
+          <button id="unlockEnrollmentManagement" type="button" class="em-unlock">Unlock Reports</button>
+          <button id="lockEnrollmentReports" type="button" class="em-unlock">Lock Reports</button>
+          <span class="em-access-note">Reports unlock progressively by role for this browser session.</span>
           <form id="emPasswordPanel" class="em-password-panel" hidden>
-            <label>Enrollment Management Password
+            <label><span id="emPasswordLabelText">Report Password</span>
               <span class="password-input-wrap">
                 <input id="emPasswordInput" type="password" autocomplete="current-password">
                 <button id="emPasswordToggle" type="button" class="password-eye" aria-label="Show password">Show</button>
               </span>
             </label>
+            <p id="emRequiredAccessHint" class="analytics-note">Enter any configured role password. Higher roles unlock lower tiers.</p>
             <div class="em-password-actions">
               <button type="submit">Unlock</button>
               <button id="emPasswordCancel" type="button">Cancel</button>
@@ -850,6 +911,7 @@
           <label class="em-methodology-export"><input id="includeMethodologyExport" type="checkbox"> Include Methodology in exports</label>
           <span class="em-workbench-note">Dashboard and factual reports support dean/division review. Scenario modeling and schedule simulation are future Enrollment Management Workbench tools.</span>
         </div>
+        <div id="lockedReportPanel" class="analytics-locked-panel" hidden></div>
         <div id="workExperienceUploadPanel" class="analytics-upload-panel" hidden>
           <h3>Work Experience Enrollment Upload</h3>
           <p>Upload Work Experience enrollment rows that are not present in Section Seating. These rows are included in enrollment, attrition, lifecycle, demand, and FTES calculations when the report toggle is on, and excluded from room, time, conflict, and physical presence tools.</p>
@@ -881,6 +943,7 @@
                   <li>Part-Time Faculty terminology is used for part-time instructional staffing references.</li>
                   <li>Student Presence Analytics excludes online rows and summarizes in-person/hybrid sections by campus, day, and hour.</li>
                   <li>Dashboard exports include the selected term, division, campus, modality, data source, and methodology version when methodology export is enabled.</li>
+                  <li>Access tiers: General supports data upload and maintenance; Dean / Division Chair supports division-level analytics and planning; Enrollment Management supports institution-wide planning and scheduling; Development is for experimental and in-progress reports; Administrator is reserved for system configuration and application management.</li>
                 </ul>
               </div>
             </div>
@@ -5855,87 +5918,211 @@
     return 'Currently loaded schedule rows';
   }
 
-  function isEnrollmentManagementUnlocked() {
-    const expiresAt = Number(sessionStorage.getItem('cos-em-token-expires-at') || 0);
-    if (!expiresAt || expiresAt <= Date.now()) {
-      sessionStorage.removeItem('cos-em-token');
-      sessionStorage.removeItem('cos-em-token-expires-at');
-      sessionStorage.removeItem('cos-em-unlocked');
-      return false;
+  function normalizeRole(role) {
+    const key = String(role || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (key === 'developer') return 'development';
+    return ROLE_LEVEL[key] ? key : 'general';
+  }
+
+  function clearRoleSession() {
+    [ROLE_STORAGE_KEY, ROLE_TOKEN_KEY, ROLE_EXPIRES_KEY, LEGACY_EM_TOKEN_KEY, LEGACY_EM_EXPIRES_KEY, 'cos-em-unlocked'].forEach(key => {
+      sessionStorage.removeItem(key);
+    });
+  }
+
+  function roleSession() {
+    const role = normalizeRole(sessionStorage.getItem(ROLE_STORAGE_KEY) || 'general');
+    const expiresAt = Number(sessionStorage.getItem(ROLE_EXPIRES_KEY) || 0);
+    const token = sessionStorage.getItem(ROLE_TOKEN_KEY) || '';
+    if (token && (!expiresAt || expiresAt <= Date.now())) {
+      clearRoleSession();
+      return { role: 'general', token: '', expiresAt: 0 };
     }
-    return Boolean(sessionStorage.getItem('cos-em-token'));
+    const legacyExpiresAt = Number(sessionStorage.getItem(LEGACY_EM_EXPIRES_KEY) || 0);
+    const legacyToken = sessionStorage.getItem(LEGACY_EM_TOKEN_KEY) || '';
+    if (!token && legacyToken && legacyExpiresAt > Date.now()) {
+      return { role: 'em', token: legacyToken, expiresAt: legacyExpiresAt };
+    }
+    return { role, token, expiresAt };
+  }
+
+  function currentAccessRole() {
+    return roleSession().role;
+  }
+
+  function canAccessRole(requiredRole) {
+    return ROLE_LEVEL[currentAccessRole()] >= ROLE_LEVEL[normalizeRole(requiredRole)];
+  }
+
+  function canAccess(reportName) {
+    return canAccessRole(REPORT_ACCESS[reportName] || 'general');
+  }
+
+  function isEnrollmentManagementUnlocked() {
+    return canAccessRole('em');
   }
 
   function enrollmentManagementToken() {
-    return isEnrollmentManagementUnlocked() ? sessionStorage.getItem('cos-em-token') : '';
+    return roleSession().token || '';
+  }
+
+  function requestReportAccess(reportName = '', requiredRole = '') {
+    if (window.COS_APP_CONFIG?.features?.enrollmentManagement === false) return;
+    state.pendingAccessReport = reportName;
+    state.pendingAccessRole = normalizeRole(requiredRole || REPORT_ACCESS[reportName] || 'general');
+    const panel = document.getElementById('emPasswordPanel');
+    const input = document.getElementById('emPasswordInput');
+    const label = document.getElementById('emPasswordLabelText');
+    const hint = document.getElementById('emRequiredAccessHint');
+    if (label) label.textContent = `${ROLE_LABEL[state.pendingAccessRole]} Password`;
+    if (hint) {
+      const reportLabel = reportName ? REPORT_LABEL[reportName] || reportName : 'additional reports';
+      hint.textContent = `Unlock ${reportLabel}. Requires ${ROLE_LABEL[state.pendingAccessRole]} or higher; higher roles inherit lower permissions.`;
+    }
+    if (panel) panel.hidden = false;
+    input?.focus();
   }
 
   async function unlockEnrollmentManagement() {
     if (window.COS_APP_CONFIG?.features?.enrollmentManagement === false) return;
     if (!window.BACKEND_BASE_URL) {
-      alert('Backend is not configured, so Enrollment Management cannot be opened.');
+      alert('Backend is not configured, so role access cannot be opened.');
       return;
     }
     const panel = document.getElementById('emPasswordPanel');
     const input = document.getElementById('emPasswordInput');
     if (panel?.hidden) {
-      panel.hidden = false;
-      input?.focus();
+      requestReportAccess('', 'general');
       return;
     }
     const password = input?.value || '';
     if (!password) {
-      alert('Enter the Enrollment Management password.');
+      alert('Enter the report password.');
       input?.focus();
       return;
     }
-    const response = await fetch(`${window.BACKEND_BASE_URL}/api/auth/enrollment-management`, {
+    const requestedRole = normalizeRole(state.pendingAccessRole || 'general');
+    let response = await fetch(`${window.BACKEND_BASE_URL}/api/auth/role`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
+      body: JSON.stringify({ password, requestedRole })
     });
+    if (response.status === 404 && ROLE_LEVEL[requestedRole] <= ROLE_LEVEL.em) {
+      response = await fetch(`${window.BACKEND_BASE_URL}/api/auth/enrollment-management`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+    }
     if (!response.ok) {
-      alert('Enrollment Management password was not accepted.');
+      alert(`${ROLE_LABEL[requestedRole]} password was not accepted.`);
       return;
     }
     const payload = await response.json();
-    sessionStorage.setItem('cos-em-token', payload.token || '');
-    sessionStorage.setItem('cos-em-token-expires-at', String(Date.parse(payload.expiresAt || '') || Date.now()));
+    const role = normalizeRole(payload.role || (ROLE_LEVEL[requestedRole] <= ROLE_LEVEL.em ? 'em' : requestedRole));
+    sessionStorage.setItem(ROLE_STORAGE_KEY, role);
+    sessionStorage.setItem(ROLE_TOKEN_KEY, payload.token || '');
+    sessionStorage.setItem(ROLE_EXPIRES_KEY, String(Date.parse(payload.expiresAt || '') || Date.now()));
+    sessionStorage.setItem(LEGACY_EM_TOKEN_KEY, payload.token || '');
+    sessionStorage.setItem(LEGACY_EM_EXPIRES_KEY, String(Date.parse(payload.expiresAt || '') || Date.now()));
+    if (input) input.value = '';
+    if (panel) panel.hidden = true;
+    state.pendingAccessRole = '';
+    const pendingReport = state.pendingAccessReport;
+    state.pendingAccessReport = '';
+    if (pendingReport && canAccess(pendingReport)) {
+      const select = document.getElementById('emReportSelect');
+      if (select) select.value = pendingReport;
+    }
+    updateVisibility();
+  }
+
+  function lockEnrollmentReports() {
+    clearRoleSession();
+    state.pendingAccessRole = '';
+    state.pendingAccessReport = '';
+    const panel = document.getElementById('emPasswordPanel');
+    const input = document.getElementById('emPasswordInput');
     if (input) input.value = '';
     if (panel) panel.hidden = true;
     updateVisibility();
+  }
+
+  function updateReportAccessOptions() {
+    const select = document.getElementById('emReportSelect');
+    if (!select) return;
+    Array.from(select.options || []).forEach(option => {
+      const report = option.value;
+      const requiredRole = REPORT_ACCESS[report] || 'general';
+      const locked = !canAccess(report);
+      option.dataset.requiredRole = requiredRole;
+      option.dataset.locked = locked ? 'true' : 'false';
+      option.textContent = locked
+        ? `[Locked] ${REPORT_LABEL[report] || option.textContent} - Requires ${ROLE_LABEL[requiredRole]}`
+        : (REPORT_LABEL[report] || option.textContent.replace(/^\[Locked\]\s*/, '').replace(/\s+- Requires .+$/, ''));
+    });
+  }
+
+  function renderLockedReportPanel(reportName) {
+    const panel = document.getElementById('lockedReportPanel');
+    if (!panel) return;
+    if (!reportName || canAccess(reportName)) {
+      panel.hidden = true;
+      panel.innerHTML = '';
+      return;
+    }
+    const requiredRole = REPORT_ACCESS[reportName] || 'general';
+    panel.hidden = false;
+    panel.innerHTML = `
+      <h3>[Locked] ${escapeAttr(REPORT_LABEL[reportName] || reportName)}</h3>
+      <p>This report requires <strong>${escapeAttr(ROLE_LABEL[requiredRole])}</strong> access or higher.</p>
+      <button type="button" data-unlock-report="${escapeAttr(reportName)}">Unlock This Report</button>
+    `;
+  }
+
+  function setReportDisplay(reportName, elementId) {
+    const node = document.getElementById(elementId);
+    if (!node) return;
+    node.style.display = canAccess(reportName) && selectedEnrollmentReport() === reportName ? 'block' : 'none';
   }
 
   function updateVisibility() {
     const selected = selectedEnrollmentReport();
     const wrap = document.getElementById('analyticsReports');
     if (!wrap) return;
-    const unlocked = isEnrollmentManagementUnlocked();
+    const selectedAccessible = canAccess(selected);
+    updateReportAccessOptions();
     wrap.style.display = 'block';
-    document.getElementById('emReportControls').hidden = !unlocked;
-    document.getElementById('workExperienceUploadPanel').hidden = !unlocked || selected !== REPORTS.workExperience;
-    document.getElementById('unlockEnrollmentManagement').hidden = unlocked;
+    document.getElementById('emReportControls').hidden = false;
+    document.getElementById('workExperienceUploadPanel').hidden = !selectedAccessible || selected !== REPORTS.workExperience;
+    document.getElementById('unlockEnrollmentManagement').hidden = currentAccessRole() === 'admin';
+    document.getElementById('lockEnrollmentReports').hidden = currentAccessRole() === 'general' && !enrollmentManagementToken();
+    const access = document.getElementById('currentAccessLevel');
+    if (access) access.textContent = ROLE_LABEL[currentAccessRole()];
     const note = document.querySelector('.em-access-note');
-    if (note) note.textContent = unlocked ? 'Decision-support reports are open for this browser session.' : 'Decision-support summaries are hidden until opened.';
-    document.getElementById('dashboardReport').style.display = unlocked && selected === REPORTS.dashboard ? 'block' : 'none';
-    document.getElementById('attritionReport').style.display = unlocked && selected === REPORTS.attrition ? 'block' : 'none';
-    document.getElementById('consolidationReport').style.display = unlocked && selected === REPORTS.consolidation ? 'block' : 'none';
-    document.getElementById('demandReport').style.display = unlocked && selected === REPORTS.demand ? 'block' : 'none';
-    document.getElementById('conflictCheckReport').style.display = unlocked && selected === REPORTS.conflictCheck ? 'block' : 'none';
-    document.getElementById('archiveInspectionReport').style.display = unlocked && selected === REPORTS.archiveInspection ? 'block' : 'none';
-    document.getElementById('roomFitReport').style.display = unlocked && selected === REPORTS.roomFit ? 'block' : 'none';
-    document.getElementById('snapshotManagerReport').style.display = unlocked && selected === REPORTS.snapshotManager ? 'block' : 'none';
-    document.getElementById('studentPresenceReport').style.display = unlocked && selected === REPORTS.studentPresence ? 'block' : 'none';
-    document.getElementById('instructorAvailabilityReport').style.display = unlocked && selected === REPORTS.instructorAvailability ? 'block' : 'none';
+    if (note) note.textContent = selectedAccessible
+      ? `${ROLE_LABEL[currentAccessRole()]} access is active for this browser session.`
+      : `${REPORT_LABEL[selected]} requires ${ROLE_LABEL[REPORT_ACCESS[selected] || 'general']} access.`;
+    renderLockedReportPanel(selected);
+    setReportDisplay(REPORTS.dashboard, 'dashboardReport');
+    setReportDisplay(REPORTS.attrition, 'attritionReport');
+    setReportDisplay(REPORTS.consolidation, 'consolidationReport');
+    setReportDisplay(REPORTS.demand, 'demandReport');
+    setReportDisplay(REPORTS.conflictCheck, 'conflictCheckReport');
+    setReportDisplay(REPORTS.archiveInspection, 'archiveInspectionReport');
+    setReportDisplay(REPORTS.roomFit, 'roomFitReport');
+    setReportDisplay(REPORTS.snapshotManager, 'snapshotManagerReport');
+    setReportDisplay(REPORTS.studentPresence, 'studentPresenceReport');
+    setReportDisplay(REPORTS.instructorAvailability, 'instructorAvailabilityReport');
     const utilizationTool = document.getElementById('utilization-tool');
-    if (utilizationTool) utilizationTool.style.display = unlocked && selected === REPORTS.utilization ? 'block' : 'none';
+    if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
     const heatmapTool = document.getElementById('heatmap-tool');
-    if (heatmapTool) heatmapTool.style.display = unlocked && selected === REPORTS.heatmap ? 'block' : 'none';
+    if (heatmapTool) heatmapTool.style.display = selectedAccessible && selected === REPORTS.heatmap ? 'block' : 'none';
     const modalityTool = document.getElementById('modality-tool');
-    if (modalityTool) modalityTool.style.display = unlocked && selected === REPORTS.modality ? 'block' : 'none';
+    if (modalityTool) modalityTool.style.display = selectedAccessible && selected === REPORTS.modality ? 'block' : 'none';
     const linechartTool = document.getElementById('linechart-tool');
-    if (linechartTool) linechartTool.style.display = unlocked && selected === REPORTS.duration ? 'block' : 'none';
-    if (!unlocked) return;
+    if (linechartTool) linechartTool.style.display = selectedAccessible && selected === REPORTS.duration ? 'block' : 'none';
+    if (!selectedAccessible) return;
     if (selected === REPORTS.dashboard) {
       rerunDashboard();
     }
@@ -6007,6 +6194,8 @@
     document.head.insertAdjacentHTML('beforeend', `<style id="analyticsReportStyles">
       .analytics-reports{width:min(1480px,calc(100% - 2rem));margin:16px auto 24px;padding:14px;background:rgba(255,255,255,.74);border:1px solid #d8e1ec;border-radius:12px;box-shadow:none}
       .em-access-panel{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e2eaf3}
+      .em-access-status{display:flex;flex-direction:column;gap:2px;margin-right:4px;padding:7px 10px;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;color:#51657c;font-size:11px;text-transform:uppercase;font-weight:800}
+      .em-access-status strong{color:#123367;font-size:14px;text-transform:none}
       .em-unlock{min-height:32px;border:1px solid #ccd6e2;border-radius:8px;padding:0 12px;background:#f8fbff;color:#51657c;font-size:13px;font-weight:800;cursor:pointer;box-shadow:none}
       .em-unlock:hover{color:#123367;border-color:#8ba6c2;background:#fff}
       .em-access-note{color:#6b7d91;font-size:12px}
@@ -6033,6 +6222,10 @@
       .analytics-upload-panel{margin:0 0 16px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff}
       .analytics-upload-panel h3{margin:0 0 6px;color:#123367;font-size:15px}
       .analytics-upload-panel p,.analytics-note{margin:0;color:#51657c;font-size:13px;line-height:1.35}
+      .analytics-locked-panel{margin:0 0 16px;padding:14px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;color:#334862}
+      .analytics-locked-panel h3{margin:0 0 6px;color:#123367;font-size:18px}
+      .analytics-locked-panel p{margin:0 0 10px}
+      .analytics-locked-panel button{min-height:34px;border:0;border-radius:18px;padding:0 16px;background:#cdeffc;color:#002b5c;font-weight:800;cursor:pointer}
       .analytics-warning-list{display:grid;gap:6px;margin:0 0 12px}
       .analytics-warning-list p{margin:0;padding:8px 10px;border:1px solid #f0c36d;border-radius:8px;background:#fff7dc;color:#6d4c00;font-weight:800;line-height:1.3}
       .analytics-toolbar .choices{min-width:170px;margin-bottom:0}
@@ -6136,8 +6329,13 @@
 
   function wire() {
     document.getElementById('viewSelect')?.addEventListener('change', updateVisibility);
-    document.getElementById('emReportSelect')?.addEventListener('change', updateVisibility);
+    document.getElementById('emReportSelect')?.addEventListener('change', () => {
+      const selected = selectedEnrollmentReport();
+      if (!canAccess(selected)) requestReportAccess(selected);
+      updateVisibility();
+    });
     document.getElementById('unlockEnrollmentManagement')?.addEventListener('click', unlockEnrollmentManagement);
+    document.getElementById('lockEnrollmentReports')?.addEventListener('click', lockEnrollmentReports);
     document.getElementById('emPasswordPanel')?.addEventListener('submit', event => {
       event.preventDefault();
       unlockEnrollmentManagement();
@@ -6156,9 +6354,11 @@
       const input = document.getElementById('emPasswordInput');
       if (input) input.value = '';
       if (panel) panel.hidden = true;
+      state.pendingAccessRole = '';
+      state.pendingAccessReport = '';
     });
     document.getElementById('termSelect')?.addEventListener('change', () => {
-      if (!isEnrollmentManagementUnlocked()) return;
+      if (!canAccess(selectedEnrollmentReport())) return;
       if (selectedEnrollmentReport() === REPORTS.dashboard) rerunDashboard();
       if (selectedEnrollmentReport() === REPORTS.consolidation) runConsolidation();
       if (selectedEnrollmentReport() === REPORTS.demand) runDemand();
@@ -6333,12 +6533,18 @@
     document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-demand-forecast-${demandTargetSlug()}.xls`));
     document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
+      const unlockButton = event.target.closest('[data-unlock-report]');
+      if (unlockButton) {
+        requestReportAccess(unlockButton.dataset.unlockReport);
+        return;
+      }
       const targetButton = event.target.closest('[data-report-target],[data-scroll-target]');
       if (targetButton) {
         const targetReport = targetButton.dataset.reportTarget;
         const reportSelect = document.getElementById('emReportSelect');
         if (targetReport && reportSelect) {
           reportSelect.value = targetReport;
+          if (!canAccess(targetReport)) requestReportAccess(targetReport);
           updateVisibility();
         }
         const scrollTarget = targetButton.dataset.scrollTarget;
@@ -6361,6 +6567,13 @@
   }
 
   window.COSEnrollmentAnalytics = {
+    ROLE_LEVEL,
+    ROLE_LABEL,
+    REPORT_ACCESS,
+    REPORT_LABEL,
+    normalizeRole,
+    canAccessRole,
+    canAccess,
     normalizeRow: normalize,
     isOnlinePlaceholderTime,
     tutoringOpenLabConfig: TUTORING_OPEN_LAB_CONFIG,
