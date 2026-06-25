@@ -328,7 +328,7 @@ test('future lifecycle milestone fields normalize when present', () => {
   assert.equal(row.census, 25);
 });
 
-test('attrition lifecycle calculations use census 2 and preserve missing first-day as unavailable', () => {
+test('attrition lifecycle calculations use census 2 and matched first-day rows', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const record = COSEnrollmentAnalytics.emptyAttritionRecord('PS 200M');
   const rows = [
@@ -339,11 +339,29 @@ test('attrition lifecycle calculations use census 2 and preserve missing first-d
 
   const metrics = COSEnrollmentAnalytics.lifecycleMetrics('decision', record, 2);
 
-  assert.equal(metrics.decisionStartToEndAttritionRate, null);
-  assert.equal(COSEnrollmentAnalytics.lifecycleMetricLabel(metrics.decisionStartToEndAttritionRate), 'N/A');
+  assert.equal(metrics.decisionStartToEndMatchedCrns, 1);
+  assert.equal(metrics.decisionStartToEndAttritionCount, 10);
+  assert.equal(Math.round(metrics.decisionStartToEndAttritionRate * 1000) / 1000, 0.333);
   assert.equal(metrics.decisionCensus1ToCensus2AttritionCount, 5);
   assert.equal(Math.round(metrics.decisionCensus1ToCensus2AttritionRate * 1000) / 1000, 0.1);
   assert.equal(metrics.decisionCensus2ToEndAttritionCount, 7);
+});
+
+test('attrition lifecycle first-day metrics are unavailable when no first-day snapshots exist', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const record = COSEnrollmentAnalytics.emptyAttritionRecord('PS 200M');
+  [
+    section({ crn: 'N1', firstDay: null, census1: 28, census2: 30, finalEnrollment: 32 }),
+    section({ crn: 'N2', firstDay: null, census1: 22, census2: 20, finalEnrollment: 18 })
+  ].forEach(row => COSEnrollmentAnalytics.addAttritionLifecycle(record, 'decision', row));
+
+  const metrics = COSEnrollmentAnalytics.lifecycleMetrics('decision', record, 2);
+
+  assert.equal(metrics.decisionStartToEndMatchedCrns, 0);
+  assert.equal(metrics.decisionStartToEndAttritionRate, null);
+  assert.equal(COSEnrollmentAnalytics.lifecycleMetricLabel(metrics.decisionStartToEndAttritionRate), 'N/A');
+  assert.equal(metrics.decisionCensus2ToEndMatchedCrns, 2);
+  assert.equal(metrics.decisionCensus2ToEndAttritionCount, 0);
 });
 
 test('attrition lifecycle start-based calculations work when first-day coverage is complete', () => {
@@ -376,7 +394,7 @@ test('attrition lifecycle reports enrollment growth as negative attrition', () =
   assert.equal(COSEnrollmentAnalytics.lifecycleMetricLabel(metrics.decisionCensus2ToEndAttritionRate), '-17.6%');
 });
 
-test('attrition lifecycle suppresses calculations for different milestone CRN populations', () => {
+test('attrition lifecycle uses matched CRNs when milestone populations differ', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const record = COSEnrollmentAnalytics.emptyAttritionRecord('Overall');
   [
@@ -386,7 +404,9 @@ test('attrition lifecycle suppresses calculations for different milestone CRN po
   ].forEach(row => COSEnrollmentAnalytics.addAttritionLifecycle(record, 'decision', row));
   const metrics = COSEnrollmentAnalytics.lifecycleMetrics('decision', record, 3);
 
-  assert.equal(metrics.decisionCensus1ToCensus2AttritionRate, 'N/A - Different section populations');
+  assert.equal(metrics.decisionCensus1ToCensus2MatchedCrns, 1);
+  assert.equal(metrics.decisionCensus1ToCensus2AttritionCount, 2);
+  assert.equal(metrics.decisionCensus1ToCensus2AttritionRate, 0.1);
   assert.equal(metrics.decisionMilestonePopulationMismatch, true);
   assert.equal(metrics.decisionMilestoneCrnCounts.firstDay, 0);
   assert.equal(metrics.decisionMilestoneCrnCounts.census1, 2);
