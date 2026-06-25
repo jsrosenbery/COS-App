@@ -1230,6 +1230,8 @@
                   <li>Negative Census 2 values are not valid enrollment counts and are treated as missing/invalid rather than included as real enrollment.</li>
                   <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
                   <li>Lifecycle intervals shown are Start to End, Start to Census 1, Start to Census 2, Census 1 to Census 2, Census 1 to End, Census 2 to End, and Overall Attrition.</li>
+                  <li>Attrition is signed: (start enrollment - end enrollment) / start enrollment. Enrollment gains display as negative attrition rather than being clamped to zero.</li>
+                  <li>If two compared milestones contain different distinct CRN populations, the interval displays N/A - Different section populations and a data-quality warning is shown.</li>
                   <li>Decision term metrics, historical metrics, and all uploaded terms metrics are calculated separately. The decision term never contributes to historical attrition rates.</li>
                   <li>All Terms columns include the decision term plus comparison terms when decision-term rows exist. Historical Attrition excludes the decision term and uses comparison terms only, which is the correct planning view for future terms that have not opened for scheduling/enrollment yet.</li>
                   <li>Min sections controls the minimum section count a grouped row must have before it appears in the report.</li>
@@ -3197,32 +3199,78 @@
     return finiteOrNull(row?.finalEnrollment ?? finalEnrollment(row));
   }
 
+  function milestonePopulationDiagnostics(rows = []) {
+    const deduped = dedupeEnrollmentRows(rows);
+    const milestones = [
+      ['firstDay', rowFirstDay],
+      ['census1', rowCensus1],
+      ['census2', rowCensus2],
+      ['final', rowEndEnrollment]
+    ];
+    const result = {};
+    milestones.forEach(([key, getter]) => {
+      const crns = new Set();
+      let total = 0;
+      deduped.forEach(row => {
+        const value = getter(row);
+        if (value == null) return;
+        crns.add(sectionKey(row));
+        total += value;
+      });
+      result[key] = { crns, count: crns.size, total };
+    });
+    const comparablePairs = [
+      ['firstDay', 'census1'],
+      ['firstDay', 'census2'],
+      ['firstDay', 'final'],
+      ['census1', 'census2'],
+      ['census1', 'final'],
+      ['census2', 'final']
+    ];
+    result.mismatch = comparablePairs.some(([left, right]) =>
+      result[left].count > 0 &&
+      result[right].count > 0 &&
+      !sameCrnPopulation(result[left].crns, result[right].crns)
+    );
+    return result;
+  }
+
   function addAttritionLifecycle(item, prefix, row) {
     const firstDay = rowFirstDay(row);
     const census1 = rowCensus1(row);
     const census2 = rowCensus2(row);
     const end = rowEndEnrollment(row);
+    const crnKey = sectionKey(row);
+    const milestoneSet = (name) => {
+      const key = `${prefix}${name}Crns`;
+      if (!item[key]) item[key] = new Set();
+      return item[key];
+    };
     if (firstDay != null) {
       item[`${prefix}FirstDay`] += firstDay;
       item[`${prefix}FirstDayCount`] += 1;
+      milestoneSet('FirstDay').add(crnKey);
     }
     if (census1 != null) {
       item[`${prefix}Census`] += census1;
       item[`${prefix}Census1Count`] += 1;
+      milestoneSet('Census1').add(crnKey);
     }
     if (census2 != null) {
       item[`${prefix}Census2`] += census2;
       item[`${prefix}Census2Count`] += 1;
+      milestoneSet('Census2').add(crnKey);
     }
     if (end != null) {
       item[`${prefix}Final`] += end;
       item[`${prefix}FinalCount`] += 1;
+      milestoneSet('Final').add(crnKey);
     }
   }
 
   function attritionCount(start, end, available = true) {
     if (!available || start == null || end == null) return null;
-    return Math.max(0, start - end);
+    return start - end;
   }
 
   function attritionRate(start, end, available = true) {
@@ -3231,30 +3279,64 @@
     return count / start;
   }
 
+  const POPULATION_MISMATCH_LABEL = 'N/A - Different section populations';
+
+  function sameCrnPopulation(left = new Set(), right = new Set()) {
+    if (left.size !== right.size) return false;
+    for (const value of left) {
+      if (!right.has(value)) return false;
+    }
+    return true;
+  }
+
+  function lifecycleInterval(start, end, available, startCrns = new Set(), endCrns = new Set()) {
+    if (!available || start == null || end == null) return { count: null, rate: null, mismatch: false };
+    if (!sameCrnPopulation(startCrns, endCrns)) return { count: POPULATION_MISMATCH_LABEL, rate: POPULATION_MISMATCH_LABEL, mismatch: true };
+    return { count: attritionCount(start, end, true), rate: attritionRate(start, end, true), mismatch: false };
+  }
+
   function lifecycleMetrics(prefix, item, sectionCount) {
     const firstDay = item[`${prefix}FirstDay`];
     const census1 = item[`${prefix}Census`];
     const census2 = item[`${prefix}Census2`];
     const end = item[`${prefix}Final`];
+    const firstDayCrns = item[`${prefix}FirstDayCrns`] || new Set();
+    const census1Crns = item[`${prefix}Census1Crns`] || new Set();
+    const census2Crns = item[`${prefix}Census2Crns`] || new Set();
+    const finalCrns = item[`${prefix}FinalCrns`] || new Set();
     const hasAllFirstDay = sectionCount > 0 && item[`${prefix}FirstDayCount`] === sectionCount;
     const hasCensus1 = item[`${prefix}Census1Count`] > 0;
     const hasCensus2 = item[`${prefix}Census2Count`] > 0;
     const hasEnd = item[`${prefix}FinalCount`] > 0;
+    const startToEnd = lifecycleInterval(firstDay, end, hasAllFirstDay && hasEnd, firstDayCrns, finalCrns);
+    const startToCensus1 = lifecycleInterval(firstDay, census1, hasAllFirstDay && hasCensus1, firstDayCrns, census1Crns);
+    const startToCensus2 = lifecycleInterval(firstDay, census2, hasAllFirstDay && hasCensus2, firstDayCrns, census2Crns);
+    const census1ToCensus2 = lifecycleInterval(census1, census2, hasCensus1 && hasCensus2, census1Crns, census2Crns);
+    const census1ToEnd = lifecycleInterval(census1, end, hasCensus1 && hasEnd, census1Crns, finalCrns);
+    const census2ToEnd = lifecycleInterval(census2, end, hasCensus2 && hasEnd, census2Crns, finalCrns);
+    const mismatch = [startToEnd, startToCensus1, startToCensus2, census1ToCensus2, census1ToEnd, census2ToEnd].some(interval => interval.mismatch);
     return {
-      [`${prefix}StartToEndAttritionCount`]: attritionCount(firstDay, end, hasAllFirstDay && hasEnd),
-      [`${prefix}StartToEndAttritionRate`]: attritionRate(firstDay, end, hasAllFirstDay && hasEnd),
-      [`${prefix}StartToCensus1AttritionCount`]: attritionCount(firstDay, census1, hasAllFirstDay && hasCensus1),
-      [`${prefix}StartToCensus1AttritionRate`]: attritionRate(firstDay, census1, hasAllFirstDay && hasCensus1),
-      [`${prefix}StartToCensus2AttritionCount`]: attritionCount(firstDay, census2, hasAllFirstDay && hasCensus2),
-      [`${prefix}StartToCensus2AttritionRate`]: attritionRate(firstDay, census2, hasAllFirstDay && hasCensus2),
-      [`${prefix}Census1ToCensus2AttritionCount`]: attritionCount(census1, census2, hasCensus1 && hasCensus2),
-      [`${prefix}Census1ToCensus2AttritionRate`]: attritionRate(census1, census2, hasCensus1 && hasCensus2),
-      [`${prefix}Census1ToEndAttritionCount`]: attritionCount(census1, end, hasCensus1 && hasEnd),
-      [`${prefix}Census1ToEndAttritionRate`]: attritionRate(census1, end, hasCensus1 && hasEnd),
-      [`${prefix}Census2ToEndAttritionCount`]: attritionCount(census2, end, hasCensus2 && hasEnd),
-      [`${prefix}Census2ToEndAttritionRate`]: attritionRate(census2, end, hasCensus2 && hasEnd),
-      [`${prefix}OverallAttritionCount`]: attritionCount(census1, end, hasCensus1 && hasEnd),
-      [`${prefix}OverallAttritionRate`]: attritionRate(census1, end, hasCensus1 && hasEnd)
+      [`${prefix}StartToEndAttritionCount`]: startToEnd.count,
+      [`${prefix}StartToEndAttritionRate`]: startToEnd.rate,
+      [`${prefix}StartToCensus1AttritionCount`]: startToCensus1.count,
+      [`${prefix}StartToCensus1AttritionRate`]: startToCensus1.rate,
+      [`${prefix}StartToCensus2AttritionCount`]: startToCensus2.count,
+      [`${prefix}StartToCensus2AttritionRate`]: startToCensus2.rate,
+      [`${prefix}Census1ToCensus2AttritionCount`]: census1ToCensus2.count,
+      [`${prefix}Census1ToCensus2AttritionRate`]: census1ToCensus2.rate,
+      [`${prefix}Census1ToEndAttritionCount`]: census1ToEnd.count,
+      [`${prefix}Census1ToEndAttritionRate`]: census1ToEnd.rate,
+      [`${prefix}Census2ToEndAttritionCount`]: census2ToEnd.count,
+      [`${prefix}Census2ToEndAttritionRate`]: census2ToEnd.rate,
+      [`${prefix}OverallAttritionCount`]: census1ToEnd.count,
+      [`${prefix}OverallAttritionRate`]: census1ToEnd.rate,
+      [`${prefix}MilestonePopulationMismatch`]: mismatch,
+      [`${prefix}MilestoneCrnCounts`]: {
+        firstDay: firstDayCrns.size,
+        census1: census1Crns.size,
+        census2: census2Crns.size,
+        final: finalCrns.size
+      }
     };
   }
 
@@ -3263,21 +3345,24 @@
     const census1 = sum(rows, `${prefix}Census`);
     const census2 = sum(rows, `${prefix}Census2`);
     const final = sum(rows, `${prefix}Final`);
+    const mismatch = rows.some(row => row[`${prefix}MilestonePopulationMismatch`]);
     const overallCount = attritionCount(census1, final, census1 > 0);
     return {
       sections,
       census1,
       census2,
       final,
-      overallCount,
-      overallRate: attritionRate(census1, final, census1 > 0),
-      census1ToEndRate: attritionRate(census1, final, census1 > 0),
-      census2ToEndRate: attritionRate(census2, final, census2 > 0),
-      census1ToCensus2Rate: attritionRate(census1, census2, census1 > 0 && census2 > 0)
+      overallCount: mismatch ? POPULATION_MISMATCH_LABEL : overallCount,
+      overallRate: mismatch ? POPULATION_MISMATCH_LABEL : attritionRate(census1, final, census1 > 0),
+      census1ToEndRate: mismatch ? POPULATION_MISMATCH_LABEL : attritionRate(census1, final, census1 > 0),
+      census2ToEndRate: mismatch ? POPULATION_MISMATCH_LABEL : attritionRate(census2, final, census2 > 0),
+      census1ToCensus2Rate: mismatch ? POPULATION_MISMATCH_LABEL : attritionRate(census1, census2, census1 > 0 && census2 > 0),
+      mismatch
     };
   }
 
   function lifecycleMetricLabel(value) {
+    if (value === POPULATION_MISMATCH_LABEL) return POPULATION_MISMATCH_LABEL;
     return value == null ? 'N/A' : pct(value);
   }
 
@@ -3398,8 +3483,9 @@
         ...decisionLifecycle,
         ...allLifecycle
       };
-    }).sort((a, b) => (b.attritionCount || 0) - (a.attritionCount || 0) || (b.historicalAttritionCount || 0) - (a.historicalAttritionCount || 0));
+    }).sort((a, b) => num(b.attritionCount) - num(a.attritionCount) || num(b.historicalAttritionCount) - num(a.historicalAttritionCount));
     const decisionRows = state.attritionRows.filter(row => row.decisionSections > 0);
+    const decisionMilestones = milestonePopulationDiagnostics(enrollment.filter(row => canon(row.term) === decisionTermKey));
     const filteredTerms = collectRowTerms(enrollment);
     const historicalTerms = collectRowTerms(enrollment.filter(row => row.term && canon(row.term) !== decisionTermKey));
     const coverage = snapshotCoverage(enrollment, state.enrollmentSnapshots, decisionTerm);
@@ -3417,6 +3503,16 @@
       ['Decision Census 2', decisionSummary.census2],
       ['Decision End/Final', decisionSummary.final],
       ['Decision Overall Attrition', lifecycleMetricLabel(decisionSummary.overallRate)],
+      ['Decision First Day CRNs', decisionMilestones.firstDay.count],
+      ['Decision Census 1 CRNs', decisionMilestones.census1.count],
+      ['Decision Census 2 CRNs', decisionMilestones.census2.count],
+      ['Decision End/Final CRNs', decisionMilestones.final.count],
+      ['Decision First Day Total', decisionMilestones.firstDay.total],
+      ['Decision Census 1 Total', decisionMilestones.census1.total],
+      ['Decision Census 2 Total', decisionMilestones.census2.total],
+      ['Decision End/Final Total', decisionMilestones.final.total],
+      ['Milestone Population Mismatch', decisionMilestones.mismatch ? 'Yes - Different section populations' : 'No'],
+      ['Milestone Population Warning', decisionMilestones.mismatch ? 'Lifecycle intervals with different distinct CRN populations are not directly comparable.' : 'None'],
       ['Historical Sections', historicalSummary.sections],
       ['Historical Overall Attrition', lifecycleMetricLabel(historicalSummary.overallRate)],
       ['Historical Census 1 to Census 2 Attrition', lifecycleMetricLabel(historicalSummary.census1ToCensus2Rate)],
@@ -4221,8 +4317,8 @@
       waitlist: sum(rows, 'waitlist'),
       fillRate: safeDiv(census, capacity),
       finalFillRate: safeDiv(final, capacity),
-      attritionCount: Math.max(0, census - final),
-      attritionRate: safeDiv(Math.max(0, census - final), census),
+      attritionCount: census - final,
+      attritionRate: safeDiv(census - final, census),
       filledAtCensus: rows.filter(row => row.cap > 0 && (row.census == null ? row.actual : row.census) >= row.cap).length,
       closedPriorCensus: rows.filter(row => row.closedPriorCensus || /CLOSED/.test(row.status)).length,
       under50: rows.filter(row => row.cap > 0 && safeDiv(row.census == null ? row.actual : row.census, row.cap) < 0.5).length,
@@ -4839,8 +4935,9 @@
       ['Census 2 to End Attrition', 'Census 2 minus End/Final divided by Census 2.'],
       ['Overall Attrition', 'Census 1 to End/Final attrition unless a more official lifecycle standard is adopted later.'],
       ['Lifecycle Readiness', 'First Day comes from stored First Day snapshots when available. Census 1 comes from CENSUS_ENROLL. Census 2 comes from CENSUS_ENROLL2. End/Final comes from ACTUAL_ENROLL or Final Enrollment. Missing milestone fields display as N/A, not zero.'],
-      ['Attrition Count', 'All uploaded terms Census 1 minus Final Enrollment, floored at zero.'],
-      ['Attrition Rate', 'All uploaded terms Attrition Count divided by Census 1.'],
+      ['Attrition Count', 'All uploaded terms Census 1 minus Final Enrollment. Negative values indicate enrollment growth between milestones.'],
+      ['Attrition Rate', 'All uploaded terms Attrition Count divided by Census 1. Negative percentages indicate enrollment growth between milestones.'],
+      ['Milestone Population Mismatch', 'Shown when compared lifecycle milestones do not contain the same distinct CRN population. Those intervals display N/A - Different section populations instead of a calculated rate.'],
       ['Historical Attrition Rate', 'Historical attrition from comparison terms only; it excludes the decision term.'],
       ['All Terms Sections', 'Section count across the decision term plus included comparison terms.'],
       ['Census Fill Rate', 'Census Enrollment divided by Total Seats. Values above 100% mean sections exceeded listed capacity.'],
@@ -4943,8 +5040,8 @@
       ['Average FTES', 'Table column. Average historical FTES across included finalized terms. Uses uploaded FTES when present; otherwise estimates FTES from ACCOUNTING METHOD and available contact-hour fields. W/IW/unknown use census enrollment x weekly hours x 17.5 / 525. D/ID/P/E use census enrollment x TOTAL_CONTACT_HOURS / 525. If contact hours are unavailable but units are present, fallback formula is census enrollment x units / 30. For Work Experience upload rows with no direct FTES and no usable contact-hour/unit fields, FTES is flagged as unavailable for review.'],
       ['Historical Census Fill Rate', 'Table column. Average of term-level census fill rates. Formula per term: sum(census enrollment) / sum(MAX ENROLL).'],
       ['Historical Final Fill Rate', 'Table column. Average of term-level final fill rates. Formula per term: sum(ACTUAL_ENROLL) / sum(MAX ENROLL).'],
-      ['Historical Avg Attrition Count', 'Table column. Average of term-level attrition counts. Formula per term: max(0, census enrollment - actual enrollment). This is context only and does not drive cancellation logic.'],
-      ['Historical Avg Attrition Rate', 'Table column. Average of term-level attrition rates. Formula per term: max(0, census enrollment - actual enrollment) / census enrollment. This is context only and does not drive cancellation logic.'],
+      ['Historical Avg Attrition Count', 'Table column. Average of term-level attrition counts. Formula per term: census enrollment - actual enrollment. Negative values indicate enrollment growth. This is context only and does not drive cancellation logic.'],
+      ['Historical Avg Attrition Rate', 'Table column. Average of term-level attrition rates. Formula per term: (census enrollment - actual enrollment) / census enrollment. Negative values indicate enrollment growth. This is context only and does not drive cancellation logic.'],
       ['Average Waitlist Count', 'Table column. Average historical waitlisted students across included terms when waitlist columns are present. Formula: average of term-level sum(waitlist).'],
       ['Waitlist Data Present', 'Table column. Yes when at least one source row for that forecast row includes a waitlist value. If no waitlist column exists, waitlist values remain 0 and should not be interpreted as confirmed no demand.'],
       ['Division Growth', 'Table column. Growth rate for the row division across included terms. Formula: average per-term change in division census enrollment / first included division census enrollment. Falls back to College Growth when division data is unavailable.'],

@@ -362,6 +362,38 @@ test('attrition lifecycle start-based calculations work when first-day coverage 
   assert.equal(metrics.decisionCensus1ToEndAttritionCount, 12);
 });
 
+test('attrition lifecycle reports enrollment growth as negative attrition', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const record = COSEnrollmentAnalytics.emptyAttritionRecord('Overall');
+  [
+    section({ crn: 'G1', census1: 10, census2: 12, finalEnrollment: 15 }),
+    section({ crn: 'G2', census1: 24, census2: 22, finalEnrollment: 25 })
+  ].forEach(row => COSEnrollmentAnalytics.addAttritionLifecycle(record, 'decision', row));
+  const metrics = COSEnrollmentAnalytics.lifecycleMetrics('decision', record, 2);
+
+  assert.equal(metrics.decisionCensus2ToEndAttritionCount, -6);
+  assert.equal(Math.round(metrics.decisionCensus2ToEndAttritionRate * 10000) / 10000, -0.1765);
+  assert.equal(COSEnrollmentAnalytics.lifecycleMetricLabel(metrics.decisionCensus2ToEndAttritionRate), '-17.6%');
+});
+
+test('attrition lifecycle suppresses calculations for different milestone CRN populations', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const record = COSEnrollmentAnalytics.emptyAttritionRecord('Overall');
+  [
+    section({ crn: 'A1', census1: 10, census2: null }),
+    section({ crn: 'A2', census1: 20, census2: 18 }),
+    section({ crn: 'A3', census: null, census1: null, census2: 15 })
+  ].forEach(row => COSEnrollmentAnalytics.addAttritionLifecycle(record, 'decision', row));
+  const metrics = COSEnrollmentAnalytics.lifecycleMetrics('decision', record, 3);
+
+  assert.equal(metrics.decisionCensus1ToCensus2AttritionRate, 'N/A - Different section populations');
+  assert.equal(metrics.decisionMilestonePopulationMismatch, true);
+  assert.equal(metrics.decisionMilestoneCrnCounts.firstDay, 0);
+  assert.equal(metrics.decisionMilestoneCrnCounts.census1, 2);
+  assert.equal(metrics.decisionMilestoneCrnCounts.census2, 2);
+  assert.equal(metrics.decisionMilestoneCrnCounts.final, 3);
+});
+
 test('dashboard focus term scopes current metrics and excludes focus from history', () => {
   const { COSEnrollmentAnalytics, COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
   const rows = [
