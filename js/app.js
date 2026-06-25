@@ -1045,7 +1045,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     status.textContent = `${roomCatalog.length} rooms loaded.`;
 
     roomCatalogAdminDiv.append(title, exportBtn, exportJsonBtn, importLabel, status);
-    appendModalityDefinitionsAdmin(roomCatalogAdminDiv);
+    appendModalityDefinitionsAdmin();
 
     exportBtn.addEventListener('click', () => exportRoomCatalog('csv'));
     exportJsonBtn.addEventListener('click', () => exportRoomCatalog('json'));
@@ -1058,9 +1058,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
   }
 
-  function appendModalityDefinitionsAdmin(parent) {
+  function appendModalityDefinitionsAdmin() {
+    document.getElementById('modality-definitions-admin')?.remove();
+    if (!roomCatalogAdminDiv?.parentElement) return;
     const wrap = document.createElement('div');
-    wrap.className = 'modality-admin';
+    wrap.id = 'modality-definitions-admin';
+    wrap.className = 'room-catalog-admin modality-admin';
 
     const title = document.createElement('strong');
     title.textContent = 'Modality Definitions';
@@ -1086,7 +1089,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     status.textContent = `${modalityDefinitions.length} modality definitions loaded.`;
 
     wrap.append(title, exportBtn, exportJsonBtn, importLabel, status);
-    parent.appendChild(wrap);
+    roomCatalogAdminDiv.insertAdjacentElement('afterend', wrap);
 
     exportBtn.addEventListener('click', () => exportModalityDefinitions('csv'));
     exportJsonBtn.addEventListener('click', () => exportModalityDefinitions('json'));

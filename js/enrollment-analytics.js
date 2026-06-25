@@ -1402,6 +1402,15 @@
       tool.style.display = 'none';
       document.getElementById('analyticsReports').appendChild(tool);
     });
+    placeAdminToolsAtBottom();
+  }
+
+  function placeAdminToolsAtBottom() {
+    const adminTools = document.getElementById('admin-tools');
+    if (!adminTools || !document.body.contains(adminTools)) return;
+    const tooltip = document.getElementById('class-block-tooltip');
+    if (tooltip && tooltip.parentElement === document.body) document.body.insertBefore(adminTools, tooltip);
+    else document.body.appendChild(adminTools);
   }
 
   function filters(prefix, options = {}) {
