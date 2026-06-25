@@ -111,6 +111,48 @@ test('current CSV data without milestone fields still normalizes for attrition',
   assert.equal(row.finalEnrollment, null);
 });
 
+test('tutoring open lab rows are centrally identified', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+
+  ['MATH 400', 'ENGL 400', 'LA 425'].forEach(course => {
+    const [subject, number] = course.split(' ');
+    const splitRow = COSEnrollmentAnalytics.normalizeRow({ Subject: subject, Course: number });
+    const combinedRow = COSEnrollmentAnalytics.normalizeRow({ Course: course });
+    assert.equal(COSEnrollmentAnalytics.isTutoringOpenLabSection(splitRow), true);
+    assert.equal(COSEnrollmentAnalytics.isTutoringOpenLabSection(combinedRow), true);
+    assert.equal(splitRow.isTutoringOpenLab, true);
+  });
+
+  assert.equal(COSEnrollmentAnalytics.isTutoringOpenLabSection(section({ subject: 'MATH', course: '021' })), false);
+});
+
+test('negative Census 2 normalizes as invalid missing data', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    CRN: '12345',
+    Subject: 'MATH',
+    Course: '400',
+    CENSUS_ENROLL: '10',
+    CENSUS_ENROLL2: '-3',
+    ACTUAL_ENROLL: '8'
+  });
+
+  assert.equal(row.census2, null);
+  assert.equal(row.invalidNegativeCensus2, true);
+});
+
+test('snapshot coverage excludes omitted tutoring open lab sections after filtering', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const standard = COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'S1', Subject: 'HIST', Course: '018' });
+  const tutoring = COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'T1', Subject: 'MATH', Course: '400' });
+  const includedRows = [standard, tutoring].filter(row => !COSEnrollmentAnalytics.isTutoringOpenLabSection(row));
+  const coverage = COSEnrollmentAnalytics.snapshotCoverage(includedRows, [], 'FALL 2026');
+
+  assert.equal(coverage.sectionsInFocusTerm, 1);
+  assert.equal(coverage.sectionsMissingFirstDaySnapshot, 1);
+});
+
 test('work experience rows normalize as supplemental enrollment source', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const directFtes = COSEnrollmentAnalytics.normalizeRow({
@@ -1299,6 +1341,34 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(app, /function isOnlineTbaHeatmapRow/);
   assert.match(app, /cells\[d\]\[startIndex\]\.crns\.has\(bucketKey\)/);
   assert.match(css, /\.analysis-summary-cards/);
+});
+
+test('standard analytics expose tutoring open lab exclusion controls and diagnostics', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  ['MATH 400', 'ENGL 400', 'LA 425'].forEach(course => {
+    assert.match(analytics, new RegExp(course));
+    assert.match(app, new RegExp(course));
+  });
+  [
+    /\$\{prefix\}ExcludeTutoringOpenLab/,
+    /roomFitExcludeTutoringOpenLab/,
+    /Tutoring\/Open Lab Rows Excluded/,
+    /Negative Census 2 values were detected and treated as invalid/
+  ].forEach(pattern => assert.match(analytics, pattern));
+  [
+    /heatmap-exclude-tutoring-openlab/,
+    /linechart-exclude-tutoring-openlab/,
+    /modality-exclude-tutoring-openlab/,
+    /utilization-exclude-tutoring-openlab/
+  ].forEach(pattern => assert.match(index, pattern));
+  [
+    /function isTutoringOpenLabSection/,
+    /roomFitExcludeTutoringOpenLab/,
+    /Tutoring\/Open Lab Rows Excluded/
+  ].forEach(pattern => assert.match(app, pattern));
 });
 
 test('duration graph uses nice y-axis tick steps', () => {

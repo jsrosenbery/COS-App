@@ -175,6 +175,9 @@
       <label class="inline-check">
         <input id="heatmap-underutilized-only" type="checkbox"> Show only underutilized periods
       </label>
+      <label class="inline-check">
+        <input id="heatmap-exclude-tutoring-openlab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections
+      </label>
       <select id="courseSelect" multiple placeholder="Filter by course"></select>
       <input type="text" id="textSearch" placeholder="Type to search table…"/>
       <button id="heatmap-clear-btn" type="button">Clear</button>
@@ -193,6 +196,9 @@
       </label>
       <label>Room Type:
         <select id="utilization-type-select"></select>
+      </label>
+      <label class="inline-check">
+        <input id="utilization-exclude-tutoring-openlab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections
       </label>
       <button id="utilization-clear-btn" type="button">Clear</button>
     </div>
@@ -365,6 +371,7 @@
         <select id="modality-calgetc-select"></select>
       </label>
       <label class="modality-de-toggle"><input id="modality-include-de" type="checkbox"> Include Dual Enrollment</label>
+      <label><input id="modality-exclude-tutoring-openlab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections</label>
       <button id="modality-clear-btn" type="button">Clear</button>
     </div>
     <div class="modality-note">
@@ -432,6 +439,9 @@
       </label>
       <label>CAL-GETC:
         <select id="linechart-calgetc-select"></select>
+      </label>
+      <label class="inline-check">
+        <input id="linechart-exclude-tutoring-openlab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections
       </label>
       <select id="lineCourseSelect" multiple placeholder="Filter by course"></select>
       <button id="linechart-clear-btn" type="button">Clear</button>

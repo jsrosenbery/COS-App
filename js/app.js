@@ -264,6 +264,16 @@ function getCourseKey(section) {
   return String(subjectCourse || '').trim();
 }
 
+const TUTORING_OPEN_LAB_CONFIG = {
+  label: 'Tutoring / Open Lab Sections',
+  defaultExcludedCourses: ['MATH 400', 'ENGL 400', 'LA 425']
+};
+const tutoringOpenLabCourseSet = new Set(TUTORING_OPEN_LAB_CONFIG.defaultExcludedCourses.map(value => String(value).trim().toUpperCase()));
+
+function isTutoringOpenLabSection(section) {
+  return tutoringOpenLabCourseSet.has(getCourseKey(section).toUpperCase());
+}
+
 function getCourseLevel(courseNumber) {
   const match = String(courseNumber || '').match(/\d+/);
   if (!match) return 'Unspecified';
@@ -765,12 +775,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('heatmap-metric-select').addEventListener('change', updateHeatmap);
   document.getElementById('heatmap-prime-only').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-underutilized-only').addEventListener('change', updateAllHeatmap);
+  document.getElementById('heatmap-exclude-tutoring-openlab')?.addEventListener('change', updateAllHeatmap);
   document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-division-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-discipline-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-calgetc-select').addEventListener('change', renderLineChart);
+  document.getElementById('linechart-exclude-tutoring-openlab')?.addEventListener('change', renderLineChart);
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
+  document.getElementById('utilization-exclude-tutoring-openlab')?.addEventListener('change', renderUtilizationMap);
   if (roomFitExportBtn) roomFitExportBtn.addEventListener('click', exportRoomFitAnalysis);
   if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
   if (modalityDecisionTermSelect) modalityDecisionTermSelect.addEventListener('change', renderModalityTool);
@@ -783,6 +796,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (modalityLevelSelect) modalityLevelSelect.addEventListener('change', renderModalityTool);
   if (modalityCalGetcSelect) modalityCalGetcSelect.addEventListener('change', renderModalityTool);
   if (modalityIncludeDe) modalityIncludeDe.addEventListener('change', renderModalityTool);
+  document.getElementById('modality-exclude-tutoring-openlab')?.addEventListener('change', renderModalityTool);
   document.getElementById('heatmap-load-source-btn')?.addEventListener('click', () => loadScheduleAnalysisSource('heatmap').catch(err => alert(err.message || 'Heatmap source load failed.')));
   document.getElementById('linechart-load-source-btn')?.addEventListener('click', () => loadScheduleAnalysisSource('linechart').catch(err => alert(err.message || 'Duration source load failed.')));
   document.getElementById('modality-load-source-btn')?.addEventListener('click', () => loadModalitySelectedSource().catch(err => alert(err.message || 'Modality source load failed.')));
@@ -790,6 +804,8 @@ document.addEventListener('DOMContentLoaded', () => {
     utilizationClearBtn.onclick = () => {
       if (utilizationCampusSelect) utilizationCampusSelect.value = '';
       if (utilizationTypeSelect) utilizationTypeSelect.value = '';
+      const excludeTutoring = document.getElementById('utilization-exclude-tutoring-openlab');
+      if (excludeTutoring) excludeTutoring.checked = true;
       renderUtilizationMap();
     };
   }
@@ -806,6 +822,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (modalityDecisionTermSelect) modalityDecisionTermSelect.value = '';
       modalityComparisonSelects.forEach(select => { select.value = ''; });
       if (modalityIncludeDe) modalityIncludeDe.checked = false;
+      const excludeTutoring = document.getElementById('modality-exclude-tutoring-openlab');
+      if (excludeTutoring) excludeTutoring.checked = true;
       renderModalityTool();
     };
   }
@@ -820,8 +838,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (metric) metric.value = 'sections';
     const primeOnly = document.getElementById('heatmap-prime-only');
     const underutilizedOnly = document.getElementById('heatmap-underutilized-only');
+    const excludeTutoring = document.getElementById('heatmap-exclude-tutoring-openlab');
     if (primeOnly) primeOnly.checked = false;
     if (underutilizedOnly) underutilizedOnly.checked = false;
+    if (excludeTutoring) excludeTutoring.checked = true;
     clearHeatmapCellFilter(false);
     if (document.getElementById('textSearch')) {
       document.getElementById('textSearch').value = '';
@@ -835,6 +855,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const select = document.getElementById(id);
       if (select) select.value = '';
     });
+    const excludeTutoring = document.getElementById('linechart-exclude-tutoring-openlab');
+    if (excludeTutoring) excludeTutoring.checked = true;
     renderLineChart();
   };
 
@@ -2291,6 +2313,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function calculateRoomUtilization() {
+    const excludeTutoringOpenLab = document.getElementById('utilization-exclude-tutoring-openlab')?.checked !== false;
     const rooms = getRoomCatalogEntries().filter(room => !isExcludedUtilizationRoom(room)).map(room => ({
       ...room,
       sections: 0,
@@ -2300,6 +2323,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }));
     const roomMap = new Map(rooms.map(room => [room.buildingRoom, room]));
     currentData.forEach(section => {
+      if (excludeTutoringOpenLab && isTutoringOpenLabSection(section)) return;
       if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return;
       const key = getRoomKey(section);
       if (String(key || '').toUpperCase().startsWith('VISFSC-')) return;
@@ -2373,8 +2397,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function calculateRoomFitFlags(options = {}) {
     const threshold = Number(options.threshold || 0.7);
     const sourceRows = options.rows || currentData;
+    const excludeTutoringOpenLab = document.getElementById('roomFitExcludeTutoringOpenLab')?.checked !== false;
     const seen = new Set();
     return sourceRows.reduce((rows, section, index) => {
+      if (excludeTutoringOpenLab && isTutoringOpenLabSection(section)) return rows;
       if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return rows;
       const modality = getModalityCategory(getInstructionalMethod(section));
       if (['ONLINE', 'WORK EXPERIENCE'].includes(String(modality || '').toUpperCase())) return rows;
@@ -2591,12 +2617,16 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const tableNode = document.getElementById('roomFitReportTable');
     if (!metricsNode || !tableNode) return;
     const rows = roomFitFilteredRows();
+    const tutoringOpenLabRowsExcluded = document.getElementById('roomFitExcludeTutoringOpenLab')?.checked !== false
+      ? (roomFitReportRows || currentData).filter(isTutoringOpenLabSection).length
+      : 0;
     const countFlag = flag => rows.filter(row => row.flag.split('; ').includes(flag)).length;
     const cards = [
       ['All', rows.length, ''],
       ['Underutilized Room', countFlag('Underutilized Room'), 'Underutilized Room'],
       ['Over Capacity Risk', countFlag('Over Capacity Risk'), 'Over Capacity Risk'],
-      ['Enrollment Exceeds Room Capacity', countFlag('Enrollment Exceeds Room Capacity'), 'Enrollment Exceeds Room Capacity']
+      ['Enrollment Exceeds Room Capacity', countFlag('Enrollment Exceeds Room Capacity'), 'Enrollment Exceeds Room Capacity'],
+      ['Tutoring/Open Lab Rows Excluded', tutoringOpenLabRowsExcluded, '']
     ];
     const selectedFlag = document.getElementById('roomFitFlag')?.value || '';
     metricsNode.innerHTML = cards.map(([label, value, flag]) => `<button type="button" class="room-fit-card${selectedFlag === flag ? ' is-active' : ''}" data-room-fit-flag="${escapeHTML(flag)}"><strong>${value}</strong><span>${escapeHTML(label)}</span></button>`).join('');
@@ -2888,6 +2918,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const selectedLevel = selectedValues(modalityLevelSelect);
     const selectedCalGetc = modalityCalGetcSelect?.value || '';
     const includeDualEnrollment = Boolean(modalityIncludeDe?.checked);
+    const excludeTutoringOpenLab = document.getElementById('modality-exclude-tutoring-openlab')?.checked !== false;
+    let tutoringOpenLabRowsExcluded = 0;
     const seenSections = new Set();
     const categories = new Map();
 
@@ -2899,6 +2931,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const courseParts = getCourseParts(section);
       const courseCode = getCourseCode(section);
       const courseLevel = getCourseLevel(courseParts.courseNumber);
+      if (excludeTutoringOpenLab && isTutoringOpenLabSection(section)) {
+        tutoringOpenLabRowsExcluded += 1;
+        return;
+      }
       if (selectedTerm && !termMatches(term, selectedTerm)) return;
       if (!valueMatchesAny(campus, selectedCampus)) return;
       if (!valueMatchesAny(division, selectedDivision)) return;
@@ -2948,7 +2984,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const bi = order.includes(b.category) ? order.indexOf(b.category) : order.length;
         return ai - bi || a.category.localeCompare(b.category);
       })
-      .map(item => ({ ...item, total, totalEnrollment }));
+      .map(item => ({ ...item, total, totalEnrollment, tutoringOpenLabRowsExcluded }));
   }
 
   function renderModalityTool() {
@@ -2956,6 +2992,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const rows = calculateModalityBalance();
     const total = rows[0]?.total || 0;
     const totalEnrollment = rows[0]?.totalEnrollment || 0;
+    const tutoringOpenLabRowsExcluded = rows[0]?.tutoringOpenLabRowsExcluded || 0;
     modalitySummary.replaceChildren();
     if (modalityComparison) modalityComparison.replaceChildren();
     modalityChart.replaceChildren();
@@ -2970,7 +3007,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       `Hybrid: ${rows.find(row => row.category === 'Hybrid')?.count || 0}`,
       `Dual Enrollment: ${rows.find(row => row.category === 'Dual Enrollment')?.count || 0}`,
       `Flex: ${rows.find(row => row.category === 'Flex')?.count || 0}`,
-      `Other/Unspecified: ${rows.filter(row => row.category === 'Other' || row.category === 'Unspecified').reduce((sum, row) => sum + row.count, 0)}`
+      `Other/Unspecified: ${rows.filter(row => row.category === 'Other' || row.category === 'Unspecified').reduce((sum, row) => sum + row.count, 0)}`,
+      `Tutoring/Open Lab Rows Excluded: ${tutoringOpenLabRowsExcluded}`
     ];
     summaryItems.forEach(text => {
       const pill = document.createElement('div');
@@ -3504,15 +3542,17 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return filterCourseCodes;
   }
 
-  function filterAnalysisRows({ campusId, divisionId, disciplineId, calGetcId, courseChoices }) {
+  function filterAnalysisRows({ campusId, divisionId, disciplineId, calGetcId, courseChoices, excludeTutoringId }) {
     const selectedCampus = document.getElementById(campusId)?.value || '';
     const selectedDivision = document.getElementById(divisionId)?.value || '';
     const selectedDiscipline = document.getElementById(disciplineId)?.value || '';
     const selectedCalGetc = document.getElementById(calGetcId)?.value || '';
     const selectedCourses = courseChoices ? courseChoices.getValue(true) : [];
+    const excludeTutoringOpenLab = document.getElementById(excludeTutoringId)?.checked !== false;
     const filterCourseCodes = buildCourseFilterSet(selectedCourses);
 
     return hmRaw.filter(r => {
+      if (excludeTutoringOpenLab && isTutoringOpenLabSection(r)) return false;
       if (selectedCampus && extractField(r, ['Campus', 'campus', 'CAMPUS']) !== selectedCampus) return false;
       if (selectedDivision && r.Division !== selectedDivision) return false;
       if (selectedDiscipline && r.Discipline !== selectedDiscipline) return false;
@@ -3532,7 +3572,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       divisionId: 'heatmap-division-select',
       disciplineId: 'heatmap-discipline-select',
       calGetcId: 'heatmap-calgetc-select',
-      courseChoices: hmChoices
+      courseChoices: hmChoices,
+      excludeTutoringId: 'heatmap-exclude-tutoring-openlab'
     }).filter(r => {
       const startHour = parseHour(r.Start_Time);
       if (primeOnly && !r.Days.some(day => isPrimeHeatmapSlot(day, startHour))) return false;
@@ -3561,7 +3602,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!node) return;
     const usable = (cells || []).filter(cell => cell.sections > 0);
     if (!usable.length) {
-      node.innerHTML = '<div><strong>N/A</strong><span>No matching heatmap periods</span></div>';
+      const excluded = document.getElementById('heatmap-exclude-tutoring-openlab')?.checked !== false ? hmRaw.filter(isTutoringOpenLabSection).length : 0;
+      node.innerHTML = `<div><strong>N/A</strong><span>No matching heatmap periods</span></div><div><strong>${excluded}</strong><span>Tutoring/Open Lab rows excluded</span></div>`;
       return;
     }
     const bySections = [...usable].sort((a, b) => b.sections - a.sections || b.enrollment - a.enrollment);
@@ -3573,7 +3615,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       card('Busiest day/time', formatHeatmapCardValue(bySections[0], 'sections'), `${bySections[0].enrollment} enrolled / ${bySections[0].capacity} seats`),
       card('Lightest day/time', formatHeatmapCardValue(lightest, 'sections'), `${lightest.enrollment} enrolled / ${lightest.capacity} seats`),
       card('Highest enrolled time block', formatHeatmapCardValue(byEnrollment[0], 'enrollment'), `${byEnrollment[0].sections} section start${byEnrollment[0].sections === 1 ? '' : 's'}`),
-      card('Lowest enrolled time block', formatHeatmapCardValue(lowestEnrollment, 'enrollment'), `${lowestEnrollment.sections} section start${lowestEnrollment.sections === 1 ? '' : 's'}`)
+      card('Lowest enrolled time block', formatHeatmapCardValue(lowestEnrollment, 'enrollment'), `${lowestEnrollment.sections} section start${lowestEnrollment.sections === 1 ? '' : 's'}`),
+      card('Tutoring/Open Lab rows excluded', document.getElementById('heatmap-exclude-tutoring-openlab')?.checked !== false ? hmRaw.filter(isTutoringOpenLabSection).length : 0, 'Default exclusion for standard analytics')
     ].join('');
   }
 
@@ -3660,7 +3703,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       divisionId: 'linechart-division-select',
       disciplineId: 'linechart-discipline-select',
       calGetcId: 'linechart-calgetc-select',
-      courseChoices: lineCourseChoices
+      courseChoices: lineCourseChoices,
+      excludeTutoringId: 'linechart-exclude-tutoring-openlab'
     }).filter(r => {
       if (!r.Days.length || !r.Start_Time || !r.End_Time) return false;
       if (parseHour(r.Start_Time) === parseHour(r.End_Time)) return false;

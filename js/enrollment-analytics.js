@@ -102,6 +102,11 @@
     hybrid: new Set(['HYB', 'OH', 'OHF', 'FLX', 'OHS']),
     omitted: new Set(['CPL', 'DE', 'CBE', '98'])
   };
+  const TUTORING_OPEN_LAB_CONFIG = {
+    label: 'Tutoring / Open Lab Sections',
+    defaultExcludedCourses: ['MATH 400', 'ENGL 400', 'LA 425']
+  };
+  const tutoringOpenLabCourseSet = new Set(TUTORING_OPEN_LAB_CONFIG.defaultExcludedCourses.map(canon));
 
   const fields = {
     term: ['Term', 'TERM', 'term'],
@@ -200,6 +205,19 @@
     return canon((combined.match(/[A-Z]+\s*([A-Z]?\d{1,4}[A-Z]?)/) || [])[1] || combined);
   }
 
+  function normalizedSubjectCourse(row) {
+    const raw = row?.raw || row || {};
+    const subjectCourse = val(raw, ['Subject_Course', 'Subject Course', 'Course ID', 'SUBJECT/COURSE']);
+    const directCourse = val(raw, fields.course);
+    const subject = canon(row?.subject || val(raw, fields.subject) || (subjectCourse.match(/^([A-Z]+)/i) || [])[1] || (directCourse.match(/^([A-Z]+)/i) || [])[1]);
+    const course = canon(row?.course || courseNumber(raw));
+    return [subject, course].filter(Boolean).join(' ');
+  }
+
+  function isTutoringOpenLabSection(row) {
+    return tutoringOpenLabCourseSet.has(normalizedSubjectCourse(row));
+  }
+
   function normalize(row) {
     const isWorkExperienceSource = canon(row.__sourceType) === 'WORK_EXPERIENCE';
     const subjectCourse = val(row, ['Subject_Course', 'Subject Course', 'Course ID', 'SUBJECT/COURSE']);
@@ -218,6 +236,8 @@
     const firstDayValue = val(row, fields.firstDay);
     const census1Value = val(row, fields.census1);
     const census2Value = val(row, fields.census2);
+    const census2Raw = census2Value === '' ? null : num(census2Value);
+    const invalidNegativeCensus2 = census2Raw != null && census2Raw < 0;
     const finalEnrollmentValue = val(row, fields.finalEnrollment);
     const waitlistValue = val(row, fields.waitlist);
     const units = num(val(row, fields.units));
@@ -273,13 +293,15 @@
       census,
       firstDay: firstDayValue === '' ? null : num(firstDayValue),
       census1: census1Value === '' ? census : num(census1Value),
-      census2: census2Value === '' ? null : num(census2Value),
+      census2: invalidNegativeCensus2 ? null : census2Raw,
+      invalidNegativeCensus2,
       finalEnrollment: finalEnrollmentValue === '' ? null : num(finalEnrollmentValue),
       waitlist: num(waitlistValue),
       hasWaitlistData: waitlistValue !== '',
       closedPriorCensus: isTruthy(val(row, fields.closed)),
       fillRate: cap > 0 ? enrollmentForPlanning / cap : strictNum(val(row, fields.fill)) / 100,
-      status: canon(val(row, fields.status))
+      status: canon(val(row, fields.status)),
+      isTutoringOpenLab: tutoringOpenLabCourseSet.has([subject, course].filter(Boolean).join(' '))
     };
     normalized._meetingRows = [meetingRowForFtes(normalized)];
     return normalized;
@@ -1041,6 +1063,7 @@
                   <li>Upload a Section Seating CSV or select archived terms, then choose the term and filters to review.</li>
                   <li>Click a flag card to filter the table to that flag. Export CSV respects the active filters.</li>
                   <li>Work Experience, online, TBA, and no-room rows are excluded because they do not represent physical room assignments.</li>
+                  <li>Tutoring/Open Lab sections are excluded by default because their scheduling and enrollment behavior is not comparable to standard scheduled instruction.</li>
                 </ul>
               </div>
               <div>
@@ -1065,6 +1088,7 @@
             <label>Discipline <select id="roomFitSubject"></select></label>
             <label>Course <select id="roomFitCourse"></select></label>
             <label>Flag <select id="roomFitFlag"><option value="">All</option><option>Underutilized Room</option><option>Over Capacity Risk</option><option>Enrollment Exceeds Room Capacity</option></select></label>
+            <label><input id="roomFitExcludeTutoringOpenLab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections</label>
             <button id="runRoomFit" type="button">Run</button>
             <button id="clearRoomFit" type="button">Clear</button>
             <button id="exportRoomFitReport" type="button">Export CSV</button>
@@ -1194,6 +1218,7 @@
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
                   <li>Enter the decision season and year before running the report. The decision term can be a future term with no uploaded section seating report yet; in that case, decision-term columns will be zero and the report serves as a historical attrition baseline for planning.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
+                  <li>Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled sections and can contain non-comparable Census 2 values. Clear the checkbox only when intentionally auditing those rows.</li>
                   <li>First Day comes from stored First Day snapshots when available. If First Day snapshots are missing, start-based lifecycle calculations show N/A instead of zero.</li>
                 </ul>
               </div>
@@ -1201,7 +1226,8 @@
                 <h3>Methodology</h3>
                 <ul>
                   <li>Sections are deduplicated by CRN within term, with subject/course/section used as fallback, so multi-meeting rows are not double counted.</li>
-                  <li>Overall Attrition = Census 1 to End/Final attrition. Census 1 is CENSUS_ENROLL, Census 2 is CENSUS_ENROLL2, and End/Final is final enrollment or ACTUAL_ENROLL.</li>
+                  <li>Overall Attrition = Census 1 to End/Final attrition. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses final enrollment or ACTUAL_ENROLL/current enrollment after the end of the term.</li>
+                  <li>Negative Census 2 values are not valid enrollment counts and are treated as missing/invalid rather than included as real enrollment.</li>
                   <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
                   <li>Lifecycle intervals shown are Start to End, Start to Census 1, Start to Census 2, Census 1 to Census 2, Census 1 to End, Census 2 to End, and Overall Attrition.</li>
                   <li>Decision term metrics, historical metrics, and all uploaded terms metrics are calculated separately. The decision term never contributes to historical attrition rates.</li>
@@ -1393,6 +1419,7 @@
       <label>Day <select id="${prefix}Day" multiple data-placeholder="All days"></select></label>
       <label>Start hour <select id="${prefix}Time" multiple data-placeholder="All start hours"></select></label>
       ${includeGroup ? '<label>Group by <select id="attrGroup"><option>COURSE</option><option value="SUBJECT">DISCIPLINE</option><option>SECTION</option><option>INSTRUCTOR</option><option>CAMPUS</option><option>MODALITY</option><option>DAY PATTERN</option><option>TIME BLOCK</option><option>OVERALL</option></select></label><label>Min sections <input id="attrMinSections" type="number" min="1" value="1" title="Minimum section count required for a grouped row to appear."></label>' : ''}
+      <label><input id="${prefix}ExcludeTutoringOpenLab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections</label>
       <label><input id="${prefix}HideOnline" type="checkbox"> hide online</label>
       ${includeCancelled ? `<label><input id="${prefix}HideCancelled" type="checkbox" checked> hide cancelled</label>` : ''}
       <label><input id="${prefix}HideZero" type="checkbox" checked> hide zero cap</label>`;
@@ -1511,6 +1538,8 @@
     if (hideCancelled) hideCancelled.checked = true;
     const hideZero = document.getElementById(prefix + 'HideZero');
     if (hideZero) hideZero.checked = true;
+    const excludeTutoringOpenLab = document.getElementById(prefix + 'ExcludeTutoringOpenLab');
+    if (excludeTutoringOpenLab) excludeTutoringOpenLab.checked = true;
     if (prefix === 'attr') {
       const workExperience = document.getElementById('attrIncludeWorkExperience');
       if (workExperience) workExperience.checked = true;
@@ -1614,7 +1643,9 @@
       day: getSelectedValues(prefix + 'Day'),
       time: getSelectedValues(prefix + 'Time')
     };
+    const excludeTutoringOpenLab = document.getElementById(prefix + 'ExcludeTutoringOpenLab')?.checked !== false;
     return rows.filter((r) => {
+      if (excludeTutoringOpenLab && isTutoringOpenLabSection(r)) return false;
       if (!valueMatchesSelection(r.division, selected.division)) return false;
       if (!valueMatchesSelection(r.department, selected.department)) return false;
       if (!valueMatchesSelection(r.subject, selected.subject)) return false;
@@ -1631,6 +1662,19 @@
       if (document.getElementById(prefix + 'HideZero')?.checked && r.cap <= 0) return false;
       return true;
     });
+  }
+
+  function standardExclusionDiagnostics(rows, prefix) {
+    const excludeTutoringOpenLab = document.getElementById(prefix + 'ExcludeTutoringOpenLab')?.checked !== false;
+    const tutoringRows = rows.filter(isTutoringOpenLabSection);
+    const invalidCensus2Rows = rows.filter(row => row.invalidNegativeCensus2);
+    return {
+      tutoringOpenLabRowsExcluded: excludeTutoringOpenLab ? tutoringRows.length : 0,
+      tutoringOpenLabRowsDetected: tutoringRows.length,
+      invalidNegativeCensus2Rows: invalidCensus2Rows.length,
+      invalidNegativeCensus2Crns: new Set(invalidCensus2Rows.map(sectionKey)).size,
+      hasInvalidNegativeCensus2: invalidCensus2Rows.length > 0
+    };
   }
 
   async function readCsv(input, options = {}) {
@@ -2171,11 +2215,13 @@
     const sourceRows = dashboardSourceRows().filter(row => !isOmittedInstructionalMethod(row));
     updateDashboardFocusTermOptions(sourceRows);
     refreshAnalyticsFilters('dash', sourceRows, saved);
+    const diagnostics = standardExclusionDiagnostics(sourceRows, 'dash');
     const selectedFocusTerm = dashboardFocusTerm();
     const currentRows = applyFilters(dashboardCurrentRows(sourceRows, selectedFocusTerm), 'dash');
     const historicalRows = applyFilters(dashboardHistoricalRows(sourceRows, selectedFocusTerm), 'dash');
     const reductionRows = dashboardReductionRows(selectedFocusTerm);
     const summary = dashboard.dashboardSummary(currentRows, historicalRows, reductionRows);
+    summary.diagnostics = diagnostics;
     state.dashboardRows = currentRows;
     state.dashboardSummary = summary;
     state.rotationRows = summary.rotation || [];
@@ -2276,6 +2322,7 @@
     const health = summary.health || {};
     const lifecycle = health.lifecycle || [];
     const workExperience = workExperienceSummary(state.dashboardRows || []);
+    const diagnostics = summary.diagnostics || {};
     metric('dashboardMetrics', [
       ['Current Enrollment', health.currentEnrollment ?? 0],
       ['Expected Enrollment', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment],
@@ -2285,6 +2332,7 @@
       ['FTES', round1(health.ftes || 0)],
       ['Work Experience Rows Included', workExperience.rows],
       ['Work Experience FTES Warnings', workExperience.missingFtes],
+      ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded || 0],
       ...lifecycle.map(item => [item.label, item.value == null ? 'N/A' : item.value])
     ]);
 
@@ -2495,10 +2543,13 @@
     state.studentPresenceSourceRows = sourceRows;
     const focusTerm = updatePresenceFocusTermOptions(sourceRows);
     refreshAnalyticsFilters('sp', sourceRows, saved);
+    const diagnostics = standardExclusionDiagnostics(sourceRows, 'sp');
     const filteredRows = applyFilters(sourceRows, 'sp');
     const scopedRows = dashboardCurrentRows(filteredRows, focusTerm);
     const options = studentPresenceOptions();
     const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour', options);
+    report.metrics = report.metrics || {};
+    report.metrics.tutoringOpenLabRowsExcluded = diagnostics.tutoringOpenLabRowsExcluded;
     state.studentPresenceComparisonRows = buildStudentPresenceComparisonRows(filteredRows, options);
     state.studentPresenceRows = report.rows;
     renderStudentPresenceReport(report);
@@ -2556,6 +2607,7 @@
     state.conflictRan = true;
     const allRows = await loadConflictRows();
     const selectedTerm = canon(document.getElementById('conflictTerm')?.value || updateConflictTermOptions(state.conflictTerms));
+    state.conflictDiagnostics = standardExclusionDiagnostics(allRows.filter(row => !selectedTerm || canon(row.term) === selectedTerm), 'conflict');
     const scopedRows = applyFilters(allRows.filter(row => !selectedTerm || canon(row.term) === selectedTerm), 'conflict');
     const modes = getSelectedValues('conflictModes');
     state.conflictRows = conflictRows(scopedRows, modes.length ? modes : ['ROOMOVERLAP', 'INSTRUCTOROVERLAP'], {
@@ -2690,12 +2742,14 @@
 
   function renderConflictCheck() {
     const rows = state.conflictRows || [];
+    const diagnostics = state.conflictDiagnostics || {};
     const typeCounts = new Map();
     rows.forEach(row => typeCounts.set(row.conflictType, (typeCounts.get(row.conflictType) || 0) + 1));
     metric('conflictMetrics', [
       ['Term', document.getElementById('conflictTerm')?.value || 'N/A'],
       ['Conflicts Found', rows.length],
       ['Conflict Types', [...typeCounts.entries()].map(([type, count]) => `${type}: ${count}`).join('; ') || 'None'],
+      ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded || 0],
       ['Cross-Listed Pairs', document.getElementById('conflictOmitCrossListed')?.checked !== false ? 'Omitted when either row has CROSS_LIST' : 'Included'],
       ['Duplicate Type Rows', document.getElementById('conflictSeparateTypes')?.checked === true ? 'Separate' : 'Combined']
     ]);
@@ -2809,6 +2863,8 @@
       censusEnrollment: row.census,
       finalEnrollment: row.actual,
       crossList: row.crossList,
+      tutoringOpenLab: isTutoringOpenLabSection(row) ? 'Yes' : 'No',
+      invalidNegativeCensus2: row.invalidNegativeCensus2 ? 'Yes' : 'No',
       sourceType: row.sourceType
     }));
   }
@@ -2823,6 +2879,8 @@
     const crossListedRows = rows.filter(row => row.crossList).length;
     const dualEnrollmentRows = rows.filter(row => row.modality === 'DUAL ENROLLMENT' || row.instructionalMethod === 'DE').length;
     const workExperienceRows = rows.filter(row => row.isWorkExperience || row.modality === 'WORK EXPERIENCE').length;
+    const tutoringOpenLabRows = rows.filter(isTutoringOpenLabSection).length;
+    const invalidNegativeCensus2Rows = rows.filter(row => row.invalidNegativeCensus2).length;
     metric('archiveInspectionMetrics', [
       ['Selected Archive Term', selectedTerm || 'N/A'],
       ['Raw Row Count', rawRows.length],
@@ -2834,6 +2892,8 @@
       ['Cross-Listed Rows', crossListedRows],
       ['Dual Enrollment Rows', dualEnrollmentRows],
       ['Work Experience Rows', workExperienceRows],
+      ['Tutoring/Open Lab Rows', tutoringOpenLabRows],
+      ['Rows with Invalid Negative Census 2', invalidNegativeCensus2Rows],
       ['Term Value Detected', termsDetected.length ? termsDetected.join(', ') : 'N/A']
     ]);
     document.getElementById('archiveInspectionSummary').innerHTML = [
@@ -2858,6 +2918,8 @@
       'modality',
       'instructionalMethod',
       'crossList',
+      'tutoringOpenLab',
+      'invalidNegativeCensus2',
       'censusEnrollment',
       'capacity'
     ]);
@@ -2922,6 +2984,7 @@
       ['Sections Active', metrics.totalSections || 0],
       ['Distinct CRNs Included', metrics.distinctCrns || 0],
       ['Meeting Rows Included', metrics.meetingRowsIncluded || 0],
+      ['Tutoring/Open Lab Rows Excluded', metrics.tutoringOpenLabRowsExcluded || 0],
       ['Seats Scheduled', metrics.totalSeats || 0],
       ['Available Capacity', metrics.totalOpen || 0],
       ['Average Fill Rate', pct(metrics.averageFillRate || 0)],
@@ -3102,6 +3165,8 @@
       existing.isWorkExperience = existing.isWorkExperience || row.isWorkExperience;
       existing.sourceType = existing.isWorkExperience ? 'WORK EXPERIENCE' : existing.sourceType || row.sourceType;
       existing.accountingReportable = existing.isWorkExperience ? true : accountingMethodInfo(existing.accountingMethod).reportable;
+      existing.invalidNegativeCensus2 = existing.invalidNegativeCensus2 || row.invalidNegativeCensus2;
+      existing.isTutoringOpenLab = existing.isTutoringOpenLab || row.isTutoringOpenLab || isTutoringOpenLabSection(row);
       existing.hasDirectFtesData = existing.hasDirectFtesData || row.hasDirectFtesData;
       existing.hasFtesData = existing.hasFtesData || row.hasFtesData;
       existing.ftesUnavailable = existing.ftesUnavailable && row.ftesUnavailable;
@@ -3250,6 +3315,7 @@
     const decisionTerm = attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms);
     const includeHistory = document.getElementById('attrIncludeHistory')?.checked;
     const decisionTermKey = canon(decisionTerm);
+    const diagnostics = standardExclusionDiagnostics(allEnrollment, 'attr');
     const enrollment = applyFilters(allEnrollment, 'attr')
       .filter(row => includeHistory || canon(row.term) === decisionTermKey);
     if (!enrollment.length) {
@@ -3259,7 +3325,11 @@
         ['Historical Terms Included', 0],
         ['Decision Sections', 0],
         ['First Day Snapshot Coverage', 'N/A'],
-        ['Missing First Day Snapshots', 0]
+        ['Missing First Day Snapshots', 0],
+        ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
+        ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
+        ['Distinct CRNs with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Crns],
+        ['Data Quality Warning', diagnostics.hasInvalidNegativeCensus2 ? 'Negative Census 2 values were detected and treated as invalid.' : 'None']
       ]);
       setAttritionStatus('No enrollment rows match the selected decision term, archived terms, uploads, and filters.');
       renderAttritionLegend();
@@ -3354,6 +3424,10 @@
       ['All Uploaded Overall Attrition', lifecycleMetricLabel(allSummary.overallRate)],
       ['Work Experience Rows Included', workExperience.rows],
       ['Work Experience FTES Warnings', workExperience.missingFtes],
+      ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
+      ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
+      ['Distinct CRNs with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Crns],
+      ['Data Quality Warning', diagnostics.hasInvalidNegativeCensus2 ? 'Negative Census 2 values were detected and treated as invalid.' : 'None'],
       ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
       ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
       ['Historical Census 1 to End Attrition', lifecycleMetricLabel(historicalSummary.census1ToEndRate)]
@@ -3813,6 +3887,7 @@
     state.consolidationRan = true;
     const allRows = await loadConsolidationRows();
     const decisionTerm = consolidationDecisionTerm();
+    const diagnostics = standardExclusionDiagnostics(allRows, 'con');
     const filteredRows = applyFilters(allRows, 'con');
     const rows = filteredRows.filter(row => !decisionTerm || row.term === decisionTerm);
     const comparisonRows = filteredRows.filter(row => row.term && row.term !== decisionTerm);
@@ -3865,6 +3940,7 @@
       ['In-Person Consolidation Candidates', flowOpportunities.filter(row => row.type === 'In-Person Consolidation').length],
       ['Hybrid Consolidation Candidates', flowOpportunities.filter(row => row.type === 'Hybrid Consolidation').length],
       ['Historical Planning Candidates', state.consolidationRows.filter(row => row.type === 'Historical Planning Candidate').length],
+      ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
       ['Chronic Low Enrollment Threshold', lowEnroll == null ? `<= ${pct(lowFill)} census-based expected fill` : `<= ${lowEnroll} census-based expected enrollment`],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
@@ -3923,6 +3999,7 @@
     setDemandMessage('Loading demand forecast...');
     try {
       const allRows = await loadDemandRows();
+      const diagnostics = standardExclusionDiagnostics(allRows, 'dem');
       if (!allRows.length) {
         state.demandRows = [];
         renderEmptyDemand('No enrollment rows were loaded. Select archived terms or upload CSV files, then click Run.');
@@ -3981,6 +4058,7 @@
         ['FTES Cap Position', ftesCapDelta == null ? 'No cap entered' : (ftesCapDelta >= 0 ? `${round1(ftesCapDelta)} under cap` : `${round1(Math.abs(ftesCapDelta))} over cap`)],
         ['Work Experience Rows Included', workExperience.rows],
         ['Work Experience FTES Warnings', workExperience.missingFtes],
+        ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
         ['Expanding Demand', expanding.length],
         ['Softening Demand', softening.length],
         ['Avg Forecast Growth', pct(safeDiv(sum(state.demandRows, 'adjustedForecastGrowth'), state.demandRows.length))]
@@ -4773,7 +4851,7 @@
     renderMethodologyPanel(legend, {
       title: 'Enrollment Attrition Methodology & Data Dictionary',
       purpose: 'Identifies enrollment loss between census and final/current enrollment and compares decision-term attrition against historical comparison terms.',
-      methodology: 'The selected decision term is tracked separately from historical comparison terms. Historical term counts and historical attrition exclude the decision/future term. Census enrollment is the demand basis; final/current enrollment remains visible as attrition context. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on. The report is lifecycle-ready but limited by available uploaded data until First Day, Census 1, Census 2, and Final milestone fields are delivered.',
+      methodology: 'The selected decision term is tracked separately from historical comparison terms. Historical term counts and historical attrition exclude the decision/future term. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses ACTUAL_ENROLL/current enrollment after the end of the term or a final enrollment field when present. Negative Census 2 values are invalid and treated as missing, not real enrollment counts. Tutoring/Open Lab sections are excluded from standard attrition analytics by default because they behave differently from standard scheduled instruction and may contain non-comparable Census 2 values. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on. The report is lifecycle-ready but limited by available uploaded data until First Day, Census 1, Census 2, and Final milestone fields are delivered.',
       assumptions: 'CENSUS_ENROLL is treated as census enrollment. ACTUAL_ENROLL is treated as final enrollment when the source file is final and as current enrollment when the source file is an in-progress snapshot.',
       limitations: 'This report does not know why students left, whether a term file is final unless the uploaded source reflects that, or whether external retention interventions occurred.',
       items,
@@ -5628,9 +5706,11 @@
         const node = document.getElementById(id);
         if (node) node.value = '';
       });
+      const excludeTutoring = document.getElementById('roomFitExcludeTutoringOpenLab');
+      if (excludeTutoring) excludeTutoring.checked = true;
       window.COSScheduleApp?.renderRoomFitReport?.();
     });
-    ['roomFitTerm', 'roomFitCampus', 'roomFitBuilding', 'roomFitRoom', 'roomFitDivision', 'roomFitSubject', 'roomFitCourse', 'roomFitFlag'].forEach(id => {
+    ['roomFitTerm', 'roomFitCampus', 'roomFitBuilding', 'roomFitRoom', 'roomFitDivision', 'roomFitSubject', 'roomFitCourse', 'roomFitFlag', 'roomFitExcludeTutoringOpenLab'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => window.COSScheduleApp?.renderRoomFitReportTable?.());
     });
     document.getElementById('saveSnapshotBatch')?.addEventListener('click', () => saveSnapshotBatch().catch(err => alert(err.message || 'Snapshot save failed.')));
@@ -5690,6 +5770,8 @@
   window.COSEnrollmentAnalytics = {
     normalizeRow: normalize,
     isOnlinePlaceholderTime,
+    tutoringOpenLabConfig: TUTORING_OPEN_LAB_CONFIG,
+    isTutoringOpenLabSection,
     instructorScheduleRows,
     dashboardAvailableTerms,
     dashboardCurrentRows,
