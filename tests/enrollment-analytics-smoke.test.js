@@ -423,8 +423,11 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
   const metricsBlock = text.slice(metricStart, metricEnd);
   const detailBlock = text.slice(detailStart, detailEnd);
 
-  assert.match(text, /Enrollment Lifecycle Diagnostics/);
+  assert.match(text, /Enrollment Attrition Trend/);
   assert.match(text, /Diagnostic Attrition Rates/);
+  assert.match(text, /Planning Term Excluded/);
+  assert.match(text, /Historical Overall Attrition/);
+  assert.doesNotMatch(text, /attrIncludeHistory/);
   assert.doesNotMatch(metricsBlock, /N\/A - Different section populations/);
   [
     'firstDayToCensus1Attrition',
@@ -1135,7 +1138,7 @@ test('enrollment analytics report labels are operational', () => {
   assert.doesNotMatch(text, /WIP/);
   assert.match(text, /Enrollment Analytics Dashboard/);
   assert.match(text, /Enrollment Demand Forecast/);
-  assert.match(text, /Enrollment Lifecycle Diagnostics/);
+  assert.match(text, /Enrollment Attrition Trend/);
   assert.match(text, /Diagnostic Attrition Rates/);
   assert.match(text, /attritionDiagnosticRates/);
   assert.match(text, /Section Consolidation Opportunities/);
@@ -1325,7 +1328,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
     'Conflict Check Report',
     'Course Duration / Concurrent Courses',
     'Enrollment Analytics Dashboard',
-    'Enrollment Lifecycle Diagnostics',
+    'Enrollment Attrition Trend',
     'Enrollment Demand Forecast',
     'Enrollment Snapshot Manager',
     'Heatmap Analytics',

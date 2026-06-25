@@ -834,7 +834,7 @@
             <option value="${REPORTS.conflictCheck}">Conflict Check Report</option>
             <option value="${REPORTS.duration}">Course Duration / Concurrent Courses</option>
             <option value="${REPORTS.dashboard}">Enrollment Analytics Dashboard</option>
-            <option value="${REPORTS.attrition}">Enrollment Lifecycle Diagnostics</option>
+            <option value="${REPORTS.attrition}">Enrollment Attrition Trend</option>
             <option value="${REPORTS.demand}">Enrollment Demand Forecast</option>
             <option value="${REPORTS.snapshotManager}">Enrollment Snapshot Manager</option>
             <option value="${REPORTS.heatmap}">Heatmap Analytics</option>
@@ -901,7 +901,7 @@
           </div>
           <div class="dashboard-actions">
             <button type="button" data-report-target="${REPORTS.demand}">Demand Forecast</button>
-            <button type="button" data-report-target="${REPORTS.attrition}">Enrollment Lifecycle Diagnostics</button>
+            <button type="button" data-report-target="${REPORTS.attrition}">Enrollment Attrition Trend</button>
             <button type="button" data-report-target="${REPORTS.consolidation}">Consolidation</button>
             <button type="button" data-report-target="${REPORTS.utilization}">Room Utilization</button>
             <button type="button" data-report-target="${REPORTS.dashboard}" data-scroll-target="dashboardRotationTable">Course Rotation Analysis</button>
@@ -1209,17 +1209,17 @@
         </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Lifecycle Diagnostics</h2>
-            <p>Upload enrollment snapshot CSV files for the decision term and any comparison terms. This report reviews milestone coverage, Census 1, Census 2, and End/Final movement as diagnostic lifecycle rates while keeping the selected decision term separate from historical terms.</p>
+            <h2>Enrollment Attrition Trend</h2>
+            <p>Upload historical enrollment snapshot CSV files to review Census 1, Census 2, and End/Final movement over time. This report is a historical trend baseline for planning; current or future planning terms are excluded from the trend rather than treated as the analysis target.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
                   <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
-                  <li>Upload the decision-term enrollment CSV and any same-season comparison files, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
+                  <li>Upload completed historical enrollment CSV files, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
-                  <li>Enter the decision season and year before running the report. The decision term can be a future term with no uploaded section seating report yet; in that case, decision-term columns will be zero and the report serves as a historical attrition baseline for planning.</li>
+                  <li>Use the planning term controls only to exclude an active, future, or otherwise non-final term from the historical trend. No current/decision term is required for this report.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
                   <li>Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled sections and can contain non-comparable Census 2 values. Clear the checkbox only when intentionally auditing those rows.</li>
                   <li>First Day comes from stored First Day snapshots when available. If First Day snapshots are missing, start-based lifecycle calculations show N/A instead of zero.</li>
@@ -1236,8 +1236,7 @@
                   <li>Lifecycle intervals shown are Start to End, Start to Census 1, Start to Census 2, Census 1 to Census 2, Census 1 to End, Census 2 to End, and Overall Attrition. Each interval uses matched CRNs that have both required milestone values.</li>
                   <li>Attrition is signed: (start enrollment - end enrollment) / start enrollment. Enrollment gains display as negative attrition rather than being clamped to zero.</li>
                   <li>If milestone populations differ, the report shows a data-quality warning but still calculates each attrition interval from its matched CRN population.</li>
-                  <li>Decision term metrics, historical metrics, and all uploaded terms metrics are calculated separately. The decision term never contributes to historical attrition rates.</li>
-                  <li>All Terms columns include the decision term plus comparison terms when decision-term rows exist. Historical Attrition excludes the decision term and uses comparison terms only, which is the correct planning view for future terms that have not opened for scheduling/enrollment yet.</li>
+                  <li>Historical Attrition uses selected completed terms only. The excluded planning term never contributes to the trend rates.</li>
                   <li>Min sections controls the minimum section count a grouped row must have before it appears in the report.</li>
                 </ul>
               </div>
@@ -1247,15 +1246,14 @@
             <label>Enrollment CSV(s) <input id="enrollmentCsv" type="file" accept=".csv" multiple></label>
             <button id="archiveAttritionUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="attrArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
-            <label>Decision season
+            <label>Planning term to exclude
               <select id="attrDecisionSeason">
                 <option value="SUMMER">Summer</option>
                 <option value="FALL">Fall</option>
                 <option value="SPRING">Spring</option>
               </select>
             </label>
-            <label>Decision year <input id="attrDecisionYear" type="number" min="2022" max="2035" step="1"></label>
-            <label><input id="attrIncludeHistory" type="checkbox" checked> include historical comparison terms</label>
+            <label>Exclude year <input id="attrDecisionYear" type="number" min="2022" max="2035" step="1"></label>
             ${filters('attr', { includeGroup: true, includeCancelled: false, includeDivision: true })}
             <label><input id="attrIncludeWorkExperience" type="checkbox" checked> include Work Experience</label>
             <button id="runAttrition" type="button">Run</button>
@@ -1564,8 +1562,6 @@
       if (group) group.value = 'COURSE';
       const minSections = document.getElementById('attrMinSections');
       if (minSections) minSections.value = '1';
-      const includeHistory = document.getElementById('attrIncludeHistory');
-      if (includeHistory) includeHistory.checked = true;
       if ((state.enrollment.length || currentRows().length) && state.attritionRan) runAttrition().catch(handleAttritionError);
     }
     if (prefix === 'con') {
@@ -3644,26 +3640,24 @@
     state.attritionRan = true;
     setAttritionStatus('Running enrollment attrition/lifecycle report...', true);
     const allEnrollment = await loadAttritionFiles();
-    const decisionTerm = attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms);
-    const includeHistory = document.getElementById('attrIncludeHistory')?.checked;
-    const decisionTermKey = canon(decisionTerm);
+    const excludedPlanningTerm = attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms);
+    const excludedPlanningTermKey = canon(excludedPlanningTerm);
     const diagnostics = standardExclusionDiagnostics(allEnrollment, 'attr');
     const enrollment = applyFilters(allEnrollment, 'attr')
-      .filter(row => includeHistory || canon(row.term) === decisionTermKey);
+      .filter(row => !excludedPlanningTermKey || canon(row.term) !== excludedPlanningTermKey);
     if (!enrollment.length) {
       state.attritionRows = [];
       metric('attritionMetrics', [
-        ['Decision Term', decisionTerm || 'N/A'],
+        ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
         ['Historical Terms Included', 0],
-        ['Decision Sections', 0],
-        ['First Day Snapshot Coverage', 'N/A'],
-        ['Missing First Day Snapshots', 0],
+        ['Historical Sections', 0],
+        ['Historical Overall Attrition', 'N/A'],
         ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
         ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
         ['Distinct CRNs with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Crns],
         ['Data Quality Warning', diagnostics.hasInvalidNegativeCensus2 ? 'Negative Census 2 values were detected and treated as invalid.' : 'None']
       ]);
-      setAttritionStatus('No enrollment rows match the selected decision term, archived terms, uploads, and filters.');
+      setAttritionStatus('No historical enrollment rows match the selected uploads, archived terms, excluded planning term, and filters.');
       renderAttritionDiagnosticRates({});
       renderAttritionDataQualityNotes(['No enrollment rows match the selected filters.']);
       renderAttritionLegend();
@@ -3674,7 +3668,7 @@
     enrollment.forEach((row) => {
       const key = groupKey(row, groupBy);
       const item = grouped.get(key) || emptyAttritionRecord(key);
-      const isDecisionTerm = canon(row.term) === decisionTermKey;
+      const isDecisionTerm = false;
       const crnKey = sectionKey(row);
       const censusEnroll = rowCensus1(row) ?? censusEnrollment(row);
       const census2Enroll = rowCensus2(row);
@@ -3713,23 +3707,24 @@
         historyTerms: r.historyTerms.size,
         totalSeats: r.capacity,
         courseHistoricalTermsIncluded: r.historyTerms.size,
-        overallHistoricalTermsIncluded: collectRowTerms(enrollment.filter(row => row.term && canon(row.term) !== decisionTermKey)).length,
+        overallHistoricalTermsIncluded: collectRowTerms(enrollment).length,
         decisionTermIncluded: r.decisionSections > 0 ? 1 : 0,
         totalUploadedTerms: r.terms.size,
-        decisionTerm,
+        decisionTerm: excludedPlanningTerm,
+        excludedPlanningTerm,
         dataQualityNotes: '',
-        firstDayToCensus1Attrition: decisionLifecycle.decisionStartToCensus1AttritionRate,
-        firstDayToCensus2Attrition: decisionLifecycle.decisionStartToCensus2AttritionRate,
-        firstDayToEndFinalAttrition: decisionLifecycle.decisionStartToEndAttritionRate,
-        census1ToCensus2Attrition: decisionLifecycle.decisionCensus1ToCensus2AttritionRate,
-        census1ToEndFinalAttrition: decisionLifecycle.decisionCensus1ToEndAttritionRate,
-        census2ToEndFinalAttrition: decisionLifecycle.decisionCensus2ToEndAttritionRate,
-        firstDayToCensus1MatchedCrns: decisionLifecycle.decisionStartToCensus1MatchedCrns,
-        firstDayToCensus2MatchedCrns: decisionLifecycle.decisionStartToCensus2MatchedCrns,
-        firstDayToEndFinalMatchedCrns: decisionLifecycle.decisionStartToEndMatchedCrns,
-        census1ToCensus2DiagnosticMatchedCrns: decisionLifecycle.decisionCensus1ToCensus2MatchedCrns,
-        census1ToEndFinalMatchedCrns: decisionLifecycle.decisionCensus1ToEndMatchedCrns,
-        census2ToEndFinalMatchedCrns: decisionLifecycle.decisionCensus2ToEndMatchedCrns,
+        firstDayToCensus1Attrition: historyLifecycle.historyStartToCensus1AttritionRate,
+        firstDayToCensus2Attrition: historyLifecycle.historyStartToCensus2AttritionRate,
+        firstDayToEndFinalAttrition: historyLifecycle.historyStartToEndAttritionRate,
+        census1ToCensus2Attrition: historyLifecycle.historyCensus1ToCensus2AttritionRate,
+        census1ToEndFinalAttrition: historyLifecycle.historyCensus1ToEndAttritionRate,
+        census2ToEndFinalAttrition: historyLifecycle.historyCensus2ToEndAttritionRate,
+        firstDayToCensus1MatchedCrns: historyLifecycle.historyStartToCensus1MatchedCrns,
+        firstDayToCensus2MatchedCrns: historyLifecycle.historyStartToCensus2MatchedCrns,
+        firstDayToEndFinalMatchedCrns: historyLifecycle.historyStartToEndMatchedCrns,
+        census1ToCensus2DiagnosticMatchedCrns: historyLifecycle.historyCensus1ToCensus2MatchedCrns,
+        census1ToEndFinalMatchedCrns: historyLifecycle.historyCensus1ToEndMatchedCrns,
+        census2ToEndFinalMatchedCrns: historyLifecycle.historyCensus2ToEndMatchedCrns,
         decisionAttritionCount: decisionLifecycle.decisionOverallAttritionCount,
         decisionAttritionRate: decisionLifecycle.decisionOverallAttritionRate,
         historicalAttritionCount: historyLifecycle.historyOverallAttritionCount,
@@ -3757,16 +3752,15 @@
       };
     }).sort((a, b) => num(b.attritionCount) - num(a.attritionCount) || num(b.historicalAttritionCount) - num(a.historicalAttritionCount));
     const decisionRows = state.attritionRows.filter(row => row.decisionSections > 0);
-    const decisionMilestones = milestonePopulationDiagnostics(enrollment.filter(row => canon(row.term) === decisionTermKey));
+    const historicalMilestones = milestonePopulationDiagnostics(enrollment);
     const filteredTerms = collectRowTerms(enrollment);
-    const historicalTerms = collectRowTerms(enrollment.filter(row => row.term && canon(row.term) !== decisionTermKey));
-    const coverage = snapshotCoverage(enrollment, state.enrollmentSnapshots, decisionTerm);
-    const decisionSummary = summarizeAttritionRows(decisionRows, 'decision');
+    const historicalTerms = collectRowTerms(enrollment);
+    const coverage = snapshotCoverage(enrollment, state.enrollmentSnapshots, '');
     const historicalSummary = summarizeAttritionRows(state.attritionRows, 'history');
     const allSummary = summarizeAttritionRows(state.attritionRows, 'all');
     const workExperience = workExperienceSummary(enrollment);
     const dataQualityWarnings = [];
-    if (decisionMilestones.mismatch) {
+    if (historicalMilestones.mismatch) {
       dataQualityWarnings.push('Milestone populations differ. Attrition rates are calculated using matched CRNs for each comparison.');
     }
     if (diagnostics.hasInvalidNegativeCensus2) {
@@ -3775,27 +3769,27 @@
     if (diagnostics.tutoringOpenLabRowsExcluded > 0) {
       dataQualityWarnings.push('Tutoring/Open Lab sections were excluded.');
     }
-    if (coverage.firstDayCoveragePct === 0 && decisionSummary.sections > 0) {
-      dataQualityWarnings.push('First Day snapshots are unavailable for this term.');
+    if (coverage.firstDayCoveragePct === 0 && historicalSummary.sections > 0) {
+      dataQualityWarnings.push('First Day snapshots are unavailable for the selected historical terms.');
     }
     state.attritionRows = state.attritionRows.map(row => ({
       ...row,
       dataQualityNotes: dataQualityWarnings.join(' ') || 'None'
     }));
     metric('attritionMetrics', [
-      ['Decision Term', decisionTerm || 'N/A'],
+      ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
       ['Historical Terms Included', historicalTerms.length],
-      ['Decision Term Included', decisionRows.length ? 1 : 0],
-      ['Total Uploaded Terms', filteredTerms.length],
-      ['Decision Sections', sum(decisionRows, 'decisionSections')],
       ['Historical Sections', historicalSummary.sections],
-      ['Decision Census 1 Total', decisionMilestones.census1.total],
-      ['Decision Census 2 Total', decisionMilestones.census2.total],
-      ['Decision End/Final Total', decisionMilestones.final.total],
-      ['Decision CRNs with First Day', decisionMilestones.firstDay.count],
-      ['Decision CRNs with Census 1', decisionMilestones.census1.count],
-      ['Decision CRNs with Census 2', decisionMilestones.census2.count],
-      ['Decision CRNs with End/Final', decisionMilestones.final.count],
+      ['Historical Overall Attrition', lifecycleMetricLabel(historicalSummary.overallRate)],
+      ['Historical Census 1 to Census 2 Attrition', lifecycleMetricLabel(historicalSummary.census1ToCensus2Rate)],
+      ['Historical Census 2 to End Attrition', lifecycleMetricLabel(historicalSummary.census2ToEndRate)],
+      ['Historical Census 1 to End Attrition', lifecycleMetricLabel(historicalSummary.census1ToEndRate)],
+      ['Historical Census 1 Total', historicalMilestones.census1.total],
+      ['Historical Census 2 Total', historicalMilestones.census2.total],
+      ['Historical End/Final Total', historicalMilestones.final.total],
+      ['Historical CRNs with Census 1', historicalMilestones.census1.count],
+      ['Historical CRNs with Census 2', historicalMilestones.census2.count],
+      ['Historical CRNs with End/Final', historicalMilestones.final.count],
       ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
       ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
       ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
@@ -3805,31 +3799,23 @@
       ['Work Experience FTES Warnings', workExperience.missingFtes]
     ]);
     renderAttritionDiagnosticRates({
-      decision: decisionSummary,
       historical: historicalSummary,
       all: allSummary,
-      includeAll: true
+      includeAll: false
     });
     renderAttritionDataQualityNotes(dataQualityWarnings);
     table('attritionTable', state.attritionRows, [
       'group',
-      'decisionTerm',
+      'excludedPlanningTerm',
       'courseHistoricalTermsIncluded',
       'overallHistoricalTermsIncluded',
       'totalUploadedTerms',
-      'decisionSections',
-      'sections',
+      'historySections',
       'totalSeats',
-      'census',
-      'census2',
-      'final',
-      'decisionCensus',
-      'decisionCensus2',
-      'decisionFinal',
-      'decisionOverallAttritionRate',
       'historyCensus',
       'historyCensus2',
       'historyFinal',
+      'historicalAttritionRate',
       'historyStartToEndAttritionRate',
       'historyStartToCensus1AttritionRate',
       'historyStartToCensus2AttritionRate',
@@ -3837,9 +3823,6 @@
       'historyCensus1ToEndAttritionRate',
       'historyCensus2ToEndAttritionRate',
       'historyOverallAttritionRate',
-      'decisionStartToEndAttritionRate',
-      'decisionStartToCensus1AttritionRate',
-      'decisionStartToCensus2AttritionRate',
       'census1ToCensus2MatchedCrns',
       'census2ToEndMatchedCrns',
       'census1ToEndMatchedCrns',
@@ -3849,9 +3832,6 @@
       'invalidCensus2Count',
       'missingCensus2Count',
       'missingFinalCount',
-      'decisionCensus1ToCensus2AttritionRate',
-      'decisionCensus1ToEndAttritionRate',
-      'decisionCensus2ToEndAttritionRate',
       'firstDayToCensus1Attrition',
       'firstDayToCensus2Attrition',
       'firstDayToEndFinalAttrition',
@@ -3864,9 +3844,6 @@
       'census1ToCensus2DiagnosticMatchedCrns',
       'census1ToEndFinalMatchedCrns',
       'census2ToEndFinalMatchedCrns',
-      'attritionCount',
-      'attritionRate',
-      'historicalAttritionRate',
       'dataQualityNotes',
       'censusFillRate',
       'finalFillRate',
@@ -3888,7 +3865,7 @@
     const scopes = [
       ['Decision Term', summaries.decision],
       ['Historical Terms', summaries.historical],
-      ['All Uploaded Terms', summaries.all]
+      ...(summaries.includeAll ? [['All Uploaded Terms', summaries.all]] : [])
     ].filter(([, summary]) => summary);
     const rows = [];
     scopes.forEach(([scope, summary]) => {
@@ -5342,24 +5319,20 @@
     if (!legend) return;
     const items = [
       ['Group', 'The current grouping selected in Group by, usually Discipline + Course.'],
-      ['Course Historical Terms Included', 'Number of historical comparison terms where this specific row grouping appears after filters are applied. The selected decision term is excluded.'],
-      ['Overall Historical Terms Included', 'Number of uploaded historical comparison terms used after filters are applied. The selected decision/future term is excluded.'],
-      ['Total Uploaded Terms', 'Number of distinct uploaded terms represented in that row after filters are applied, including the decision term when present.'],
-      ['Decision Sections', 'Number of sections for the selected decision term only.'],
-      ['Decision Census 1', 'Decision-term CENSUS_ENROLL total.'],
-      ['Decision Census 2', 'Decision-term CENSUS_ENROLL2 total when present.'],
-      ['Decision End/Final', 'Decision-term Final Enrollment when present, otherwise ACTUAL_ENROLL/current enrollment context.'],
-      ['Decision Overall Attrition', 'Decision-term Census 1 to End/Final diagnostic attrition. This is separated from historical attrition because in-progress decision terms may not be final.'],
-      ['Historical Sections', 'Distinct CRNs from comparison terms only. The decision term is excluded.'],
-      ['Historical Overall Attrition', 'Historical Census 1 to End/Final attrition from comparison terms only. The decision term never contributes to this rate.'],
-      ['All Uploaded Overall Attrition', 'Census 1 to End/Final attrition across all uploaded terms when retained for context. This includes the decision term and should not be used as the historical planning rate.'],
+      ['Planning Term Excluded', 'Optional active, future, or otherwise non-final term removed from the historical trend. No current/decision term is required to run this report.'],
+      ['Course Historical Terms Included', 'Number of completed historical terms where this specific row grouping appears after filters are applied. The excluded planning term is not included.'],
+      ['Overall Historical Terms Included', 'Number of selected completed historical terms used after filters are applied. The excluded planning/future term is not included.'],
+      ['Historical Sections', 'Distinct CRNs from selected completed historical terms only.'],
+      ['Historical Overall Attrition', 'Historical Census 1 to End/Final attrition from selected completed terms only. The excluded planning term never contributes to this rate.'],
+      ['Historical Census 1 to Census 2 Attrition', 'Historical Census 1 minus Census 2 divided by Census 1 for matched CRNs. This shows how enrollment moved between the two Banner census milestones.'],
+      ['Historical Census 2 to End Attrition', 'Historical Census 2 minus End/Final divided by Census 2 for matched CRNs. Negative percentages mean enrollment increased after Census 2.'],
       ['Work Experience Rows Included', 'Metric card. Count of rows loaded from the separate Work Experience Enrollment Upload and included by the report toggle. These rows are eligible for enrollment, lifecycle, demand, and FTES calculations, but not physical room/time reports.'],
       ['Work Experience FTES Warnings', 'Metric card. Count of included Work Experience rows where direct FTES was not provided and the upload also lacked enough units/contact-hour fields to estimate FTES. Those rows still count for enrollment/lifecycle metrics, but FTES should be treated as unavailable rather than a confirmed zero.'],
       ['Total Seats', 'Total MAX ENROLL capacity across the row grouping and included terms.'],
       ['Census Enrollment', 'CENSUS_ENROLL/Census 1 across included terms. If CENSUS_ENROLL is missing for a section, ACTUAL_ENROLL is used for that section.'],
       ['Census 2 Enrollment', 'CENSUS_ENROLL2 across included terms where present. Missing Census 2 values remain unavailable and do not become zero.'],
       ['Final Enrollment', 'ACTUAL_ENROLL across included terms. This remains visible for attrition/retention context and does not drive consolidation or forecast recommendations.'],
-      ['Total Milestone Enrollment', 'Decision Census 1, Census 2, and End/Final totals sum all valid values for each milestone independently. They do not become zero or N/A simply because the CRN populations differ.'],
+      ['Total Milestone Enrollment', 'Historical Census 1, Census 2, and End/Final totals sum all valid values for each milestone independently. They do not become zero or N/A simply because the CRN populations differ.'],
       ['Matched CRNs', 'For each attrition interval, only CRNs with both required milestone values are included. Example: Census 2 to End uses only CRNs with valid Census 2 and valid End/Final values.'],
       ['Start to End Attrition', 'First Day minus End/Final divided by First Day for matched CRNs. Shows N/A when no CRNs have both values.'],
       ['Start to Census 1 Attrition', 'First Day minus Census 1 divided by First Day for matched CRNs. Shows N/A when First Day snapshots are unavailable.'],
@@ -5370,21 +5343,20 @@
       ['Overall Attrition', 'Census 1 to End/Final attrition unless a more official lifecycle standard is adopted later.'],
       ['Lifecycle Readiness', 'First Day comes from stored First Day snapshots when available. Census 1 comes from CENSUS_ENROLL. Census 2 comes from CENSUS_ENROLL2. End/Final comes from ACTUAL_ENROLL or Final Enrollment. Missing milestone fields display as N/A, not zero.'],
       ['Negative Attrition', 'A negative rate means enrollment increased between the two matched milestones. Formula remains (start enrollment - end enrollment) / start enrollment.'],
-      ['Attrition Count', 'All uploaded terms Census 1 minus Final Enrollment. Negative values indicate enrollment growth between milestones.'],
-      ['Attrition Rate', 'All uploaded terms Attrition Count divided by Census 1. Negative percentages indicate enrollment growth between milestones.'],
-      ['Diagnostic Attrition Rates', 'Separate table showing Decision Term, Historical Terms, and All Uploaded Terms rates for First Day to Census 1, First Day to Census 2, First Day to End/Final, Census 1 to Census 2, Census 1 to End/Final, and Census 2 to End/Final.'],
+      ['Attrition Count', 'Historical Census 1 minus Final Enrollment. Negative values indicate enrollment growth between milestones.'],
+      ['Attrition Rate', 'Historical Attrition Count divided by Census 1. Negative percentages indicate enrollment growth between milestones.'],
+      ['Diagnostic Attrition Rates', 'Separate table showing historical trend rates for First Day to Census 1, First Day to Census 2, First Day to End/Final, Census 1 to Census 2, Census 1 to End/Final, and Census 2 to End/Final.'],
       ['Milestone Population Warning', 'Shown as a concise data-quality note when milestone populations differ. The warning is diagnostic only; interval percentages are still calculated from matched CRNs for each comparison.'],
-      ['Historical Attrition Rate', 'Historical attrition from comparison terms only; it excludes the decision term.'],
-      ['All Terms Sections', 'Section count across the decision term plus included comparison terms.'],
+      ['Historical Attrition Rate', 'Historical attrition from selected completed terms only; it excludes the selected planning term.'],
       ['Census Fill Rate', 'Census Enrollment divided by Total Seats. Values above 100% mean sections exceeded listed capacity.'],
       ['Final Fill Rate', 'Final Enrollment divided by Total Seats. Values above 100% mean sections exceeded listed capacity.'],
       ['Empty Seats at Census', 'Total Seats minus Census Enrollment, floored at zero.'],
       ['Empty Seats at Final', 'Total Seats minus Final Enrollment, floored at zero.']
     ];
     renderMethodologyPanel(legend, {
-      title: 'Enrollment Lifecycle Diagnostics Methodology & Data Dictionary',
-      purpose: 'Reviews milestone enrollment movement and data coverage while keeping decision-term and historical comparison terms separate.',
-      methodology: 'Enrollment Lifecycle Diagnostics is intended to review milestone enrollment movement and data coverage. The selected decision term is tracked separately from historical comparison terms. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses ACTUAL_ENROLL/current enrollment after term completion. ACTUAL_ENROLL should be treated as final only for completed historical terms; for active or future decision terms it is current enrollment context. Because milestone populations may differ, attrition rates are diagnostic and should be interpreted alongside CRN coverage counts. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Negative Census 2 values are treated as invalid/missing. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.',
+      title: 'Enrollment Attrition Trend Methodology & Data Dictionary',
+      purpose: 'Reviews completed historical milestone enrollment movement and data coverage so attrition trends can be interpreted for planning.',
+      methodology: 'Enrollment Attrition Trend is intended to review completed historical milestone enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Because milestone populations may differ, attrition rates are diagnostic and should be interpreted alongside CRN coverage counts. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Negative Census 2 values are treated as invalid/missing. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.',
       assumptions: 'CENSUS_ENROLL is treated as census enrollment. ACTUAL_ENROLL is treated as final enrollment when the source file is final and as current enrollment when the source file is an in-progress snapshot.',
       limitations: 'This report does not know why students left, whether a term file is final unless the uploaded source reflects that, or whether external retention interventions occurred.',
       items,
@@ -5575,6 +5547,7 @@
       note: 'Note',
       subject: 'Discipline',
       decisionTerm: 'Decision Term',
+      excludedPlanningTerm: 'Planning Term Excluded',
       decisionSections: 'Decision Sections',
       decisionCensus: 'Decision Census 1',
       decisionCensus2: 'Decision Census 2',
@@ -5623,8 +5596,9 @@
       emptySeatsAtFinal: 'Empty Seats at Final',
       courseHistoricalTermsIncluded: 'Course Historical Terms Included',
       overallHistoricalTermsIncluded: 'Overall Historical Terms Included',
-      totalUploadedTerms: 'Total Uploaded Terms',
-      decisionTermIncluded: 'Decision Term Included',
+      totalUploadedTerms: 'Historical Terms Included',
+      decisionTermIncluded: 'Planning Term Included',
+      historySections: 'Historical Sections',
       historicalAttritionRate: 'Historical Attrition Rate',
       historicalAttritionCount: 'Historical Avg Attrition Count',
       sections: 'All Terms Sections',
@@ -6318,7 +6292,7 @@
     });
     document.getElementById('runInstructorAvailability')?.addEventListener('click', runInstructorAvailability);
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
-    document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-lifecycle-diagnostics-${attritionDecisionTerm() || currentTerm() || 'term'}.csv`));
+    document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-trend-${attritionDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${consolidationDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-demand-forecast-${demandTargetSlug()}.csv`));
     document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-demand-forecast-${demandTargetSlug()}.xls`));
