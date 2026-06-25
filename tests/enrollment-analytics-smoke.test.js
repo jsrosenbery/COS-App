@@ -1025,6 +1025,22 @@ test('conflict check omits cross-listed pairs and combines room instructor overl
   assert.equal(separateTypes.some(row => row.conflictType === 'Same instructor overlap'), true);
 });
 
+test('conflict check ignores STAFF for instructor conflicts', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2027', crn: 'S1', subject: 'MATH', course: '021', instructor: 'STAFF', room: 'KERN 101', days: ['MO'], start: '09:00', end: '10:00' }),
+    section({ term: 'FALL 2027', crn: 'S2', subject: 'ENGL', course: 'C1000', instructor: 'STAFF', room: 'KERN 102', days: ['MO'], start: '09:30', end: '10:30' }),
+    section({ term: 'FALL 2027', crn: 'S3', subject: 'HIST', course: '018', instructor: 'STAFF', room: 'KERN 101', days: ['MO'], start: '09:30', end: '10:30' })
+  ];
+
+  const instructorConflicts = COSEnrollmentAnalytics.conflictRows(rows, ['instructorOverlap']);
+  const roomConflicts = COSEnrollmentAnalytics.conflictRows(rows, ['roomOverlap']);
+
+  assert.equal(instructorConflicts.length, 0);
+  assert.equal(roomConflicts.length, 1);
+  assert.equal(roomConflicts[0].conflictType, 'Same room overlap');
+});
+
 test('detailed student presence report supports campus and building group metrics', () => {
   const { COSEnrollmentDashboard } = loadEnrollmentModules();
   const rows = [
@@ -1433,7 +1449,10 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(app, /modalityLoadedSourceRows = modalityUploadRows/);
   assert.match(app, /return modalityLoadedSourceRows\?\.\length \? modalityLoadedSourceRows : currentData/);
   assert.match(app, /const terms = \[\.\.\.new Set\(rows\.map\(getSectionTerm\)/);
-  assert.match(app, /modalityComparisonSelects\.forEach\(select => resetSelect\(select, terms, 'None', ''\)\)/);
+  assert.match(app, /function getModalityComparisonTerms/);
+  assert.match(app, /function getModalityComparisonSourceRows/);
+  assert.match(app, /resetSelect\(select, comparisonTerms, 'None', ''\)/);
+  assert.match(app, /calculateModalityBalance\(\{ term, sourceRows: getModalityComparisonSourceRows\(term\) \}\)/);
   assert.match(app, /selectedValues\(modalityCampusSelect\)/);
   assert.match(app, /selectedValues\(modalityCourseSelect\)/);
   assert.match(app, /selectedValues\(modalityModalitySelect\)/);

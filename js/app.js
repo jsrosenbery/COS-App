@@ -1461,6 +1461,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       setScheduleAnalysisStatus('modality', 'No rows were found in the selected source.', true);
       return getModalitySourceRows();
     }
+    if (BACKEND_BASE_URL && !modalityArchiveRows.length) {
+      await loadModalityArchiveRowsFromBackend();
+    }
     initModalityFilters();
     renderModalityTool();
     const terms = [...new Set(modalityLoadedSourceRows.map(getSectionTerm).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -3071,6 +3074,22 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return modalityLoadedSourceRows?.length ? modalityLoadedSourceRows : currentData;
   }
 
+  function getModalityComparisonTerms(sourceTerms = []) {
+    const archiveTerms = modalityArchiveRows
+      .map(getSectionTerm)
+      .filter(Boolean);
+    return [...new Set([...sourceTerms, ...archiveTerms])]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  function getModalityComparisonSourceRows(term = '') {
+    if (!term) return getModalitySourceRows();
+    const sourceRows = getModalitySourceRows();
+    if (sourceRows.some(row => termMatches(getSectionTerm(row), term))) return sourceRows;
+    const archiveRows = modalityArchiveRows.filter(row => termMatches(getSectionTerm(row), term));
+    return archiveRows.length ? archiveRows : sourceRows;
+  }
+
   function normalizeTermLabel(value) {
     const text = String(value || '').trim();
     const match = text.match(/\b(SUMMER|FALL|SPRING)\b\s*(20\d{2})/i) || text.match(/\b(20\d{2})\b.*\b(SUMMER|FALL|SPRING)\b/i);
@@ -3128,6 +3147,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const calGetcValue = modalityCalGetcSelect?.value || '';
     const campuses = getUniqueCampuses(rows);
     const terms = [...new Set(rows.map(getSectionTerm).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const comparisonTerms = getModalityComparisonTerms(terms);
     const divisions = [...new Set(rows.map(getDivision).filter(Boolean))].sort();
     const disciplines = [...new Set(rows.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
     const departments = [...new Set(rows.map(getDepartment).filter(Boolean))].sort();
@@ -3136,7 +3156,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const levels = [...new Set(rows.map(section => getCourseLevel(getCourseParts(section).courseNumber)).filter(Boolean))]
       .sort((a, b) => getCourseLevelSort(a) - getCourseLevelSort(b));
     if (modalityDecisionTermSelect) resetSelect(modalityDecisionTermSelect, terms, modalityLoadedSourceRows?.length ? 'All loaded source terms' : 'Current room-grid term', '');
-    modalityComparisonSelects.forEach(select => resetSelect(select, terms, 'None', ''));
+    modalityComparisonSelects.forEach(select => resetSelect(select, comparisonTerms, 'None', ''));
     resetSelect(modalityCampusSelect, campuses, 'All', '');
     resetSelect(modalityDivisionSelect, divisions, 'All', '');
     resetSelect(modalityDisciplineSelect, disciplines, 'All', '');
@@ -3148,7 +3168,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (terms.includes(decisionTermValue) && modalityDecisionTermSelect) modalityDecisionTermSelect.value = decisionTermValue;
     else if (modalityLoadedSourceRows?.length && terms.length === 1 && modalityDecisionTermSelect) modalityDecisionTermSelect.value = terms[0];
     modalityComparisonSelects.forEach((select, index) => {
-      if (terms.includes(comparisonValues[index])) select.value = comparisonValues[index];
+      if (comparisonTerms.includes(comparisonValues[index])) select.value = comparisonValues[index];
     });
     preserveSelected(modalityCampusSelect, campusValues);
     preserveSelected(modalityDivisionSelect, divisionValues);
@@ -3470,7 +3490,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const focusLabel = modalityTermLabel();
     const focusMap = new Map(focusRows.map(row => [row.category, row]));
     return comparisonTerms.flatMap(term => {
-      const comparisonRows = calculateModalityBalance({ term });
+      const comparisonRows = calculateModalityBalance({ term, sourceRows: getModalityComparisonSourceRows(term) });
       const comparisonMap = new Map(comparisonRows.map(row => [row.category, row]));
       const countRows = modalityComparisonRows(focusMap, comparisonMap, 'count', 'share');
       const enrollmentRows = modalityComparisonRows(focusMap, comparisonMap, 'enrollment', 'enrollmentShare');
@@ -3532,7 +3552,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const focusTerm = modalityDecisionTermSelect?.value || '';
     const focusMap = aggregateCourseModalityRows(modalityFilteredSections({ term: focusTerm }).rows);
     return comparisonTerms.flatMap(term => {
-      const comparisonMap = aggregateCourseModalityRows(modalityFilteredSections({ term }).rows);
+      const comparisonMap = aggregateCourseModalityRows(modalityFilteredSections({ term, sourceRows: getModalityComparisonSourceRows(term) }).rows);
       const keys = [...new Set([...focusMap.keys(), ...comparisonMap.keys()])];
       return keys.map(key => {
         const focus = focusMap.get(key) || {
@@ -3809,7 +3829,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const decisionTerm = modalityDecisionTermSelect?.value || 'Current Loaded Term';
     const decisionMap = new Map(decisionRows.map(row => [row.category, row]));
     const sections = selectedTerms.map(term => {
-      const comparisonRows = calculateModalityBalance({ term });
+      const comparisonRows = calculateModalityBalance({ term, sourceRows: getModalityComparisonSourceRows(term) });
       const comparisonMap = new Map(comparisonRows.map(row => [row.category, row]));
       const countRows = modalityComparisonRows(decisionMap, comparisonMap, 'count', 'share');
       const enrollmentRows = modalityComparisonRows(decisionMap, comparisonMap, 'enrollment', 'enrollmentShare');

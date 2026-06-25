@@ -2779,7 +2779,9 @@
   }
 
   function sameInstructor(a, b) {
-    return Boolean(a.instructor && b.instructor && canon(a.instructor) === canon(b.instructor));
+    const left = canon(a.instructor);
+    const right = canon(b.instructor);
+    return Boolean(left && right && left !== 'STAFF' && right !== 'STAFF' && left === right);
   }
 
   function sameCourse(a, b) {
