@@ -1413,6 +1413,8 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(index, /Class counts and enrollment are shown as separate comparison views/);
   assert.match(index, /modality-source-status/);
   assert.match(index, /modality-export-btn/);
+  assert.match(index, /modality-course-comparison-table/);
+  assert.match(index, /Course-Level Term Differences/);
   assert.match(app, /includeDualEnrollment/);
   assert.match(app, /code === 'DE'/);
   assert.match(app, /category === 'Dual Enrollment'/);
@@ -1426,7 +1428,10 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(app, /selectedValues\(modalityCampusSelect\)/);
   assert.match(app, /selectedValues\(modalityCourseSelect\)/);
   assert.match(app, /selectedValues\(modalityModalitySelect\)/);
-  assert.match(app, /const sourceRows = getModalitySourceRows\(\)/);
+  assert.match(app, /function modalityFilteredSections/);
+  assert.match(app, /function modalityCourseComparisonRows/);
+  assert.match(app, /function renderModalityCourseComparisonTable/);
+  assert.match(app, /function modalityCourseComparisonExportRows/);
   assert.match(app, /modalityPieCard\('Class Count Mix'/);
   assert.match(app, /modalityPieCard\('Enrollment Mix'/);
   assert.match(app, /function exportModalityBalance/);
@@ -1436,6 +1441,8 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(app, /modality-balance-\$\{slug\}\.csv/);
   assert.match(app, /Class Count by Modality/);
   assert.match(app, /Enrollment by Modality/);
+  assert.match(app, /Course-Level Term Differences/);
+  assert.match(app, /Focus term minus comparison term by unique CRN course\/modality grouping/);
   assert.match(app, /signedPctChange/);
   assert.match(app, /Current Loaded Term/);
 });

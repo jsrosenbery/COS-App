@@ -733,6 +733,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalityComparison = document.getElementById('modality-comparison');
   const modalityChart = document.getElementById('modality-chart');
   const modalityTable = document.getElementById('modality-table');
+  const modalityCourseComparisonTable = document.getElementById('modality-course-comparison-table');
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
   const calendarContainer = document.getElementById('calendar-container');
@@ -3169,7 +3170,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
-  function calculateModalityBalance(options = {}) {
+  function getCourseTitle(section) {
+    return extractField(section, ['Title', 'Course_Title', 'Course Title', 'Section Title', 'COURSE_TITLE', 'Course_Name', 'Course Name']);
+  }
+
+  function modalityFilteredSections(options = {}) {
     const selectedTerm = options.term || modalityDecisionTermSelect?.value || '';
     const selectedCampus = selectedValues(modalityCampusSelect);
     const selectedDivision = selectedValues(modalityDivisionSelect);
@@ -3183,7 +3188,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const excludeTutoringOpenLab = document.getElementById('modality-exclude-tutoring-openlab')?.checked !== false;
     let tutoringOpenLabRowsExcluded = 0;
     const seenSections = new Set();
-    const categories = new Map();
+    const rows = [];
     const sourceRows = getModalitySourceRows();
 
     sourceRows.forEach((section, index) => {
@@ -3217,6 +3222,32 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (!valueMatchesAny(category, selectedModality)) return;
       if (omittedModalityCodes.has(methodCode) && !(includeDualEnrollment && (methodCode === 'DE' || category === 'Dual Enrollment'))) return;
       if (!includeDualEnrollment && (methodCode === 'DE' || category === 'Dual Enrollment')) return;
+      rows.push({
+        section,
+        identity,
+        term,
+        campus,
+        division,
+        department,
+        discipline: courseParts.discipline,
+        courseCode,
+        courseTitle: getCourseTitle(section),
+        courseLevel,
+        rawMethod,
+        category,
+        enrollment: getEnrollmentValue(section)
+      });
+    });
+
+    return { rows, tutoringOpenLabRowsExcluded };
+  }
+
+  function calculateModalityBalance(options = {}) {
+    const filtered = modalityFilteredSections(options);
+    const categories = new Map();
+
+    filtered.rows.forEach(item => {
+      const { category, rawMethod } = item;
       if (!categories.has(category)) {
         categories.set(category, {
           category,
@@ -3227,7 +3258,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       }
       const bucket = categories.get(category);
       bucket.count += 1;
-      bucket.enrollment += getEnrollmentValue(section);
+      bucket.enrollment += item.enrollment;
       bucket.methods.set(rawMethod, (bucket.methods.get(rawMethod) || 0) + 1);
     });
 
@@ -3247,7 +3278,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const bi = order.includes(b.category) ? order.indexOf(b.category) : order.length;
         return ai - bi || a.category.localeCompare(b.category);
       })
-      .map(item => ({ ...item, total, totalEnrollment, tutoringOpenLabRowsExcluded }));
+      .map(item => ({ ...item, total, totalEnrollment, tutoringOpenLabRowsExcluded: filtered.tutoringOpenLabRowsExcluded }));
   }
 
   function renderModalityTool() {
@@ -3282,6 +3313,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
     if (!rows.length) {
       modalityChart.textContent = 'No modality data is available for the selected term.';
+      renderModalityCourseComparisonTable();
       return;
     }
 
@@ -3334,6 +3366,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         tbody.appendChild(tr);
       }
     });
+    renderModalityCourseComparisonTable();
   }
 
   function modalityTermLabel() {
@@ -3467,6 +3500,158 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
   }
 
+  function courseModalityKey(item) {
+    return [item.courseCode || 'Unknown Course', item.courseTitle || '', item.division || '', item.discipline || '', item.category || 'Unspecified'].join('||');
+  }
+
+  function aggregateCourseModalityRows(rows) {
+    const map = new Map();
+    rows.forEach(item => {
+      const key = courseModalityKey(item);
+      if (!map.has(key)) {
+        map.set(key, {
+          course: item.courseCode || 'Unknown Course',
+          courseTitle: item.courseTitle || '',
+          division: item.division || '',
+          discipline: item.discipline || '',
+          category: item.category || 'Unspecified',
+          sections: 0,
+          enrollment: 0
+        });
+      }
+      const bucket = map.get(key);
+      bucket.sections += 1;
+      bucket.enrollment += item.enrollment || 0;
+    });
+    return map;
+  }
+
+  function modalityCourseComparisonRows() {
+    const comparisonTerms = modalitySelectedComparisonTerms();
+    if (!comparisonTerms.length) return [];
+    const focusTerm = modalityDecisionTermSelect?.value || '';
+    const focusMap = aggregateCourseModalityRows(modalityFilteredSections({ term: focusTerm }).rows);
+    return comparisonTerms.flatMap(term => {
+      const comparisonMap = aggregateCourseModalityRows(modalityFilteredSections({ term }).rows);
+      const keys = [...new Set([...focusMap.keys(), ...comparisonMap.keys()])];
+      return keys.map(key => {
+        const focus = focusMap.get(key) || {
+          course: comparisonMap.get(key)?.course || 'Unknown Course',
+          courseTitle: comparisonMap.get(key)?.courseTitle || '',
+          division: comparisonMap.get(key)?.division || '',
+          discipline: comparisonMap.get(key)?.discipline || '',
+          category: comparisonMap.get(key)?.category || 'Unspecified',
+          sections: 0,
+          enrollment: 0
+        };
+        const comparison = comparisonMap.get(key) || { sections: 0, enrollment: 0 };
+        return {
+          ...focus,
+          focusTerm: modalityTermLabel(),
+          focusSections: focus.sections,
+          focusEnrollment: focus.enrollment,
+          comparisonTerm: term,
+          comparisonSections: comparison.sections,
+          comparisonEnrollment: comparison.enrollment,
+          sectionDiff: focus.sections - comparison.sections,
+          enrollmentDiff: focus.enrollment - comparison.enrollment,
+          sectionPctChange: signedPctChange(focus.sections, comparison.sections),
+          enrollmentPctChange: signedPctChange(focus.enrollment, comparison.enrollment)
+        };
+      });
+    }).sort((a, b) =>
+      a.course.localeCompare(b.course, undefined, { numeric: true }) ||
+      a.category.localeCompare(b.category) ||
+      a.comparisonTerm.localeCompare(b.comparisonTerm)
+    );
+  }
+
+  function renderModalityCourseComparisonTable() {
+    if (!modalityCourseComparisonTable) return;
+    const tbody = modalityCourseComparisonTable.querySelector('tbody');
+    if (!tbody) return;
+    tbody.replaceChildren();
+    const comparisonTerms = modalitySelectedComparisonTerms();
+    if (!comparisonTerms.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 15;
+      td.textContent = 'Select Compare 1, Compare 2, or Compare 3 to see course-level term differences.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    const rows = modalityCourseComparisonRows();
+    if (!rows.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 15;
+      td.textContent = 'No course-level modality differences match the selected filters.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    rows.slice(0, 750).forEach(row => {
+      const tr = document.createElement('tr');
+      [
+        row.course,
+        row.courseTitle || 'N/A',
+        row.division || 'N/A',
+        row.discipline || 'N/A',
+        row.category,
+        row.focusTerm,
+        row.focusSections,
+        row.focusEnrollment,
+        row.comparisonTerm,
+        row.comparisonSections,
+        row.comparisonEnrollment,
+        signedNumber(row.sectionDiff),
+        signedNumber(row.enrollmentDiff),
+        row.sectionPctChange,
+        row.enrollmentPctChange
+      ].forEach(value => {
+        const td = document.createElement('td');
+        td.textContent = value;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    if (rows.length > 750) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 15;
+      td.textContent = `Showing first 750 of ${rows.length} course comparison rows. Use Division, Discipline, Course, or Modality filters to narrow the table.`;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+  }
+
+  function modalityCourseComparisonExportRows() {
+    return modalityCourseComparisonRows().map(row => ({
+      Section: 'Course-Level Term Differences',
+      Term: row.focusTerm,
+      Chart: '',
+      Category: row.category,
+      Metric: 'Course Modality Comparison',
+      Course: row.course,
+      CourseTitle: row.courseTitle,
+      Division: row.division,
+      Discipline: row.discipline,
+      Value: row.focusSections,
+      Enrollment: row.focusEnrollment,
+      Share: '',
+      EnrollmentShare: '',
+      ComparisonTerm: row.comparisonTerm,
+      ComparisonValue: row.comparisonSections,
+      ComparisonEnrollment: row.comparisonEnrollment,
+      Difference: signedNumber(row.sectionDiff),
+      EnrollmentDifference: signedNumber(row.enrollmentDiff),
+      PercentChange: row.sectionPctChange,
+      EnrollmentPercentChange: row.enrollmentPctChange,
+      Notes: 'Focus term minus comparison term by unique CRN course/modality grouping.'
+    }));
+  }
+
   function exportModalityBalance() {
     const focusRows = calculateModalityBalance();
     if (!focusRows.length) {
@@ -3478,7 +3663,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       ...modalityExportContextRows(focusRows, comparisonTerms),
       ...modalitySummaryExportRows(focusRows, modalityTermLabel()),
       ...modalityPieExportRows(focusRows, modalityTermLabel()),
-      ...modalityComparisonExportRows(focusRows, comparisonTerms)
+      ...modalityComparisonExportRows(focusRows, comparisonTerms),
+      ...modalityCourseComparisonExportRows()
     ];
     const slug = modalityTermLabel().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'loaded-source';
     downloadTextFile(`modality-balance-${slug}.csv`, Papa.unparse(rows), 'text/csv;charset=utf-8');
