@@ -1975,7 +1975,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     roomDiv.replaceChildren();
     uploadDiv.replaceChildren();
     const label = document.createElement('label');
-    label.append(`Upload CSV for ${currentTerm}: `);
+    const title = document.createElement('strong');
+    title.textContent = `Upload CSV for ${currentTerm}`;
+    label.appendChild(title);
     const input = document.createElement('input');
     input.type = 'file';
     input.id = 'file-input';

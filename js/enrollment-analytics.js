@@ -806,7 +806,7 @@
   function buildUi() {
     if (document.getElementById('analyticsReports')) return;
     const anchor = document.getElementById('admin-tools') || document.body;
-    const position = anchor === document.body ? 'beforeend' : 'afterend';
+    const position = anchor === document.body ? 'beforeend' : 'beforebegin';
     anchor.insertAdjacentHTML(position, `
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="emAccessPanel" class="em-access-panel">

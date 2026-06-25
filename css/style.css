@@ -271,22 +271,55 @@ button:hover,
 }
 
 .upload-timestamp {
-  padding: 0 1rem;
+  grid-column: 1 / -1;
+  padding: 0;
   color: var(--muted);
   font-size: 0.85rem;
 }
 
 .room-catalog-admin {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) auto auto minmax(270px, 1.6fr) minmax(220px, 1.4fr);
+  gap: 0.75rem 0.85rem;
   align-items: center;
+  width: 100%;
+  padding: 1rem;
+  border: 1px solid rgba(32, 66, 96, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
 }
 
 .room-catalog-admin label {
-  display: inline-flex;
+  display: flex;
   gap: 0.45rem;
   align-items: center;
+  min-width: 0;
+  color: var(--muted);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.room-catalog-admin strong {
+  color: var(--ink);
+  font-size: 0.98rem;
+  white-space: nowrap;
+}
+
+.room-catalog-admin input[type="file"],
+.admin-tools #upload-container input[type="file"] {
+  width: 100%;
+  max-width: 280px;
+  min-width: 0;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid rgba(32, 66, 96, 0.2);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.room-catalog-admin button {
+  width: 100%;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .room-catalog-status {
@@ -295,14 +328,8 @@ button:hover,
 }
 
 .modality-admin {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
+  display: contents;
   width: 100%;
-  margin-top: 0.85rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--line);
 }
 
 .availability-ui h3,
@@ -388,12 +415,46 @@ button:hover,
   margin-top: 2rem;
 }
 
+.admin-tools {
+  display: grid;
+  gap: 0.85rem;
+}
+
 .admin-tools #upload-container,
-.admin-tools .upload-timestamp,
 .admin-tools #room-catalog-admin,
-.admin-tools #cal-getc-admin {
-  width: auto;
-  margin: 0.75rem 0 0;
+.admin-tools #cal-getc-admin,
+.admin-tools #curriculum-crosswalk-admin {
+  margin: 0;
+}
+
+.admin-tools #upload-container {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(270px, 1.6fr) minmax(220px, 1.4fr);
+  gap: 0.75rem 0.85rem;
+  align-items: center;
+  width: 100%;
+  padding: 1rem;
+  border: 1px solid rgba(32, 66, 96, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.admin-tools #upload-container label {
+  display: contents;
+}
+
+.admin-tools #upload-container label > span,
+.admin-tools #upload-container label > strong {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.admin-tools #upload-container label > strong {
+  color: var(--ink);
+}
+
+.admin-tools h2 {
+  margin-bottom: 0.25rem;
 }
 
 .avail-results {
@@ -1020,5 +1081,25 @@ button:hover,
   #linechart-tool,
   #schedule-container {
     width: calc(100% - 1rem);
+  }
+
+  .room-catalog-admin,
+  .admin-tools #upload-container {
+    grid-template-columns: 1fr;
+  }
+
+  .modality-admin {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    width: 100%;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .room-catalog-admin button,
+  .room-catalog-admin input[type="file"],
+  .admin-tools #upload-container input[type="file"] {
+    max-width: none;
   }
 }
