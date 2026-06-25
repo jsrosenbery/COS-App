@@ -1412,6 +1412,7 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(index, /% of Enrollment/);
   assert.match(index, /Class counts and enrollment are shown as separate comparison views/);
   assert.match(index, /modality-source-status/);
+  assert.match(index, /modality-export-btn/);
   assert.match(app, /includeDualEnrollment/);
   assert.match(app, /code === 'DE'/);
   assert.match(app, /category === 'Dual Enrollment'/);
@@ -1428,6 +1429,11 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(app, /const sourceRows = getModalitySourceRows\(\)/);
   assert.match(app, /modalityPieCard\('Class Count Mix'/);
   assert.match(app, /modalityPieCard\('Enrollment Mix'/);
+  assert.match(app, /function exportModalityBalance/);
+  assert.match(app, /modalityExportBtn\.addEventListener\('click', exportModalityBalance\)/);
+  assert.match(app, /Graph Data/);
+  assert.match(app, /Comparison Results/);
+  assert.match(app, /modality-balance-\$\{slug\}\.csv/);
   assert.match(app, /Class Count by Modality/);
   assert.match(app, /Enrollment by Modality/);
   assert.match(app, /signedPctChange/);

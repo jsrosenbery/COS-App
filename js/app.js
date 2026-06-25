@@ -728,6 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalityCalGetcSelect = document.getElementById('modality-calgetc-select');
   const modalityIncludeDe = document.getElementById('modality-include-de');
   const modalityClearBtn = document.getElementById('modality-clear-btn');
+  const modalityExportBtn = document.getElementById('modality-export-btn');
   const modalitySummary = document.getElementById('modality-summary');
   const modalityComparison = document.getElementById('modality-comparison');
   const modalityChart = document.getElementById('modality-chart');
@@ -813,6 +814,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (modalityLevelSelect) modalityLevelSelect.addEventListener('change', renderModalityTool);
   if (modalityCalGetcSelect) modalityCalGetcSelect.addEventListener('change', renderModalityTool);
   if (modalityIncludeDe) modalityIncludeDe.addEventListener('change', renderModalityTool);
+  if (modalityExportBtn) modalityExportBtn.addEventListener('click', exportModalityBalance);
   document.getElementById('modality-exclude-tutoring-openlab')?.addEventListener('change', renderModalityTool);
   document.getElementById('heatmap-load-source-btn')?.addEventListener('click', () => loadScheduleAnalysisSource('heatmap').catch(err => alert(err.message || 'Heatmap source load failed.')));
   document.getElementById('linechart-load-source-btn')?.addEventListener('click', () => loadScheduleAnalysisSource('linechart').catch(err => alert(err.message || 'Duration source load failed.')));
@@ -3332,6 +3334,154 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         tbody.appendChild(tr);
       }
     });
+  }
+
+  function modalityTermLabel() {
+    return modalityDecisionTermSelect?.value || (modalityLoadedSourceRows?.length ? 'All loaded source terms' : currentTerm || 'Current room-grid term');
+  }
+
+  function modalitySelectedComparisonTerms() {
+    return modalityComparisonSelects.map(select => select.value).filter(Boolean);
+  }
+
+  function modalityExportContextRows(focusRows, comparisonTerms) {
+    const termsInSource = [...new Set(getModalitySourceRows().map(getSectionTerm).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return [
+      ['Report', 'Modality Balance'],
+      ['Focus Term', modalityTermLabel()],
+      ['Comparison Terms', comparisonTerms.join('; ') || 'None'],
+      ['Loaded Source Terms', termsInSource.join('; ') || 'Current room-grid term'],
+      ['Source Rows', getModalitySourceRows().length],
+      ['Focus Sections', focusRows[0]?.total || 0],
+      ['Focus Enrollment', focusRows[0]?.totalEnrollment || 0],
+      ['Include Dual Enrollment', modalityIncludeDe?.checked ? 'Yes' : 'No'],
+      ['Exclude Tutoring/Open Lab Sections', document.getElementById('modality-exclude-tutoring-openlab')?.checked !== false ? 'Yes' : 'No'],
+      ['Campus Filter', selectedValues(modalityCampusSelect).join('; ') || 'All'],
+      ['Division Filter', selectedValues(modalityDivisionSelect).join('; ') || 'All'],
+      ['Discipline Filter', selectedValues(modalityDisciplineSelect).join('; ') || 'All'],
+      ['Department Filter', selectedValues(modalityDepartmentSelect).join('; ') || 'All'],
+      ['Course Filter', selectedValues(modalityCourseSelect).join('; ') || 'All'],
+      ['Modality Filter', selectedValues(modalityModalitySelect).join('; ') || 'All'],
+      ['Course Level Filter', selectedValues(modalityLevelSelect).join('; ') || 'All'],
+      ['CAL-GETC Filter', modalityCalGetcSelect?.value || 'All']
+    ].map(([metric, value]) => ({
+      Section: 'Export Context',
+      Term: modalityTermLabel(),
+      Chart: '',
+      Category: metric,
+      Metric: 'Value',
+      Value: value,
+      Share: '',
+      ComparisonTerm: '',
+      Difference: '',
+      PercentChange: '',
+      Notes: ''
+    }));
+  }
+
+  function modalitySummaryExportRows(rows, termLabel, sectionName = 'Focus Results') {
+    return rows.map(row => ({
+      Section: sectionName,
+      Term: termLabel,
+      Chart: '',
+      Category: row.category,
+      Metric: 'Modality Summary',
+      Value: row.count,
+      Enrollment: row.enrollment,
+      Share: `${(row.share * 100).toFixed(1)}%`,
+      EnrollmentShare: `${(row.enrollmentShare * 100).toFixed(1)}%`,
+      ComparisonTerm: '',
+      Difference: '',
+      PercentChange: '',
+      Notes: row.methodDetails.map(([method, count]) => `${method} (${count})`).join('; ')
+    }));
+  }
+
+  function modalityPieExportRows(rows, termLabel) {
+    return rows.flatMap(row => ([
+      {
+        Section: 'Graph Data',
+        Term: termLabel,
+        Chart: 'Class Count Mix',
+        Category: row.category,
+        Metric: 'Unique CRNs',
+        Value: row.count,
+        Enrollment: '',
+        Share: `${(row.share * 100).toFixed(1)}%`,
+        EnrollmentShare: '',
+        ComparisonTerm: '',
+        Difference: '',
+        PercentChange: '',
+        Notes: `Color ${modalityColor(row.category)}`
+      },
+      {
+        Section: 'Graph Data',
+        Term: termLabel,
+        Chart: 'Enrollment Mix',
+        Category: row.category,
+        Metric: 'Enrollment',
+        Value: row.enrollment,
+        Enrollment: row.enrollment,
+        Share: `${(row.enrollmentShare * 100).toFixed(1)}%`,
+        EnrollmentShare: `${(row.enrollmentShare * 100).toFixed(1)}%`,
+        ComparisonTerm: '',
+        Difference: '',
+        PercentChange: '',
+        Notes: `Color ${modalityColor(row.category)}`
+      }
+    ]));
+  }
+
+  function modalityComparisonExportRows(focusRows, comparisonTerms) {
+    const focusLabel = modalityTermLabel();
+    const focusMap = new Map(focusRows.map(row => [row.category, row]));
+    return comparisonTerms.flatMap(term => {
+      const comparisonRows = calculateModalityBalance({ term });
+      const comparisonMap = new Map(comparisonRows.map(row => [row.category, row]));
+      const countRows = modalityComparisonRows(focusMap, comparisonMap, 'count', 'share');
+      const enrollmentRows = modalityComparisonRows(focusMap, comparisonMap, 'enrollment', 'enrollmentShare');
+      const asRows = (rows, metricLabel) => rows.map(row => ({
+        Section: 'Comparison Results',
+        Term: focusLabel,
+        Chart: metricLabel,
+        Category: row.category,
+        Metric: metricLabel,
+        Value: row.current,
+        Enrollment: metricLabel === 'Enrollment by Modality' ? row.current : '',
+        Share: `${(row.currentShare * 100).toFixed(1)}%`,
+        EnrollmentShare: metricLabel === 'Enrollment by Modality' ? `${(row.currentShare * 100).toFixed(1)}%` : '',
+        ComparisonTerm: term,
+        ComparisonValue: row.comparison,
+        ComparisonShare: `${(row.comparisonShare * 100).toFixed(1)}%`,
+        Difference: signedNumber(row.diff),
+        PercentChange: row.pctIncrease,
+        Notes: `Share difference ${row.shareDiff}`
+      }));
+      return [
+        ...modalitySummaryExportRows(comparisonRows, term, 'Comparison Term Results'),
+        ...modalityPieExportRows(comparisonRows, term),
+        ...asRows(countRows, 'Class Count by Modality'),
+        ...asRows(enrollmentRows, 'Enrollment by Modality')
+      ];
+    });
+  }
+
+  function exportModalityBalance() {
+    const focusRows = calculateModalityBalance();
+    if (!focusRows.length) {
+      alert('No modality data is available to export for the current selection.');
+      return;
+    }
+    const comparisonTerms = modalitySelectedComparisonTerms();
+    const rows = [
+      ...modalityExportContextRows(focusRows, comparisonTerms),
+      ...modalitySummaryExportRows(focusRows, modalityTermLabel()),
+      ...modalityPieExportRows(focusRows, modalityTermLabel()),
+      ...modalityComparisonExportRows(focusRows, comparisonTerms)
+    ];
+    const slug = modalityTermLabel().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'loaded-source';
+    downloadTextFile(`modality-balance-${slug}.csv`, Papa.unparse(rows), 'text/csv;charset=utf-8');
   }
 
   const modalityColors = {
