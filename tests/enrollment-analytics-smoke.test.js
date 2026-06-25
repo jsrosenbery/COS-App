@@ -1364,6 +1364,9 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(app, /Underutilized Room/);
   assert.match(app, /Over Capacity Risk/);
   assert.match(app, /Enrollment Exceeds Room Capacity/);
+  assert.match(text, /#roomFitReportMetrics button\.room-fit-card/);
+  assert.match(text, /#roomFitReportMetrics button\.room-fit-card\.is-active/);
+  assert.match(text, /#f59e0b/);
   assert.match(app, /requestPassword/);
   assert.doesNotMatch(app, /prompt\(/);
   assert.doesNotMatch(text, /prompt\(/);

@@ -6029,9 +6029,11 @@
       .analytics-metrics div{border:1px solid #d8e1ec;border-radius:8px;padding:12px;background:#f8fbff}
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
       .analytics-metrics span{font-size:12px;color:#51657c;text-transform:uppercase}
-      #roomFitReportMetrics div{border-color:#c8d8e8;background:linear-gradient(135deg,#ffffff,#edf7ff);box-shadow:0 8px 18px rgba(18,51,103,.08)}
-      #roomFitReportMetrics strong{color:#082f63}
-      #roomFitReportMetrics span{color:#334862;font-weight:900;letter-spacing:.02em}
+      #roomFitReportMetrics button.room-fit-card{border:1px solid #f59e0b;border-radius:18px;padding:14px 16px;background:linear-gradient(135deg,#fff7ed,#fed7aa);box-shadow:0 8px 18px rgba(180,83,9,.16);cursor:pointer;text-align:center}
+      #roomFitReportMetrics button.room-fit-card strong{display:block;font-size:24px;color:#7c2d12}
+      #roomFitReportMetrics button.room-fit-card span{display:block;margin-top:4px;color:#9a3412;font-size:12px;font-weight:900;letter-spacing:.03em;text-transform:uppercase}
+      #roomFitReportMetrics button.room-fit-card.is-active,#roomFitReportMetrics button.room-fit-card:hover{background:linear-gradient(135deg,#f97316,#fb923c);border-color:#c2410c;box-shadow:0 10px 22px rgba(194,65,12,.24)}
+      #roomFitReportMetrics button.room-fit-card.is-active strong,#roomFitReportMetrics button.room-fit-card:hover strong,#roomFitReportMetrics button.room-fit-card.is-active span,#roomFitReportMetrics button.room-fit-card:hover span{color:#fff7ed}
       #iaInstructor{min-width:220px;min-height:92px}
       .instructor-week-grid{margin:0 0 14px;overflow:auto;border:1px solid #d8e1ec;border-radius:10px;background:#fff}
       .instructor-grid-note{padding:10px 12px;color:#51657c;background:#f8fbff;border-bottom:1px solid #d8e1ec;font-size:13px}
