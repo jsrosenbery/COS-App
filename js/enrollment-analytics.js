@@ -4236,6 +4236,16 @@
           .forEach(row => state.consolidationRows.push(row));
       });
     }
+    const scopeContext = {
+      decisionTerm,
+      selectedArchivedTerms: state.consolidationScope?.selectedArchivedTerms || getSelectedValues('conArchiveTerms'),
+      uploadedTerms: state.consolidationScope?.uploadedTerms || [],
+      historicalTerms: collectRowTerms(comparisonRows),
+      currentRowsCount: rows.length,
+      historicalRowsCount: comparisonRows.length,
+      totalRows: allRows.length
+    };
+    state.consolidationRows = annotateConsolidationRows(state.consolidationRows, scopeContext, options);
     state.consolidationRows.sort((a, b) => b.score - a.score);
     const onlineOpportunities = state.consolidationRows.filter(row => row.type === 'Online Reduction');
     const flowOpportunities = state.consolidationRows.filter(row => row.type !== 'Online Reduction');
@@ -4256,17 +4266,58 @@
       ['Chronic Low Enrollment Threshold', lowEnroll == null ? `<= ${pct(lowFill)} census-based expected fill` : `<= ${lowEnroll} census-based expected enrollment`],
       ['Avg Score', Math.round(safeDiv(sum(state.consolidationRows, 'score'), state.consolidationRows.length))]
     ]);
-    renderConsolidationScopePanel({
-      decisionTerm,
-      selectedArchivedTerms: state.consolidationScope?.selectedArchivedTerms || getSelectedValues('conArchiveTerms'),
-      uploadedTerms: state.consolidationScope?.uploadedTerms || [],
-      historicalTerms: collectRowTerms(comparisonRows),
-      currentRowsCount: rows.length,
-      historicalRowsCount: comparisonRows.length,
-      totalRows: allRows.length
-    });
+    renderConsolidationScopePanel(scopeContext);
     renderConsolidationTables(state.consolidationRows.map(flattenOpportunity));
     renderConsolidationLegend();
+  }
+
+  function annotateConsolidationRows(rows, scopeContext, options = {}) {
+    const selectedDecisionTerm = scopeContext.decisionTerm || '';
+    const selectedArchivedTerms = (scopeContext.selectedArchivedTerms || []).join('; ');
+    const uploadedTermsUsed = (scopeContext.uploadedTerms || []).join('; ');
+    const historicalComparisonTermsUsed = (scopeContext.historicalTerms || []).join('; ');
+    const minHist = Number(options.minHist || 3);
+    return (rows || []).map(row => {
+      const historicalTermsIncluded = Number(row.historicalTerms || row.historicalTermsIncluded || 0);
+      const warnings = [];
+      const isOnline = row.type === 'Online Reduction';
+      const requiredSeats = Number(row.requiredSeats || 0);
+      const receivingCapacity = Number(row.availableReceivingCapacity || row.targetOpenSeats || 0);
+      if (historicalTermsIncluded > 0 && historicalTermsIncluded < minHist) {
+        warnings.push(`Limited history: ${historicalTermsIncluded} historical term${historicalTermsIncluded === 1 ? '' : 's'} included.`);
+      }
+      if (!isOnline && requiredSeats > receivingCapacity) {
+        warnings.push('Insufficient receiving capacity.');
+      }
+      if (isOnline && Number(row.sourceFill || 0) > 1 && Number(row.vacancies || 0) > 0) {
+        warnings.push('Expected enrollment exceeds current online capacity; verify vacancy basis before reducing sections.');
+      }
+      const confidenceLevel = warnings.some(warning => /^Limited history/i.test(warning))
+        ? 'Limited History'
+        : row.confidenceLevel || (row.score >= 75 ? 'High' : row.score >= 55 ? 'Medium' : 'Low');
+      const cleanLabel = confidenceLevel === 'Limited History'
+        ? 'Limited History Review'
+        : warnings.some(warning => /Insufficient receiving capacity/i.test(warning))
+          ? 'Manual Capacity Review'
+          : row.label;
+      const calculationBasis = isOnline
+        ? `Online reduction uses selected decision-term online capacity minus historical average ${options.vacancyBasis === 'actual' ? 'final/current' : 'census'} enrollment; historical vacancies are audit context only.`
+        : `In-person/hybrid consolidation uses historical expected enrollment, ${Math.round((options.absorbPct || 0.6) * 100)}% redistribution threshold, gross receiving open seats, and net seats after redistribution.`;
+      return {
+        ...row,
+        term: row.term || row.decisionTerm || selectedDecisionTerm,
+        decisionTerm: row.decisionTerm || selectedDecisionTerm,
+        selectedDecisionTerm,
+        selectedArchivedTerms,
+        uploadedTermsUsed,
+        historicalComparisonTermsUsed,
+        historicalTermsIncluded,
+        confidenceLevel,
+        label: cleanLabel,
+        dataQualityWarnings: warnings.join(' | '),
+        calculationBasis
+      };
+    });
   }
 
   function renderConsolidationScopePanel(context) {
@@ -4889,7 +4940,8 @@
         type: 'Historical Planning Candidate',
         decisionTerm,
         score,
-        label: score >= 75 ? 'High Review Priority' : score >= 55 ? 'Review Candidate' : 'Lower Confidence Review',
+        label: termsIncluded < (options.minHist ?? 3) ? 'Limited History Review' : score >= 75 ? 'High Review Priority' : score >= 55 ? 'Review Candidate' : 'Lower Confidence Review',
+        confidenceLevel: termsIncluded < (options.minHist ?? 3) ? 'Limited History' : score >= 75 ? 'High' : score >= 55 ? 'Medium' : 'Low',
         course,
         sectionsReviewed: avgSections,
         potentialSectionsRemoved: '',
@@ -4926,7 +4978,6 @@
         ? (row.recommendation || 'Review future schedule build for possible section count adjustment.')
         : `Remove ${removedList || 'selected low-enrollment section(s)'}; redistribute ${row.requiredSeats ?? 0} projected students into remaining sections.`;
     const projectedRedistribution = isOnline ? '' : `${row.requiredSeats ?? 0} students`;
-    const netAvailableCapacity = isOnline ? row.vacancies : row.availableReceivingCapacity;
     const sourceSummary = isOnline
       ? `Online aggregate; census-based expected enrollment ${row.sourceEnroll}; fill ${pct(row.sourceFill)}`
       : `Remove: ${removedList || 'N/A'}`;
@@ -4934,26 +4985,41 @@
       ? ''
       : `Receive into: ${receivingList || 'remaining matching sections'}; available receiving capacity ${row.availableReceivingCapacity ?? 0}`;
     const onlineSummary = isOnline
-      ? `${row.vacancies ?? 0} expected vacancies; historical avg enrollment ${row.historicalAverageEnrollment ?? row.sourceEnroll ?? 'N/A'}; historical avg vacancies ${row.historicalAverageVacancies ?? 'N/A'}; decision vacancies ${row.decisionVacancies ?? 'N/A'}; median cap ${row.sectionCap ?? 0}; possible reductions ${row.possibleReductions ?? 0}`
+      ? `${row.vacancies ?? 0} decision-term expected vacancies; historical avg enrollment ${row.historicalAverageEnrollment ?? row.sourceEnroll ?? 'N/A'}; historical avg vacancies ${row.historicalAverageVacancies ?? 'N/A'}; decision vacancies ${row.decisionVacancies ?? 'N/A'}; median cap ${row.sectionCap ?? 0}; possible reductions ${row.possibleReductions ?? 0}`
       : '';
+    const sourceSection = row.source
+      ? describe(row.source)
+      : isOnline
+        ? 'Online aggregate'
+        : removedList || row.sourceSection || 'In-person aggregate';
+    const netAvailable = row.netAvailableCapacity ?? (isOnline ? row.vacancies : Math.max(0, Number(row.availableReceivingCapacity || 0) - Number(row.requiredSeats || 0)));
+    const capacityWarning = !isOnline && Number(row.requiredSeats || 0) > Number(row.availableReceivingCapacity || 0);
+    const recommendationWithWarnings = capacityWarning
+      ? `Review manually: insufficient receiving capacity for ${row.requiredSeats ?? 0} projected students. ${recommendation}`
+      : recommendation;
     return {
       type: row.type || 'In-Person Consolidation',
       term: row.term || row.decisionTerm || row.source?.term || row.target?.term || '',
       decisionTerm: row.decisionTerm || row.term || row.source?.term || row.target?.term || '',
+      selectedDecisionTerm: row.selectedDecisionTerm || row.decisionTerm || '',
+      selectedArchivedTerms: row.selectedArchivedTerms || '',
+      uploadedTermsUsed: row.uploadedTermsUsed || '',
+      historicalComparisonTermsUsed: row.historicalComparisonTermsUsed || '',
       score: row.score,
       label: row.label,
+      confidenceLevel: row.confidenceLevel || '',
       course: row.course,
       sectionsReviewed: row.sectionsReviewed || row.sections || row.sectionCount || '',
       potentialSectionsRemoved: row.potentialSectionsRemoved || row.recommendedReductions || '',
       expectedEnrollment: row.expectedEnrollment ?? row.sourceEnroll ?? '',
       availableReceivingCapacity: row.availableReceivingCapacity ?? row.vacancies ?? targetOpenSeats ?? '',
       projectedRedistribution,
-      netAvailableCapacity,
+      netAvailableCapacity: netAvailable,
       potentialSeatsRecovered: row.potentialSeatsRecovered ?? row.freedSeats ?? '',
       projectionSource: row.projectionSource || (row.historicalTerms ? `Historical Average (${row.historicalTerms} terms)` : 'N/A'),
       finalEnrollmentContext: row.finalEnrollmentContext || 'N/A',
       sourceSummary: row.sourceSummary || sourceSummary,
-      sourceSection: row.source ? describe(row.source) : 'Online aggregate',
+      sourceSection,
       sourceEnroll: row.source ? expectedEnrollment(row.source) : row.sourceEnroll,
       sourceFill: row.source ? pct(expectedFillRate(row.source)) : pct(row.sourceFill),
       targetSummary: row.targetSummary || targetSummary,
@@ -4965,12 +5031,15 @@
       sectionCap: row.sectionCap ?? '',
       possibleReductions: row.possibleReductions ?? '',
       recommendedReductions: row.recommendedReductions ?? '',
-      recommendation,
+      recommendation: recommendationWithWarnings,
       freedSeats: row.freedSeats,
       matchReason: row.matchReason,
       historicalTerms: row.historicalTerms,
+      historicalTermsIncluded: row.historicalTermsIncluded ?? row.historicalTerms ?? '',
       chronicLowFill: row.chronicLowFill,
-      tbaConfidence: row.tba ? 'Capped at 70' : ''
+      tbaConfidence: row.tba ? 'Capped at 70' : '',
+      dataQualityWarnings: row.dataQualityWarnings || '',
+      calculationBasis: row.calculationBasis || ''
     };
   }
 
@@ -4979,7 +5048,7 @@
     if (!node) return;
     const online = rows.filter(row => row.type === 'Online Reduction');
     const inPerson = rows.filter(row => row.type !== 'Online Reduction');
-    const columns = ['type', 'score', 'label', 'course', 'sectionsReviewed', 'potentialSectionsRemoved', 'expectedEnrollment', 'availableReceivingCapacity', 'projectedRedistribution', 'netAvailableCapacity', 'potentialSeatsRecovered', 'projectionSource', 'finalEnrollmentContext', 'sourceSummary', 'targetSummary', 'recommendation', 'matchReason', 'historicalTerms', 'chronicLowFill', 'tbaConfidence'];
+    const columns = ['type', 'score', 'label', 'confidenceLevel', 'course', 'sectionsReviewed', 'potentialSectionsRemoved', 'expectedEnrollment', 'availableReceivingCapacity', 'projectedRedistribution', 'netAvailableCapacity', 'potentialSeatsRecovered', 'projectionSource', 'finalEnrollmentContext', 'sourceSummary', 'targetSummary', 'recommendation', 'matchReason', 'historicalTermsIncluded', 'dataQualityWarnings', 'chronicLowFill', 'tbaConfidence'];
     node.innerHTML = [
       consolidationTableSection('Online Reduction Candidates', online, columns),
       consolidationTableSection('In-Person and Hybrid Consolidation Candidates', inPerson, columns)
@@ -5204,10 +5273,13 @@
       ['Net Available Capacity', 'Available receiving capacity after projected redistribution.'],
       ['Potential Seats Recovered', 'Capacity attached to the section(s) recommended for review/removal.'],
       ['Projection Source', 'The source of expected enrollment, such as Historical Average (4 terms). Rows without a historical basis show N/A rather than implying hidden data.'],
+      ['Confidence Level', 'High, Medium, Low, or Limited History. Rows with fewer than three historical terms are labeled Limited History and should not be treated as high-confidence recommendations.'],
+      ['Data Quality Warnings', 'Audit notes such as limited history or insufficient receiving capacity. Warning rows should be reviewed manually before any schedule decision.'],
+      ['Calculation Basis', 'Plain-language summary of whether the row was calculated from online decision-term vacancy math or in-person/hybrid receiving-capacity math.'],
       ['Final Enrollment Context', 'Final/current enrollment context from removed sections when present. Missing or zero context displays N/A. Final enrollment does not drive recommendations.'],
       ['Source Summary', 'For consolidation rows, the section(s) recommended for review/removal. For online rows, the course-level online aggregate.'],
       ['Target Summary', 'For consolidation rows, the remaining matching sections available to receive projected enrollment and the expected receiving capacity.'],
-      ['Vacancies', 'For online reduction rows, expected open seats across decision-term online sections. This compares decision-term capacity to average historical enrollment and historical vacancy patterns.'],
+      ['Vacancies', 'For online reduction rows, expected open seats across decision-term online sections. Formula: selected decision-term online capacity minus average historical enrollment, floored at zero. Historical average vacancies remain visible only as audit context and do not by themselves create a reduction recommendation.'],
       ['Section Cap', 'For online reduction rows, the median online section cap used as the standard section size.'],
       ['Possible Reductions', 'For online rows, Vacancies divided by Section Cap, rounded down.'],
       ['Recommended Reductions', 'A conservative online reduction count. It leaves one reducible section of buffer when Possible Reductions is greater than one.'],
@@ -5216,8 +5288,8 @@
     renderMethodologyPanel(legend, {
       title: 'Consolidation Opportunities Methodology & Data Dictionary',
       purpose: 'Identifies planning candidates where low-filled sections may be reviewed for consolidation with minimal expected enrollment impact.',
-      methodology: 'This report separates online reduction math from in-person/hybrid consolidation. Online rows are course-level reduction candidates. In-person and hybrid rows are grouped by course, modality, campus, and meeting pattern so reciprocal source-target pairs do not double-count a single opportunity.',
-      assumptions: 'The default retention planning assumption is conservative review, not automatic cancellation. Consolidation rows require pooled receiving capacity based on the selected Absorb % threshold. Online rows use historical vacancy and section-cap math.',
+      methodology: 'This report separates online reduction math from in-person/hybrid consolidation. Online rows are course-level reduction candidates where decision-term offered online capacity is compared against historical average enrollment. In-person and hybrid rows are grouped by course, modality, campus, and meeting pattern so reciprocal source-target pairs do not double-count a single opportunity.',
+      assumptions: 'The default retention planning assumption is conservative review, not automatic cancellation. Consolidation rows require pooled receiving capacity based on the selected Absorb % threshold. Online rows require positive decision-term expected vacancy before any section reduction is shown.',
       limitations: 'This report does not account for equity, program sequencing, instructor load, contractual constraints, room constraints, late enrollment behavior, or leadership decisions that may justify retaining a section.',
       items,
       version: 'Methodology v1.0'
@@ -6070,7 +6142,7 @@
     document.getElementById('runInstructorAvailability')?.addEventListener('click', runInstructorAvailability);
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-${currentTerm() || 'term'}.csv`));
-    document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${currentTerm() || 'term'}.csv`));
+    document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${consolidationDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-demand-forecast-${demandTargetSlug()}.csv`));
     document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-demand-forecast-${demandTargetSlug()}.xls`));
     document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));

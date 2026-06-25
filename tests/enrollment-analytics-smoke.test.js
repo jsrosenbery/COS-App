@@ -542,8 +542,34 @@ test('grouped consolidation returns one opportunity for reciprocal section match
   assert.equal(rows[0].sectionsReviewed, 3);
   assert.equal(rows[0].potentialSectionsRemoved, 1);
   assert.equal(rows[0].expectedEnrollment, 48);
-  assert.equal(rows[0].availableReceivingCapacity, 16);
+  assert.equal(rows[0].availableReceivingCapacity, 22);
+  assert.equal(rows[0].netAvailableCapacity, 16);
   assert.equal(rows[0].finalEnrollmentContext, '8');
+});
+
+test('limited consolidation history is not labeled high confidence', () => {
+  const { COSConsolidationAnalytics } = loadEnrollmentModules();
+  const sections = [
+    section({ crn: '41001', census: 8, actual: 8, expectedEnrollment: 8, cap: 30, expectedFillRate: 8 / 30 }),
+    section({ crn: '41002', census: 20, actual: 20, expectedEnrollment: 20, cap: 30, expectedFillRate: 20 / 30 }),
+    section({ crn: '41003', census: 20, actual: 20, expectedEnrollment: 20, cap: 30, expectedFillRate: 20 / 30 })
+  ];
+  const history = new Map([[COSConsolidationAnalytics.patternKey(sections[0]), { terms: 1, low: 1 }]]);
+
+  const rows = COSConsolidationAnalytics.consolidationGroupRows('PS 200M', sections, history, 0.5, null, {
+    sameCampus: true,
+    sameModality: true,
+    dayMatch: 'exact',
+    timeWindowHours: 0,
+    absorbPct: 0.6,
+    chronicThreshold: 0.75,
+    minHist: 3
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].historicalTerms, 1);
+  assert.equal(rows[0].label, 'Limited History Review');
+  assert.equal(rows[0].confidenceLevel, 'Limited History');
 });
 
 test('TBA consolidation confidence is capped', () => {
@@ -586,6 +612,24 @@ test('online reduction candidates stay course-level and census-based', () => {
   assert.equal(rows[0].sectionsReviewed, 3);
   assert.equal(rows[0].expectedEnrollment, 23);
   assert.match(rows[0].projectionSource, /Historical Average \(2 terms\)/);
+});
+
+test('online reductions require decision-term expected vacancy', () => {
+  const { COSConsolidationAnalytics } = loadEnrollmentModules();
+  const decision = [
+    section({ term: 'FALL 2026', subject: 'HIST', course: '018', modality: 'ONLINE', crn: '50001', cap: 25 }),
+    section({ term: 'FALL 2026', subject: 'HIST', course: '018', modality: 'ONLINE', crn: '50002', cap: 25 })
+  ];
+  const historical = [
+    section({ term: 'FALL 2025', subject: 'HIST', course: '018', modality: 'ONLINE', crn: 'H1', census: 30, cap: 50 }),
+    section({ term: 'FALL 2025', subject: 'HIST', course: '018', modality: 'ONLINE', crn: 'H2', census: 30, cap: 50 }),
+    section({ term: 'FALL 2024', subject: 'HIST', course: '018', modality: 'ONLINE', crn: 'H3', census: 30, cap: 50 }),
+    section({ term: 'FALL 2024', subject: 'HIST', course: '018', modality: 'ONLINE', crn: 'H4', census: 30, cap: 50 })
+  ];
+
+  const rows = COSConsolidationAnalytics.onlineReductionRows(decision, historical, { vacancyBasis: 'census' });
+
+  assert.equal(rows.length, 0);
 });
 
 test('consolidation crosswalk maps old English history into ENGL C1000 online demand', () => {

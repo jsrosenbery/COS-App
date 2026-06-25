@@ -182,17 +182,21 @@
       const score = consolidationGroupScore(groupSections, removed, hist, options, tba);
       const expectedEnroll = groupSections.reduce((total, section) => total + expectedEnrollment(section), 0);
       const potentialSeatsRecovered = sum(removed, 'cap');
+      const netAvailableCapacity = Math.max(0, finalReceivingCapacity - requiredSeats);
+      const historicalTerms = hist.terms || Math.max(0, ...groupSections.map(section => section.historicalEstimate?.terms || 0));
       const finalContextValues = removed
         .map(section => section.expectedFinalEnrollment ?? section.finalEnrollment ?? finalEnrollment(section))
         .filter(value => Number.isFinite(value) && value > 0);
       output.push({
         type: consolidationType(representative),
         score,
-        label: score >= 75 ? 'High Review Priority' : score >= 55 ? 'Review Candidate' : 'Lower Confidence Review',
+        label: historicalTerms < (options.minHist ?? 3) ? 'Limited History Review' : score >= 75 ? 'High Review Priority' : score >= 55 ? 'Review Candidate' : 'Lower Confidence Review',
+        confidenceLevel: historicalTerms < (options.minHist ?? 3) ? 'Limited History' : score >= 75 ? 'High' : score >= 55 ? 'Medium' : 'Low',
         course,
         sectionsReviewed: groupSections.length,
         potentialSectionsRemoved: removed.length,
-        availableReceivingCapacity: Math.max(0, finalReceivingCapacity - requiredSeats),
+        availableReceivingCapacity: finalReceivingCapacity,
+        netAvailableCapacity,
         expectedEnrollment: expectedEnroll,
         potentialSeatsRecovered,
         freedSeats: potentialSeatsRecovered,
@@ -201,8 +205,8 @@
         requiredSeats,
         projectionSource: projectionSourceLabel(groupSections),
         finalEnrollmentContext: finalContextValues.length ? finalContextValues.join(', ') : 'N/A',
-        matchReason: `${removed.length} low-enrollment section(s) can be reviewed as one ${tba ? 'lower-confidence TBA' : 'meeting-pattern'} scenario; ${Math.max(0, finalReceivingCapacity - requiredSeats)} net receiving seats after ${requiredSeats} projected redistribution seats`,
-        historicalTerms: hist.terms || Math.max(0, ...groupSections.map(section => section.historicalEstimate?.terms || 0)),
+        matchReason: `${removed.length} low-enrollment section(s) can be reviewed as one ${tba ? 'lower-confidence TBA' : 'meeting-pattern'} scenario; ${netAvailableCapacity} net receiving seats after ${requiredSeats} projected redistribution seats`,
+        historicalTerms,
         chronicLowFill: hist.terms && safeDiv(hist.low, hist.terms) >= (options.chronicThreshold ?? 0.75) ? 'Yes' : 'No',
         tba
       });
@@ -280,15 +284,17 @@
       const enrollment = Math.round(average(historicalEnrollmentValues));
       const historicalVacancies = Math.round(average(historicalVacancyValues));
       const decisionVacancies = Math.max(0, totalCap - enrollment);
-      const vacancies = Math.max(decisionVacancies, historicalVacancies);
+      const vacancies = decisionVacancies;
       const sectionCap = median(sections.map(row => row.cap));
       const possibleReductions = sectionCap > 0 ? Math.floor(vacancies / sectionCap) : 0;
       if (possibleReductions < 1) return;
       const recommendedReductions = possibleReductions > 1 ? possibleReductions - 1 : possibleReductions;
+      const historicalTermCount = historicalByTerm.size;
       output.push({
         type: 'Online Reduction',
         score: Math.min(100, 55 + Math.min(35, possibleReductions * 10)),
-        label: recommendedReductions >= 2 ? 'High Review Priority' : 'Review Candidate',
+        label: historicalTermCount < (options.minHist ?? 3) ? 'Limited History Review' : recommendedReductions >= 2 ? 'High Review Priority' : 'Review Candidate',
+        confidenceLevel: historicalTermCount < (options.minHist ?? 3) ? 'Limited History' : recommendedReductions >= 2 ? 'High' : 'Medium',
         course,
         sections: sections.length,
         sectionsReviewed: sections.length,
@@ -308,11 +314,11 @@
         historicalAverageVacancies: historicalVacancies,
         decisionVacancies,
         potentialSeatsRecovered: recommendedReductions * sectionCap,
-        projectionSource: `Historical Average (${historicalByTerm.size} terms)`,
+        projectionSource: `Historical Average (${historicalTermCount} terms)`,
         finalEnrollmentContext: 'N/A',
         freedSeats: recommendedReductions * sectionCap,
-        matchReason: `${vacancies} expected vacant seats across ${sections.length} decision-term online sections using ${historicalByTerm.size} historical term(s) and ${options.vacancyBasis === 'actual' ? 'final/current' : 'census'} enrollment`,
-        historicalTerms: historicalByTerm.size,
+        matchReason: `${vacancies} expected decision-term vacant seats across ${sections.length} online sections using ${historicalTermCount} historical term(s) and ${options.vacancyBasis === 'actual' ? 'final/current' : 'census'} enrollment`,
+        historicalTerms: historicalTermCount,
         chronicLowFill: ''
       });
     });
