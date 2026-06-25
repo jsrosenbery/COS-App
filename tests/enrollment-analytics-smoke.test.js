@@ -1138,6 +1138,9 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(app, /r\.Days \|\| r\.days \|\| r\.dayPattern/);
   assert.match(app, /'roomOnly', 'room'/);
   assert.match(app, /'Start_Time', 'Start Time', 'start', 'Start'/);
+  assert.match(app, /dayColumnMap/);
+  assert.match(app, /'MONDAY', 'Monday'/);
+  assert.match(app, /'INSTRUCTIONAL_METHOD_CODE'/);
   assert.match(app, /Underutilized Room/);
   assert.match(app, /Over Capacity Risk/);
   assert.match(app, /Enrollment Exceeds Room Capacity/);

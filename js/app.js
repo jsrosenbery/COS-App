@@ -504,6 +504,15 @@ function getUniqueRooms(data) {
 function normalizeRow(r) {
   // Convert DAYS like "MW" to ["Monday","Wednesday"]
   const daysMap = {M:"Monday",T:"Tuesday",W:"Wednesday",R:"Thursday",F:"Friday",U:"Sunday",S:"Saturday"};
+  const dayColumnMap = [
+    ['MONDAY', 'Monday'],
+    ['TUESDAY', 'Tuesday'],
+    ['WEDNESDAY', 'Wednesday'],
+    ['THURSDAY', 'Thursday'],
+    ['FRIDAY', 'Friday'],
+    ['SATURDAY', 'Saturday'],
+    ['SUNDAY', 'Sunday']
+  ];
   const rawDays = extractField(r, [
     'DAYS', 'Days', 'Meeting Days', 'Meet Days', 'Day', 'Days Of Week',
     'Mtg Days', 'Meeting Pattern', 'Meeting_Pattern', 'dayPattern', 'Day Pattern'
@@ -524,6 +533,10 @@ function normalizeRow(r) {
     daysArr = r.Days;
   } else if (Array.isArray(r.days)) {
     daysArr = r.days;
+  } else {
+    daysArr = dayColumnMap
+      .filter(([column]) => extractField(r, [column]))
+      .map(([, day]) => day);
   }
   // Parse Time to Start_Time and End_Time
   let start24 = "00:00", end24 = "00:00";
@@ -560,7 +573,7 @@ function normalizeRow(r) {
     Division: extractField(r, ['Division', 'Academic Division', 'Department Division', 'School', 'Area']),
     Discipline: getCourseParts(r).discipline,
     Course_Number: getCourseParts(r).courseNumber,
-    Instructional_Method: extractField(r, ['Instructional Method', 'Instructional_Method', 'Instr Method', 'Instruction Method', 'Method', 'Modality']),
+    Instructional_Method: extractField(r, ['INSTRUCTIONAL_METHOD_CODE', 'Instructional Method Code', 'Instructional Method', 'Instructional_Method', 'Instr Method', 'Instruction Method', 'Method', 'Modality', 'INSTRUCTION_METHOD_DESC', 'Instruction Method Desc']),
     Building: extractField(r, ['BUILDING', 'Building', 'building', 'Bldg', 'Bldg Code', 'Building Code', 'Facility Building']),
     Room: extractField(r, ['ROOM', 'Room', 'roomOnly', 'room', 'Room Number', 'Room No', 'Facility Room']),
     Days: daysArr,
@@ -2706,6 +2719,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function getInstructionalMethod(section) {
     return extractField(section, [
       'Instructional_Method',
+      'INSTRUCTIONAL_METHOD_CODE',
+      'Instructional Method Code',
       'Instructional Method',
       'Instr Method',
       'Instruction Method',
@@ -2714,6 +2729,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       'Method',
       'Modality',
       'modality',
+      'INSTRUCTION_METHOD_DESC',
+      'Instruction Method Desc',
       'Schedule Type'
     ]);
   }
