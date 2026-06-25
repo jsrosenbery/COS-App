@@ -850,6 +850,21 @@ test('conflict check flags partial overlaps and deduplicates duplicate meetings'
   assert.equal(conflicts.some(row => row.crn1 === row.crn2), false);
 });
 
+test('conflict check suppresses pairs with non-overlapping section date ranges', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2027', crn: 'D1', subject: 'ENGL', course: 'C1000', instructor: 'ONE, A', room: 'KERN 101', days: ['MO'], start: '09:00', end: '10:00', startDate: '08/17/2027', endDate: '10/15/2027' }),
+    section({ term: 'FALL 2027', crn: 'D2', subject: 'MATH', course: '021', instructor: 'TWO, B', room: 'KERN 101', days: ['MO'], start: '09:00', end: '10:00', startDate: '10/18/2027', endDate: '12/10/2027' }),
+    section({ term: 'FALL 2027', crn: 'D3', subject: 'HIST', course: '018', instructor: 'THREE, C', room: 'KERN 101', days: ['MO'], start: '09:30', end: '10:30', startDate: '10/01/2027', endDate: '11/01/2027' })
+  ];
+
+  const conflicts = COSEnrollmentAnalytics.conflictRows(rows, ['roomOverlap']);
+
+  assert.equal(conflicts.length, 2);
+  assert.equal(conflicts.some(row => [row.crn1, row.crn2].includes('D1') && [row.crn1, row.crn2].includes('D2')), false);
+  assert.equal(conflicts.every(row => row.dateRange1 && row.dateRange2), true);
+});
+
 test('conflict check omits cross-listed pairs and combines room instructor overlaps by default', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [

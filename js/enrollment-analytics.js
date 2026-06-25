@@ -269,6 +269,8 @@
       dayPattern: isWorkExperienceSource ? 'WORK EXPERIENCE' : dayPattern(days),
       start: isWorkExperienceSource ? '' : times.start,
       end: isWorkExperienceSource ? '' : times.end,
+      startDate: val(row, fields.startDate),
+      endDate: val(row, fields.endDate),
       timeBlock: isWorkExperienceSource ? 'WORK EXPERIENCE' : (isOnlinePlaceholderTime({ modality, start: times.start, end: times.end }) ? 'ONLINE/TBA' : timeBlock(times.start, modality)),
       building,
       roomOnly,
@@ -2632,6 +2634,7 @@
         const b = meetings[j];
         if (a.term !== b.term || a.day !== b.day || a.sectionKey === b.sectionKey) continue;
         if (omitCrossListed && hasCrossList(a, b)) continue;
+        if (!dateRangesOverlap(a, b)) continue;
         const overlapStart = Math.max(a.startMinutes, b.startMinutes);
         const overlapEnd = Math.min(a.endMinutes, b.endMinutes);
         const overlap = overlapEnd - overlapStart;
@@ -2680,7 +2683,8 @@
       if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes || !fixedDays.length) return;
       fixedDays.forEach(day => {
         const sectionId = sectionKey(row);
-        const meetingKey = [sectionId, day, startMinutes, endMinutes].join('|');
+        const dateRange = normalizedDateRange(row);
+        const meetingKey = [sectionId, day, startMinutes, endMinutes, dateRange].join('|');
         if (map.has(meetingKey)) return;
         map.set(meetingKey, {
           row,
@@ -2695,11 +2699,65 @@
           room: row.room || [row.building, row.roomOnly].filter(Boolean).join(' '),
           roomKey: canon(row.room || [row.building, row.roomOnly].filter(Boolean).join(' ')),
           courseKey: canon(`${row.subject || ''} ${row.course || ''}`.trim()),
-          crossList: canon(row.crossList)
+          crossList: canon(row.crossList),
+          startDate: row.startDate || '',
+          endDate: row.endDate || '',
+          dateRange: sectionDateRange(row),
+          dateRangeLabel: dateRange
         });
       });
     });
     return [...map.values()];
+  }
+
+  function parseSectionDate(value) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const serial = Number(text);
+    if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+      const excelEpoch = Date.UTC(1899, 11, 30);
+      return new Date(excelEpoch + serial * 24 * 60 * 60 * 1000);
+    }
+    const parsed = Date.parse(text);
+    if (Number.isFinite(parsed)) return new Date(parsed);
+    const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+    if (!match) return null;
+    const month = Number(match[1]) - 1;
+    const day = Number(match[2]);
+    const rawYear = Number(match[3]);
+    const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+    const date = new Date(year, month, day);
+    return Number.isFinite(date.getTime()) ? date : null;
+  }
+
+  function sectionDateRange(row) {
+    const start = parseSectionDate(row?.startDate);
+    const end = parseSectionDate(row?.endDate);
+    if (!start && !end) return null;
+    return {
+      start: start || end,
+      end: end || start
+    };
+  }
+
+  function dateRangesOverlap(a, b) {
+    const left = a?.dateRange || sectionDateRange(a);
+    const right = b?.dateRange || sectionDateRange(b);
+    if (!left || !right) return true;
+    return left.start <= right.end && right.start <= left.end;
+  }
+
+  function formatSectionDate(value) {
+    const date = parseSectionDate(value);
+    if (!date) return String(value || '');
+    return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+  }
+
+  function normalizedDateRange(row) {
+    const start = formatSectionDate(row?.startDate);
+    const end = formatSectionDate(row?.endDate);
+    if (start && end) return `${start}-${end}`;
+    return start || end || '';
   }
 
   function canonDay(value) {
@@ -2732,11 +2790,13 @@
       course1: a.course,
       instructor1: a.instructor,
       room1: a.room,
+      dateRange1: a.dateRangeLabel || normalizedDateRange(a),
       crossList1: a.crossList,
       crn2: b.crn,
       course2: b.course,
       instructor2: b.instructor,
       room2: b.room,
+      dateRange2: b.dateRangeLabel || normalizedDateRange(b),
       crossList2: b.crossList,
       overlapMinutes: overlapMinutesValue
     };
@@ -2764,11 +2824,13 @@
       'course1',
       'instructor1',
       'room1',
+      'dateRange1',
       'crossList1',
       'crn2',
       'course2',
       'instructor2',
       'room2',
+      'dateRange2',
       'crossList2',
       'overlapMinutes'
     ]);
@@ -2962,12 +3024,13 @@
     renderMethodologyPanel(legend, {
       title: 'Conflict Check Methodology & Data Dictionary',
       purpose: 'Identifies loaded class meetings that overlap by room, instructor, exact room/time, exact instructor/time, or same course/day/time pattern.',
-      methodology: 'The report creates one meeting record per Term + CRN + day + start + end, removes duplicate meeting rows, then compares every fixed meeting pair in the selected term. A conflict is flagged when the two meetings share the selected basis and their time intervals overlap. When same room and same instructor both match, the pair is shown once as Same Room + Same Instructor unless Show separate conflict types is selected.',
-      assumptions: 'Rows without fixed meeting days and valid start/end times are excluded. Fully online or TBA rows only appear if they include fixed meeting days and times. Same room uses the normalized building/room text. Same instructor uses the uploaded instructor field. CROSS_LIST identifies cross-listed rows; rows with nonblank CROSS_LIST values are omitted by default.',
+      methodology: 'The report creates one meeting record per Term + CRN + day + start + end, removes duplicate meeting rows, then compares every fixed meeting pair in the selected term. A conflict is flagged when the two meetings share the selected basis, their time intervals overlap, and their section date ranges overlap. When same room and same instructor both match, the pair is shown once as Same Room + Same Instructor unless Show separate conflict types is selected.',
+      assumptions: 'Rows without fixed meeting days and valid start/end times are excluded. Fully online or TBA rows only appear if they include fixed meeting days and times. Same room uses the normalized building/room text. Same instructor uses the uploaded instructor field. Start Date and End Date are used to suppress false conflicts between non-overlapping parts of term; if either row has no usable date range, the report keeps the possible conflict because the dates cannot rule it out. CROSS_LIST identifies cross-listed rows; rows with nonblank CROSS_LIST values are omitted by default.',
       limitations: 'This report identifies schedule conflicts for review. It does not decide whether intentional cross-listing, arranged meetings, room-sharing, instructor load rules, or special events make an overlap acceptable.',
       items: [
         ['Conflict Type', 'The selected conflict basis that matched: same room overlap, same instructor overlap, exact room/time, exact instructor/time, or same course/day/time pattern.'],
         ['Time Overlap', 'The intersecting portion of the two class meeting intervals. Partial overlaps are included.'],
+        ['Date Range 1 / Date Range 2', 'Parsed section date ranges. Pairs with non-overlapping date ranges are not shown as conflicts.'],
         ['CRN 1 / CRN 2', 'The two distinct CRNs involved. A CRN is never compared against itself.'],
         ['Cross List 1 / Cross List 2', 'Parsed CROSS_LIST values for each section. If Omit Cross-Listed Sections is on, conflict pairs where either row has a nonblank value do not appear in conflict results.'],
         ['Overlap Minutes', 'Number of minutes shared by both meetings on the same day. Formula: min(end times) - max(start times).'],
@@ -5251,10 +5314,12 @@
       course1: 'Course 1',
       instructor1: 'Instructor 1',
       room1: 'Room 1',
+      dateRange1: 'Date Range 1',
       crn2: 'CRN 2',
       course2: 'Course 2',
       instructor2: 'Instructor 2',
       room2: 'Room 2',
+      dateRange2: 'Date Range 2',
       overlapMinutes: 'Overlap Minutes',
       studentsPresent: 'Students Present',
       sectionsActive: 'Sections Active',
