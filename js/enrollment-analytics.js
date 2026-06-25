@@ -145,8 +145,8 @@
     status: ['Status', 'STATUS', 'Section Status'],
     crossList: ['CROSS_LIST', 'Cross List', 'Cross_List', 'Cross Listed', 'Cross-Listed', 'XLIST', 'X_LIST']
   };
-  fields.startDate = ['Start_Date', 'START_DATE', 'Start Date', 'Class Start Date', 'Begin Date'];
-  fields.endDate = ['End_Date', 'END_DATE', 'End Date', 'Class End Date', 'Stop Date'];
+  fields.startDate = ['Start_Date', 'START_DATE', 'Start Date', 'START DATE', 'Class Start Date', 'CLASS START DATE', 'Begin Date', 'BEGIN DATE'];
+  fields.endDate = ['End_Date', 'END_DATE', 'End Date', 'END DATE', 'Class End Date', 'CLASS END DATE', 'Stop Date', 'STOP DATE'];
 
   function val(row, names) {
     for (const name of names) {
@@ -2801,12 +2801,16 @@
       course1: a.course,
       instructor1: a.instructor,
       room1: a.room,
+      startDate1: formatSectionDate(a.startDate),
+      endDate1: formatSectionDate(a.endDate),
       dateRange1: a.dateRangeLabel || normalizedDateRange(a),
       crossList1: a.crossList,
       crn2: b.crn,
       course2: b.course,
       instructor2: b.instructor,
       room2: b.room,
+      startDate2: formatSectionDate(b.startDate),
+      endDate2: formatSectionDate(b.endDate),
       dateRange2: b.dateRangeLabel || normalizedDateRange(b),
       crossList2: b.crossList,
       overlapMinutes: overlapMinutesValue
@@ -2835,12 +2839,16 @@
       'course1',
       'instructor1',
       'room1',
+      'startDate1',
+      'endDate1',
       'dateRange1',
       'crossList1',
       'crn2',
       'course2',
       'instructor2',
       'room2',
+      'startDate2',
+      'endDate2',
       'dateRange2',
       'crossList2',
       'overlapMinutes'
@@ -5471,11 +5479,15 @@
       course1: 'Course 1',
       instructor1: 'Instructor 1',
       room1: 'Room 1',
+      startDate1: 'Start Date 1',
+      endDate1: 'End Date 1',
       dateRange1: 'Date Range 1',
       crn2: 'CRN 2',
       course2: 'Course 2',
       instructor2: 'Instructor 2',
       room2: 'Room 2',
+      startDate2: 'Start Date 2',
+      endDate2: 'End Date 2',
       dateRange2: 'Date Range 2',
       overlapMinutes: 'Overlap Minutes',
       studentsPresent: 'Students Present',

@@ -885,6 +885,47 @@ test('conflict check suppresses pairs with non-overlapping section date ranges',
   assert.equal(conflicts.every(row => row.dateRange1 && row.dateRange2), true);
 });
 
+test('conflict check parses all-caps start and end date headers into table fields', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    {
+      TERM: 'FALL 2027',
+      CRN: 'SD1',
+      'SUBJECT/COURSE': 'ENGL C1000',
+      FACULTY: 'ONE, A',
+      BUILDING: 'KERN',
+      ROOM: '101',
+      MONDAY: 'Y',
+      'START TIME': '09:00',
+      'END TIME': '10:00',
+      'START DATE': '08/17/2027',
+      'END DATE': '10/15/2027'
+    },
+    {
+      TERM: 'FALL 2027',
+      CRN: 'SD2',
+      'SUBJECT/COURSE': 'MATH 021',
+      FACULTY: 'TWO, B',
+      BUILDING: 'KERN',
+      ROOM: '101',
+      MONDAY: 'Y',
+      'START TIME': '09:30',
+      'END TIME': '10:30',
+      'START DATE': '09/01/2027',
+      'END DATE': '12/10/2027'
+    }
+  ].map(row => COSEnrollmentAnalytics.normalizeRow(row));
+
+  const conflicts = COSEnrollmentAnalytics.conflictRows(rows, ['roomOverlap']);
+
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].startDate1, '8/17/2027');
+  assert.equal(conflicts[0].endDate1, '10/15/2027');
+  assert.equal(conflicts[0].startDate2, '9/1/2027');
+  assert.equal(conflicts[0].endDate2, '12/10/2027');
+  assert.equal(conflicts[0].dateRange1, '8/17/2027-10/15/2027');
+});
+
 test('conflict check omits cross-listed pairs and combines room instructor overlaps by default', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
