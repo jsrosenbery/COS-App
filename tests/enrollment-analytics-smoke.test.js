@@ -414,6 +414,28 @@ test('attrition lifecycle uses matched CRNs when milestone populations differ', 
   assert.equal(metrics.decisionMilestoneCrnCounts.final, 3);
 });
 
+test('lifecycle diagnostics presentation keeps mismatch warnings out of headline cards', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const metricStart = text.indexOf("metric('attritionMetrics'");
+  const metricEnd = text.indexOf('renderAttritionDiagnosticRates', metricStart);
+  const detailStart = text.indexOf("table('attritionTable'");
+  const detailEnd = text.indexOf('renderAttritionLegend', detailStart);
+  const metricsBlock = text.slice(metricStart, metricEnd);
+  const detailBlock = text.slice(detailStart, detailEnd);
+
+  assert.match(text, /Enrollment Lifecycle Diagnostics/);
+  assert.match(text, /Diagnostic Attrition Rates/);
+  assert.doesNotMatch(metricsBlock, /N\/A - Different section populations/);
+  [
+    'firstDayToCensus1Attrition',
+    'firstDayToCensus2Attrition',
+    'firstDayToEndFinalAttrition',
+    'census1ToCensus2Attrition',
+    'census1ToEndFinalAttrition',
+    'census2ToEndFinalAttrition'
+  ].forEach(column => assert.match(detailBlock, new RegExp(column)));
+});
+
 test('dashboard focus term scopes current metrics and excludes focus from history', () => {
   const { COSEnrollmentAnalytics, COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
   const rows = [
@@ -1110,7 +1132,9 @@ test('enrollment analytics report labels are operational', () => {
   assert.doesNotMatch(text, /WIP/);
   assert.match(text, /Enrollment Analytics Dashboard/);
   assert.match(text, /Enrollment Demand Forecast/);
-  assert.match(text, /Enrollment Attrition \/ Lifecycle/);
+  assert.match(text, /Enrollment Lifecycle Diagnostics/);
+  assert.match(text, /Diagnostic Attrition Rates/);
+  assert.match(text, /attritionDiagnosticRates/);
   assert.match(text, /Section Consolidation Opportunities/);
   assert.match(text, /Room Utilization Map/);
   assert.match(text, /Conflict Check Report/);
@@ -1298,7 +1322,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
     'Conflict Check Report',
     'Course Duration / Concurrent Courses',
     'Enrollment Analytics Dashboard',
-    'Enrollment Attrition / Lifecycle',
+    'Enrollment Lifecycle Diagnostics',
     'Enrollment Demand Forecast',
     'Enrollment Snapshot Manager',
     'Heatmap Analytics',
