@@ -1158,6 +1158,7 @@
           <div class="analytics-report-intro">
             <h2>Instructor Availability - Planning View</h2>
             <p>This first-layer planning view uses the loaded schedule/class data to identify when instructors are already scheduled. It does not prove contractual or personal availability; it only separates known schedule conflicts from open windows where no loaded teaching assignment is found.</p>
+            <p class="analytics-direction"><strong><u>Instructor Availability depends on the term selected for the Room Availability Grid at the top of the page.</u></strong></p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -5753,6 +5754,7 @@
       .analytics-report-intro{margin-bottom:16px;color:#51657c;line-height:1.45}
       .analytics-report-intro h2{margin:0 0 6px;color:#123367;font-size:24px}
       .analytics-report-intro p{margin:0;max-width:980px}
+      .analytics-report-intro .analytics-direction{margin-top:8px;color:#123367}
       .analytics-methodology{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:14px;padding:14px;border:1px solid #d8e1ec;border-radius:12px;background:#f8fbff}
       .analytics-methodology>div{min-width:0}
       .analytics-methodology h3{margin:0 0 6px;color:#123367;font-size:15px}
