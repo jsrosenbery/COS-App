@@ -919,9 +919,9 @@ test('student presence defaults to physical in-person hybrid rows and supports e
 test('conflict check flags partial overlaps and deduplicates duplicate meetings', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    section({ term: 'FALL 2027', crn: 'C1', subject: 'ENGL', course: 'C1000', instructor: 'ONE, A', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '09:00', end: '10:15' }),
-    section({ term: 'FALL 2027', crn: 'C1', subject: 'ENGL', course: 'C1000', instructor: 'ONE, A', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '09:00', end: '10:15' }),
-    section({ term: 'FALL 2027', crn: 'C2', subject: 'MATH', course: '021', instructor: 'TWO, B', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], start: '10:00', end: '11:00' }),
+    section({ term: 'FALL 2027', crn: 'C1', subject: 'ENGL', course: 'C1000', instructor: 'ONE, A', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO', 'WE'], dayPattern: 'MW', start: '09:00', end: '10:15' }),
+    section({ term: 'FALL 2027', crn: 'C1', subject: 'ENGL', course: 'C1000', instructor: 'ONE, A', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO', 'WE'], dayPattern: 'MW', start: '09:00', end: '10:15' }),
+    section({ term: 'FALL 2027', crn: 'C2', subject: 'MATH', course: '021', instructor: 'TWO, B', building: 'KERN', roomOnly: '101', room: 'KERN 101', days: ['MO'], dayPattern: 'M', start: '10:00', end: '11:00' }),
     section({ term: 'FALL 2027', crn: 'C3', subject: 'HIST', course: '018', instructor: 'ONE, A', building: 'KERN', roomOnly: '102', room: 'KERN 102', days: ['MO'], start: '09:30', end: '10:30' }),
     section({ term: 'FALL 2027', crn: 'C4', subject: 'HIST', course: '018', instructor: 'THREE, C', building: 'KERN', roomOnly: '103', room: 'KERN 103', days: ['TBA'], start: '', end: '' })
   ];
@@ -932,6 +932,9 @@ test('conflict check flags partial overlaps and deduplicates duplicate meetings'
   assert.equal(conflicts.filter(row => row.conflictType === 'Same room overlap').length, 1);
   assert.equal(conflicts.filter(row => row.conflictType === 'Same instructor overlap').length, 1);
   assert.equal(conflicts.find(row => row.conflictType === 'Same room overlap').overlapMinutes, 15);
+  assert.equal(conflicts.find(row => row.conflictType === 'Same room overlap').day, 'MO');
+  assert.equal(conflicts.find(row => row.conflictType === 'Same room overlap').meetingDays1, 'MW');
+  assert.equal(conflicts.find(row => row.conflictType === 'Same room overlap').meetingDays2, 'M');
   assert.equal(conflicts.find(row => row.conflictType === 'Same instructor overlap').overlapMinutes, 45);
   assert.equal(conflicts.some(row => row.crn1 === row.crn2), false);
 });

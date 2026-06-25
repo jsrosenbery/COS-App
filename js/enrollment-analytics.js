@@ -2704,6 +2704,7 @@
           sectionKey: sectionId,
           term: canon(row.term),
           day,
+          meetingDays: row.dayPattern || dayPattern(row.days || []),
           startMinutes,
           endMinutes,
           crn: row.crn || '',
@@ -2798,6 +2799,7 @@
       conflictType,
       term: a.term,
       day: a.day,
+      meetingDays1: a.meetingDays,
       timeOverlap: `${formatMinutes(overlapStart)}-${formatMinutes(overlapEnd)}`,
       crn1: a.crn,
       course1: a.course,
@@ -2807,6 +2809,7 @@
       endDate1: formatSectionDate(a.endDate),
       dateRange1: a.dateRangeLabel || normalizedDateRange(a),
       crossList1: a.crossList,
+      meetingDays2: b.meetingDays,
       crn2: b.crn,
       course2: b.course,
       instructor2: b.instructor,
@@ -2823,11 +2826,14 @@
     const rows = state.conflictRows || [];
     const diagnostics = state.conflictDiagnostics || {};
     const typeCounts = new Map();
+    const dayCounts = new Map();
     rows.forEach(row => typeCounts.set(row.conflictType, (typeCounts.get(row.conflictType) || 0) + 1));
+    rows.forEach(row => dayCounts.set(row.day, (dayCounts.get(row.day) || 0) + 1));
     metric('conflictMetrics', [
       ['Term', document.getElementById('conflictTerm')?.value || 'N/A'],
       ['Conflicts Found', rows.length],
       ['Conflict Types', [...typeCounts.entries()].map(([type, count]) => `${type}: ${count}`).join('; ') || 'None'],
+      ['Conflict Days', [...dayCounts.entries()].sort((a, b) => dayOrder.indexOf(canonDay(a[0])) - dayOrder.indexOf(canonDay(b[0]))).map(([day, count]) => `${dayLabels[day] || day}: ${count}`).join('; ') || 'None'],
       ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded || 0],
       ['Cross-Listed Pairs', document.getElementById('conflictOmitCrossListed')?.checked !== false ? 'Omitted when either row has CROSS_LIST' : 'Included'],
       ['Duplicate Type Rows', document.getElementById('conflictSeparateTypes')?.checked === true ? 'Separate' : 'Combined']
@@ -2837,6 +2843,7 @@
       'term',
       'day',
       'timeOverlap',
+      'meetingDays1',
       'crn1',
       'course1',
       'instructor1',
@@ -2845,6 +2852,7 @@
       'endDate1',
       'dateRange1',
       'crossList1',
+      'meetingDays2',
       'crn2',
       'course2',
       'instructor2',
@@ -5710,7 +5718,9 @@
       instructionalMethod: 'Instructional Method',
       timeBlock: 'Time Block',
       censusEnrollment: 'Census Enrollment',
+      day: 'Overlap Day',
       timeOverlap: 'Time Overlap',
+      meetingDays1: 'Meeting Days 1',
       crn1: 'CRN 1',
       course1: 'Course 1',
       instructor1: 'Instructor 1',
@@ -5718,6 +5728,7 @@
       startDate1: 'Start Date 1',
       endDate1: 'End Date 1',
       dateRange1: 'Date Range 1',
+      meetingDays2: 'Meeting Days 2',
       crn2: 'CRN 2',
       course2: 'Course 2',
       instructor2: 'Instructor 2',
