@@ -197,13 +197,49 @@
       <label>Room Type:
         <select id="utilization-type-select"></select>
       </label>
+      <label>Building:
+        <select id="utilization-building-select"></select>
+      </label>
+      <label>Sort:
+        <select id="utilization-sort-select">
+          <option value="score">Overall Score</option>
+          <option value="overall">Overall Utilization</option>
+          <option value="prime">Prime-Time Utilization</option>
+          <option value="opportunity">Opportunity Score</option>
+          <option value="distribution">Distribution Score</option>
+          <option value="fragmentation">Fragmentation Score</option>
+          <option value="capacity">Room Capacity</option>
+          <option value="room">Room</option>
+        </select>
+      </label>
+      <label>Min Capacity:
+        <input id="utilization-min-capacity" type="number" min="0" step="1" placeholder="Any">
+      </label>
+      <label>Max Capacity:
+        <input id="utilization-max-capacity" type="number" min="0" step="1" placeholder="Any">
+      </label>
+      <label>Min Overall %:
+        <input id="utilization-min-overall" type="number" min="0" max="100" step="1" placeholder="Any">
+      </label>
+      <label>Min Prime %:
+        <input id="utilization-min-prime" type="number" min="0" max="100" step="1" placeholder="Any">
+      </label>
+      <label>Min Opportunity %:
+        <input id="utilization-min-opportunity" type="number" min="0" max="100" step="1" placeholder="Any">
+      </label>
+      <label>Min Distribution %:
+        <input id="utilization-min-distribution" type="number" min="0" max="100" step="1" placeholder="Any">
+      </label>
+      <label>Min Fragmentation %:
+        <input id="utilization-min-fragmentation" type="number" min="0" max="100" step="1" placeholder="Any">
+      </label>
       <label class="inline-check">
         <input id="utilization-exclude-tutoring-openlab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections
       </label>
       <button id="utilization-clear-btn" type="button">Clear</button>
     </div>
     <div class="utilization-note">
-      Scores weight room usage between 9:00 AM and 3:00 PM Monday-Thursday more heavily, then adjust expectations by room type and capacity. Expected weighted = weekly weighted availability x room-type target x capacity factor. VISFSC rooms are excluded from this view.
+      Scores now use a component model instead of a fixed prime-time multiplier. Overall Room Utilization Score = Overall Utilization 40% + Prime-Time Utilization 25% + Distribution Score 20% + Fragmentation Score 15%. Opportunity Score is displayed separately as additional scheduling capacity. VISFSC rooms are excluded from this view.
     </div>
     <div class="utilization-explainer">
       <h3>Calculation and Designation Guide</h3>
@@ -218,8 +254,8 @@
         <tbody>
           <tr>
             <td>Score</td>
-            <td>Weighted hours divided by expected weighted hours.</td>
-            <td>A score near 1.00 means the room is being used near its adjusted expectation.</td>
+            <td>Overall Room Utilization Score = Overall Utilization 40% + Prime-Time Utilization 25% + Distribution Score 20% + Fragmentation Score 15%.</td>
+            <td>Separates total use, high-demand use, weekly spread, and schedule cleanliness so one or two prime-time classes cannot overstate room use.</td>
           </tr>
           <tr>
             <td>Weekly hours</td>
@@ -232,19 +268,29 @@
             <td>Highlights use during the highest-demand part of the day.</td>
           </tr>
           <tr>
-            <td>Weighted hours</td>
-            <td>All hours count 1.0x; Monday-Thursday peak minutes between 9:00 AM and 3:00 PM receive an extra 0.5x bump, for 1.5x total.</td>
-            <td>Gives extra value to room use during peak demand while still counting other scheduled use.</td>
+            <td>Overall Utilization</td>
+            <td>Scheduled instructional hours divided by available instructional hours. Available hours default to 8:00 AM-5:00 PM, Monday-Friday.</td>
+            <td>Measures total room usage across the selected schedule window.</td>
           </tr>
           <tr>
-            <td>Expected weighted</td>
-            <td>Weekly weighted availability x room-type target x capacity factor. Weekly weighted availability is 60.0 hours: Monday-Thursday each have 6 peak hours at 1.5x plus 3 off-peak hours at 1.0x, and Friday has 9 off-peak hours at 1.0x.</td>
-            <td>Sets a fair target so specialized rooms and small rooms are not judged like large general classrooms.</td>
+            <td>Prime-Time Utilization</td>
+            <td>Scheduled prime-time hours divided by available prime-time hours. Prime time defaults to Monday-Thursday, 9:00 AM-3:00 PM.</td>
+            <td>Measures use during high-demand instructional hours without multiplying the overall score directly.</td>
           </tr>
           <tr>
-            <td>Peak share</td>
-            <td>Peak hours divided by total weekly hours.</td>
-            <td>Shows what percentage of the room's use happens during the Monday-Thursday 9:00 AM-3:00 PM demand window.</td>
+            <td>Distribution Score</td>
+            <td>Combines active days and active half-hour blocks as a share of available days/time blocks.</td>
+            <td>Rewards rooms used across several days and times instead of only one or two concentrated blocks.</td>
+          </tr>
+          <tr>
+            <td>Fragmentation Score</td>
+            <td>Compares scheduled half-hour blocks with the number of contiguous scheduled segments. Cleaner continuous blocks score higher.</td>
+            <td>Penalizes scattered isolated meetings separated by awkward gaps.</td>
+          </tr>
+          <tr>
+            <td>Opportunity Score</td>
+            <td>Unused total and prime-time availability, weighted toward unused prime-time capacity.</td>
+            <td>Identifies rooms that may be good candidates for additional scheduling. It is not included in the overall score.</td>
           </tr>
         </tbody>
       </table>
@@ -264,23 +310,23 @@
           </tr>
           <tr>
             <td>Very Efficient</td>
-            <td>Score 1.10 or higher</td>
-            <td>Strong use relative to the adjusted target, especially valuable when peak-hour use is present.</td>
+            <td>Score 80% or higher</td>
+            <td>Strong overall and prime-time use with healthy weekly distribution.</td>
           </tr>
           <tr>
             <td>Efficient</td>
-            <td>Score 0.75 to 1.09</td>
-            <td>Healthy use close to the expected range for that room type and capacity.</td>
+            <td>Score 60% to 79%</td>
+            <td>Healthy use across the component model.</td>
           </tr>
           <tr>
             <td>Moderately Utilized</td>
-            <td>Score 0.45 to 0.74</td>
+            <td>Score 35% to 59%</td>
             <td>Some use, but below the preferred range for regular scheduling.</td>
           </tr>
           <tr>
             <td>Under Utilized</td>
-            <td>Score below 0.45</td>
-            <td>Low use compared with the adjusted expectation.</td>
+            <td>Score below 35%</td>
+            <td>Low use across total hours, prime-time use, distribution, or schedule cleanliness.</td>
           </tr>
           <tr>
             <td>Small Room Caution</td>

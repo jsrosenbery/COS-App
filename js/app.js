@@ -699,6 +699,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const availCapacityInput = document.getElementById('avail-capacity-input');
   const utilizationCampusSelect = document.getElementById('utilization-campus-select');
   const utilizationTypeSelect = document.getElementById('utilization-type-select');
+  const utilizationBuildingSelect = document.getElementById('utilization-building-select');
+  const utilizationSortSelect = document.getElementById('utilization-sort-select');
+  const utilizationMinCapacityInput = document.getElementById('utilization-min-capacity');
+  const utilizationMaxCapacityInput = document.getElementById('utilization-max-capacity');
+  const utilizationMinOverallInput = document.getElementById('utilization-min-overall');
+  const utilizationMinPrimeInput = document.getElementById('utilization-min-prime');
+  const utilizationMinOpportunityInput = document.getElementById('utilization-min-opportunity');
+  const utilizationMinDistributionInput = document.getElementById('utilization-min-distribution');
+  const utilizationMinFragmentationInput = document.getElementById('utilization-min-fragmentation');
   const utilizationClearBtn = document.getElementById('utilization-clear-btn');
   const utilizationSummary = document.getElementById('utilization-summary');
   const utilizationMap = document.getElementById('utilization-map');
@@ -783,6 +792,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('linechart-exclude-tutoring-openlab')?.addEventListener('change', renderLineChart);
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
+  if (utilizationBuildingSelect) utilizationBuildingSelect.addEventListener('change', renderUtilizationMap);
+  if (utilizationSortSelect) utilizationSortSelect.addEventListener('change', renderUtilizationMap);
+  if (utilizationMinCapacityInput) utilizationMinCapacityInput.addEventListener('input', renderUtilizationMap);
+  if (utilizationMaxCapacityInput) utilizationMaxCapacityInput.addEventListener('input', renderUtilizationMap);
+  [utilizationMinOverallInput, utilizationMinPrimeInput, utilizationMinOpportunityInput, utilizationMinDistributionInput, utilizationMinFragmentationInput]
+    .filter(Boolean)
+    .forEach(input => input.addEventListener('input', renderUtilizationMap));
   document.getElementById('utilization-exclude-tutoring-openlab')?.addEventListener('change', renderUtilizationMap);
   if (roomFitExportBtn) roomFitExportBtn.addEventListener('click', exportRoomFitAnalysis);
   if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
@@ -804,6 +820,13 @@ document.addEventListener('DOMContentLoaded', () => {
     utilizationClearBtn.onclick = () => {
       if (utilizationCampusSelect) utilizationCampusSelect.value = '';
       if (utilizationTypeSelect) utilizationTypeSelect.value = '';
+      if (utilizationBuildingSelect) utilizationBuildingSelect.value = '';
+      if (utilizationSortSelect) utilizationSortSelect.value = 'score';
+      if (utilizationMinCapacityInput) utilizationMinCapacityInput.value = '';
+      if (utilizationMaxCapacityInput) utilizationMaxCapacityInput.value = '';
+      [utilizationMinOverallInput, utilizationMinPrimeInput, utilizationMinOpportunityInput, utilizationMinDistributionInput, utilizationMinFragmentationInput]
+        .filter(Boolean)
+        .forEach(input => { input.value = ''; });
       const excludeTutoring = document.getElementById('utilization-exclude-tutoring-openlab');
       if (excludeTutoring) excludeTutoring.checked = true;
       renderUtilizationMap();
@@ -2243,12 +2266,16 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const rooms = getRoomCatalogEntries().filter(room => !isExcludedUtilizationRoom(room));
     const campuses = [...new Set(rooms.map(room => room.campus).filter(Boolean))].sort();
     const types = [...new Set(rooms.map(room => room.type).filter(Boolean))].sort();
+    const buildings = [...new Set(rooms.map(room => room.building).filter(Boolean))].sort();
     const campusValue = utilizationCampusSelect.value;
     const typeValue = utilizationTypeSelect.value;
+    const buildingValue = utilizationBuildingSelect?.value || '';
     resetSelect(utilizationCampusSelect, campuses, 'All', '');
     resetSelect(utilizationTypeSelect, types, 'All', '');
+    if (utilizationBuildingSelect) resetSelect(utilizationBuildingSelect, buildings, 'All', '');
     if (campuses.includes(campusValue)) utilizationCampusSelect.value = campusValue;
     if (types.includes(typeValue)) utilizationTypeSelect.value = typeValue;
+    if (buildings.includes(buildingValue) && utilizationBuildingSelect) utilizationBuildingSelect.value = buildingValue;
   }
 
   function overlapMinutes(startMin, endMin, windowStart, windowEnd) {
@@ -2256,7 +2283,116 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function isUtilizationPeakDay(day) {
-    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday'].includes(day);
+    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'MO', 'TU', 'WE', 'TH'].includes(day);
+  }
+
+  const utilizationConfig = {
+    instructionalStart: 8 * 60,
+    instructionalEnd: 17 * 60,
+    primeStart: 9 * 60,
+    primeEnd: 15 * 60,
+    blockMinutes: 30,
+    days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+    primeDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday'],
+    weights: {
+      overall: 0.4,
+      prime: 0.25,
+      distribution: 0.2,
+      fragmentation: 0.15
+    }
+  };
+
+  function utilizationDayName(day) {
+    const aliases = {
+      MO: 'Monday',
+      MON: 'Monday',
+      MONDAY: 'Monday',
+      TU: 'Tuesday',
+      TUE: 'Tuesday',
+      TUESDAY: 'Tuesday',
+      WE: 'Wednesday',
+      WED: 'Wednesday',
+      WEDNESDAY: 'Wednesday',
+      TH: 'Thursday',
+      R: 'Thursday',
+      THU: 'Thursday',
+      THURSDAY: 'Thursday',
+      FR: 'Friday',
+      FRI: 'Friday',
+      FRIDAY: 'Friday'
+    };
+    return aliases[String(day || '').trim().toUpperCase()] || day;
+  }
+
+  function pctScore(value) {
+    return Math.max(0, Math.min(1, value || 0));
+  }
+
+  function utilizationAvailableMinutes() {
+    return utilizationConfig.days.length * (utilizationConfig.instructionalEnd - utilizationConfig.instructionalStart);
+  }
+
+  function utilizationPrimeAvailableMinutes() {
+    return utilizationConfig.primeDays.length * (utilizationConfig.primeEnd - utilizationConfig.primeStart);
+  }
+
+  function utilizationAvailableBlocks() {
+    return utilizationConfig.days.length * ((utilizationConfig.instructionalEnd - utilizationConfig.instructionalStart) / utilizationConfig.blockMinutes);
+  }
+
+  function utilizationBlockStarts(startMin, endMin, windowStart = utilizationConfig.instructionalStart, windowEnd = utilizationConfig.instructionalEnd) {
+    const blocks = [];
+    for (let block = windowStart; block < windowEnd; block += utilizationConfig.blockMinutes) {
+      if (overlapMinutes(startMin, endMin, block, block + utilizationConfig.blockMinutes) > 0) blocks.push(block);
+    }
+    return blocks;
+  }
+
+  function contiguousSegmentCount(blocks) {
+    const sorted = [...new Set(blocks)].sort((a, b) => a - b);
+    if (!sorted.length) return 0;
+    let segments = 1;
+    for (let i = 1; i < sorted.length; i += 1) {
+      if (sorted[i] - sorted[i - 1] > utilizationConfig.blockMinutes) segments += 1;
+    }
+    return segments;
+  }
+
+  function longestEmptyPrimeBlockHours(room) {
+    let longest = 0;
+    utilizationConfig.primeDays.forEach(day => {
+      let current = 0;
+      for (let block = utilizationConfig.primeStart; block < utilizationConfig.primeEnd; block += utilizationConfig.blockMinutes) {
+        if (room.activePrimeBlocks.has(`${day}|${block}`)) {
+          longest = Math.max(longest, current);
+          current = 0;
+        } else {
+          current += utilizationConfig.blockMinutes;
+        }
+      }
+      longest = Math.max(longest, current);
+    });
+    return longest / 60;
+  }
+
+  function roomUtilizationRecommendation(room) {
+    if (room.totalMinutes === 0) return 'Available for additional scheduling.';
+    if (room.overallUtilization >= 0.65 && room.primeUtilization >= 0.65 && room.distributionScore >= 0.45) {
+      return 'Highly utilized and well distributed.';
+    }
+    if (room.primeUtilization >= 0.5 && room.overallUtilization < 0.35) {
+      return 'Prime-time demand exists, but room is underutilized outside peak periods.';
+    }
+    if (room.overallUtilization < 0.35 && room.opportunityScore >= 0.65) {
+      return 'Available for additional scheduling.';
+    }
+    if (room.distributionScore < 0.3) {
+      return 'Usage is concentrated; review for schedule balancing.';
+    }
+    if (room.fragmentationScore < 0.55) {
+      return 'Fragmented usage; review for cleaner scheduling blocks.';
+    }
+    return 'Utilization is balanced for the loaded schedule.';
   }
 
   function getRoomTypeTarget(type) {
@@ -2289,31 +2425,31 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         reason: 'No scheduled room use was found in the loaded term data.'
       };
     }
-    if (room.score < 0.45) {
+    if (room.score < 0.35) {
       return {
         label: 'Under Utilized',
         color: '#2563eb',
-        reason: 'Low weighted use compared with the expected use for this room type and capacity.'
+        reason: 'Low component score across overall use, prime-time use, distribution, or schedule cleanliness.'
       };
     }
-    if (room.score < 0.75) {
+    if (room.score < 0.6) {
       return {
         label: 'Moderately Utilized',
         color: '#7c3aed',
-        reason: 'Some use is present, but the room is below the preferred adjusted utilization range.'
+        reason: 'Some use is present, but one or more utilization components are below the preferred range.'
       };
     }
-    if (room.score >= 1.1) {
+    if (room.score >= 0.8) {
       return {
         label: 'Very Efficient',
         color: '#059669',
-        reason: 'Strong use relative to the adjusted target for this room type and capacity.'
+        reason: 'Strong use across total hours, prime-time hours, and distribution.'
       };
     }
     return {
       label: 'Efficient',
       color: '#0d9488',
-      reason: 'Weighted use is aligned with expectations for the room type and capacity.'
+      reason: 'Component utilization is aligned with expectations for this room.'
     };
   }
 
@@ -2324,7 +2460,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       sections: 0,
       totalMinutes: 0,
       peakMinutes: 0,
-      weightedMinutes: 0
+      activeDays: new Set(),
+      activeBlocks: new Set(),
+      activePrimeBlocks: new Set(),
+      blocksByDay: new Map(),
+      meetingKeys: new Set()
     }));
     const roomMap = new Map(rooms.map(room => [room.buildingRoom, room]));
     currentData.forEach(section => {
@@ -2333,7 +2473,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const key = getRoomKey(section);
       if (String(key || '').toUpperCase().startsWith('VISFSC-')) return;
       if (!roomMap.has(key)) {
-        const fallback = { buildingRoom: key, campus: '', building: section.Building || '', room: section.Room || '', type: '', capacity: null, sections: 0, totalMinutes: 0, peakMinutes: 0, weightedMinutes: 0 };
+        const fallback = { buildingRoom: key, campus: '', building: section.Building || '', room: section.Room || '', type: '', capacity: null, sections: 0, totalMinutes: 0, peakMinutes: 0, activeDays: new Set(), activeBlocks: new Set(), activePrimeBlocks: new Set(), blocksByDay: new Map(), meetingKeys: new Set() };
         roomMap.set(key, fallback);
         rooms.push(fallback);
       }
@@ -2342,36 +2482,107 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const startMin = parseTime(section.Start_Time || '');
       const endMin = parseTime(section.End_Time || '');
       if (!days.length || !Number.isFinite(startMin) || !Number.isFinite(endMin) || endMin <= startMin) return;
-      const dailyMinutes = endMin - startMin;
-      const peakMinutes = overlapMinutes(startMin, endMin, 9 * 60, 15 * 60);
-      room.sections += 1;
-      days.forEach(day => {
-        const peakCreditMinutes = isUtilizationPeakDay(day) ? peakMinutes : 0;
-        const offPeakMinutes = dailyMinutes - peakCreditMinutes;
-        room.totalMinutes += dailyMinutes;
-        room.peakMinutes += peakCreditMinutes;
-        room.weightedMinutes += (peakCreditMinutes * 1.5) + offPeakMinutes;
+      days.map(utilizationDayName).forEach(day => {
+        if (!utilizationConfig.days.includes(day)) return;
+        const meetingKey = [
+          extractField(section, ['Term', 'TERM', 'term']) || currentTerm || '',
+          extractField(section, ['CRN', 'Course Reference Number']) || '',
+          key,
+          day,
+          startMin,
+          endMin
+        ].join('|');
+        if (room.meetingKeys.has(meetingKey)) return;
+        room.meetingKeys.add(meetingKey);
+        const scheduledMinutes = overlapMinutes(startMin, endMin, utilizationConfig.instructionalStart, utilizationConfig.instructionalEnd);
+        if (!scheduledMinutes) return;
+        const primeMinutes = isUtilizationPeakDay(day) ? overlapMinutes(startMin, endMin, utilizationConfig.primeStart, utilizationConfig.primeEnd) : 0;
+        room.sections += 1;
+        room.totalMinutes += scheduledMinutes;
+        room.peakMinutes += primeMinutes;
+        room.activeDays.add(day);
+        const blocks = utilizationBlockStarts(startMin, endMin);
+        const dayBlocks = room.blocksByDay.get(day) || new Set();
+        blocks.forEach(block => {
+          room.activeBlocks.add(`${day}|${block}`);
+          dayBlocks.add(block);
+        });
+        if (isUtilizationPeakDay(day)) {
+          utilizationBlockStarts(startMin, endMin, utilizationConfig.primeStart, utilizationConfig.primeEnd)
+            .forEach(block => room.activePrimeBlocks.add(`${day}|${block}`));
+        }
+        room.blocksByDay.set(day, dayBlocks);
       });
     });
 
-    const weeklyWeightedAvailable = (4 * ((6 * 60 * 1.5) + (3 * 60))) + (9 * 60);
+    const availableMinutes = utilizationAvailableMinutes();
+    const availablePrimeMinutes = utilizationPrimeAvailableMinutes();
+    const availableBlocks = utilizationAvailableBlocks();
     return rooms
       .filter(room => room.buildingRoom && room.buildingRoom !== 'undefined-undefined')
       .map(room => {
-        const capacity = getCapacityExpectation(room.capacity);
-        const target = getRoomTypeTarget(room.type) * capacity.factor;
-        const expectedWeightedMinutes = Math.max(weeklyWeightedAvailable * target, 1);
-        const score = room.weightedMinutes / expectedWeightedMinutes;
         const totalHours = room.totalMinutes / 60;
         const peakHours = room.peakMinutes / 60;
-        const weightedHours = room.weightedMinutes / 60;
-        const expectedWeightedHours = expectedWeightedMinutes / 60;
+        const availableHours = availableMinutes / 60;
+        const overallUtilization = pctScore(room.totalMinutes / availableMinutes);
+        const primeUtilization = pctScore(room.peakMinutes / availablePrimeMinutes);
+        const activeDaysCount = room.activeDays.size;
+        const activeTimeBlocks = room.activeBlocks.size;
+        const daySpread = activeDaysCount / utilizationConfig.days.length;
+        const blockSpread = activeTimeBlocks / availableBlocks;
+        const distributionScore = pctScore((daySpread * 0.55) + (blockSpread * 0.45));
+        const segmentCount = [...room.blocksByDay.values()].reduce((count, blocks) => count + contiguousSegmentCount(blocks), 0);
+        const extraSegments = Math.max(0, segmentCount - activeDaysCount);
+        const fragmentationScore = activeTimeBlocks ? pctScore(1 - (extraSegments / Math.max(activeTimeBlocks, 1))) : 0;
+        const opportunityScore = pctScore(((1 - primeUtilization) * 0.6) + ((1 - overallUtilization) * 0.4));
+        const score =
+          (overallUtilization * utilizationConfig.weights.overall) +
+          (primeUtilization * utilizationConfig.weights.prime) +
+          (distributionScore * utilizationConfig.weights.distribution) +
+          (fragmentationScore * utilizationConfig.weights.fragmentation);
         const peakShare = room.totalMinutes ? room.peakMinutes / room.totalMinutes : 0;
+        const longestEmptyPrimeBlock = longestEmptyPrimeBlockHours(room);
         const smallRoomCaution = room.capacity != null && room.capacity < 20 && totalHours >= 12;
-        const enriched = { ...room, score, totalHours, peakHours, weightedHours, expectedWeightedHours, peakShare, target, capacityLabel: capacity.label, smallRoomCaution };
+        const enriched = {
+          ...room,
+          score,
+          totalHours,
+          scheduledHours: totalHours,
+          availableHours,
+          peakHours,
+          primeHours: peakHours,
+          overallUtilization,
+          primeUtilization,
+          distributionScore,
+          fragmentationScore,
+          opportunityScore,
+          activeDaysCount,
+          activeTimeBlocks,
+          longestEmptyPrimeBlock,
+          peakShare,
+          capacityLabel: getCapacityExpectation(room.capacity).label,
+          smallRoomCaution
+        };
+        enriched.recommendation = roomUtilizationRecommendation(enriched);
         return { ...enriched, status: getUtilizationStatus(enriched) };
       })
-      .sort((a, b) => b.score - a.score || a.buildingRoom.localeCompare(b.buildingRoom, undefined, { numeric: true }));
+      .sort(sortRoomUtilization);
+  }
+
+  function sortRoomUtilization(a, b) {
+    const sortBy = utilizationSortSelect?.value || 'score';
+    const compareNumber = (left, right) => (right || 0) - (left || 0);
+    const sorters = {
+      score: () => compareNumber(a.score, b.score),
+      overall: () => compareNumber(a.overallUtilization, b.overallUtilization),
+      prime: () => compareNumber(a.primeUtilization, b.primeUtilization),
+      opportunity: () => compareNumber(a.opportunityScore, b.opportunityScore),
+      distribution: () => compareNumber(a.distributionScore, b.distributionScore),
+      fragmentation: () => compareNumber(a.fragmentationScore, b.fragmentationScore),
+      capacity: () => compareNumber(a.capacity, b.capacity),
+      room: () => a.buildingRoom.localeCompare(b.buildingRoom, undefined, { numeric: true })
+    };
+    return (sorters[sortBy]?.() || 0) || a.buildingRoom.localeCompare(b.buildingRoom, undefined, { numeric: true });
   }
 
   function getSectionCapacity(section) {
@@ -2686,9 +2897,25 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!utilizationMap || !utilizationSummary) return;
     const selectedCampus = utilizationCampusSelect?.value || '';
     const selectedType = utilizationTypeSelect?.value || '';
+    const selectedBuilding = utilizationBuildingSelect?.value || '';
+    const minCapacity = Number(utilizationMinCapacityInput?.value || 0);
+    const maxCapacity = Number(utilizationMaxCapacityInput?.value || 0);
+    const minOverall = Number(utilizationMinOverallInput?.value || 0) / 100;
+    const minPrime = Number(utilizationMinPrimeInput?.value || 0) / 100;
+    const minOpportunity = Number(utilizationMinOpportunityInput?.value || 0) / 100;
+    const minDistribution = Number(utilizationMinDistributionInput?.value || 0) / 100;
+    const minFragmentation = Number(utilizationMinFragmentationInput?.value || 0) / 100;
     const rooms = calculateRoomUtilization()
       .filter(room => !selectedCampus || room.campus === selectedCampus)
-      .filter(room => !selectedType || room.type === selectedType);
+      .filter(room => !selectedType || room.type === selectedType)
+      .filter(room => !selectedBuilding || room.building === selectedBuilding)
+      .filter(room => !minCapacity || (room.capacity != null && room.capacity >= minCapacity))
+      .filter(room => !maxCapacity || (room.capacity != null && room.capacity <= maxCapacity))
+      .filter(room => !minOverall || room.overallUtilization >= minOverall)
+      .filter(room => !minPrime || room.primeUtilization >= minPrime)
+      .filter(room => !minOpportunity || room.opportunityScore >= minOpportunity)
+      .filter(room => !minDistribution || room.distributionScore >= minDistribution)
+      .filter(room => !minFragmentation || room.fragmentationScore >= minFragmentation);
     const counts = rooms.reduce((acc, room) => {
       acc[room.status.label] = (acc[room.status.label] || 0) + 1;
       return acc;
@@ -2701,7 +2928,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       `Efficient: ${counts.Efficient || 0}`,
       `Moderately Utilized: ${counts['Moderately Utilized'] || 0}`,
       `Under Utilized: ${counts['Under Utilized'] || 0}`,
-      `Small-room cautions: ${rooms.filter(room => room.smallRoomCaution).length}`
+      `High Opportunity: ${rooms.filter(room => room.opportunityScore >= 0.65).length}`,
+      `Fragmented: ${rooms.filter(room => room.fragmentationScore < 0.55 && room.totalMinutes > 0).length}`
     ].forEach(text => {
       const pill = document.createElement('div');
       pill.className = 'utilization-pill';
@@ -2726,12 +2954,22 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       badge.textContent = room.status.label;
       const details = document.createElement('dl');
       [
-        ['Score', room.score.toFixed(2)],
-        ['Weekly hours', room.totalHours.toFixed(1)],
-        ['Peak hours', room.peakHours.toFixed(1)],
-        ['Weighted hours', room.weightedHours.toFixed(1)],
-        ['Expected weighted', room.expectedWeightedHours.toFixed(1)],
-        ['Peak share', `${Math.round(room.peakShare * 100)}%`],
+        ['Overall Room Utilization Score', `${Math.round(room.score * 100)}%`],
+        ['Campus', room.campus || 'N/A'],
+        ['Building', room.building || 'N/A'],
+        ['Room', room.room || room.buildingRoom],
+        ['Scheduled Hours', room.scheduledHours.toFixed(1)],
+        ['Available Hours', room.availableHours.toFixed(1)],
+        ['Overall Utilization %', `${Math.round(room.overallUtilization * 100)}%`],
+        ['Prime-Time Utilization %', `${Math.round(room.primeUtilization * 100)}%`],
+        ['Distribution Score', `${Math.round(room.distributionScore * 100)}%`],
+        ['Fragmentation Score', `${Math.round(room.fragmentationScore * 100)}%`],
+        ['Opportunity Score', `${Math.round(room.opportunityScore * 100)}%`],
+        ['Active Days', room.activeDaysCount],
+        ['Active Time Blocks', room.activeTimeBlocks],
+        ['Longest Empty Prime-Time Block', `${room.longestEmptyPrimeBlock.toFixed(1)} hrs`],
+        ['Raw Peak Hours', room.peakHours.toFixed(1)],
+        ['Peak Share', `${Math.round(room.peakShare * 100)}%`],
         ['Capacity', room.capacity == null ? 'N/A' : room.capacity],
         ['Type', room.type || 'N/A'],
         ['Caution', room.smallRoomCaution ? 'Small room with regular use' : 'None']
@@ -2744,7 +2982,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       });
       const reason = document.createElement('p');
       reason.className = 'reason';
-      reason.textContent = `${room.status.reason} ${room.capacityLabel}.${room.smallRoomCaution ? ' Small room caution applies because capacity is below 20 and weekly scheduled use is 12+ hours.' : ''}`;
+      reason.textContent = `${room.recommendation} ${room.status.reason} ${room.capacityLabel}.${room.smallRoomCaution ? ' Small room caution applies because capacity is below 20 and weekly scheduled use is 12+ hours.' : ''}`;
       card.append(title, badge, details, reason);
       utilizationMap.appendChild(card);
     });

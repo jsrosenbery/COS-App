@@ -1388,6 +1388,38 @@ test('room utilization includes room capacity fit flags', () => {
   assert.match(css, /\.room-fit-table/);
 });
 
+test('room utilization uses component scoring instead of fixed prime bump', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  assert.match(index, /component model instead of a fixed prime-time multiplier/);
+  assert.match(index, /Overall Room Utilization Score = Overall Utilization 40% \+ Prime-Time Utilization 25% \+ Distribution Score 20% \+ Fragmentation Score 15%/);
+  assert.match(index, /Opportunity Score/);
+  assert.match(index, /utilization-sort-select/);
+  assert.match(index, /utilization-building-select/);
+  assert.match(index, /utilization-min-capacity/);
+  assert.match(index, /utilization-max-capacity/);
+  assert.match(index, /utilization-min-overall/);
+  assert.match(index, /utilization-min-prime/);
+  assert.match(index, /utilization-min-opportunity/);
+  assert.match(index, /utilization-min-distribution/);
+  assert.match(index, /utilization-min-fragmentation/);
+  assert.doesNotMatch(index, /receive an extra 0\.5x bump/);
+  assert.match(app, /utilizationConfig/);
+  assert.match(app, /weights:\s*{\s*overall: 0\.4,\s*prime: 0\.25,\s*distribution: 0\.2,\s*fragmentation: 0\.15/s);
+  assert.match(app, /const score =\s*\(overallUtilization \* utilizationConfig\.weights\.overall\)/s);
+  assert.match(app, /roomUtilizationRecommendation/);
+  assert.match(app, /Prime-time demand exists, but room is underutilized outside peak periods/);
+  assert.match(app, /Usage is concentrated; review for schedule balancing/);
+  assert.match(app, /Fragmented usage; review for cleaner scheduling blocks/);
+  assert.match(app, /Available for additional scheduling/);
+  assert.match(app, /longestEmptyPrimeBlockHours/);
+  assert.match(app, /utilizationBuildingSelect/);
+  assert.match(app, /minOpportunity/);
+  assert.match(app, /activeTimeBlocks/);
+  assert.doesNotMatch(app, /peakCreditMinutes \* 1\.5/);
+});
+
 test('heatmap exposes optional metric modes and summary cards', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
