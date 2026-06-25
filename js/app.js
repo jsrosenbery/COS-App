@@ -742,6 +742,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let calendarRoomFilter = null;
   let modalityArchiveRows = [];
   let modalityUploadRows = [];
+  let modalityLoadedSourceRows = null;
   let scheduleAnalysisRows = null;
   let roomFitReportRows = null;
 
@@ -1441,12 +1442,27 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   async function loadModalitySelectedSource() {
-    const uploaded = await readCsvFiles(document.getElementById('modality-source-csv'));
-    const archived = await fetchArchivedScheduleRows(selectedOptions(document.getElementById('modality-archive-terms')));
+    const uploadInput = document.getElementById('modality-source-csv');
+    const archiveSelect = document.getElementById('modality-archive-terms');
+    const selectedArchiveTerms = selectedOptions(archiveSelect);
+    if (!uploadInput?.files?.length && !selectedArchiveTerms.length) {
+      setScheduleAnalysisStatus('modality', 'Choose a CSV or archived term, then click Load Source.', true);
+      return getModalitySourceRows();
+    }
+    setScheduleAnalysisStatus('modality', 'Loading source...');
+    const uploaded = await readCsvFiles(uploadInput);
+    const archived = await fetchArchivedScheduleRows(selectedArchiveTerms);
     modalityUploadRows = [...uploaded, ...archived].map(normalizeRow);
+    modalityLoadedSourceRows = modalityUploadRows;
+    if (!modalityLoadedSourceRows.length) {
+      setScheduleAnalysisStatus('modality', 'No rows were found in the selected source.', true);
+      return getModalitySourceRows();
+    }
     initModalityFilters();
     renderModalityTool();
-    return modalityUploadRows;
+    const terms = [...new Set(modalityLoadedSourceRows.map(getSectionTerm).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    setScheduleAnalysisStatus('modality', `Loaded ${modalityLoadedSourceRows.length} row(s)${terms.length ? ` for ${terms.join(', ')}` : ''}.`);
+    return modalityLoadedSourceRows;
   }
 
   async function exportRoomCatalog(format = 'csv') {
@@ -3049,7 +3065,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function getModalitySourceRows() {
-    return [...currentData, ...modalityArchiveRows, ...modalityUploadRows];
+    return modalityLoadedSourceRows?.length ? modalityLoadedSourceRows : currentData;
   }
 
   function normalizeTermLabel(value) {
@@ -3116,7 +3132,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const modalityOptions = [...new Set(rows.map(section => getModalityCategory(getInstructionalMethod(section) || 'Unspecified')).filter(Boolean))].sort();
     const levels = [...new Set(rows.map(section => getCourseLevel(getCourseParts(section).courseNumber)).filter(Boolean))]
       .sort((a, b) => getCourseLevelSort(a) - getCourseLevelSort(b));
-    if (modalityDecisionTermSelect) resetSelect(modalityDecisionTermSelect, terms, 'Current loaded term', '');
+    if (modalityDecisionTermSelect) resetSelect(modalityDecisionTermSelect, terms, modalityLoadedSourceRows?.length ? 'All loaded source terms' : 'Current room-grid term', '');
     modalityComparisonSelects.forEach(select => resetSelect(select, terms, 'None', ''));
     resetSelect(modalityCampusSelect, campuses, 'All', '');
     resetSelect(modalityDivisionSelect, divisions, 'All', '');
@@ -3127,6 +3143,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     resetSelect(modalityLevelSelect, levels, 'All', '');
     if (modalityCalGetcSelect) resetSelect(modalityCalGetcSelect, calGetcFilterOptions, 'All', '');
     if (terms.includes(decisionTermValue) && modalityDecisionTermSelect) modalityDecisionTermSelect.value = decisionTermValue;
+    else if (modalityLoadedSourceRows?.length && terms.length === 1 && modalityDecisionTermSelect) modalityDecisionTermSelect.value = terms[0];
     modalityComparisonSelects.forEach((select, index) => {
       if (terms.includes(comparisonValues[index])) select.value = comparisonValues[index];
     });
@@ -3165,7 +3182,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     let tutoringOpenLabRowsExcluded = 0;
     const seenSections = new Set();
     const categories = new Map();
-    const sourceRows = selectedTerm ? getModalitySourceRows() : (currentData.length ? currentData : getModalitySourceRows());
+    const sourceRows = getModalitySourceRows();
 
     sourceRows.forEach((section, index) => {
       const campus = extractField(section, ['Campus', 'campus', 'CAMPUS']);
