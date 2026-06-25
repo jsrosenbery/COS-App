@@ -5781,6 +5781,9 @@
       .analytics-metrics div{border:1px solid #d8e1ec;border-radius:8px;padding:12px;background:#f8fbff}
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
       .analytics-metrics span{font-size:12px;color:#51657c;text-transform:uppercase}
+      #roomFitReportMetrics div{border-color:#c8d8e8;background:linear-gradient(135deg,#ffffff,#edf7ff);box-shadow:0 8px 18px rgba(18,51,103,.08)}
+      #roomFitReportMetrics strong{color:#082f63}
+      #roomFitReportMetrics span{color:#334862;font-weight:900;letter-spacing:.02em}
       #iaInstructor{min-width:220px;min-height:92px}
       .instructor-week-grid{margin:0 0 14px;overflow:auto;border:1px solid #d8e1ec;border-radius:10px;background:#fff}
       .instructor-grid-note{padding:10px 12px;color:#51657c;background:#f8fbff;border-bottom:1px solid #d8e1ec;font-size:13px}
