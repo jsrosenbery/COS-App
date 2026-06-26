@@ -1619,6 +1619,10 @@ test('room utilization uses component scoring instead of fixed prime bump', () =
   assert.match(app, /utilizationBuildingSelect/);
   assert.match(app, /minOpportunity/);
   assert.match(app, /activeTimeBlocks/);
+  assert.match(app, /selectedUtilizationStatus/);
+  assert.match(app, /dataset\.utilizationStatus/);
+  assert.match(app, /utilization-pill-filter/);
+  assert.match(app, /room\.status\.label === selectedUtilizationStatus/);
   assert.doesNotMatch(app, /peakCreditMinutes \* 1\.5/);
 });
 

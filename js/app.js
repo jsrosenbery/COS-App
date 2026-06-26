@@ -747,6 +747,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let modalityLoadedSourceRows = null;
   let scheduleAnalysisRows = null;
   let roomFitReportRows = null;
+  let selectedUtilizationStatus = '';
 
   initHeatmap();
   initLineChartChoices();
@@ -833,6 +834,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .forEach(input => { input.value = ''; });
       const excludeTutoring = document.getElementById('utilization-exclude-tutoring-openlab');
       if (excludeTutoring) excludeTutoring.checked = true;
+      selectedUtilizationStatus = '';
       renderUtilizationMap();
     };
   }
@@ -2927,7 +2929,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const minOpportunity = Number(utilizationMinOpportunityInput?.value || 0) / 100;
     const minDistribution = Number(utilizationMinDistributionInput?.value || 0) / 100;
     const minFragmentation = Number(utilizationMinFragmentationInput?.value || 0) / 100;
-    const rooms = calculateRoomUtilization()
+    const baseRooms = calculateRoomUtilization()
       .filter(room => !selectedCampus || room.campus === selectedCampus)
       .filter(room => !selectedType || room.type === selectedType)
       .filter(room => !selectedBuilding || room.building === selectedBuilding)
@@ -2938,23 +2940,36 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       .filter(room => !minOpportunity || room.opportunityScore >= minOpportunity)
       .filter(room => !minDistribution || room.distributionScore >= minDistribution)
       .filter(room => !minFragmentation || room.fragmentationScore >= minFragmentation);
-    const counts = rooms.reduce((acc, room) => {
+    const counts = baseRooms.reduce((acc, room) => {
       acc[room.status.label] = (acc[room.status.label] || 0) + 1;
       return acc;
     }, {});
+    const rooms = selectedUtilizationStatus
+      ? baseRooms.filter(room => room.status.label === selectedUtilizationStatus)
+      : baseRooms;
     utilizationSummary.replaceChildren();
     [
-      `Rooms: ${rooms.length}`,
-      `Not Utilized: ${counts['Not Utilized'] || 0}`,
-      `Very Efficient: ${counts['Very Efficient'] || 0}`,
-      `Efficient: ${counts.Efficient || 0}`,
-      `Moderately Utilized: ${counts['Moderately Utilized'] || 0}`,
-      `Under Utilized: ${counts['Under Utilized'] || 0}`,
-      `High Opportunity: ${rooms.filter(room => room.opportunityScore >= 0.65).length}`,
-      `Fragmented: ${rooms.filter(room => room.fragmentationScore < 0.55 && room.totalMinutes > 0).length}`
-    ].forEach(text => {
-      const pill = document.createElement('div');
-      pill.className = 'utilization-pill';
+      { label: 'Rooms', count: baseRooms.length, status: '' },
+      { label: 'Not Utilized', count: counts['Not Utilized'] || 0, status: 'Not Utilized' },
+      { label: 'Very Efficient', count: counts['Very Efficient'] || 0, status: 'Very Efficient' },
+      { label: 'Efficient', count: counts.Efficient || 0, status: 'Efficient' },
+      { label: 'Moderately Utilized', count: counts['Moderately Utilized'] || 0, status: 'Moderately Utilized' },
+      { label: 'Under Utilized', count: counts['Under Utilized'] || 0, status: 'Under Utilized' },
+      { label: 'High Opportunity', count: baseRooms.filter(room => room.opportunityScore >= 0.65).length, status: null },
+      { label: 'Fragmented', count: baseRooms.filter(room => room.fragmentationScore < 0.55 && room.totalMinutes > 0).length, status: null }
+    ].forEach(({ label, count, status }) => {
+      const pill = document.createElement(status === null ? 'div' : 'button');
+      pill.className = `utilization-pill${status !== null ? ' utilization-pill-filter' : ''}${selectedUtilizationStatus === status ? ' is-active' : ''}`;
+      if (status !== null) {
+        pill.type = 'button';
+        pill.dataset.utilizationStatus = status;
+        pill.title = status ? `Show only ${label} rooms` : 'Show all utilization categories';
+        pill.addEventListener('click', () => {
+          selectedUtilizationStatus = selectedUtilizationStatus === status ? '' : status;
+          renderUtilizationMap();
+        });
+      }
+      const text = `${label}: ${count}`;
       pill.textContent = text;
       utilizationSummary.appendChild(pill);
     });

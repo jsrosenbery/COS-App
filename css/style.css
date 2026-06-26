@@ -757,7 +757,22 @@ button:hover,
   border: 1px solid var(--line);
   border-radius: 999px;
   background: #fff;
+  color: var(--brand);
   font-weight: 800;
+}
+
+.utilization-pill-filter {
+  cursor: pointer;
+}
+
+.utilization-pill-filter:hover,
+.utilization-pill-filter:focus-visible,
+.utilization-pill-filter.is-active {
+  border-color: var(--accent);
+  background: #fff7ed;
+  color: #9a3412;
+  box-shadow: 0 0 0 3px rgba(245, 124, 32, 0.16);
+  outline: none;
 }
 
 .utilization-map {
