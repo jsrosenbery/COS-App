@@ -115,6 +115,8 @@
     studentPresenceSourceRows: [],
     studentPresenceComparisonRows: [],
     studentPresenceGraphRows: [],
+    studentPresenceReport: null,
+    studentPresenceChartFilter: null,
     studentPresenceRan: false,
     conflictRows: [],
     conflictInput: [],
@@ -1255,6 +1257,7 @@
           <div id="studentPresenceMetrics" class="analytics-metrics"></div>
           <div id="studentPresenceHeatmap" class="analytics-insights"></div>
           <div id="studentPresenceCurve" class="analytics-insights"></div>
+          <div id="studentPresenceChartFilterNote" class="analysis-filter-note" hidden></div>
           <div id="studentPresenceTable" class="analytics-table"></div>
           <div id="studentPresenceLegend" class="analytics-legend"></div>
         </div>
@@ -2686,11 +2689,13 @@
     refreshAnalyticsFilters('sp', sourceRows, saved);
     const diagnostics = standardExclusionDiagnostics(sourceRows, 'sp');
     const filteredRows = applyFilters(sourceRows, 'sp');
-    const scopedRows = dashboardCurrentRows(filteredRows, focusTerm);
+    const scopedRows = dashboardCurrentRows(filteredRows, focusTerm).filter(studentPresenceHasUsableFixedTime);
     const options = studentPresenceOptions();
     const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour', options);
     report.metrics = report.metrics || {};
     report.metrics.tutoringOpenLabRowsExcluded = diagnostics.tutoringOpenLabRowsExcluded;
+    state.studentPresenceChartFilter = null;
+    state.studentPresenceReport = report;
     state.studentPresenceGraphRows = scopedRows;
     state.studentPresenceComparisonRows = buildStudentPresenceComparisonRows(filteredRows, options);
     state.studentPresenceRows = report.rows;
@@ -2708,7 +2713,7 @@
   function buildStudentPresenceComparisonRows(rows, options) {
     const terms = [studentPresenceFocusTerm(), ...getSelectedValues('spCompareTerms')].filter(Boolean);
     return terms.map(term => {
-      const termRows = dashboardCurrentRows(rows, term);
+      const termRows = dashboardCurrentRows(rows, term).filter(studentPresenceHasUsableFixedTime);
       const report = dashboard.studentPresenceReport(termRows, 'hour', options);
       return {
         term,
@@ -3199,6 +3204,7 @@
 
   function renderStudentPresenceReport(report) {
     const metrics = report.metrics || {};
+    state.studentPresenceReport = report;
     metric('studentPresenceMetrics', [
       ['Focus Term', studentPresenceFocusTerm() || 'N/A'],
       ['Students Present', metrics.totalStudents || 0],
@@ -3217,7 +3223,8 @@
     ]);
     renderPresenceHeatmap(report.rows || []);
     renderStudentPresenceCurve(state.studentPresenceGraphRows || []);
-    table('studentPresenceTable', report.rows || [], [
+    renderStudentPresenceChartFilterNote();
+    table('studentPresenceTable', filteredStudentPresenceTableRows(report.rows || []), [
       'group',
       'campus',
       'building',
@@ -3233,6 +3240,34 @@
       'averageFillRate'
     ]);
     renderStudentPresenceLegend();
+  }
+
+  function filteredStudentPresenceTableRows(rows) {
+    const filter = state.studentPresenceChartFilter;
+    if (!filter) return rows || [];
+    return (rows || []).filter(row => {
+      const dayMatch = row.day === filter.dayCode || row.day === filter.dayName;
+      return dayMatch && row.hour === filter.hourKey;
+    });
+  }
+
+  function renderStudentPresenceChartFilterNote() {
+    const node = document.getElementById('studentPresenceChartFilterNote');
+    if (!node) return;
+    const filter = state.studentPresenceChartFilter;
+    if (!filter) {
+      node.hidden = true;
+      node.innerHTML = '';
+      return;
+    }
+    node.hidden = false;
+    node.innerHTML = `
+      <span>Table filtered to ${escapeAttr(filter.dayName)} at ${escapeAttr(filter.hourLabel)}.</span>
+      <button id="clearStudentPresenceChartFilter" type="button">Clear graph filter</button>`;
+    document.getElementById('clearStudentPresenceChartFilter')?.addEventListener('click', () => {
+      state.studentPresenceChartFilter = null;
+      renderStudentPresenceReport(state.studentPresenceReport || { rows: state.studentPresenceRows || [], metrics: {} });
+    });
   }
 
   function presenceMetricLabel(item) {
@@ -3265,6 +3300,13 @@
     return `${h12}:${String(minutes).padStart(2, '0')} ${ap}`;
   }
 
+  function presenceHourKey(hour) {
+    const totalMinutes = Math.round(hour * 60);
+    const h24 = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${String(h24).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+
   function presenceChartHours(rows) {
     let min = 24;
     let max = 0;
@@ -3295,7 +3337,17 @@
   function studentPresencePhysicalGraphRows(rows) {
     return (rows || [])
       .map(row => window.COSSectionModel?.normalizeSection?.(row) || row)
-      .filter(row => row.isPhysical && !row.isOnline && row.timeBlock !== 'ONLINE/TBA');
+      .filter(row => row.isPhysical && !row.isOnline && row.timeBlock !== 'ONLINE/TBA')
+      .filter(studentPresenceHasUsableFixedTime);
+  }
+
+  function studentPresenceHasUsableFixedTime(row) {
+    const section = window.COSSectionModel?.normalizeSection?.(row) || row;
+    const start = minutesFromTime(section.start);
+    const end = minutesFromTime(section.end);
+    if (start == null || end == null || end <= start) return false;
+    // Midnight and pre-6 AM values in Section Seating are usually Online/TBA/no-fixed-time placeholders.
+    return start >= 6 * 60;
   }
 
   function renderStudentPresenceCurve(rows) {
@@ -3351,6 +3403,21 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        onClick: (event, elements, chart) => {
+          const points = chart.getElementsAtEventForMode(event, 'nearest', { intersect: false }, true);
+          if (!points.length) return;
+          const point = points[0];
+          const dayName = chart.data.datasets[point.datasetIndex]?.label || '';
+          const dayCodes = { Sunday: 'SU', Monday: 'MO', Tuesday: 'TU', Wednesday: 'WE', Thursday: 'TH', Friday: 'FR', Saturday: 'SA' };
+          const hour = hours[point.index];
+          state.studentPresenceChartFilter = {
+            dayName,
+            dayCode: dayCodes[dayName] || dayName,
+            hourKey: presenceHourKey(hour),
+            hourLabel: formatPresenceHourLabel(hour)
+          };
+          renderStudentPresenceReport(state.studentPresenceReport || { rows: state.studentPresenceRows || [], metrics: {} });
+        },
         plugins: {
           legend: { position: 'bottom' },
           tooltip: {
