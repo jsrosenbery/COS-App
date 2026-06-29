@@ -795,7 +795,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('linechart-division-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-discipline-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-calgetc-select').addEventListener('change', renderLineChart);
-  document.getElementById('linechart-metric-select')?.addEventListener('change', renderLineChart);
   document.getElementById('linechart-exclude-tutoring-openlab')?.addEventListener('change', renderLineChart);
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
@@ -887,8 +886,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const select = document.getElementById(id);
       if (select) select.value = '';
     });
-    const metricSelect = document.getElementById('linechart-metric-select');
-    if (metricSelect) metricSelect.value = 'count';
     const excludeTutoring = document.getElementById('linechart-exclude-tutoring-openlab');
     if (excludeTutoring) excludeTutoring.checked = true;
     renderLineChart();
@@ -4483,10 +4480,6 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function renderLineChart() {
     const chartDiv = document.getElementById('lineChartCanvas');
-    const metricMode = document.getElementById('linechart-metric-select')?.value || 'count';
-    const isPresenceGraph = metricMode === 'presence';
-    const titleNode = document.getElementById('linechart-title');
-    if (titleNode) titleNode.textContent = isPresenceGraph ? 'Student Presence Graph' : 'Course Duration Graph';
     if (lineChartInstance) {
       lineChartInstance.destroy();
       lineChartInstance = null;
@@ -4507,32 +4500,23 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const [minHour, maxHour] = getTimeRangeFromData(filtered);
     const hours = buildHalfHourSlots(minHour, maxHour);
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    let counts = window.COSSectionModel?.buildHalfHourPresenceSeries
-      ? window.COSSectionModel.buildHalfHourPresenceSeries(filtered, hours, {
-        metric: isPresenceGraph ? 'presence' : 'count',
-        daysOfWeek,
-        excludeOnlineTba: true
-      })
-      : {};
-    if (!Object.keys(counts).length) {
-      daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
-      filtered.forEach(rec => {
-        const recDays = normalizeMeetingDays(rec.Days);
-        const startHour = parseHour(rec.Start_Time);
-        const endHour = parseHour(rec.End_Time);
-        if (startHour == null || endHour == null) return;
-        if (startHour === endHour) return;
-        const value = isPresenceGraph ? (rec.Enrollment || 0) : 1;
-        recDays.forEach(day => {
-          if (!day || !daysOfWeek.includes(day)) return;
-          hours.forEach(h => {
-            if (h >= Math.floor(startHour * 2) / 2 && h < endHour) {
-              counts[day+'-'+h] += value;
-            }
-          });
+    let counts = {};
+    daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
+    filtered.forEach(rec => {
+      const recDays = normalizeMeetingDays(rec.Days);
+      const startHour = parseHour(rec.Start_Time);
+      const endHour = parseHour(rec.End_Time);
+      if (startHour == null || endHour == null) return;
+      if (startHour === endHour) return;
+      recDays.forEach(day => {
+        if (!day || !daysOfWeek.includes(day)) return;
+        hours.forEach(h => {
+          if (h >= Math.floor(startHour * 2) / 2 && h < endHour) {
+            counts[day+'-'+h] += 1;
+          }
         });
       });
-    }
+    });
     const ctx = chartDiv.getContext('2d');
     const labels = hours.map(formatHourLabel);
     const colorList = [
@@ -4579,7 +4563,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
           y: {
             min: 0,
             max: yMax,
-            title: { display: true, text: isPresenceGraph ? 'Estimated Students Present' : 'Concurrent Courses' },
+            title: { display: true, text: 'Concurrent Courses' },
             beginAtZero: true,
             ticks: {
               stepSize: stepSize,

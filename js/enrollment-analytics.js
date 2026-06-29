@@ -114,6 +114,7 @@
     studentPresenceRows: [],
     studentPresenceSourceRows: [],
     studentPresenceComparisonRows: [],
+    studentPresenceGraphRows: [],
     studentPresenceRan: false,
     conflictRows: [],
     conflictInput: [],
@@ -171,6 +172,7 @@
     TBA: 'TBA'
   };
   const dayOrder = Object.keys(dayLabels);
+  let studentPresenceChartInstance = null;
   const modalityGroups = {
     online: new Set(['ONL', '71', '72', 'O1', 'OL', 'ONN', 'ONS', 'OO', 'OS', 'OSS', 'OT', 'OTS', 'ON', 'OSL']),
     inPerson: new Set(['IP', '02', '22', '022', '02H', '02O', '02S', '02T', '02N', '04', '06', '07', '08', '09', '12', 'XX', 'YY']),
@@ -2689,6 +2691,7 @@
     const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour', options);
     report.metrics = report.metrics || {};
     report.metrics.tutoringOpenLabRowsExcluded = diagnostics.tutoringOpenLabRowsExcluded;
+    state.studentPresenceGraphRows = scopedRows;
     state.studentPresenceComparisonRows = buildStudentPresenceComparisonRows(filteredRows, options);
     state.studentPresenceRows = report.rows;
     renderStudentPresenceReport(report);
@@ -3213,7 +3216,7 @@
       ['Peak Room', presenceMetricLabel(metrics.peakRoom)]
     ]);
     renderPresenceHeatmap(report.rows || []);
-    renderStudentPresenceCurve(state.studentPresenceComparisonRows || []);
+    renderStudentPresenceCurve(state.studentPresenceGraphRows || []);
     table('studentPresenceTable', report.rows || [], [
       'group',
       'campus',
@@ -3253,36 +3256,122 @@
     node.innerHTML = cells || '<p class="analytics-empty">No fixed in-person or hybrid presence rows match the selected filters.</p>';
   }
 
-  function renderStudentPresenceCurve(series) {
+  function formatPresenceHourLabel(hour) {
+    const totalMinutes = Math.round(hour * 60);
+    const h24 = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const ap = h24 < 12 ? 'AM' : 'PM';
+    const h12 = h24 % 12 || 12;
+    return `${h12}:${String(minutes).padStart(2, '0')} ${ap}`;
+  }
+
+  function presenceChartHours(rows) {
+    let min = 24;
+    let max = 0;
+    (rows || []).forEach(row => {
+      const start = minutesFromTime(row.start);
+      const end = minutesFromTime(row.end);
+      if (start == null || end == null || end <= start) return;
+      min = Math.min(min, Math.floor((start / 60) * 2) / 2);
+      max = Math.max(max, Math.ceil((end / 60) * 2) / 2);
+    });
+    if (min >= max) {
+      min = 6;
+      max = 22;
+    }
+    if (min > 6) min = 6;
+    if (max < 22) max = 22;
+    const hours = [];
+    for (let hour = min; hour < max; hour += 0.5) hours.push(Number(hour.toFixed(1)));
+    return hours;
+  }
+
+  function nicePresenceTickStep(maxValue) {
+    if (maxValue <= 5) return 1;
+    const candidates = [2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000];
+    return candidates.find(step => Math.ceil(maxValue / step) <= 8) || 5000;
+  }
+
+  function renderStudentPresenceCurve(rows) {
     const node = document.getElementById('studentPresenceCurve');
     if (!node) return;
-    const terms = (series || []).filter(item => item.term);
-    if (!terms.length) {
+    if (studentPresenceChartInstance) {
+      studentPresenceChartInstance.destroy();
+      studentPresenceChartInstance = null;
+    }
+    const sourceRows = rows || [];
+    if (!sourceRows.length || !window.Chart || !window.COSSectionModel?.buildHalfHourPresenceSeries) {
       node.innerHTML = '<p class="analytics-empty">No student presence curve is available for the selected term scope.</p>';
       return;
     }
-    const slots = [...new Set(terms.flatMap(item => (item.rows || []).map(row => row.hour).filter(Boolean)))]
-      .sort((a, b) => (minutesFromTime(a) ?? 0) - (minutesFromTime(b) ?? 0));
-    const maxStudents = Math.max(1, ...terms.flatMap(item => (item.rows || []).map(row => Number(row.studentsPresent) || 0)));
-    const rows = terms.map(item => {
-      const byHour = new Map((item.rows || []).map(row => [row.hour, row]));
-      return `<tr><th>${escapeAttr(item.term)}</th>${slots.map(slot => {
-        const value = Number(byHour.get(slot)?.studentsPresent) || 0;
-        const width = Math.max(2, Math.round(value / maxStudents * 100));
-        return `<td title="${escapeAttr(`${item.term} ${slot}: ${value} students present`)}"><span class="presence-bar" style="width:${width}%"></span><strong>${value || ''}</strong></td>`;
-      }).join('')}</tr>`;
-    }).join('');
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const hours = presenceChartHours(sourceRows);
+    const counts = window.COSSectionModel.buildHalfHourPresenceSeries(sourceRows, hours, {
+      metric: 'presence',
+      daysOfWeek,
+      excludeOnlineTba: true
+    });
+    const colorList = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2'];
+    const datasets = daysOfWeek.map((day, index) => ({
+      label: day,
+      data: hours.map(hour => counts[`${day}-${hour}`] || 0),
+      fill: false,
+      borderColor: colorList[index % colorList.length],
+      backgroundColor: colorList[index % colorList.length],
+      tension: 0.3,
+      pointRadius: 2,
+      borderWidth: 2
+    }));
+    const maxY = Math.max(0, ...datasets.flatMap(dataset => dataset.data));
+    const stepSize = nicePresenceTickStep(maxY);
+    const yMax = Math.max(stepSize, Math.ceil(maxY / stepSize) * stepSize);
+    const tickCount = Math.min(9, Math.ceil(yMax / stepSize) + 1);
     node.innerHTML = `
       <section class="presence-curve">
-        <h3>Half-Hour Physical Presence Curve</h3>
-        <p>Each cell shows students physically present during that half-hour interval. Enrollment is counted once per CRN per interval, so duplicate meeting rows or paired-room rows do not inflate the curve.</p>
-        <div class="analytics-table">
-          <table>
-            <thead><tr><th>Term</th>${slots.map(slot => `<th>${escapeAttr(slot)}</th>`).join('')}</tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
+        <h3>Student Presence Graph</h3>
+        <p>Student Presence estimates how many enrolled students are scheduled to be physically present during each half-hour interval. Each section contributes its census enrollment, or current enrollment when census is unavailable, to every interval where the class is active. Duplicate rows for the same CRN/day/time block are counted once.</p>
+        <div class="presence-chart-container" style="width:100%; max-width:1600px; height:600px; margin:auto;">
+          <canvas id="studentPresenceLineChart" style="width:100%; height:100%;"></canvas>
         </div>
       </section>`;
+    const canvas = document.getElementById('studentPresenceLineChart');
+    if (!canvas) return;
+    studentPresenceChartInstance = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: hours.map(formatPresenceHourLabel),
+        datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            enabled: true,
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
+            }
+          }
+        },
+        layout: { padding: 0 },
+        scales: {
+          x: { title: { display: true, text: 'Time of Day' }, ticks: { font: { size: 10 } } },
+          y: {
+            min: 0,
+            max: yMax,
+            title: { display: true, text: 'Estimated Students Present' },
+            beginAtZero: true,
+            ticks: {
+              stepSize,
+              maxTicksLimit: tickCount,
+              padding: 2,
+              font: { size: 10 }
+            }
+          }
+        }
+      }
+    });
   }
 
   function renderStudentPresenceLegend() {

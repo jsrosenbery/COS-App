@@ -1819,15 +1819,22 @@ test('duration graph uses nice y-axis tick steps', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
-  assert.match(index, /linechart-metric-select/);
-  assert.match(index, /Course Count/);
-  assert.match(index, /Student Presence/);
-  assert.match(app, /Student Presence Graph/);
-  assert.match(app, /Estimated Students Present/);
-  assert.match(app, /buildHalfHourPresenceSeries/);
-  assert.match(app, /isPresenceGraph \? 'Estimated Students Present' : 'Concurrent Courses'/);
+  assert.doesNotMatch(index, /linechart-metric-select/);
+  assert.doesNotMatch(index, /<option value="presence">Student Presence<\/option>/);
   assert.match(app, /niceTickStep/);
   assert.match(app, /\[2, 5, 10, 20, 25, 50/);
+});
+
+test('student presence graph uses course duration line chart pattern inside presence analytics', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /Student Presence Graph/);
+  assert.match(text, /studentPresenceLineChart/);
+  assert.match(text, /buildHalfHourPresenceSeries/);
+  assert.match(text, /Estimated Students Present/);
+  assert.match(text, /legend: \{ position: 'bottom' \}/);
+  assert.match(text, /Time of Day/);
+  assert.match(text, /Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday/);
 });
 
 test('dashboard compact tables use short headers and nowrap CSS', () => {
