@@ -163,6 +163,79 @@ test('canonical CRN deduplication prevents enrollment inflation from repeated me
   assert.equal(sectionModel.sumEnrollmentByCrn(rows), 50);
 });
 
+test('student presence graph series counts enrollment by overlapping half-hour interval', () => {
+  const { sectionModel } = loadCoreModules();
+  const hours = [9, 9.5, 10, 10.5];
+  const rows = [
+    {
+      Term: 'FALL 2026',
+      CRN: '10001',
+      Subject: 'ENGL',
+      Course: 'C1000',
+      DAYS: 'MW',
+      'Start Time': '9:10 AM',
+      'End Time': '10:25 AM',
+      CENSUS_ENROLL: '20',
+      ACTUAL_ENROLL: '25',
+      'Instructional Method': '02S',
+      BUILDING: 'TCC',
+      ROOM: '101'
+    },
+    {
+      Term: 'FALL 2026',
+      CRN: '10001',
+      Subject: 'ENGL',
+      Course: 'C1000',
+      DAYS: 'MW',
+      'Start Time': '9:10 AM',
+      'End Time': '10:25 AM',
+      CENSUS_ENROLL: '20',
+      ACTUAL_ENROLL: '25',
+      'Instructional Method': '02S',
+      BUILDING: 'TCC',
+      ROOM: '101'
+    },
+    {
+      Term: 'FALL 2026',
+      CRN: '10002',
+      Subject: 'MATH',
+      Course: '021',
+      DAYS: 'M',
+      'Start Time': '9:45 AM',
+      'End Time': '10:15 AM',
+      ACTUAL_ENROLL: '5',
+      'Instructional Method': 'IP',
+      BUILDING: 'TCC',
+      ROOM: '102'
+    },
+    {
+      Term: 'FALL 2026',
+      CRN: '10003',
+      Subject: 'HIST',
+      Course: '018',
+      DAYS: 'M',
+      'Start Time': '00:00',
+      'End Time': '00:00',
+      CENSUS_ENROLL: '40',
+      'Instructional Method': 'ONL',
+      BUILDING: 'ONLINE',
+      ROOM: 'LIVE'
+    }
+  ];
+
+  const presence = sectionModel.buildHalfHourPresenceSeries(rows, hours, { metric: 'presence' });
+  const courseCount = sectionModel.buildHalfHourPresenceSeries(rows, hours, { metric: 'count' });
+
+  assert.equal(presence['Monday-9'], 20);
+  assert.equal(presence['Monday-9.5'], 25);
+  assert.equal(presence['Monday-10'], 25);
+  assert.equal(presence['Monday-10.5'], 0);
+  assert.equal(presence['Wednesday-9'], 20);
+  assert.equal(presence['Wednesday-9.5'], 20);
+  assert.equal(courseCount['Monday-9.5'], 2);
+  assert.equal(courseCount['Wednesday-9.5'], 1);
+});
+
 test('tutoring open lab rows are centrally identified', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
 
@@ -1744,7 +1817,15 @@ test('standard analytics expose tutoring open lab exclusion controls and diagnos
 
 test('duration graph uses nice y-axis tick steps', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
+  assert.match(index, /linechart-metric-select/);
+  assert.match(index, /Course Count/);
+  assert.match(index, /Student Presence/);
+  assert.match(app, /Student Presence Graph/);
+  assert.match(app, /Estimated Students Present/);
+  assert.match(app, /buildHalfHourPresenceSeries/);
+  assert.match(app, /isPresenceGraph \? 'Estimated Students Present' : 'Concurrent Courses'/);
   assert.match(app, /niceTickStep/);
   assert.match(app, /\[2, 5, 10, 20, 25, 50/);
 });

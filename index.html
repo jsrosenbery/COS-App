@@ -483,11 +483,14 @@
   </div>
 
   <div id="linechart-tool" style="display:none;">
-    <h2>Course Duration Graph</h2>
+    <h2 id="linechart-title">Course Duration Graph</h2>
     <div class="analysis-explainer">
       <h3>How to Read This View</h3>
       <p>
         The Course Duration Graph counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = sections whose meeting day includes that line and whose meeting time overlaps that half-hour interval. A section contributes to every half-hour slot it overlaps, so this view shows classroom demand across the span of class meetings rather than only the start time.
+      </p>
+      <p>
+        Student Presence estimates how many enrolled students are scheduled to be physically present during each half-hour interval. Each section contributes its census enrollment, or current enrollment when census is unavailable, to every interval where the class is active. Duplicate rows for the same CRN/day/time block are counted once.
       </p>
       <p>
         This graph and the heatmap answer different questions. The heatmap shows when classes begin, while the duration graph shows how long demand remains active. Reviewing both together makes it easier to spot whether congestion is caused by many simultaneous starts, long overlapping meetings, or both.
@@ -502,6 +505,12 @@
       </label>
       <button id="linechart-load-source-btn" type="button">Load Source</button>
       <span id="linechart-source-status" class="analysis-source-status"></span>
+      <label>Graph Metric:
+        <select id="linechart-metric-select">
+          <option value="count">Course Count</option>
+          <option value="presence">Student Presence</option>
+        </select>
+      </label>
       <label>Campus:
         <select id="linechart-campus-select"></select>
       </label>

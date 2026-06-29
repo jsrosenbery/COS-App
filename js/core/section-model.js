@@ -86,6 +86,12 @@
     return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
   }
 
+  function hourFromTime(time) {
+    const match = String(time || '').match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    return Number(match[1]) + (Number(match[2]) / 60);
+  }
+
   function normalizeTimes(row) {
     const combined = csv.extractField(row, csv.fields.time);
     let start = csv.extractField(row, csv.fields.start);
@@ -158,6 +164,54 @@
     return dedupeSectionsByCrn(rows).reduce((total, row) => total + enrollmentForSection(row), 0);
   }
 
+  function dayName(code) {
+    return {
+      SU: 'Sunday',
+      MO: 'Monday',
+      TU: 'Tuesday',
+      WE: 'Wednesday',
+      TH: 'Thursday',
+      FR: 'Friday',
+      SA: 'Saturday'
+    }[code] || code;
+  }
+
+  function buildHalfHourPresenceSeries(rows, hours, options = {}) {
+    const daysOfWeek = options.daysOfWeek || ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const metric = options.metric || 'presence';
+    const excludeOnlineTba = options.excludeOnlineTba !== false;
+    const counts = {};
+    daysOfWeek.forEach(day => (hours || []).forEach(hour => { counts[`${day}-${hour}`] = 0; }));
+    const seen = new Set();
+    (rows || []).forEach((row, index) => {
+      const section = normalizeSection(row);
+      if (excludeOnlineTba && (!section.isPhysical || section.isOnline || section.timeBlock === 'ONLINE/TBA')) return;
+      const startHour = hourFromTime(section.start);
+      const endHour = hourFromTime(section.end);
+      if (startHour == null || endHour == null || startHour === endHour) return;
+      const enrollment = metric === 'presence' ? enrollmentForSection(section) : 1;
+      section.days.forEach(dayCode => {
+        const day = dayName(dayCode);
+        if (!daysOfWeek.includes(day)) return;
+        const dedupeKey = [
+          section.term || '',
+          section.crn || sectionIdentity(section, index),
+          day,
+          section.start,
+          section.end
+        ].join('|');
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
+        (hours || []).forEach(hour => {
+          if (hour >= Math.floor(startHour * 2) / 2 && hour < endHour) {
+            counts[`${day}-${hour}`] += enrollment;
+          }
+        });
+      });
+    });
+    return counts;
+  }
+
   function normalizeSection(row, options = {}) {
     if (row?.canonical) return row;
     const base = csv.normalizeCsvRow(row, options);
@@ -194,6 +248,7 @@
     normalizeDays,
     dayPattern,
     normalizeTime,
+    hourFromTime,
     normalizeTimes,
     normalizeModality,
     isOnlinePlaceholderTime,
@@ -203,6 +258,7 @@
     sectionIdentity,
     dedupeSectionsByCrn,
     enrollmentForSection,
-    sumEnrollmentByCrn
+    sumEnrollmentByCrn,
+    buildHalfHourPresenceSeries
   };
 });
