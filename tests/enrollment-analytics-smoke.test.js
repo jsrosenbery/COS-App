@@ -1716,6 +1716,11 @@ test('requested analytics regression coverage is represented in smoke tests', ()
     /studentPresenceChartFilter/,
     /getElementsAtEventForMode/,
     /Clear graph filter/,
+    /studentPresenceChartSources/,
+    /sourceRows: termRows/,
+    /studentPresenceFilteredSectionRows/,
+    /rowStart < end && rowEnd > start/,
+    /borderDash: sourceIndex \? \[6, 4\] : \[\]/,
     /distinctCrns/,
     /meetingRowsIncluded/
   ].forEach(pattern => assert.match(text, pattern));

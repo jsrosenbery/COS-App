@@ -2711,12 +2711,13 @@
   }
 
   function buildStudentPresenceComparisonRows(rows, options) {
-    const terms = [studentPresenceFocusTerm(), ...getSelectedValues('spCompareTerms')].filter(Boolean);
+    const terms = [...new Set([studentPresenceFocusTerm(), ...getSelectedValues('spCompareTerms')].filter(Boolean))];
     return terms.map(term => {
       const termRows = dashboardCurrentRows(rows, term).filter(studentPresenceHasUsableFixedTime);
       const report = dashboard.studentPresenceReport(termRows, 'hour', options);
       return {
         term,
+        sourceRows: termRows,
         rows: report.rows || [],
         metrics: report.metrics || {}
       };
@@ -3224,31 +3225,82 @@
     renderPresenceHeatmap(report.rows || []);
     renderStudentPresenceCurve(state.studentPresenceGraphRows || []);
     renderStudentPresenceChartFilterNote();
-    table('studentPresenceTable', filteredStudentPresenceTableRows(report.rows || []), [
-      'group',
-      'campus',
-      'building',
-      'room',
-      'day',
-      'hour',
-      'studentsPresent',
-      'sectionsActive',
-      'distinctCrns',
-      'meetingRowsIncluded',
-      'availableRoomCapacity',
-      'seatsScheduled',
-      'averageFillRate'
-    ]);
+    if (state.studentPresenceChartFilter) {
+      table('studentPresenceTable', studentPresenceFilteredSectionRows(), [
+        'term',
+        'crn',
+        'course',
+        'section',
+        'campus',
+        'building',
+        'room',
+        'day',
+        'start',
+        'end',
+        'enrollment',
+        'capacity',
+        'instructor'
+      ]);
+    } else {
+      table('studentPresenceTable', report.rows || [], [
+        'group',
+        'campus',
+        'building',
+        'room',
+        'day',
+        'hour',
+        'studentsPresent',
+        'sectionsActive',
+        'distinctCrns',
+        'meetingRowsIncluded',
+        'availableRoomCapacity',
+        'seatsScheduled',
+        'averageFillRate'
+      ]);
+    }
     renderStudentPresenceLegend();
   }
 
-  function filteredStudentPresenceTableRows(rows) {
+  function studentPresenceFilteredSectionRows() {
     const filter = state.studentPresenceChartFilter;
-    if (!filter) return rows || [];
-    return (rows || []).filter(row => {
-      const dayMatch = row.day === filter.dayCode || row.day === filter.dayName;
-      return dayMatch && row.hour === filter.hourKey;
-    });
+    if (!filter) return [];
+    const start = filter.startMinutes;
+    const end = filter.endMinutes;
+    const rows = studentPresenceRowsForChartTerm(filter.term)
+      .map(row => window.COSSectionModel?.normalizeSection?.(row) || row)
+      .filter(row => {
+        const rowStart = minutesFromTime(row.start);
+        const rowEnd = minutesFromTime(row.end);
+        return row.days?.includes(filter.dayCode) && rowStart != null && rowEnd != null && rowStart < end && rowEnd > start;
+      });
+    const seen = new Set();
+    return rows.reduce((items, row) => {
+      const key = [row.term, row.crn || row.courseCode, filter.dayCode, row.start, row.end].join('|');
+      if (seen.has(key)) return items;
+      seen.add(key);
+      items.push({
+        term: row.term || filter.term || '',
+        crn: row.crn || '',
+        course: row.courseCode || [row.subject, row.course].filter(Boolean).join(' '),
+        section: row.section || '',
+        campus: row.campus || '',
+        building: row.building || '',
+        room: row.roomOnly || row.room || '',
+        day: filter.dayCode,
+        start: row.start || '',
+        end: row.end || '',
+        enrollment: window.COSSectionModel?.enrollmentForSection?.(row) ?? row.census ?? row.actual ?? 0,
+        capacity: row.cap || 0,
+        instructor: row.instructor || ''
+      });
+      return items;
+    }, []);
+  }
+
+  function studentPresenceRowsForChartTerm(term) {
+    const match = (state.studentPresenceComparisonRows || []).find(item => item.term === term);
+    if (match?.sourceRows) return match.sourceRows;
+    return state.studentPresenceGraphRows || [];
   }
 
   function renderStudentPresenceChartFilterNote() {
@@ -3262,7 +3314,7 @@
     }
     node.hidden = false;
     node.innerHTML = `
-      <span>Table filtered to ${escapeAttr(filter.dayName)} at ${escapeAttr(filter.hourLabel)}.</span>
+      <span>Table filtered to ${escapeAttr(filter.term || studentPresenceFocusTerm() || 'selected term')} ${escapeAttr(filter.dayName)} from ${escapeAttr(filter.hourLabel)} to ${escapeAttr(filter.endLabel)}.</span>
       <button id="clearStudentPresenceChartFilter" type="button">Clear graph filter</button>`;
     document.getElementById('clearStudentPresenceChartFilter')?.addEventListener('click', () => {
       state.studentPresenceChartFilter = null;
@@ -3305,6 +3357,10 @@
     const h24 = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
     return `${String(h24).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+
+  function presenceHourMinutes(hour) {
+    return Math.round(hour * 60);
   }
 
   function presenceChartHours(rows) {
@@ -3363,23 +3419,31 @@
       return;
     }
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const hours = presenceChartHours(sourceRows);
-    const counts = window.COSSectionModel.buildHalfHourPresenceSeries(sourceRows, hours, {
-      metric: 'presence',
-      daysOfWeek,
-      excludeOnlineTba: true
-    });
+    const chartSources = studentPresenceChartSources(sourceRows);
+    const chartRows = chartSources.flatMap(source => source.rows);
+    const hours = presenceChartHours(chartRows.length ? chartRows : sourceRows);
     const colorList = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2'];
-    const datasets = daysOfWeek.map((day, index) => ({
-      label: day,
-      data: hours.map(hour => counts[`${day}-${hour}`] || 0),
-      fill: false,
-      borderColor: colorList[index % colorList.length],
-      backgroundColor: colorList[index % colorList.length],
-      tension: 0.3,
-      pointRadius: 2,
-      borderWidth: 2
-    }));
+    const multipleTerms = chartSources.length > 1;
+    const datasets = chartSources.flatMap((source, sourceIndex) => {
+      const counts = window.COSSectionModel.buildHalfHourPresenceSeries(source.rows, hours, {
+        metric: 'presence',
+        daysOfWeek,
+        excludeOnlineTba: true
+      });
+      return daysOfWeek.map((day, index) => ({
+        label: multipleTerms ? `${source.term || 'Selected Term'} ${day}` : day,
+        data: hours.map(hour => counts[`${day}-${hour}`] || 0),
+        fill: false,
+        borderColor: colorList[index % colorList.length],
+        backgroundColor: colorList[index % colorList.length],
+        borderDash: sourceIndex ? [6, 4] : [],
+        tension: 0.3,
+        pointRadius: 2,
+        borderWidth: sourceIndex ? 1.75 : 2.5,
+        presenceTerm: source.term,
+        presenceDay: day
+      }));
+    });
     const maxY = Math.max(0, ...datasets.flatMap(dataset => dataset.data));
     const stepSize = nicePresenceTickStep(maxY);
     const yMax = Math.max(stepSize, Math.ceil(maxY / stepSize) * stepSize);
@@ -3407,14 +3471,19 @@
           const points = chart.getElementsAtEventForMode(event, 'nearest', { intersect: false }, true);
           if (!points.length) return;
           const point = points[0];
-          const dayName = chart.data.datasets[point.datasetIndex]?.label || '';
+          const dataset = chart.data.datasets[point.datasetIndex] || {};
+          const dayName = dataset.presenceDay || dataset.label || '';
           const dayCodes = { Sunday: 'SU', Monday: 'MO', Tuesday: 'TU', Wednesday: 'WE', Thursday: 'TH', Friday: 'FR', Saturday: 'SA' };
           const hour = hours[point.index];
           state.studentPresenceChartFilter = {
+            term: dataset.presenceTerm || studentPresenceFocusTerm() || '',
             dayName,
             dayCode: dayCodes[dayName] || dayName,
             hourKey: presenceHourKey(hour),
-            hourLabel: formatPresenceHourLabel(hour)
+            hourLabel: formatPresenceHourLabel(hour),
+            endLabel: formatPresenceHourLabel(hour + 0.5),
+            startMinutes: presenceHourMinutes(hour),
+            endMinutes: presenceHourMinutes(hour + 0.5)
           };
           renderStudentPresenceReport(state.studentPresenceReport || { rows: state.studentPresenceRows || [], metrics: {} });
         },
@@ -3445,6 +3514,23 @@
         }
       }
     });
+  }
+
+  function studentPresenceChartSources(primaryRows) {
+    const focusTerm = studentPresenceFocusTerm() || '';
+    const sources = [];
+    const seen = new Set();
+    const addSource = (term, rows) => {
+      const key = term || 'selected';
+      if (seen.has(key)) return;
+      const physicalRows = studentPresencePhysicalGraphRows(rows || []);
+      if (!physicalRows.length) return;
+      seen.add(key);
+      sources.push({ term, rows: physicalRows });
+    };
+    addSource(focusTerm, primaryRows);
+    (state.studentPresenceComparisonRows || []).forEach(item => addSource(item.term, item.sourceRows || []));
+    return sources.length ? sources : [{ term: focusTerm, rows: primaryRows }];
   }
 
   function renderStudentPresenceLegend() {
