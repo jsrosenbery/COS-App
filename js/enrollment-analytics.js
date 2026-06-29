@@ -3292,6 +3292,12 @@
     return candidates.find(step => Math.ceil(maxValue / step) <= 8) || 5000;
   }
 
+  function studentPresencePhysicalGraphRows(rows) {
+    return (rows || [])
+      .map(row => window.COSSectionModel?.normalizeSection?.(row) || row)
+      .filter(row => row.isPhysical && !row.isOnline && row.timeBlock !== 'ONLINE/TBA');
+  }
+
   function renderStudentPresenceCurve(rows) {
     const node = document.getElementById('studentPresenceCurve');
     if (!node) return;
@@ -3299,7 +3305,7 @@
       studentPresenceChartInstance.destroy();
       studentPresenceChartInstance = null;
     }
-    const sourceRows = rows || [];
+    const sourceRows = studentPresencePhysicalGraphRows(rows);
     if (!sourceRows.length || !window.Chart || !window.COSSectionModel?.buildHalfHourPresenceSeries) {
       node.innerHTML = '<p class="analytics-empty">No student presence curve is available for the selected term scope.</p>';
       return;

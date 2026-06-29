@@ -236,6 +236,35 @@ test('student presence graph series counts enrollment by overlapping half-hour i
   assert.equal(courseCount['Wednesday-9.5'], 1);
 });
 
+test('student presence graph series accepts already-normalized enrollment rows', () => {
+  const { sectionModel } = loadCoreModules();
+  const rows = [
+    {
+      term: 'FALL 2026',
+      crn: '20001',
+      subject: 'COMM',
+      course: 'C1000',
+      campus: 'COS',
+      modality: 'IN PERSON',
+      days: ['MO', 'WE'],
+      start: '10:10',
+      end: '11:25',
+      census: 32,
+      actual: 35,
+      cap: 40,
+      building: 'TCC',
+      roomOnly: '101'
+    }
+  ];
+
+  const presence = sectionModel.buildHalfHourPresenceSeries(rows, [10, 10.5, 11], { metric: 'presence' });
+
+  assert.equal(presence['Monday-10'], 32);
+  assert.equal(presence['Monday-10.5'], 32);
+  assert.equal(presence['Monday-11'], 32);
+  assert.equal(presence['Wednesday-10.5'], 32);
+});
+
 test('tutoring open lab rows are centrally identified', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
 
