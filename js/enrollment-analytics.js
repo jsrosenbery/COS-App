@@ -1234,10 +1234,17 @@
             <label>Archived terms <select id="spArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Focus Term <select id="spFocusTerm"></select></label>
             <label>Compare Terms <select id="spCompareTerms" multiple data-placeholder="No comparison terms"></select></label>
-            ${filters('sp', { includeGroup: false, includeCancelled: false, includeDivision: true, includeRoom: true })}
+            ${filters('sp', { includeGroup: false, includeCancelled: false, includeDivision: true, includeRoom: true, includeCampus: false })}
+            <label>Campus Scope
+              <select id="spCampusScope">
+                <option value="ALL" selected>All COS/HAC/TCC</option>
+                <option value="COS">COS only</option>
+                <option value="HAC">HAC only</option>
+                <option value="TCC">TCC only</option>
+              </select>
+            </label>
             <label><input id="spIncludeDualEnrollment" type="checkbox"> include Dual Enrollment</label>
             <label><input id="spIncludeOtherModalities" type="checkbox"> include other modalities</label>
-            <label><input id="spIncludeAllCampuses" type="checkbox"> include non-COS/TCC/HAC campuses</label>
             <label>Group by
               <select id="spGroup">
                 <option value="all">All campuses</option>
@@ -1528,12 +1535,13 @@
     const includeOrg = typeof options === 'object' && Boolean(options.includeOrg);
     const includeDivision = includeOrg || (typeof options === 'object' && Boolean(options.includeDivision));
     const includeRoom = typeof options === 'object' && Boolean(options.includeRoom);
+    const includeCampus = typeof options !== 'object' || options.includeCampus !== false;
     return `
       ${includeDivision ? `<label>Division <select id="${prefix}Division" multiple data-placeholder="All divisions"></select></label>` : ''}
       ${includeOrg ? `<label>Department <select id="${prefix}Department" multiple data-placeholder="All departments"></select></label>` : ''}
       <label>Discipline <select id="${prefix}Subject" multiple data-placeholder="All disciplines"></select></label>
       <label>Course <select id="${prefix}Course" multiple data-placeholder="All courses"></select></label>
-      <label>Campus <select id="${prefix}Campus" multiple data-placeholder="All campuses"></select></label>
+      ${includeCampus ? `<label>Campus <select id="${prefix}Campus" multiple data-placeholder="All campuses"></select></label>` : ''}
       ${includeRoom ? `<label>Building <select id="${prefix}Building" multiple data-placeholder="All buildings"></select></label>` : ''}
       ${includeRoom ? `<label>Room <select id="${prefix}Room" multiple data-placeholder="All rooms"></select></label>` : ''}
       <label>Modality <select id="${prefix}Modality" multiple data-placeholder="All modalities"></select></label>
@@ -2706,8 +2714,15 @@
     return {
       includeDualEnrollment: document.getElementById('spIncludeDualEnrollment')?.checked === true,
       includeOtherModalities: document.getElementById('spIncludeOtherModalities')?.checked === true,
-      physicalCampuses: document.getElementById('spIncludeAllCampuses')?.checked === true ? [] : ['COS', 'TCC', 'TCCB', 'HAC', 'HACE', 'HACEDU', 'VIS', 'VISALIA', 'TUL', 'TULARE', 'HAN', 'HANFORD']
+      physicalCampuses: studentPresenceCampusScope()
     };
+  }
+
+  function studentPresenceCampusScope() {
+    const scope = canon(document.getElementById('spCampusScope')?.value || 'ALL');
+    const allowed = ['COS', 'HAC', 'TCC'];
+    if (allowed.includes(scope)) return [scope];
+    return allowed;
   }
 
   function buildStudentPresenceComparisonRows(rows, options) {
@@ -3550,7 +3565,7 @@
         ['Half-Hour Physical Presence Curve', 'Compares selected terms across half-hour intervals. A section contributes to every half-hour interval overlapped by its meeting time, and duplicate rows for the same CRN/interval are counted once.'],
         ['Include Dual Enrollment', 'Optional control. Default OFF. When enabled, Dual Enrollment rows with physical campus/day/time data may be included.'],
         ['Include Other Modalities', 'Optional control. Default OFF. When enabled, fixed-time non-online rows outside In-Person/Hybrid can be reviewed. Hide Online can then be used to remove online rows from that expanded scope.'],
-        ['Include Non-COS/TCC/HAC Campuses', 'Optional control. Default OFF. When enabled, campus values outside the default physical campus aliases can be included if they otherwise have fixed physical meeting data.'],
+        ['Campus Scope', 'Limits Student Presence Analytics to COS, HAC, and TCC only. All includes those three campus codes; selecting COS, HAC, or TCC narrows the report to that campus. Other campus codes are omitted from this report.'],
         ['Available Room Capacity', 'Scheduled capacity minus enrollment for the bucket, floored at zero.'],
         ['Seats Scheduled', 'Total scheduled section capacity in the bucket.'],
         ['Average Fill Rate', 'Students Present divided by Seats Scheduled.'],
@@ -6711,7 +6726,7 @@
     document.getElementById('studentPresenceCsv')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('spArchiveTerms')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('spHideOnline')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
-    ['spIncludeDualEnrollment', 'spIncludeOtherModalities', 'spIncludeAllCampuses'].forEach(id => {
+    ['spIncludeDualEnrollment', 'spIncludeOtherModalities', 'spCampusScope'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.studentPresenceRan) runStudentPresence().catch(err => console.warn(err)); });
     });
     document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
