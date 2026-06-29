@@ -140,6 +140,7 @@
   const filterUtils = window.COSEnrollmentFilters;
   const consolidation = window.COSConsolidationAnalytics;
   const dashboard = window.COSEnrollmentDashboard;
+  const sectionModel = window.COSSectionModel;
   if (!metrics || !filterUtils || !consolidation || !dashboard) {
     throw new Error('Enrollment analytics modules must load before js/enrollment-analytics.js');
   }
@@ -294,17 +295,18 @@
 
   function normalize(row) {
     const isWorkExperienceSource = canon(row.__sourceType) === 'WORK_EXPERIENCE';
+    const canonical = sectionModel?.normalizeSection?.(row, { term: row.__sourceTerm || currentTerm() });
     const subjectCourse = val(row, ['Subject_Course', 'Subject Course', 'Course ID', 'SUBJECT/COURSE']);
-    const subject = canon(val(row, fields.subject) || (subjectCourse.match(/^([A-Z]+)/i) || [])[1]);
-    const course = courseNumber(row);
-    const building = canon(val(row, fields.building));
-    const roomOnly = canon(val(row, fields.room));
-    const campus = normalizeCampus(row);
-    const modality = normalizeModality(val(row, fields.modality), row);
-    const days = normalizeDays(val(row, fields.days), row);
-    const times = normalizeTimes(row);
-    const cap = num(val(row, fields.cap));
-    const actual = num(val(row, fields.actual));
+    const subject = canonical?.subject || canon(val(row, fields.subject) || (subjectCourse.match(/^([A-Z]+)/i) || [])[1]);
+    const course = canonical?.course || courseNumber(row);
+    const building = canonical?.building || canon(val(row, fields.building));
+    const roomOnly = canonical?.roomOnly || canon(val(row, fields.room));
+    const campus = canonical?.campus || normalizeCampus(row);
+    const modality = canonical?.modality || normalizeModality(val(row, fields.modality), row);
+    const days = canonical?.days || normalizeDays(val(row, fields.days), row);
+    const times = canonical ? { start: canonical.start, end: canonical.end } : normalizeTimes(row);
+    const cap = canonical?.cap ?? num(val(row, fields.cap));
+    const actual = canonical?.actual ?? num(val(row, fields.actual));
     const censusValue = val(row, fields.census);
     const census = censusValue === '' ? null : num(censusValue);
     const firstDayValue = val(row, fields.firstDay);
@@ -327,8 +329,8 @@
     const ftesUnavailable = isWorkExperienceSource && ftesValue === '' && !hasFtesEstimationInputs;
     const normalized = {
       raw: row,
-      term: canon(val(row, fields.term) || row.__sourceTerm || currentTerm()),
-      crn: canon(val(row, fields.crn)),
+      term: canon(canonical?.term || val(row, fields.term) || row.__sourceTerm || currentTerm()),
+      crn: canon(canonical?.crn || val(row, fields.crn)),
       subject,
       course,
       title: canon(val(row, fields.title)),
@@ -379,6 +381,7 @@
       status: canon(val(row, fields.status)),
       isTutoringOpenLab: tutoringOpenLabCourseSet.has([subject, course].filter(Boolean).join(' '))
     };
+    normalized.canonicalSection = canonical;
     normalized._meetingRows = [meetingRowForFtes(normalized)];
     return normalized;
   }

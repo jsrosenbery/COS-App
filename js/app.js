@@ -512,6 +512,7 @@ function getUniqueRooms(data) {
 }
 
 function normalizeRow(r) {
+  const canonicalSection = window.COSSectionModel?.normalizeSection?.(r);
   // Convert DAYS like "MW" to ["Monday","Wednesday"]
   const daysMap = {M:"Monday",T:"Tuesday",W:"Wednesday",R:"Thursday",F:"Friday",U:"Sunday",S:"Saturday"};
   const dayColumnMap = [
@@ -593,6 +594,7 @@ function normalizeRow(r) {
     End_Date: extractField(r, ['End_Date', 'End Date', 'End', 'Section End Date']),
     Instructor: extractField(r, ['Instructor', 'Faculty', 'Primary Instructor']),
     Campus: extractField(r, ['CAMPUS', 'Campus', 'campus', 'Campus Code']),
+    canonicalSection
   }
 }
 
@@ -2492,25 +2494,28 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }));
     const roomMap = new Map(rooms.map(room => [room.buildingRoom, room]));
     currentData.forEach(section => {
+      const canonical = getCanonicalSection(section);
       if (excludeTutoringOpenLab && isTutoringOpenLabSection(section)) return;
-      if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return;
-      const key = getRoomKey(section);
+      const building = canonical?.building || section.Building || section.BUILDING;
+      const roomOnly = canonical?.roomOnly || section.Room || section.ROOM;
+      if (!isValidRoom(building, roomOnly)) return;
+      const key = canonical?.building && canonical?.roomOnly ? `${canonical.building}-${canonical.roomOnly}` : getRoomKey(section);
       if (String(key || '').toUpperCase().startsWith('VISFSC-')) return;
       if (!roomMap.has(key)) {
-        const fallback = { buildingRoom: key, campus: '', building: section.Building || '', room: section.Room || '', type: '', capacity: null, sections: 0, totalMinutes: 0, peakMinutes: 0, activeDays: new Set(), activeBlocks: new Set(), activePrimeBlocks: new Set(), blocksByDay: new Map(), meetingKeys: new Set() };
+        const fallback = { buildingRoom: key, campus: canonical?.campus || '', building: building || '', room: roomOnly || '', type: '', capacity: null, sections: 0, totalMinutes: 0, peakMinutes: 0, activeDays: new Set(), activeBlocks: new Set(), activePrimeBlocks: new Set(), blocksByDay: new Map(), meetingKeys: new Set() };
         roomMap.set(key, fallback);
         rooms.push(fallback);
       }
       const room = roomMap.get(key);
-      const days = Array.isArray(section.Days) ? section.Days : [];
-      const startMin = parseTime(section.Start_Time || '');
-      const endMin = parseTime(section.End_Time || '');
+      const days = Array.isArray(canonical?.days) ? canonical.days : (Array.isArray(section.Days) ? section.Days : []);
+      const startMin = parseTime(canonical?.start || section.Start_Time || '');
+      const endMin = parseTime(canonical?.end || section.End_Time || '');
       if (!days.length || !Number.isFinite(startMin) || !Number.isFinite(endMin) || endMin <= startMin) return;
       days.map(utilizationDayName).forEach(day => {
         if (!utilizationConfig.days.includes(day)) return;
         const meetingKey = [
           extractField(section, ['Term', 'TERM', 'term']) || currentTerm || '',
-          extractField(section, ['CRN', 'Course Reference Number']) || '',
+          canonical?.crn || extractField(section, ['CRN', 'Course Reference Number']) || '',
           key,
           day,
           startMin,
@@ -2640,21 +2645,24 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const excludeTutoringOpenLab = document.getElementById('roomFitExcludeTutoringOpenLab')?.checked !== false;
     const seen = new Set();
     return sourceRows.reduce((rows, section, index) => {
+      const canonical = getCanonicalSection(section);
       if (excludeTutoringOpenLab && isTutoringOpenLabSection(section)) return rows;
-      if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return rows;
-      const modality = getModalityCategory(getInstructionalMethod(section));
+      const building = canonical?.building || section.Building || section.BUILDING;
+      const roomOnly = canonical?.roomOnly || section.Room || section.ROOM;
+      if (!isValidRoom(building, roomOnly)) return rows;
+      const modality = getModalityCategory(canonical?.instructionalMethod || getInstructionalMethod(section));
       if (['ONLINE', 'WORK EXPERIENCE'].includes(String(modality || '').toUpperCase())) return rows;
-      const key = getRoomKey(section);
+      const key = canonical?.building && canonical?.roomOnly ? `${canonical.building}-${canonical.roomOnly}` : getRoomKey(section);
       if (String(key || '').toUpperCase().startsWith('VISFSC-')) return rows;
       const roomMeta = roomCatalogByKey.get(key);
       const roomCapacity = roomMeta?.capacity ?? null;
       if (roomCapacity == null || roomCapacity <= 0) return rows;
-      const sectionCapacity = getSectionCapacity(section);
-      const enrollment = getFitEnrollmentValue(section);
+      const sectionCapacity = canonical?.cap || getSectionCapacity(section);
+      const enrollment = canonical ? window.COSSectionModel.enrollmentForSection(canonical) : getFitEnrollmentValue(section);
       const basis = Math.max(sectionCapacity || 0, enrollment || 0);
       if (!basis) return rows;
-      const term = getSectionTermLabel(section);
-      const crn = extractField(section, ['CRN', 'Course Reference Number']) || `ROW${index}`;
+      const term = canonical?.term || getSectionTermLabel(section);
+      const crn = canonical?.crn || extractField(section, ['CRN', 'Course Reference Number']) || `ROW${index}`;
       const dedupeKey = [term, crn, key].join('|');
       if (seen.has(dedupeKey)) return rows;
       seen.add(dedupeKey);
@@ -2677,13 +2685,13 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       rows.push({
         term,
         crn,
-        course: getSectionCourseLabel(section),
-        section: getSectionNumber(section),
-        campus: section.Campus || extractField(section, ['Campus', 'CAMPUS']),
-        division: getDivision(section),
-        subject: getCourseParts(section).discipline,
-        building: section.Building || section.BUILDING || roomMeta?.building || '',
-        room: section.Room || section.ROOM || roomMeta?.room || '',
+        course: canonical?.courseCode || getSectionCourseLabel(section),
+        section: canonical?.section || getSectionNumber(section),
+        campus: canonical?.campus || section.Campus || extractField(section, ['Campus', 'CAMPUS']),
+        division: canonical?.division || getDivision(section),
+        subject: canonical?.subject || getCourseParts(section).discipline,
+        building: building || roomMeta?.building || '',
+        room: roomOnly || roomMeta?.room || '',
         roomCapacity,
         sectionCapacity: sectionCapacity == null ? '' : sectionCapacity,
         enrollment: enrollment == null ? '' : enrollment,
@@ -3058,7 +3066,13 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return 'Other';
   }
 
+  function getCanonicalSection(section) {
+    return section?.canonicalSection || window.COSSectionModel?.normalizeSection?.(section) || null;
+  }
+
   function getSectionIdentity(section, index) {
+    const canonical = getCanonicalSection(section);
+    if (canonical && window.COSSectionModel?.sectionIdentity) return window.COSSectionModel.sectionIdentity(canonical, index);
     const crn = extractField(section, ['CRN', 'Course Reference Number']);
     const term = getSectionTerm(section);
     if (crn) return `${term || 'UNKNOWN'}|CRN:${crn}`;
@@ -3227,12 +3241,13 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const sourceRows = getModalitySourceRows();
 
     sourceRows.forEach((section, index) => {
-      const campus = extractField(section, ['Campus', 'campus', 'CAMPUS']);
-      const term = getSectionTerm(section);
-      const division = getDivision(section);
-      const department = getDepartment(section);
-      const courseParts = getCourseParts(section);
-      const courseCode = getCourseCode(section);
+      const canonical = getCanonicalSection(section);
+      const campus = canonical?.campus || extractField(section, ['Campus', 'campus', 'CAMPUS']);
+      const term = canonical?.term ? normalizeTermLabel(canonical.term) : getSectionTerm(section);
+      const division = canonical?.division || getDivision(section);
+      const department = canonical?.department || getDepartment(section);
+      const courseParts = canonical ? { discipline: canonical.subject, courseNumber: canonical.course } : getCourseParts(section);
+      const courseCode = canonical?.courseCode || getCourseCode(section);
       const courseLevel = getCourseLevel(courseParts.courseNumber);
       if (excludeTutoringOpenLab && isTutoringOpenLabSection(section)) {
         tutoringOpenLabRowsExcluded += 1;
@@ -3251,7 +3266,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (seenSections.has(identity)) return;
       seenSections.add(identity);
 
-      const rawMethod = getInstructionalMethod(section) || 'Unspecified';
+      const rawMethod = canonical?.instructionalMethod || getInstructionalMethod(section) || 'Unspecified';
       const methodCode = normalizeModalityCode(rawMethod);
       const category = getModalityCategory(rawMethod);
       if (!valueMatchesAny(category, selectedModality)) return;
@@ -3266,11 +3281,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         department,
         discipline: courseParts.discipline,
         courseCode,
-        courseTitle: getCourseTitle(section),
+        courseTitle: canonical?.title || getCourseTitle(section),
         courseLevel,
         rawMethod,
         category,
-        enrollment: getEnrollmentValue(section)
+        enrollment: window.COSSectionModel?.enrollmentForSection?.(canonical || section) ?? getEnrollmentValue(section)
       });
     });
 
@@ -4200,23 +4215,24 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function feedHeatmapTool(dataArray) {
     hmRaw = dataArray.map(r => {
-      const key = getCourseKey(r);
-      const daysVal = normalizeMeetingDays(r.Days || r.days || r.dayPattern);
+      const canonical = getCanonicalSection(r);
+      const key = canonical?.courseCode || getCourseKey(r);
+      const daysVal = normalizeMeetingDays(canonical?.days || r.Days || r.days || r.dayPattern);
 
-      const instructor = extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
-      const startDate = extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
-      const endDate = extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
-      const title = extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
-      const enrollment = heatmapNumber(extractField(r, ['CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'census', 'ACTUAL_ENROLL', 'Actual_Enroll', 'Actual Enroll', 'actual', 'Enrollment', 'Enroll']));
-      const capacity = heatmapNumber(extractField(r, ['Capacity', 'CAPACITY', 'cap', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL']));
-      const instructionalMethod = getInstructionalMethod(r);
+      const instructor = canonical?.instructor || extractField(r, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
+      const startDate = canonical?.startDate || extractField(r, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+      const endDate = canonical?.endDate || extractField(r, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+      const title = canonical?.title || extractField(r, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
+      const enrollment = canonical ? window.COSSectionModel.enrollmentForSection(canonical) : heatmapNumber(extractField(r, ['CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'census', 'ACTUAL_ENROLL', 'Actual_Enroll', 'Actual Enroll', 'actual', 'Enrollment', 'Enroll']));
+      const capacity = canonical?.cap ?? heatmapNumber(extractField(r, ['Capacity', 'CAPACITY', 'cap', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL']));
+      const instructionalMethod = canonical?.instructionalMethod || getInstructionalMethod(r);
       const modalityCategory = getModalityCategory(instructionalMethod);
 
-      const building = extractField(r, ['Building', 'BUILDING', 'building', 'Bldg', 'Building Code']);
-      const room = extractField(r, ['Room', 'ROOM', 'roomOnly', 'room', 'Room Number']);
+      const building = canonical?.building || extractField(r, ['Building', 'BUILDING', 'building', 'Bldg', 'Building Code']);
+      const room = canonical?.roomOnly || extractField(r, ['Room', 'ROOM', 'roomOnly', 'room', 'Room Number']);
 
-      let startTime = extractField(r, ['Start_Time', 'Start Time', 'start', 'Start']) || '';
-      let endTime = extractField(r, ['End_Time', 'End Time', 'end', 'End']) || '';
+      let startTime = canonical?.start || extractField(r, ['Start_Time', 'Start Time', 'start', 'Start']) || '';
+      let endTime = canonical?.end || extractField(r, ['End_Time', 'End Time', 'end', 'End']) || '';
       if ((!startTime || !endTime) && r.Time) {
         let parts = r.Time.split('-');
         if (parts.length === 2) {
@@ -4228,8 +4244,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       return {
         key,
         Subject_Course: r.Subject_Course || '',
-        CRN: extractField(r, ['CRN', 'Course Reference Number']) || '',
-        Term: getSectionTerm(r),
+        CRN: canonical?.crn || extractField(r, ['CRN', 'Course Reference Number']) || '',
+        Term: canonical?.term ? normalizeTermLabel(canonical.term) : getSectionTerm(r),
         Building: building,
         Room: room,
         Days: daysVal,
@@ -4242,9 +4258,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         Instructor: instructor,
         Enrollment: enrollment,
         Capacity: capacity,
-        Campus: extractField(r, ['Campus', 'campus', 'CAMPUS']),
-        Division: getDivision(r),
-        Discipline: getCourseParts(r).discipline,
+        Campus: canonical?.campus || extractField(r, ['Campus', 'campus', 'CAMPUS']),
+        Division: canonical?.division || getDivision(r),
+        Discipline: canonical?.subject || getCourseParts(r).discipline,
         Modality: instructionalMethod,
         ModalityCategory: modalityCategory
       };

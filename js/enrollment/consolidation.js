@@ -3,6 +3,7 @@
 
   const metrics = window.COSEnrollmentMetrics;
   if (!metrics) throw new Error('COSEnrollmentMetrics must load before consolidation analytics.');
+  const sectionModel = window.COSSectionModel;
 
   const {
     censusEnrollment,
@@ -39,6 +40,8 @@
   }
 
   function sectionIdentity(section, index = 0) {
+    const canonical = section?.canonicalSection || (sectionModel?.normalizeSection ? sectionModel.normalizeSection(section) : null);
+    if (canonical && sectionModel?.sectionIdentity) return sectionModel.sectionIdentity(canonical, index);
     if (section?.crn) return `${section.term || 'UNKNOWN'}|${section.crn}`;
     return [section?.term, section?.subject, section?.course, section?.section, section?.modality, section?.campus, index].filter(Boolean).join('|');
   }

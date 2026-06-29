@@ -11,7 +11,7 @@ function loadEnrollmentModules() {
   };
   context.window.window = context.window;
   vm.createContext(context);
-  ['js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
+  ['js/core/csv-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -32,11 +32,18 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  ['js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment-analytics.js'].forEach(file => {
+  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
   return context.window;
+}
+
+function loadCoreModules() {
+  return {
+    csv: require('../js/core/csv-normalizer.js'),
+    sectionModel: require('../js/core/section-model.js')
+  };
 }
 
 function loadConfigModule() {
@@ -109,6 +116,51 @@ test('current CSV data without milestone fields still normalizes for attrition',
   assert.equal(row.census1, 24);
   assert.equal(row.census2, null);
   assert.equal(row.finalEnrollment, null);
+});
+
+test('shared CSV normalizer builds canonical section fields from all-columns seating rows', () => {
+  const { csv, sectionModel } = loadCoreModules();
+  const row = {
+    TERM: 'Fall 2026',
+    CRN: '12345',
+    SUBJECT: 'engl',
+    COURSE: 'c1000',
+    'Instructional Method': '02S',
+    DAYS: 'MW',
+    'Start Time': '9:10 AM',
+    'End Time': '10:25 AM',
+    CENSUS_ENROLL: '27',
+    CENSUS_ENROLL2: '-3',
+    ACTUAL_ENROLL: '29',
+    CAPACITY: '35',
+    BUILDING: 'TCC',
+    ROOM: '101'
+  };
+
+  const normalized = csv.normalizeCsvRow(row);
+  const sectionRow = sectionModel.normalizeSection(row);
+
+  assert.equal(normalized.term, 'FALL 2026');
+  assert.equal(normalized.courseCode, 'ENGL C1000');
+  assert.equal(normalized.invalidNegativeCensus2, true);
+  assert.equal(normalized.census2, null);
+  assert.deepEqual(sectionRow.days, ['MO', 'WE']);
+  assert.equal(sectionRow.start, '09:10');
+  assert.equal(sectionRow.end, '10:25');
+  assert.equal(sectionRow.modality, 'IN PERSON');
+  assert.equal(sectionRow.timeBlock, '09:00-09:59');
+});
+
+test('canonical CRN deduplication prevents enrollment inflation from repeated meeting rows', () => {
+  const { sectionModel } = loadCoreModules();
+  const rows = [
+    { Term: 'FALL 2026', CRN: '90001', Subject: 'MATH', Course: '021', CENSUS_ENROLL: '30', DAYS: 'MW', 'Start Time': '8:10', 'End Time': '9:25' },
+    { Term: 'FALL 2026', CRN: '90001', Subject: 'MATH', Course: '021', CENSUS_ENROLL: '30', DAYS: 'MW', 'Start Time': '8:10', 'End Time': '9:25' },
+    { Term: 'FALL 2026', CRN: '90002', Subject: 'MATH', Course: '021', CENSUS_ENROLL: '20', DAYS: 'TR', 'Start Time': '8:10', 'End Time': '9:25' }
+  ];
+
+  assert.equal(sectionModel.dedupeSectionsByCrn(rows).length, 2);
+  assert.equal(sectionModel.sumEnrollmentByCrn(rows), 50);
 });
 
 test('tutoring open lab rows are centrally identified', () => {
@@ -1593,7 +1645,15 @@ test('room utilization includes room capacity fit flags', () => {
 test('room utilization uses component scoring instead of fixed prime bump', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const enrollment = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const consolidation = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment/consolidation.js'), 'utf8');
 
+  assert.match(index, /js\/core\/csv-normalizer\.js/);
+  assert.match(index, /js\/core\/section-model\.js/);
+  assert.match(app, /function getCanonicalSection/);
+  assert.match(app, /canonicalSection/);
+  assert.match(enrollment, /sectionModel\?\.normalizeSection/);
+  assert.match(consolidation, /sectionModel\.sectionIdentity/);
   assert.match(index, /component model instead of a fixed prime-time multiplier/);
   assert.match(index, /Overall Room Utilization Score = Overall Utilization 40% \+ Prime-Time Utilization 25% \+ Distribution Score 20% \+ Fragmentation Score 15%/);
   assert.match(index, /Opportunity Score/);
