@@ -117,6 +117,7 @@
     studentPresenceGraphRows: [],
     studentPresenceReport: null,
     studentPresenceChartFilter: null,
+    studentPresenceExportRows: [],
     studentPresenceRan: false,
     conflictRows: [],
     conflictInput: [],
@@ -2697,8 +2698,8 @@
     refreshAnalyticsFilters('sp', sourceRows, saved);
     const diagnostics = standardExclusionDiagnostics(sourceRows, 'sp');
     const filteredRows = applyFilters(sourceRows, 'sp');
-    const scopedRows = dashboardCurrentRows(filteredRows, focusTerm).filter(studentPresenceHasUsableFixedTime);
     const options = studentPresenceOptions();
+    const scopedRows = studentPresenceScopedRows(dashboardCurrentRows(filteredRows, focusTerm), options);
     const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour', options);
     report.metrics = report.metrics || {};
     report.metrics.tutoringOpenLabRowsExcluded = diagnostics.tutoringOpenLabRowsExcluded;
@@ -2725,10 +2726,17 @@
     return allowed;
   }
 
+  function studentPresenceScopedRows(rows, options = studentPresenceOptions()) {
+    const campuses = new Set((options.physicalCampuses || studentPresenceCampusScope()).map(canon));
+    return (rows || [])
+      .filter(studentPresenceHasUsableFixedTime)
+      .filter(row => campuses.has(canon(row.campus)));
+  }
+
   function buildStudentPresenceComparisonRows(rows, options) {
     const terms = [...new Set([studentPresenceFocusTerm(), ...getSelectedValues('spCompareTerms')].filter(Boolean))];
     return terms.map(term => {
-      const termRows = dashboardCurrentRows(rows, term).filter(studentPresenceHasUsableFixedTime);
+      const termRows = studentPresenceScopedRows(dashboardCurrentRows(rows, term), options);
       const report = dashboard.studentPresenceReport(termRows, 'hour', options);
       return {
         term,
@@ -3241,7 +3249,9 @@
     renderStudentPresenceCurve(state.studentPresenceGraphRows || []);
     renderStudentPresenceChartFilterNote();
     if (state.studentPresenceChartFilter) {
-      table('studentPresenceTable', studentPresenceFilteredSectionRows(), [
+      const rows = studentPresenceFilteredSectionRows();
+      state.studentPresenceExportRows = rows;
+      table('studentPresenceTable', rows, [
         'term',
         'crn',
         'course',
@@ -3257,7 +3267,9 @@
         'instructor'
       ]);
     } else {
-      table('studentPresenceTable', report.rows || [], [
+      const rows = report.rows || [];
+      state.studentPresenceExportRows = rows;
+      table('studentPresenceTable', rows, [
         'group',
         'campus',
         'building',
@@ -3316,6 +3328,14 @@
     const match = (state.studentPresenceComparisonRows || []).find(item => item.term === term);
     if (match?.sourceRows) return match.sourceRows;
     return state.studentPresenceGraphRows || [];
+  }
+
+  function exportStudentPresenceRows() {
+    const rows = state.studentPresenceExportRows?.length ? state.studentPresenceExportRows : state.studentPresenceRows;
+    const suffix = state.studentPresenceChartFilter
+      ? `${state.studentPresenceChartFilter.term || studentPresenceFocusTerm() || 'term'}-${state.studentPresenceChartFilter.dayCode}-${state.studentPresenceChartFilter.hourKey}`
+      : studentPresenceFocusTerm() || 'term';
+    exportRows(rows || [], `student-presence-${suffix}.csv`);
   }
 
   function renderStudentPresenceChartFilterNote() {
@@ -6730,7 +6750,7 @@
       document.getElementById(id)?.addEventListener('change', () => { if (state.studentPresenceRan) runStudentPresence().catch(err => console.warn(err)); });
     });
     document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
-    document.getElementById('exportStudentPresence')?.addEventListener('click', () => exportRows(state.studentPresenceRows, `student-presence-${studentPresenceFocusTerm() || 'term'}.csv`));
+    document.getElementById('exportStudentPresence')?.addEventListener('click', exportStudentPresenceRows);
     document.getElementById('runAttrition')?.addEventListener('click', () => runAttrition().catch(handleAttritionError));
     document.getElementById('dashIncludeWorkExperience')?.addEventListener('change', rerunDashboard);
     document.getElementById('attrIncludeWorkExperience')?.addEventListener('change', () => runAttrition().catch(handleAttritionError));
