@@ -120,3 +120,23 @@ test('faculty modules expose browser-compatible APIs', () => {
   const parsed = context.window.COSFacultyParser.parseFacultyScheduleCsv(sampleCsv);
   assert.equal(parsed.meetingCount, 6);
 });
+
+test('faculty heatmap inputs support interval, faculty, enrollment, seats, and LHE metrics', () => {
+  const parsed = facultyParser.parseFacultyScheduleCsv(sampleCsv);
+  const reportable = parsed.meetings.filter(row => row.facultyType !== 'OMIT');
+  const mondayNine = reportable.filter(row => row.days.includes('MO') && row.startTime < '09:30' && row.endTime > '09:00');
+  const thursdayOne = reportable.filter(row => row.days.includes('TH') && row.startTime < '13:30' && row.endTime > '13:00');
+
+  assert.equal(mondayNine.length, 1);
+  assert.equal(new Set(mondayNine.map(row => row.facultyId)).size, 1);
+  assert.equal(mondayNine.reduce((total, row) => total + row.actualEnroll, 0), 20);
+  assert.equal(mondayNine.reduce((total, row) => total + row.maxEnroll, 0), 25);
+  assert.equal(mondayNine.reduce((total, row) => total + row.lhe, 0), 2);
+
+  assert.equal(thursdayOne.length, 1);
+  assert.equal(thursdayOne[0].meetingType, 'Lab');
+  assert.equal(thursdayOne[0].facultyType, 'FULL_TIME');
+  assert.equal(thursdayOne[0].actualEnroll, 24);
+  assert.equal(thursdayOne[0].maxEnroll, 24);
+  assert.equal(thursdayOne[0].lhe, 1);
+});

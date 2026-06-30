@@ -1600,6 +1600,47 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(backend, /app\.post\('\/api\/auth\/role'/);
 });
 
+test('faculty schedule heatmap is a standalone Development report', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /facultyHeatmap: 'faculty-schedule-heatmap'/);
+  assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'development'/);
+  assert.match(text, /Faculty Schedule Heatmap/);
+  assert.match(text, /id="facultyHeatmapReport"/);
+  assert.match(text, /id="facultyScheduleCsv"/);
+  assert.match(text, /id="fhMetric"/);
+  assert.match(text, /<option value="sections">Sections<\/option>/);
+  assert.match(text, /<option value="facultyCount">Faculty Count<\/option>/);
+  assert.match(text, /<option value="enrollment">Enrollment<\/option>/);
+  assert.match(text, /<option value="seats">Seats<\/option>/);
+  assert.match(text, /<option value="lhe">LHE<\/option>/);
+  assert.match(text, /id="fhFacultyType"/);
+  assert.match(text, /FULL_TIME/);
+  assert.match(text, /PART_TIME/);
+  assert.match(text, /id="fhMeetingType"/);
+  assert.match(text, /Lecture/);
+  assert.match(text, /Lab/);
+  assert.match(text, /Activity/);
+  assert.match(text, /id="fhCampus"/);
+  assert.match(text, /id="fhDivision"/);
+  assert.match(text, /id="fhDepartment"/);
+  assert.match(text, /id="fhSubject"/);
+  assert.match(text, /id="fhCourse"/);
+  assert.match(text, /id="fhTerm"/);
+  assert.match(text, /id="fhModality"/);
+  assert.match(text, /function readFacultyScheduleFiles/);
+  assert.match(text, /COSFacultyParser\.parseFacultyScheduleCsv/);
+  assert.match(text, /function renderFacultyScheduleHeatmap/);
+  assert.match(text, /heatmap-cell heatmap-\$\{level\}/);
+  assert.match(text, /Peak teaching time/);
+  assert.match(text, /Peak FT teaching/);
+  assert.match(text, /Peak PT teaching/);
+  assert.match(text, /Peak enrollment/);
+  assert.match(text, /Peak LHE/);
+  assert.match(text, /Most active day/);
+  assert.match(text, /Least active day/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

@@ -14,6 +14,7 @@
     workExperience: 'work-experience-enrollment',
     studentPresence: 'student-presence-analytics',
     instructorAvailability: 'instructor-availability',
+    facultyHeatmap: 'faculty-schedule-heatmap',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
@@ -47,7 +48,8 @@
     [REPORTS.roomFit]: 'em',
     [REPORTS.utilization]: 'em',
     [REPORTS.consolidation]: 'em',
-    [REPORTS.studentPresence]: 'em'
+    [REPORTS.studentPresence]: 'em',
+    [REPORTS.facultyHeatmap]: 'development'
   };
   const REPORT_LABEL = {
     [REPORTS.archiveInspection]: 'Archived Schedule Inspector',
@@ -64,6 +66,7 @@
     [REPORTS.utilization]: 'Room Utilization Map',
     [REPORTS.consolidation]: 'Section Consolidation Opportunities',
     [REPORTS.studentPresence]: 'Student Presence Analytics',
+    [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
   const REPORT_GROUP_ORDER = ['dean', 'em', 'admin', 'development'];
@@ -82,7 +85,8 @@
     REPORTS.roomFit,
     REPORTS.utilization,
     REPORTS.consolidation,
-    REPORTS.studentPresence
+    REPORTS.studentPresence,
+    REPORTS.facultyHeatmap
   ];
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
   const ROLE_STORAGE_KEY = 'cos-access-role';
@@ -119,6 +123,9 @@
     studentPresenceChartFilter: null,
     studentPresenceExportRows: [],
     studentPresenceRan: false,
+    facultyHeatmapRows: [],
+    facultyHeatmapBucketRows: [],
+    facultyHeatmapRan: false,
     conflictRows: [],
     conflictInput: [],
     conflictTerms: [],
@@ -1322,6 +1329,75 @@
           <div id="instructorAvailabilityTable" class="analytics-table"></div>
           <div id="instructorAvailabilityLegend" class="analytics-legend"></div>
         </div>
+        <div id="facultyHeatmapReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Faculty Schedule Heatmap</h2>
+            <p>Uses Faculty Schedule CSV uploads to show when faculty instructional activity is concentrated by half-hour interval. This report is isolated in Development while the faculty parser and model are validated.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Upload one or more Faculty Schedule CSV files, then click Load Faculty Schedule.</li>
+                  <li>Use the metric toggle to switch the heatmap between sections, unique faculty count, enrollment, seats, and LHE.</li>
+                  <li>Use faculty type, meeting type, term, campus, division, department, discipline, course, and modality filters to isolate the schedule population.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor.</li>
+                  <li>A meeting contributes to every half-hour interval it overlaps on each scheduled day.</li>
+                  <li>Sections counts instructional meeting rows once per day/time bucket. Faculty Count counts distinct faculty in each bucket. Enrollment uses ActualEnroll, Seats uses MaxEnroll, and LHE uses the uploaded LHE value.</li>
+                  <li>Faculty Type maps FCNT_CODE values: FT and TE are Full-Time, JP is Part-Time, unknown codes are Unknown, and omitted faculty types are excluded from this report.</li>
+                  <li>Meeting Type maps SCHD_CODE_SSRMEET values: 2 is Lecture, 4 is Lab, XX is Activity, and all other codes are Other.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Faculty Schedule CSV(s) <input id="facultyScheduleCsv" type="file" accept=".csv" multiple></label>
+            <button id="loadFacultyScheduleHeatmap" type="button">Load Faculty Schedule</button>
+            <span id="facultyScheduleHeatmapStatus" class="analytics-note">No faculty schedule rows loaded.</span>
+            <label>Metric
+              <select id="fhMetric">
+                <option value="sections">Sections</option>
+                <option value="facultyCount">Faculty Count</option>
+                <option value="enrollment">Enrollment</option>
+                <option value="seats">Seats</option>
+                <option value="lhe">LHE</option>
+              </select>
+            </label>
+            <label>Faculty Type
+              <select id="fhFacultyType">
+                <option value="">All</option>
+                <option value="FULL_TIME">Full-Time</option>
+                <option value="PART_TIME">Part-Time</option>
+                <option value="UNKNOWN">Unknown</option>
+              </select>
+            </label>
+            <label>Meeting Type
+              <select id="fhMeetingType">
+                <option value="">All</option>
+                <option value="Lecture">Lecture</option>
+                <option value="Lab">Lab</option>
+                <option value="Activity">Activity</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
+            <label>Term <select id="fhTerm"></select></label>
+            <label>Campus <select id="fhCampus"></select></label>
+            <label>Division <select id="fhDivision"></select></label>
+            <label>Department <select id="fhDepartment"></select></label>
+            <label>Discipline <select id="fhSubject"></select></label>
+            <label>Course <select id="fhCourse"></select></label>
+            <label>Modality <select id="fhModality"></select></label>
+            <button id="clearFacultyHeatmap" type="button">Clear</button>
+          </div>
+          <div id="facultyHeatmapMetrics" class="analytics-metrics"></div>
+          <div id="facultyHeatmapContainer" class="analytics-insights"></div>
+          <div id="facultyHeatmapTable" class="analytics-table"></div>
+          <div id="facultyHeatmapLegend" class="analytics-legend"></div>
+        </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition Trend</h2>
@@ -1819,6 +1895,290 @@
       });
     })));
     return batches.flat();
+  }
+
+  function readTextFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error(`Unable to read ${file?.name || 'file'}.`));
+      reader.readAsText(file);
+    });
+  }
+
+  async function readFacultyScheduleFiles(input) {
+    const files = Array.from(input?.files || []);
+    if (!files.length) return [];
+    if (!window.COSFacultyParser?.parseFacultyScheduleCsv) {
+      throw new Error('Faculty Schedule parser is not loaded.');
+    }
+    const batches = await Promise.all(files.map(async file => {
+      const text = await readTextFile(file);
+      const sourceTerm = termFromFilename(file.name) || 'Unspecified';
+      const parsed = window.COSFacultyParser.parseFacultyScheduleCsv(text, { term: sourceTerm });
+      return parsed.meetings || [];
+    }));
+    return batches.flat();
+  }
+
+  function facultyTerm(row) {
+    return String(row?.sourceTerm || row?.term || 'Unspecified').trim() || 'Unspecified';
+  }
+
+  function facultyCourseValue(row) {
+    return row?.courseCode || [row?.subject, row?.course].filter(Boolean).join(' ');
+  }
+
+  function facultyModalityValue(row) {
+    return row?.insmCode || row?.modality || '';
+  }
+
+  function setFacultyFilterOptions(id, values, allLabel = 'All') {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const previous = select.value;
+    const unique = [...new Set((values || []).map(value => String(value || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    select.replaceChildren(new Option(allLabel, ''));
+    unique.forEach(value => select.appendChild(new Option(value, value)));
+    if (unique.includes(previous)) select.value = previous;
+  }
+
+  function facultyFilterSourceRows() {
+    const rows = (state.facultyHeatmapRows || []).filter(row => row.facultyType !== 'OMIT');
+    const scoped = rows.filter(row => {
+      const term = document.getElementById('fhTerm')?.value || '';
+      const facultyType = document.getElementById('fhFacultyType')?.value || '';
+      const meetingType = document.getElementById('fhMeetingType')?.value || '';
+      const campus = document.getElementById('fhCampus')?.value || '';
+      const division = document.getElementById('fhDivision')?.value || '';
+      const department = document.getElementById('fhDepartment')?.value || '';
+      const subject = document.getElementById('fhSubject')?.value || '';
+      const course = document.getElementById('fhCourse')?.value || '';
+      const modality = document.getElementById('fhModality')?.value || '';
+      if (term && facultyTerm(row) !== term) return false;
+      if (facultyType && row.facultyType !== facultyType) return false;
+      if (meetingType && row.meetingType !== meetingType) return false;
+      if (campus && row.campus !== campus) return false;
+      if (division && row.divisionId !== division) return false;
+      if (department && row.departmentId !== department) return false;
+      if (subject && row.subject !== subject) return false;
+      if (course && facultyCourseValue(row) !== course) return false;
+      if (modality && facultyModalityValue(row) !== modality) return false;
+      return true;
+    });
+    return scoped;
+  }
+
+  function updateFacultyHeatmapFilterOptions() {
+    const rows = (state.facultyHeatmapRows || []).filter(row => row.facultyType !== 'OMIT');
+    setFacultyFilterOptions('fhTerm', rows.map(facultyTerm), 'All terms');
+    setFacultyFilterOptions('fhCampus', rows.map(row => row.campus), 'All campuses');
+    setFacultyFilterOptions('fhDivision', rows.map(row => row.divisionId), 'All divisions');
+    const division = document.getElementById('fhDivision')?.value || '';
+    const departmentSource = division ? rows.filter(row => row.divisionId === division) : rows;
+    setFacultyFilterOptions('fhDepartment', departmentSource.map(row => row.departmentId), 'All departments');
+    const department = document.getElementById('fhDepartment')?.value || '';
+    const subjectSource = department ? departmentSource.filter(row => row.departmentId === department) : departmentSource;
+    setFacultyFilterOptions('fhSubject', subjectSource.map(row => row.subject), 'All disciplines');
+    const subject = document.getElementById('fhSubject')?.value || '';
+    const courseSource = subject ? subjectSource.filter(row => row.subject === subject) : subjectSource;
+    setFacultyFilterOptions('fhCourse', courseSource.map(facultyCourseValue), 'All courses');
+    setFacultyFilterOptions('fhModality', rows.map(facultyModalityValue), 'All modalities');
+  }
+
+  function facultyHeatmapSlots(rows) {
+    let min = 6 * 60;
+    let max = 22 * 60;
+    (rows || []).forEach(row => {
+      const start = minutesFromTime(row.startTime || row.start);
+      const end = minutesFromTime(row.endTime || row.end);
+      if (start != null && end != null && end > start) {
+        min = Math.min(min, Math.floor(start / 30) * 30);
+        max = Math.max(max, Math.ceil(end / 30) * 30);
+      }
+    });
+    const slots = [];
+    for (let minutes = min; minutes < max; minutes += 30) slots.push(minutes);
+    return slots;
+  }
+
+  function facultyHeatmapMetricValue(row, metricName) {
+    if (metricName === 'enrollment') return row.actualEnroll || 0;
+    if (metricName === 'seats') return row.maxEnroll || 0;
+    if (metricName === 'lhe') return row.lhe || 0;
+    return 1;
+  }
+
+  function buildFacultyHeatmapBuckets(rows, metricName) {
+    const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
+    const slots = facultyHeatmapSlots(rows);
+    const cellMap = new Map();
+    dayKeys.forEach(day => {
+      slots.forEach(minutes => {
+        const key = `${day}|${minutes}`;
+        cellMap.set(key, {
+          key,
+          day,
+          dayName: dayNames[day],
+          minutes,
+          time: formatPresenceHourLabel(minutes / 60),
+          sections: 0,
+          facultyCount: 0,
+          enrollment: 0,
+          seats: 0,
+          lhe: 0,
+          faculty: new Set(),
+          meetings: new Set()
+        });
+      });
+    });
+    rows.forEach(row => {
+      const start = minutesFromTime(row.startTime || row.start);
+      const end = minutesFromTime(row.endTime || row.end);
+      if (start == null || end == null || end <= start) return;
+      const rowDays = Array.isArray(row.days) ? row.days : [];
+      const facultyKey = row.facultyId || row.facultyName || row.instructor || 'Unknown';
+      rowDays.forEach(day => {
+        slots.forEach(minutes => {
+          if (end <= minutes || start >= minutes + 30) return;
+          const cell = cellMap.get(`${day}|${minutes}`);
+          if (!cell) return;
+          const meetingKey = row.deduplicationKey || [row.crn, row.dayPattern, row.startTime, row.endTime, row.meetingType, facultyKey].join('|');
+          if (cell.meetings.has(meetingKey)) return;
+          cell.meetings.add(meetingKey);
+          cell.sections += 1;
+          cell.enrollment += facultyHeatmapMetricValue(row, 'enrollment');
+          cell.seats += facultyHeatmapMetricValue(row, 'seats');
+          cell.lhe += facultyHeatmapMetricValue(row, 'lhe');
+          cell.faculty.add(facultyKey);
+          cell.facultyCount = cell.faculty.size;
+        });
+      });
+    });
+    const rowsOut = [...cellMap.values()].map(cell => ({
+      ...cell,
+      metricValue: metricName === 'facultyCount' ? cell.facultyCount : cell[metricName] || 0
+    }));
+    return { dayKeys, dayNames, slots, rows: rowsOut };
+  }
+
+  function peakFacultyHeatmapCell(bucketRows, metricName, predicate = () => true) {
+    return (bucketRows || [])
+      .filter(row => predicate(row) && (metricName === 'facultyCount' ? row.facultyCount : row[metricName] || 0) > 0)
+      .sort((a, b) => ((metricName === 'facultyCount' ? b.facultyCount : b[metricName] || 0) - (metricName === 'facultyCount' ? a.facultyCount : a[metricName] || 0)))[0] || null;
+  }
+
+  function facultyHeatmapPeakByType(rows, facultyType) {
+    const built = buildFacultyHeatmapBuckets(rows.filter(row => row.facultyType === facultyType), 'sections');
+    return peakFacultyHeatmapCell(built.rows, 'sections');
+  }
+
+  function renderFacultyScheduleHeatmap() {
+    const status = document.getElementById('facultyScheduleHeatmapStatus');
+    const sourceRows = state.facultyHeatmapRows || [];
+    const rows = facultyFilterSourceRows();
+    const metricName = document.getElementById('fhMetric')?.value || 'sections';
+    if (!sourceRows.length) {
+      if (status) status.textContent = 'No faculty schedule rows loaded.';
+      metric('facultyHeatmapMetrics', [
+        ['Peak teaching time', 'N/A'],
+        ['Peak FT teaching', 'N/A'],
+        ['Peak PT teaching', 'N/A'],
+        ['Peak enrollment', 'N/A'],
+        ['Peak LHE', 'N/A'],
+        ['Most active day', 'N/A'],
+        ['Least active day', 'N/A']
+      ]);
+      document.getElementById('facultyHeatmapContainer').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Schedule.</p>';
+      document.getElementById('facultyHeatmapTable').innerHTML = '<p class="analytics-empty">No faculty schedule data loaded.</p>';
+      document.getElementById('facultyHeatmapLegend').innerHTML = '';
+      return;
+    }
+    if (status) {
+      const terms = [...new Set(sourceRows.map(facultyTerm))].sort().join(', ');
+      status.textContent = `Loaded ${sourceRows.length} deduped meeting row(s). Terms: ${terms || 'Unspecified'}.`;
+    }
+    const built = buildFacultyHeatmapBuckets(rows, metricName);
+    state.facultyHeatmapBucketRows = built.rows;
+    const maxValue = Math.max(0, ...built.rows.map(row => row.metricValue || 0));
+    const cellByKey = new Map(built.rows.map(row => [row.key, row]));
+    const headers = built.slots.map(minutes => `<th>${escapeAttr(formatPresenceHourLabel(minutes / 60))}</th>`).join('');
+    const body = built.dayKeys.map(day => {
+      const cells = built.slots.map(minutes => {
+        const cell = cellByKey.get(`${day}|${minutes}`);
+        const value = cell?.metricValue || 0;
+        const heat = maxValue ? value / maxValue : 0;
+        const level = value <= 0 ? 'empty' : heat >= 0.67 ? 'high' : heat >= 0.34 ? 'medium' : 'low';
+        const display = metricName === 'lhe' && value ? value.toFixed(1) : Math.round(value);
+        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(`${built.dayNames[day]} ${formatPresenceHourLabel(minutes / 60)}: ${display}`)}">${value ? display : ''}</td>`;
+      }).join('');
+      return `<tr><th>${built.dayNames[day]}</th>${cells}</tr>`;
+    }).join('');
+    document.getElementById('facultyHeatmapContainer').innerHTML = `
+      <div class="heatmap-wrap">
+        <table class="heatmap">
+          <thead><tr><th>Day / Time</th>${headers}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    `;
+    const peakTeaching = peakFacultyHeatmapCell(built.rows, 'sections');
+    const peakEnrollment = peakFacultyHeatmapCell(built.rows, 'enrollment');
+    const peakLhe = peakFacultyHeatmapCell(built.rows, 'lhe');
+    const peakFt = facultyHeatmapPeakByType(rows, 'FULL_TIME');
+    const peakPt = facultyHeatmapPeakByType(rows, 'PART_TIME');
+    const dayTotals = built.dayKeys.map(day => ({
+      day: built.dayNames[day],
+      sections: built.rows.filter(row => row.day === day).reduce((total, row) => total + row.sections, 0)
+    }));
+    const mostActiveDay = dayTotals.slice().sort((a, b) => b.sections - a.sections)[0];
+    const leastActiveDay = dayTotals.slice().sort((a, b) => a.sections - b.sections)[0];
+    const cellLabel = (cell, metric = 'sections') => cell ? `${cell.dayName} ${cell.time} (${metric === 'lhe' ? (cell[metric] || 0).toFixed(1) : Math.round(cell[metric] || 0)})` : 'N/A';
+    metric('facultyHeatmapMetrics', [
+      ['Peak teaching time', cellLabel(peakTeaching, 'sections')],
+      ['Peak FT teaching', cellLabel(peakFt, 'sections')],
+      ['Peak PT teaching', cellLabel(peakPt, 'sections')],
+      ['Peak enrollment', cellLabel(peakEnrollment, 'enrollment')],
+      ['Peak LHE', cellLabel(peakLhe, 'lhe')],
+      ['Most active day', mostActiveDay ? `${mostActiveDay.day} (${mostActiveDay.sections})` : 'N/A'],
+      ['Least active day', leastActiveDay ? `${leastActiveDay.day} (${leastActiveDay.sections})` : 'N/A']
+    ]);
+    const nonEmpty = built.rows
+      .filter(row => row.sections || row.facultyCount || row.enrollment || row.seats || row.lhe)
+      .map(row => ({
+        day: row.dayName,
+        time: row.time,
+        sections: row.sections,
+        facultyCount: row.facultyCount,
+        enrollment: row.enrollment,
+        seats: row.seats,
+        lhe: Number(row.lhe.toFixed(2))
+      }));
+    table('facultyHeatmapTable', nonEmpty, ['day', 'time', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe']);
+    document.getElementById('facultyHeatmapLegend').innerHTML = `
+      <strong>Faculty Schedule Heatmap Methodology</strong>
+      <p>Rows are normalized by the Faculty Schedule parser and deduplicated by CRN, day pattern, start/end time, meeting type, and instructor. Each meeting contributes to every overlapping half-hour bucket on every scheduled day. Omitted faculty types are excluded from this Development report.</p>
+    `;
+    state.facultyHeatmapRan = true;
+  }
+
+  async function loadFacultyScheduleHeatmap() {
+    const rows = await readFacultyScheduleFiles(document.getElementById('facultyScheduleCsv'));
+    state.facultyHeatmapRows = rows;
+    updateFacultyHeatmapFilterOptions();
+    renderFacultyScheduleHeatmap();
+  }
+
+  function clearFacultyScheduleHeatmap() {
+    ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhDivision', 'fhDepartment', 'fhSubject', 'fhCourse', 'fhModality'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.value = '';
+    });
+    const metricSelect = document.getElementById('fhMetric');
+    if (metricSelect) metricSelect.value = 'sections';
+    renderFacultyScheduleHeatmap();
   }
 
   async function loadWorkExperienceRows() {
@@ -6442,6 +6802,7 @@
     setReportDisplay(REPORTS.snapshotManager, 'snapshotManagerReport');
     setReportDisplay(REPORTS.studentPresence, 'studentPresenceReport');
     setReportDisplay(REPORTS.instructorAvailability, 'instructorAvailabilityReport');
+    setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
     const heatmapTool = document.getElementById('heatmap-tool');
@@ -6511,6 +6872,10 @@
     if (selected === REPORTS.instructorAvailability) {
       populateInstructorAvailabilityFilters(currentRows());
       runInstructorAvailability();
+    }
+    if (selected === REPORTS.facultyHeatmap) {
+      updateFacultyHeatmapFilterOptions();
+      renderFacultyScheduleHeatmap();
     }
     if (selected === REPORTS.snapshotManager) {
       renderSnapshotManager();
@@ -6868,6 +7233,18 @@
     });
     document.getElementById('runInstructorAvailability')?.addEventListener('click', runInstructorAvailability);
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
+    document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
+    document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
+    ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', renderFacultyScheduleHeatmap);
+    });
+    ['fhDivision', 'fhDepartment', 'fhSubject', 'fhCourse'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        updateFacultyHeatmapFilterOptions();
+        renderFacultyScheduleHeatmap();
+      });
+    });
+    document.getElementById('clearFacultyHeatmap')?.addEventListener('click', clearFacultyScheduleHeatmap);
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-trend-${attritionDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${consolidationDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-demand-forecast-${demandTargetSlug()}.csv`));
