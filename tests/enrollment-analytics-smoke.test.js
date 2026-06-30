@@ -1641,6 +1641,36 @@ test('faculty schedule heatmap is a standalone Development report', () => {
   assert.match(text, /Least active day/);
 });
 
+test('faculty modality is a standalone Development report using INSM codes', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /facultyModality: 'faculty-modality'/);
+  assert.match(text, /\[REPORTS\.facultyModality\]: 'development'/);
+  assert.match(text, /Faculty Modality/);
+  assert.match(text, /id="facultyModalityReport"/);
+  assert.match(text, /id="facultyModalityCsv"/);
+  assert.match(text, /id="fmCampus"/);
+  assert.match(text, /id="fmDivision"/);
+  assert.match(text, /id="fmDepartment"/);
+  assert.match(text, /id="fmCourse"/);
+  assert.match(text, /id="fmTerm"/);
+  assert.match(text, /id="exportFacultyModality"/);
+  assert.match(text, /function facultyInstructionModality/);
+  assert.match(text, /row\?\.insmCode/);
+  assert.match(text, /normalizeModality\(row\?\.insmCode/);
+  assert.match(text, /Full-Time/);
+  assert.match(text, /Part-Time/);
+  assert.match(text, /Unknown/);
+  assert.match(text, /In Person/);
+  assert.match(text, /Hybrid/);
+  assert.match(text, /Online/);
+  assert.match(text, /Other/);
+  assert.match(text, /faculty-modality-bar/);
+  assert.match(text, /facultyModalityTableRows/);
+  assert.match(text, /faculty-modality\.csv/);
+  assert.match(text, /INSM_CODE_SSBSECT/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

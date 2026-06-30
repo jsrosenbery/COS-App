@@ -15,6 +15,7 @@
     studentPresence: 'student-presence-analytics',
     instructorAvailability: 'instructor-availability',
     facultyHeatmap: 'faculty-schedule-heatmap',
+    facultyModality: 'faculty-modality',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
@@ -49,6 +50,7 @@
     [REPORTS.utilization]: 'em',
     [REPORTS.consolidation]: 'em',
     [REPORTS.studentPresence]: 'em',
+    [REPORTS.facultyModality]: 'development',
     [REPORTS.facultyHeatmap]: 'development'
   };
   const REPORT_LABEL = {
@@ -66,6 +68,7 @@
     [REPORTS.utilization]: 'Room Utilization Map',
     [REPORTS.consolidation]: 'Section Consolidation Opportunities',
     [REPORTS.studentPresence]: 'Student Presence Analytics',
+    [REPORTS.facultyModality]: 'Faculty Modality',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
@@ -86,6 +89,7 @@
     REPORTS.utilization,
     REPORTS.consolidation,
     REPORTS.studentPresence,
+    REPORTS.facultyModality,
     REPORTS.facultyHeatmap
   ];
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
@@ -126,6 +130,9 @@
     facultyHeatmapRows: [],
     facultyHeatmapBucketRows: [],
     facultyHeatmapRan: false,
+    facultyModalityRows: [],
+    facultyModalityTableRows: [],
+    facultyModalityRan: false,
     conflictRows: [],
     conflictInput: [],
     conflictTerms: [],
@@ -1398,6 +1405,47 @@
           <div id="facultyHeatmapTable" class="analytics-table"></div>
           <div id="facultyHeatmapLegend" class="analytics-legend"></div>
         </div>
+        <div id="facultyModalityReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Faculty Modality</h2>
+            <p>Uses Faculty Schedule CSV uploads to summarize teaching modality by faculty type. This report uses INSM_CODE_SSBSECT as the modality source and is isolated in Development while the faculty analytics model is validated.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Upload one or more Faculty Schedule CSV files, then click Load Faculty Modality.</li>
+                  <li>Review Full-Time, Part-Time, and Unknown faculty type rows split into In Person, Hybrid, Online, and Other modality buckets.</li>
+                  <li>Use campus, division, department, course, and term filters to narrow the population before exporting.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor.</li>
+                  <li>Modality is determined from INSM_CODE_SSBSECT using the same instructional method mapping used by TIMBER enrollment reports.</li>
+                  <li>Sections counts deduped instructional meeting rows. Faculty Count counts distinct faculty in each faculty type and modality bucket. Enrollment uses ActualEnroll, Seats uses MaxEnroll, and LHE uses uploaded LHE.</li>
+                  <li>AE and X faculty type rows are omitted. JP is Part-Time, FT/TE are Full-Time, and unrecognized FCNT_CODE values are Unknown.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Faculty Schedule CSV(s) <input id="facultyModalityCsv" type="file" accept=".csv" multiple></label>
+            <button id="loadFacultyModality" type="button">Load Faculty Modality</button>
+            <span id="facultyModalityStatus" class="analytics-note">No faculty schedule rows loaded.</span>
+            <label>Term <select id="fmTerm"></select></label>
+            <label>Campus <select id="fmCampus"></select></label>
+            <label>Division <select id="fmDivision"></select></label>
+            <label>Department <select id="fmDepartment"></select></label>
+            <label>Course <select id="fmCourse"></select></label>
+            <button id="clearFacultyModality" type="button">Clear</button>
+            <button id="exportFacultyModality" type="button">Export CSV</button>
+          </div>
+          <div id="facultyModalityMetrics" class="analytics-metrics"></div>
+          <div id="facultyModalityChart" class="analytics-insights"></div>
+          <div id="facultyModalityTable" class="analytics-table"></div>
+          <div id="facultyModalityLegend" class="analytics-legend"></div>
+        </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition Trend</h2>
@@ -2179,6 +2227,181 @@
     const metricSelect = document.getElementById('fhMetric');
     if (metricSelect) metricSelect.value = 'sections';
     renderFacultyScheduleHeatmap();
+  }
+
+  function facultyInstructionModality(row) {
+    const normalized = normalizeModality(row?.insmCode || '', { raw: { INSTRUCTIONAL_METHOD_CODE: row?.insmCode || '' } });
+    if (normalized === 'IN PERSON') return 'In Person';
+    if (normalized === 'HYBRID') return 'Hybrid';
+    if (normalized === 'ONLINE') return 'Online';
+    return 'Other';
+  }
+
+  function facultyModalityFilterRows() {
+    const term = document.getElementById('fmTerm')?.value || '';
+    const campus = document.getElementById('fmCampus')?.value || '';
+    const division = document.getElementById('fmDivision')?.value || '';
+    const department = document.getElementById('fmDepartment')?.value || '';
+    const course = document.getElementById('fmCourse')?.value || '';
+    return (state.facultyModalityRows || [])
+      .filter(row => row.facultyType !== 'OMIT')
+      .filter(row => {
+        if (term && facultyTerm(row) !== term) return false;
+        if (campus && row.campus !== campus) return false;
+        if (division && row.divisionId !== division) return false;
+        if (department && row.departmentId !== department) return false;
+        if (course && facultyCourseValue(row) !== course) return false;
+        return true;
+      });
+  }
+
+  function updateFacultyModalityFilterOptions() {
+    const rows = (state.facultyModalityRows || []).filter(row => row.facultyType !== 'OMIT');
+    setFacultyFilterOptions('fmTerm', rows.map(facultyTerm), 'All terms');
+    setFacultyFilterOptions('fmCampus', rows.map(row => row.campus), 'All campuses');
+    setFacultyFilterOptions('fmDivision', rows.map(row => row.divisionId), 'All divisions');
+    const division = document.getElementById('fmDivision')?.value || '';
+    const departmentSource = division ? rows.filter(row => row.divisionId === division) : rows;
+    setFacultyFilterOptions('fmDepartment', departmentSource.map(row => row.departmentId), 'All departments');
+    const department = document.getElementById('fmDepartment')?.value || '';
+    const courseSource = department ? departmentSource.filter(row => row.departmentId === department) : departmentSource;
+    setFacultyFilterOptions('fmCourse', courseSource.map(facultyCourseValue), 'All courses');
+  }
+
+  function buildFacultyModalityRows(rows) {
+    const facultyTypes = [
+      ['FULL_TIME', 'Full-Time'],
+      ['PART_TIME', 'Part-Time'],
+      ['UNKNOWN', 'Unknown']
+    ];
+    const modalities = ['In Person', 'Hybrid', 'Online', 'Other'];
+    const buckets = new Map();
+    facultyTypes.forEach(([, label]) => {
+      modalities.forEach(modality => {
+        buckets.set(`${label}|${modality}`, {
+          facultyType: label,
+          modality,
+          sections: 0,
+          facultyCount: 0,
+          enrollment: 0,
+          seats: 0,
+          lhe: 0,
+          faculty: new Set(),
+          sourceCodes: new Set()
+        });
+      });
+    });
+    rows.forEach(row => {
+      const facultyType = facultyTypes.find(([code]) => code === row.facultyType)?.[1];
+      if (!facultyType) return;
+      const modality = facultyInstructionModality(row);
+      const bucket = buckets.get(`${facultyType}|${modality}`);
+      if (!bucket) return;
+      bucket.sections += 1;
+      bucket.enrollment += row.actualEnroll || 0;
+      bucket.seats += row.maxEnroll || 0;
+      bucket.lhe += row.lhe || 0;
+      bucket.faculty.add(row.facultyId || row.facultyName || row.instructor || 'Unknown');
+      bucket.facultyCount = bucket.faculty.size;
+      if (row.insmCode) bucket.sourceCodes.add(row.insmCode);
+    });
+    const totalSections = [...buckets.values()].reduce((total, row) => total + row.sections, 0);
+    return [...buckets.values()].map(row => ({
+      facultyType: row.facultyType,
+      modality: row.modality,
+      sections: row.sections,
+      facultyCount: row.facultyCount,
+      enrollment: row.enrollment,
+      seats: row.seats,
+      lhe: Number(row.lhe.toFixed(2)),
+      sectionShare: totalSections ? `${((row.sections / totalSections) * 100).toFixed(1)}%` : '0%',
+      sourceCodes: [...row.sourceCodes].sort().join(', ') || 'N/A'
+    }));
+  }
+
+  function renderFacultyModalityChart(rows) {
+    const node = document.getElementById('facultyModalityChart');
+    if (!node) return;
+    const maxSections = Math.max(1, ...rows.map(row => row.sections || 0));
+    const facultyTypes = ['Full-Time', 'Part-Time', 'Unknown'];
+    node.innerHTML = facultyTypes.map(type => {
+      const typeRows = rows.filter(row => row.facultyType === type);
+      const bars = typeRows.map(row => {
+        const width = Math.max(2, ((row.sections || 0) / maxSections) * 100);
+        return `
+          <div class="faculty-modality-bar-row">
+            <span>${escapeAttr(row.modality)}</span>
+            <div class="faculty-modality-bar-track">
+              <div class="faculty-modality-bar faculty-modality-${row.modality.toLowerCase().replace(/\s+/g, '-')}" style="width:${width.toFixed(1)}%"></div>
+            </div>
+            <strong>${row.sections}</strong>
+          </div>`;
+      }).join('');
+      return `<section class="faculty-modality-card"><h3>${escapeAttr(type)}</h3>${bars}</section>`;
+    }).join('');
+  }
+
+  function renderFacultyModality() {
+    const status = document.getElementById('facultyModalityStatus');
+    const sourceRows = state.facultyModalityRows || [];
+    if (!sourceRows.length) {
+      if (status) status.textContent = 'No faculty schedule rows loaded.';
+      metric('facultyModalityMetrics', [
+        ['Total sections', 0],
+        ['Full-Time sections', 0],
+        ['Part-Time sections', 0],
+        ['Unknown sections', 0],
+        ['In Person sections', 0],
+        ['Hybrid sections', 0],
+        ['Online sections', 0],
+        ['Other sections', 0]
+      ]);
+      document.getElementById('facultyModalityChart').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Modality.</p>';
+      document.getElementById('facultyModalityTable').innerHTML = '<p class="analytics-empty">No faculty modality data loaded.</p>';
+      document.getElementById('facultyModalityLegend').innerHTML = '';
+      return;
+    }
+    if (status) {
+      const terms = [...new Set(sourceRows.map(facultyTerm))].sort().join(', ');
+      status.textContent = `Loaded ${sourceRows.length} deduped meeting row(s). Terms: ${terms || 'Unspecified'}.`;
+    }
+    const rows = facultyModalityFilterRows();
+    const tableRows = buildFacultyModalityRows(rows);
+    state.facultyModalityTableRows = tableRows;
+    const byType = type => tableRows.filter(row => row.facultyType === type).reduce((total, row) => total + row.sections, 0);
+    const byModality = modality => tableRows.filter(row => row.modality === modality).reduce((total, row) => total + row.sections, 0);
+    metric('facultyModalityMetrics', [
+      ['Total sections', tableRows.reduce((total, row) => total + row.sections, 0)],
+      ['Full-Time sections', byType('Full-Time')],
+      ['Part-Time sections', byType('Part-Time')],
+      ['Unknown sections', byType('Unknown')],
+      ['In Person sections', byModality('In Person')],
+      ['Hybrid sections', byModality('Hybrid')],
+      ['Online sections', byModality('Online')],
+      ['Other sections', byModality('Other')]
+    ]);
+    renderFacultyModalityChart(tableRows);
+    table('facultyModalityTable', tableRows, ['facultyType', 'modality', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe', 'sectionShare', 'sourceCodes']);
+    document.getElementById('facultyModalityLegend').innerHTML = `
+      <strong>Faculty Modality Methodology</strong>
+      <p>Modality is mapped from INSM_CODE_SSBSECT. TIMBER instructional method mappings classify known in-person, hybrid, and online codes; anything outside those groups is shown as Other for review. Section counts use deduped faculty meeting rows, so distinct lecture/lab/activity meetings remain visible while duplicate source rows are not inflated.</p>
+    `;
+    state.facultyModalityRan = true;
+  }
+
+  async function loadFacultyModality() {
+    const rows = await readFacultyScheduleFiles(document.getElementById('facultyModalityCsv'));
+    state.facultyModalityRows = rows;
+    updateFacultyModalityFilterOptions();
+    renderFacultyModality();
+  }
+
+  function clearFacultyModality() {
+    ['fmTerm', 'fmCampus', 'fmDivision', 'fmDepartment', 'fmCourse'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.value = '';
+    });
+    renderFacultyModality();
   }
 
   async function loadWorkExperienceRows() {
@@ -6802,6 +7025,7 @@
     setReportDisplay(REPORTS.snapshotManager, 'snapshotManagerReport');
     setReportDisplay(REPORTS.studentPresence, 'studentPresenceReport');
     setReportDisplay(REPORTS.instructorAvailability, 'instructorAvailabilityReport');
+    setReportDisplay(REPORTS.facultyModality, 'facultyModalityReport');
     setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
@@ -6872,6 +7096,10 @@
     if (selected === REPORTS.instructorAvailability) {
       populateInstructorAvailabilityFilters(currentRows());
       runInstructorAvailability();
+    }
+    if (selected === REPORTS.facultyModality) {
+      updateFacultyModalityFilterOptions();
+      renderFacultyModality();
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -6968,6 +7196,15 @@
       .instructor-shared-availability h4{margin:0 0 6px;color:#123367}
       .instructor-shared-availability ul{margin:0;padding-left:18px;columns:2;column-gap:28px}
       .instructor-shared-availability li{break-inside:avoid;margin:4px 0;line-height:1.3}
+      .faculty-modality-card{margin:0 0 12px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#fff}
+      .faculty-modality-card h3{margin:0 0 8px;color:#123367;font-size:15px}
+      .faculty-modality-bar-row{display:grid;grid-template-columns:90px 1fr 48px;gap:10px;align-items:center;margin:7px 0;color:#334862;font-size:13px}
+      .faculty-modality-bar-track{height:16px;border-radius:999px;background:#eef4f9;overflow:hidden}
+      .faculty-modality-bar{height:100%;border-radius:999px;background:#1f7aa8}
+      .faculty-modality-in-person{background:#1f7aa8}
+      .faculty-modality-hybrid{background:#f59e0b}
+      .faculty-modality-online{background:#7c3aed}
+      .faculty-modality-other{background:#64748b}
       .analytics-insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px}
       .analytics-insights section{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px}
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
@@ -7233,6 +7470,19 @@
     });
     document.getElementById('runInstructorAvailability')?.addEventListener('click', runInstructorAvailability);
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
+    document.getElementById('loadFacultyModality')?.addEventListener('click', () => loadFacultyModality().catch(err => alert(err.message || 'Faculty Modality load failed.')));
+    document.getElementById('facultyModalityCsv')?.addEventListener('change', () => loadFacultyModality().catch(err => console.warn(err)));
+    ['fmTerm', 'fmCampus'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', renderFacultyModality);
+    });
+    ['fmDivision', 'fmDepartment', 'fmCourse'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        updateFacultyModalityFilterOptions();
+        renderFacultyModality();
+      });
+    });
+    document.getElementById('clearFacultyModality')?.addEventListener('click', clearFacultyModality);
+    document.getElementById('exportFacultyModality')?.addEventListener('click', () => exportRowsWithoutMethodology(state.facultyModalityTableRows, 'faculty-modality.csv'));
     document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
     document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
     ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {

@@ -140,3 +140,18 @@ test('faculty heatmap inputs support interval, faculty, enrollment, seats, and L
   assert.equal(thursdayOne[0].maxEnroll, 24);
   assert.equal(thursdayOne[0].lhe, 1);
 });
+
+test('faculty modality inputs expose faculty type and INSM modality source codes', () => {
+  const parsed = facultyParser.parseFacultyScheduleCsv(sampleCsv);
+  const reportable = parsed.meetings.filter(row => row.facultyType !== 'OMIT');
+  const fullTimeIp = reportable.filter(row => row.facultyType === 'FULL_TIME' && row.insmCode === 'IP');
+  const partTimeIp = reportable.filter(row => row.facultyType === 'PART_TIME' && row.insmCode === 'IP');
+  const unknownIp = reportable.filter(row => row.facultyType === 'UNKNOWN' && row.insmCode === 'IP');
+
+  assert.equal(fullTimeIp.length, 3);
+  assert.equal(partTimeIp.length, 1);
+  assert.equal(unknownIp.length, 1);
+  assert.equal(fullTimeIp.reduce((total, row) => total + row.actualEnroll, 0), 72);
+  assert.equal(partTimeIp.reduce((total, row) => total + row.maxEnroll, 0), 25);
+  assert.equal(unknownIp.reduce((total, row) => total + row.lhe, 0), 1.5);
+});
