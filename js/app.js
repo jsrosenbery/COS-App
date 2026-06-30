@@ -795,6 +795,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('linechart-division-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-discipline-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-calgetc-select').addEventListener('change', renderLineChart);
+  document.getElementById('linechart-metric-select')?.addEventListener('change', renderLineChart);
   document.getElementById('linechart-exclude-tutoring-openlab')?.addEventListener('change', renderLineChart);
   if (utilizationCampusSelect) utilizationCampusSelect.addEventListener('change', renderUtilizationMap);
   if (utilizationTypeSelect) utilizationTypeSelect.addEventListener('change', renderUtilizationMap);
@@ -888,6 +889,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const excludeTutoring = document.getElementById('linechart-exclude-tutoring-openlab');
     if (excludeTutoring) excludeTutoring.checked = true;
+    const metric = document.getElementById('linechart-metric-select');
+    if (metric) metric.value = 'count';
     renderLineChart();
   };
 
@@ -4484,6 +4487,16 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       lineChartInstance.destroy();
       lineChartInstance = null;
     }
+    const metric = document.getElementById('linechart-metric-select')?.value === 'presence' ? 'presence' : 'count';
+    const isPresenceMetric = metric === 'presence';
+    const titleNode = document.getElementById('linechart-title');
+    const methodologyNode = document.getElementById('linechart-methodology');
+    if (titleNode) titleNode.textContent = isPresenceMetric ? 'Student Presence Duration Graph' : 'Course Duration Graph';
+    if (methodologyNode) {
+      methodologyNode.textContent = isPresenceMetric
+        ? 'The Student Presence Duration Graph estimates how many enrolled students are scheduled to be physically present during each half-hour interval by day of week. Calculation: interval total = census enrollment when available, otherwise current enrollment, for sections whose meeting day includes that line and whose meeting time overlaps that half-hour interval. A section contributes to every half-hour slot it overlaps, so this view shows estimated student presence across the span of class meetings rather than only the start time.'
+        : 'The Course Duration Graph counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = sections whose meeting day includes that line and whose meeting time overlaps that half-hour interval. A section contributes to every half-hour slot it overlaps, so this view shows classroom demand across the span of class meetings rather than only the start time.';
+    }
     const filtered = filterAnalysisRows({
       campusId: 'linechart-campus-select',
       divisionId: 'linechart-division-select',
@@ -4500,23 +4513,13 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const [minHour, maxHour] = getTimeRangeFromData(filtered);
     const hours = buildHalfHourSlots(minHour, maxHour);
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    let counts = {};
-    daysOfWeek.forEach(d => hours.forEach(h => counts[d+'-'+h] = 0));
-    filtered.forEach(rec => {
-      const recDays = normalizeMeetingDays(rec.Days);
-      const startHour = parseHour(rec.Start_Time);
-      const endHour = parseHour(rec.End_Time);
-      if (startHour == null || endHour == null) return;
-      if (startHour === endHour) return;
-      recDays.forEach(day => {
-        if (!day || !daysOfWeek.includes(day)) return;
-        hours.forEach(h => {
-          if (h >= Math.floor(startHour * 2) / 2 && h < endHour) {
-            counts[day+'-'+h] += 1;
-          }
-        });
-      });
-    });
+    const counts = window.COSSectionModel?.buildHalfHourPresenceSeries
+      ? window.COSSectionModel.buildHalfHourPresenceSeries(filtered, hours, {
+          metric: isPresenceMetric ? 'presence' : 'count',
+          daysOfWeek,
+          excludeOnlineTba: true
+        })
+      : {};
     const ctx = chartDiv.getContext('2d');
     const labels = hours.map(formatHourLabel);
     const colorList = [
@@ -4536,7 +4539,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     datasets.forEach(ds => ds.data.forEach(v => { if (v > maxY) maxY = v; }));
     const niceTickStep = (maxValue) => {
       if (maxValue <= 5) return 1;
-      const candidates = [2, 5, 10, 20, 25, 50, 100, 200, 250, 500];
+      const candidates = [2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000];
       return candidates.find(step => Math.ceil(maxValue / step) <= 8) || 1000;
     };
     const stepSize = niceTickStep(maxY);
@@ -4563,7 +4566,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
           y: {
             min: 0,
             max: yMax,
-            title: { display: true, text: 'Concurrent Courses' },
+            title: { display: true, text: isPresenceMetric ? 'Estimated Students Present' : 'Concurrent Courses' },
             beginAtZero: true,
             ticks: {
               stepSize: stepSize,

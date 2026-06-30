@@ -483,10 +483,10 @@
   </div>
 
   <div id="linechart-tool" style="display:none;">
-    <h2>Course Duration Graph</h2>
+    <h2 id="linechart-title">Course Duration Graph</h2>
     <div class="analysis-explainer">
       <h3>How to Read This View</h3>
-      <p>
+      <p id="linechart-methodology">
         The Course Duration Graph counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = sections whose meeting day includes that line and whose meeting time overlaps that half-hour interval. A section contributes to every half-hour slot it overlaps, so this view shows classroom demand across the span of class meetings rather than only the start time.
       </p>
       <p>
@@ -513,6 +513,12 @@
       </label>
       <label>CAL-GETC:
         <select id="linechart-calgetc-select"></select>
+      </label>
+      <label>Metric:
+        <select id="linechart-metric-select">
+          <option value="count" selected>Course Count</option>
+          <option value="presence">Student Presence</option>
+        </select>
       </label>
       <label class="inline-check">
         <input id="linechart-exclude-tutoring-openlab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections

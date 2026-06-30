@@ -1864,8 +1864,12 @@ test('duration graph uses nice y-axis tick steps', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
-  assert.doesNotMatch(index, /linechart-metric-select/);
-  assert.doesNotMatch(index, /<option value="presence">Student Presence<\/option>/);
+  assert.match(index, /linechart-metric-select/);
+  assert.match(index, /<option value="count" selected>Course Count<\/option>/);
+  assert.match(index, /<option value="presence">Student Presence<\/option>/);
+  assert.match(app, /buildHalfHourPresenceSeries\(filtered, hours/);
+  assert.match(app, /metric: isPresenceMetric \? 'presence' : 'count'/);
+  assert.match(app, /Estimated Students Present/);
   assert.match(app, /niceTickStep/);
   assert.match(app, /\[2, 5, 10, 20, 25, 50/);
 });
