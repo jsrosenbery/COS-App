@@ -1908,6 +1908,12 @@ test('index owns enrollment analytics script order', () => {
   const parser = fs.readFileSync(path.join(root, 'js/parser.js'), 'utf8');
   const expectedOrder = [
     'js/config.js',
+    'js/core/dom-utils.js',
+    'js/core/csv-normalizer.js',
+    'js/core/faculty-utils.js',
+    'js/core/faculty-model.js',
+    'js/core/faculty-parser.js',
+    'js/core/section-model.js',
     'js/shared/utils.js',
     'js/admin.js',
     'js/availability.js',
