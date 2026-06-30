@@ -1671,6 +1671,38 @@ test('faculty modality is a standalone Development report using INSM codes', () 
   assert.match(text, /INSM_CODE_SSBSECT/);
 });
 
+test('prime time analysis is a standalone Development report with custom definition controls', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /primeTimeAnalysis: 'prime-time-analysis'/);
+  assert.match(text, /\[REPORTS\.primeTimeAnalysis\]: 'development'/);
+  assert.match(text, /Prime Time Analysis/);
+  assert.match(text, /id="primeTimeAnalysisReport"/);
+  assert.match(text, /id="primeTimeCsv"/);
+  assert.match(text, /id="ptStart" type="time" value="09:00"/);
+  assert.match(text, /id="ptEnd" type="time" value="15:00"/);
+  assert.match(text, /class="ptDay" type="checkbox" value="MO" checked/);
+  assert.match(text, /class="ptDay" type="checkbox" value="TH" checked/);
+  assert.match(text, /id="ptCampus"/);
+  assert.match(text, /id="ptDivision"/);
+  assert.match(text, /id="ptDepartment"/);
+  assert.match(text, /id="ptCourse"/);
+  assert.match(text, /id="ptTerm"/);
+  assert.match(text, /id="exportPrimeTimeAnalysis"/);
+  assert.match(text, /function primeTimeDefinition/);
+  assert.match(text, /function rowOverlapsPrimeTime/);
+  assert.match(text, /function primeTimeAnalysisRows/);
+  assert.match(text, /Full-Time Sections/);
+  assert.match(text, /Part-Time Sections/);
+  assert.match(text, /Lecture Sections/);
+  assert.match(text, /Lab Sections/);
+  assert.match(text, /Activity Sections/);
+  assert.match(text, /Student Enrollment/);
+  assert.match(text, /LHE/);
+  assert.match(text, /prime-time-gauge/);
+  assert.match(text, /prime-time-analysis\.csv/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

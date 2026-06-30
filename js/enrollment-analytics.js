@@ -16,6 +16,7 @@
     instructorAvailability: 'instructor-availability',
     facultyHeatmap: 'faculty-schedule-heatmap',
     facultyModality: 'faculty-modality',
+    primeTimeAnalysis: 'prime-time-analysis',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
@@ -51,6 +52,7 @@
     [REPORTS.consolidation]: 'em',
     [REPORTS.studentPresence]: 'em',
     [REPORTS.facultyModality]: 'development',
+    [REPORTS.primeTimeAnalysis]: 'development',
     [REPORTS.facultyHeatmap]: 'development'
   };
   const REPORT_LABEL = {
@@ -69,6 +71,7 @@
     [REPORTS.consolidation]: 'Section Consolidation Opportunities',
     [REPORTS.studentPresence]: 'Student Presence Analytics',
     [REPORTS.facultyModality]: 'Faculty Modality',
+    [REPORTS.primeTimeAnalysis]: 'Prime Time Analysis',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
@@ -90,6 +93,7 @@
     REPORTS.consolidation,
     REPORTS.studentPresence,
     REPORTS.facultyModality,
+    REPORTS.primeTimeAnalysis,
     REPORTS.facultyHeatmap
   ];
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
@@ -133,6 +137,9 @@
     facultyModalityRows: [],
     facultyModalityTableRows: [],
     facultyModalityRan: false,
+    primeTimeRows: [],
+    primeTimeTableRows: [],
+    primeTimeRan: false,
     conflictRows: [],
     conflictInput: [],
     conflictTerms: [],
@@ -1446,6 +1453,60 @@
           <div id="facultyModalityTable" class="analytics-table"></div>
           <div id="facultyModalityLegend" class="analytics-legend"></div>
         </div>
+        <div id="primeTimeAnalysisReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Prime Time Analysis</h2>
+            <p>Uses Faculty Schedule CSV uploads to measure how much faculty teaching, enrollment, and LHE occur during the selected prime-time window. The default prime-time window is Monday through Thursday, 9:00 AM-3:00 PM.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Upload one or more Faculty Schedule CSV files, then click Load Prime Time Analysis.</li>
+                  <li>Use the prime-time day and time controls to test a different local definition.</li>
+                  <li>Review the gauges and table to compare Full-Time, Part-Time, meeting type, enrollment, and LHE concentration inside prime time.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor.</li>
+                  <li>A meeting is counted in prime time when any scheduled day overlaps the selected prime-time days and any part of the meeting overlaps the selected time window.</li>
+                  <li>Enrollment uses ActualEnroll, seats uses MaxEnroll, and LHE uses uploaded LHE. Omitted faculty type rows are excluded.</li>
+                  <li>Percentages are prime-time value divided by total value for the filtered population.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Faculty Schedule CSV(s) <input id="primeTimeCsv" type="file" accept=".csv" multiple></label>
+            <button id="loadPrimeTimeAnalysis" type="button">Load Prime Time Analysis</button>
+            <span id="primeTimeStatus" class="analytics-note">No faculty schedule rows loaded.</span>
+            <label>Prime start <input id="ptStart" type="time" value="09:00" step="300"></label>
+            <label>Prime end <input id="ptEnd" type="time" value="15:00" step="300"></label>
+            <label class="prime-time-days">Prime days
+              <span>
+                <label><input class="ptDay" type="checkbox" value="MO" checked> M</label>
+                <label><input class="ptDay" type="checkbox" value="TU" checked> T</label>
+                <label><input class="ptDay" type="checkbox" value="WE" checked> W</label>
+                <label><input class="ptDay" type="checkbox" value="TH" checked> R</label>
+                <label><input class="ptDay" type="checkbox" value="FR"> F</label>
+                <label><input class="ptDay" type="checkbox" value="SA"> S</label>
+                <label><input class="ptDay" type="checkbox" value="SU"> U</label>
+              </span>
+            </label>
+            <label>Term <select id="ptTerm"></select></label>
+            <label>Campus <select id="ptCampus"></select></label>
+            <label>Division <select id="ptDivision"></select></label>
+            <label>Department <select id="ptDepartment"></select></label>
+            <label>Course <select id="ptCourse"></select></label>
+            <button id="clearPrimeTimeAnalysis" type="button">Clear</button>
+            <button id="exportPrimeTimeAnalysis" type="button">Export CSV</button>
+          </div>
+          <div id="primeTimeGauges" class="prime-time-gauges"></div>
+          <div id="primeTimeMetrics" class="analytics-metrics"></div>
+          <div id="primeTimeTable" class="analytics-table"></div>
+          <div id="primeTimeLegend" class="analytics-legend"></div>
+        </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition Trend</h2>
@@ -2402,6 +2463,172 @@
       if (node) node.value = '';
     });
     renderFacultyModality();
+  }
+
+  function primeTimeDefinition() {
+    const start = minutesFromTime(document.getElementById('ptStart')?.value || '09:00') ?? 9 * 60;
+    const end = minutesFromTime(document.getElementById('ptEnd')?.value || '15:00') ?? 15 * 60;
+    const days = new Set(Array.from(document.querySelectorAll('.ptDay:checked')).map(node => node.value));
+    return { start, end, days };
+  }
+
+  function rowOverlapsPrimeTime(row, definition = primeTimeDefinition()) {
+    const start = minutesFromTime(row.startTime || row.start);
+    const end = minutesFromTime(row.endTime || row.end);
+    if (start == null || end == null || end <= start || definition.end <= definition.start) return false;
+    const rowDays = Array.isArray(row.days) ? row.days : [];
+    if (!rowDays.some(day => definition.days.has(day))) return false;
+    return start < definition.end && end > definition.start;
+  }
+
+  function primeTimeFilterRows() {
+    const term = document.getElementById('ptTerm')?.value || '';
+    const campus = document.getElementById('ptCampus')?.value || '';
+    const division = document.getElementById('ptDivision')?.value || '';
+    const department = document.getElementById('ptDepartment')?.value || '';
+    const course = document.getElementById('ptCourse')?.value || '';
+    return (state.primeTimeRows || [])
+      .filter(row => row.facultyType !== 'OMIT')
+      .filter(row => {
+        if (term && facultyTerm(row) !== term) return false;
+        if (campus && row.campus !== campus) return false;
+        if (division && row.divisionId !== division) return false;
+        if (department && row.departmentId !== department) return false;
+        if (course && facultyCourseValue(row) !== course) return false;
+        return true;
+      });
+  }
+
+  function updatePrimeTimeFilterOptions() {
+    const rows = (state.primeTimeRows || []).filter(row => row.facultyType !== 'OMIT');
+    setFacultyFilterOptions('ptTerm', rows.map(facultyTerm), 'All terms');
+    setFacultyFilterOptions('ptCampus', rows.map(row => row.campus), 'All campuses');
+    setFacultyFilterOptions('ptDivision', rows.map(row => row.divisionId), 'All divisions');
+    const division = document.getElementById('ptDivision')?.value || '';
+    const departmentSource = division ? rows.filter(row => row.divisionId === division) : rows;
+    setFacultyFilterOptions('ptDepartment', departmentSource.map(row => row.departmentId), 'All departments');
+    const department = document.getElementById('ptDepartment')?.value || '';
+    const courseSource = department ? departmentSource.filter(row => row.departmentId === department) : departmentSource;
+    setFacultyFilterOptions('ptCourse', courseSource.map(facultyCourseValue), 'All courses');
+  }
+
+  function primeTimeStat(label, rows, predicate, valueKey = 'sections') {
+    const scoped = rows.filter(predicate);
+    const prime = scoped.filter(row => row.isPrimeTime);
+    const total = valueKey === 'sections' ? scoped.length : scoped.reduce((sumValue, row) => sumValue + (row[valueKey] || 0), 0);
+    const primeValue = valueKey === 'sections' ? prime.length : prime.reduce((sumValue, row) => sumValue + (row[valueKey] || 0), 0);
+    const pct = safeDiv(primeValue, total);
+    return {
+      category: label,
+      primeValue: round1(primeValue),
+      totalValue: round1(total),
+      percentPrime: `${(pct * 100).toFixed(1)}%`,
+      percentNumber: pct
+    };
+  }
+
+  function primeTimeAnalysisRows(rows) {
+    const definition = primeTimeDefinition();
+    const analyzed = rows.map(row => ({
+      ...row,
+      isPrimeTime: rowOverlapsPrimeTime(row, definition),
+      enrollment: row.actualEnroll || 0,
+      seats: row.maxEnroll || 0
+    }));
+    return [
+      primeTimeStat('Full-Time Sections', analyzed, row => row.facultyType === 'FULL_TIME'),
+      primeTimeStat('Part-Time Sections', analyzed, row => row.facultyType === 'PART_TIME'),
+      primeTimeStat('Lecture Sections', analyzed, row => row.meetingType === 'Lecture'),
+      primeTimeStat('Lab Sections', analyzed, row => row.meetingType === 'Lab'),
+      primeTimeStat('Activity Sections', analyzed, row => row.meetingType === 'Activity'),
+      primeTimeStat('Student Enrollment', analyzed, () => true, 'enrollment'),
+      primeTimeStat('LHE', analyzed, () => true, 'lhe')
+    ];
+  }
+
+  function renderPrimeTimeGauges(rows) {
+    const node = document.getElementById('primeTimeGauges');
+    if (!node) return;
+    node.innerHTML = rows.map(row => {
+      const pct = Math.max(0, Math.min(1, row.percentNumber || 0));
+      return `
+        <section class="prime-time-gauge-card">
+          <div class="prime-time-gauge" style="--pct:${pct}">
+            <span>${escapeAttr(row.percentPrime)}</span>
+          </div>
+          <strong>${escapeAttr(row.category)}</strong>
+          <small>${escapeAttr(row.primeValue)} of ${escapeAttr(row.totalValue)} in prime time</small>
+        </section>`;
+    }).join('');
+  }
+
+  function renderPrimeTimeAnalysis() {
+    const status = document.getElementById('primeTimeStatus');
+    const sourceRows = state.primeTimeRows || [];
+    if (!sourceRows.length) {
+      if (status) status.textContent = 'No faculty schedule rows loaded.';
+      document.getElementById('primeTimeGauges').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Prime Time Analysis.</p>';
+      metric('primeTimeMetrics', [
+        ['FT prime-time sections', '0%'],
+        ['PT prime-time sections', '0%'],
+        ['Lecture prime time', '0%'],
+        ['Lab prime time', '0%'],
+        ['Activity prime time', '0%'],
+        ['Enrollment prime time', '0%'],
+        ['LHE prime time', '0%']
+      ]);
+      document.getElementById('primeTimeTable').innerHTML = '<p class="analytics-empty">No prime-time data loaded.</p>';
+      document.getElementById('primeTimeLegend').innerHTML = '';
+      return;
+    }
+    if (status) {
+      const terms = [...new Set(sourceRows.map(facultyTerm))].sort().join(', ');
+      status.textContent = `Loaded ${sourceRows.length} deduped meeting row(s). Terms: ${terms || 'Unspecified'}.`;
+    }
+    const rows = primeTimeFilterRows();
+    const tableRows = primeTimeAnalysisRows(rows);
+    state.primeTimeTableRows = tableRows;
+    renderPrimeTimeGauges(tableRows);
+    const pick = label => tableRows.find(row => row.category === label)?.percentPrime || '0%';
+    metric('primeTimeMetrics', [
+      ['FT prime-time sections', pick('Full-Time Sections')],
+      ['PT prime-time sections', pick('Part-Time Sections')],
+      ['Lecture prime time', pick('Lecture Sections')],
+      ['Lab prime time', pick('Lab Sections')],
+      ['Activity prime time', pick('Activity Sections')],
+      ['Enrollment prime time', pick('Student Enrollment')],
+      ['LHE prime time', pick('LHE')]
+    ]);
+    table('primeTimeTable', tableRows, ['category', 'primeValue', 'totalValue', 'percentPrime']);
+    const definition = primeTimeDefinition();
+    const dayNames = [...definition.days].map(day => dayLabels[day] || day).join(', ') || 'No days selected';
+    document.getElementById('primeTimeLegend').innerHTML = `
+      <strong>Prime Time Analysis Methodology</strong>
+      <p>Prime time currently uses ${escapeAttr(dayNames)}, ${escapeAttr(formatPresenceHourLabel(definition.start / 60))}-${escapeAttr(formatPresenceHourLabel(definition.end / 60))}. A meeting counts as prime time when any scheduled day and any part of the meeting overlaps the selected window. Percent Prime = prime-time value / total value for the filtered reportable faculty schedule rows.</p>
+    `;
+    state.primeTimeRan = true;
+  }
+
+  async function loadPrimeTimeAnalysis() {
+    const rows = await readFacultyScheduleFiles(document.getElementById('primeTimeCsv'));
+    state.primeTimeRows = rows;
+    updatePrimeTimeFilterOptions();
+    renderPrimeTimeAnalysis();
+  }
+
+  function clearPrimeTimeAnalysis() {
+    ['ptTerm', 'ptCampus', 'ptDivision', 'ptDepartment', 'ptCourse'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.value = '';
+    });
+    const start = document.getElementById('ptStart');
+    const end = document.getElementById('ptEnd');
+    if (start) start.value = '09:00';
+    if (end) end.value = '15:00';
+    document.querySelectorAll('.ptDay').forEach(node => {
+      node.checked = ['MO', 'TU', 'WE', 'TH'].includes(node.value);
+    });
+    renderPrimeTimeAnalysis();
   }
 
   async function loadWorkExperienceRows() {
@@ -7026,6 +7253,7 @@
     setReportDisplay(REPORTS.studentPresence, 'studentPresenceReport');
     setReportDisplay(REPORTS.instructorAvailability, 'instructorAvailabilityReport');
     setReportDisplay(REPORTS.facultyModality, 'facultyModalityReport');
+    setReportDisplay(REPORTS.primeTimeAnalysis, 'primeTimeAnalysisReport');
     setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
@@ -7100,6 +7328,10 @@
     if (selected === REPORTS.facultyModality) {
       updateFacultyModalityFilterOptions();
       renderFacultyModality();
+    }
+    if (selected === REPORTS.primeTimeAnalysis) {
+      updatePrimeTimeFilterOptions();
+      renderPrimeTimeAnalysis();
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -7205,6 +7437,15 @@
       .faculty-modality-hybrid{background:#f59e0b}
       .faculty-modality-online{background:#7c3aed}
       .faculty-modality-other{background:#64748b}
+      .prime-time-days span{display:flex;flex-wrap:wrap;gap:8px}
+      .prime-time-days span label{display:inline-flex;flex-direction:row;align-items:center;gap:3px;font-weight:800}
+      .prime-time-gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:0 0 14px}
+      .prime-time-gauge-card{border:1px solid #d8e1ec;border-radius:10px;background:#fff;padding:12px;text-align:center}
+      .prime-time-gauge-card strong,.prime-time-gauge-card small{display:block}
+      .prime-time-gauge-card strong{margin-top:8px;color:#123367}
+      .prime-time-gauge-card small{margin-top:4px;color:#51657c}
+      .prime-time-gauge{width:104px;height:104px;margin:0 auto;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#1f7aa8 calc(var(--pct) * 1turn),#e8eef5 0)}
+      .prime-time-gauge span{display:grid;place-items:center;width:74px;height:74px;border-radius:50%;background:#fff;color:#123367;font-weight:900}
       .analytics-insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px}
       .analytics-insights section{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px}
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
@@ -7483,6 +7724,20 @@
     });
     document.getElementById('clearFacultyModality')?.addEventListener('click', clearFacultyModality);
     document.getElementById('exportFacultyModality')?.addEventListener('click', () => exportRowsWithoutMethodology(state.facultyModalityTableRows, 'faculty-modality.csv'));
+    document.getElementById('loadPrimeTimeAnalysis')?.addEventListener('click', () => loadPrimeTimeAnalysis().catch(err => alert(err.message || 'Prime Time Analysis load failed.')));
+    document.getElementById('primeTimeCsv')?.addEventListener('change', () => loadPrimeTimeAnalysis().catch(err => console.warn(err)));
+    ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', renderPrimeTimeAnalysis);
+    });
+    ['ptDivision', 'ptDepartment', 'ptCourse'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        updatePrimeTimeFilterOptions();
+        renderPrimeTimeAnalysis();
+      });
+    });
+    document.querySelectorAll('.ptDay').forEach(node => node.addEventListener('change', renderPrimeTimeAnalysis));
+    document.getElementById('clearPrimeTimeAnalysis')?.addEventListener('click', clearPrimeTimeAnalysis);
+    document.getElementById('exportPrimeTimeAnalysis')?.addEventListener('click', () => exportRowsWithoutMethodology(state.primeTimeTableRows, 'prime-time-analysis.csv'));
     document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
     document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
     ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {

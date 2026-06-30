@@ -155,3 +155,22 @@ test('faculty modality inputs expose faculty type and INSM modality source codes
   assert.equal(partTimeIp.reduce((total, row) => total + row.maxEnroll, 0), 25);
   assert.equal(unknownIp.reduce((total, row) => total + row.lhe, 0), 1.5);
 });
+
+test('faculty prime time inputs support default Monday through Thursday 9 to 3 analysis', () => {
+  const parsed = facultyParser.parseFacultyScheduleCsv(sampleCsv);
+  const reportable = parsed.meetings.filter(row => row.facultyType !== 'OMIT');
+  const primeDays = new Set(['MO', 'TU', 'WE', 'TH']);
+  const minutes = time => {
+    const [hour, minute] = time.split(':').map(Number);
+    return hour * 60 + minute;
+  };
+  const isPrime = row => row.days.some(day => primeDays.has(day)) && minutes(row.startTime) < 15 * 60 && minutes(row.endTime) > 9 * 60;
+  const primeRows = reportable.filter(isPrime);
+
+  assert.equal(reportable.length, 5);
+  assert.equal(primeRows.length, 4);
+  assert.equal(primeRows.filter(row => row.facultyType === 'FULL_TIME').length, 3);
+  assert.equal(primeRows.filter(row => row.facultyType === 'PART_TIME').length, 1);
+  assert.equal(primeRows.reduce((total, row) => total + row.actualEnroll, 0), 92);
+  assert.equal(primeRows.reduce((total, row) => total + row.lhe, 0), 9);
+});
