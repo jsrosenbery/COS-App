@@ -2306,6 +2306,11 @@
     return row?.insmCode || row?.modality || '';
   }
 
+  function reportableFacultyRows(rows) {
+    if (window.COSFacultyModel?.reportableFacultyRows) return window.COSFacultyModel.reportableFacultyRows(rows);
+    return (rows || []).filter(row => row && row.facultyType !== 'OMIT');
+  }
+
   function setFacultyFilterOptions(id, values, allLabel = 'All') {
     const select = document.getElementById(id);
     if (!select) return;
@@ -2318,7 +2323,7 @@
   }
 
   function facultyFilterSourceRows() {
-    const rows = (state.facultyHeatmapRows || []).filter(row => row.facultyType !== 'OMIT');
+    const rows = reportableFacultyRows(state.facultyHeatmapRows);
     const scoped = rows.filter(row => {
       const term = document.getElementById('fhTerm')?.value || '';
       const facultyType = document.getElementById('fhFacultyType')?.value || '';
@@ -2344,7 +2349,7 @@
   }
 
   function updateFacultyHeatmapFilterOptions() {
-    const rows = (state.facultyHeatmapRows || []).filter(row => row.facultyType !== 'OMIT');
+    const rows = reportableFacultyRows(state.facultyHeatmapRows);
     setFacultyFilterOptions('fhTerm', rows.map(facultyTerm), 'All terms');
     setFacultyFilterOptions('fhCampus', rows.map(row => row.campus), 'All campuses');
     setFacultyFilterOptions('fhDivision', rows.map(row => row.divisionId), 'All divisions');
@@ -2363,7 +2368,7 @@
   function facultyHeatmapSlots(rows) {
     let min = 6 * 60;
     let max = 22 * 60;
-    (rows || []).forEach(row => {
+    reportableFacultyRows(rows).forEach(row => {
       const start = minutesFromTime(row.startTime || row.start);
       const end = minutesFromTime(row.endTime || row.end);
       if (start != null && end != null && end > start) {
@@ -2407,7 +2412,7 @@
         });
       });
     });
-    rows.forEach(row => {
+    reportableFacultyRows(rows).forEach(row => {
       const start = minutesFromTime(row.startTime || row.start);
       const end = minutesFromTime(row.endTime || row.end);
       if (start == null || end == null || end <= start) return;
@@ -2444,7 +2449,7 @@
   }
 
   function facultyHeatmapPeakByType(rows, facultyType) {
-    const built = buildFacultyHeatmapBuckets(rows.filter(row => row.facultyType === facultyType), 'sections');
+    const built = buildFacultyHeatmapBuckets(reportableFacultyRows(rows).filter(row => row.facultyType === facultyType), 'sections');
     return peakFacultyHeatmapCell(built.rows, 'sections');
   }
 
@@ -2568,8 +2573,7 @@
     const division = document.getElementById('fmDivision')?.value || '';
     const department = document.getElementById('fmDepartment')?.value || '';
     const course = document.getElementById('fmCourse')?.value || '';
-    return (state.facultyModalityRows || [])
-      .filter(row => row.facultyType !== 'OMIT')
+    return reportableFacultyRows(state.facultyModalityRows)
       .filter(row => {
         if (term && facultyTerm(row) !== term) return false;
         if (campus && row.campus !== campus) return false;
@@ -2581,7 +2585,7 @@
   }
 
   function updateFacultyModalityFilterOptions() {
-    const rows = (state.facultyModalityRows || []).filter(row => row.facultyType !== 'OMIT');
+    const rows = reportableFacultyRows(state.facultyModalityRows);
     setFacultyFilterOptions('fmTerm', rows.map(facultyTerm), 'All terms');
     setFacultyFilterOptions('fmCampus', rows.map(row => row.campus), 'All campuses');
     setFacultyFilterOptions('fmDivision', rows.map(row => row.divisionId), 'All divisions');
@@ -2616,7 +2620,7 @@
         });
       });
     });
-    rows.forEach(row => {
+    reportableFacultyRows(rows).forEach(row => {
       const facultyType = facultyTypes.find(([code]) => code === row.facultyType)?.[1];
       if (!facultyType) return;
       const modality = facultyInstructionModality(row);
@@ -2751,8 +2755,7 @@
     const division = document.getElementById('ptDivision')?.value || '';
     const department = document.getElementById('ptDepartment')?.value || '';
     const course = document.getElementById('ptCourse')?.value || '';
-    return (state.primeTimeRows || [])
-      .filter(row => row.facultyType !== 'OMIT')
+    return reportableFacultyRows(state.primeTimeRows)
       .filter(row => {
         if (term && facultyTerm(row) !== term) return false;
         if (campus && row.campus !== campus) return false;
@@ -2764,7 +2767,7 @@
   }
 
   function updatePrimeTimeFilterOptions() {
-    const rows = (state.primeTimeRows || []).filter(row => row.facultyType !== 'OMIT');
+    const rows = reportableFacultyRows(state.primeTimeRows);
     setFacultyFilterOptions('ptTerm', rows.map(facultyTerm), 'All terms');
     setFacultyFilterOptions('ptCampus', rows.map(row => row.campus), 'All campuses');
     setFacultyFilterOptions('ptDivision', rows.map(row => row.divisionId), 'All divisions');
@@ -2793,7 +2796,7 @@
 
   function primeTimeAnalysisRows(rows) {
     const definition = primeTimeDefinition();
-    const analyzed = rows.map(row => ({
+    const analyzed = reportableFacultyRows(rows).map(row => ({
       ...row,
       isPrimeTime: rowOverlapsPrimeTime(row, definition),
       enrollment: row.actualEnroll || 0,
@@ -3246,8 +3249,7 @@
     const division = document.getElementById('busyTimeDivision')?.value || '';
     const department = document.getElementById('busyTimeDepartment')?.value || '';
     const course = document.getElementById('busyTimeCourse')?.value || '';
-    return (state.busyTimeFacultyRows?.length ? state.busyTimeFacultyRows : state.facultyHeatmapRows || [])
-      .filter(row => row.facultyType !== 'OMIT')
+    return reportableFacultyRows(state.busyTimeFacultyRows?.length ? state.busyTimeFacultyRows : state.facultyHeatmapRows || [])
       .filter(row => {
         if (term && facultyTerm(row) !== term) return false;
         if (campus && row.campus !== campus) return false;
@@ -3324,6 +3326,9 @@
   }
 
   function buildBusyTimeFacultyBuckets(rows, slots) {
+    if (window.COSFacultyModel?.buildBusyTimeFacultyBuckets) {
+      return window.COSFacultyModel.buildBusyTimeFacultyBuckets(rows, slots);
+    }
     const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
     const map = new Map();
     dayKeys.forEach(day => slots.forEach(minutes => map.set(`${day}|${minutes}`, {
@@ -3334,7 +3339,7 @@
       total: 0,
       seen: new Set()
     })));
-    (rows || []).forEach(row => {
+    reportableFacultyRows(rows).forEach(row => {
       const start = minutesFromTime(row.startTime || row.start);
       const end = minutesFromTime(row.endTime || row.end);
       if (start == null || end == null || end <= start) return;
@@ -3595,15 +3600,16 @@
     const courseSource = discipline ? disciplineSource.filter(row => row.subject === discipline) : disciplineSource;
     setFacultyFilterOptions('studentChoiceCourse', courseSource.map(calGetcCourseCode), 'All courses');
     setFacultyFilterOptions('studentChoiceModality', rows.map(row => row.modality), 'All modalities');
-    const facultyRows = state.studentChoiceFacultyRows?.length ? state.studentChoiceFacultyRows : state.facultyHeatmapRows || [];
-    setFacultyFilterOptions('studentChoiceFacultyType', facultyRows.map(row => row.facultyType).filter(type => type && type !== 'OMIT'), 'All faculty types');
+    const facultyRows = reportableFacultyRows(state.studentChoiceFacultyRows?.length ? state.studentChoiceFacultyRows : state.facultyHeatmapRows || []);
+    setFacultyFilterOptions('studentChoiceFacultyType', facultyRows.map(row => row.facultyType).filter(Boolean), 'All faculty types');
     setStudentChoiceCalGetcOptions();
   }
 
   function studentChoiceFacultyCrns() {
     const selected = document.getElementById('studentChoiceFacultyType')?.value || '';
-    const facultyRows = state.studentChoiceFacultyRows?.length ? state.studentChoiceFacultyRows : state.facultyHeatmapRows || [];
+    const facultyRows = reportableFacultyRows(state.studentChoiceFacultyRows?.length ? state.studentChoiceFacultyRows : state.facultyHeatmapRows || []);
     if (!selected || !facultyRows.length) return null;
+    if (window.COSFacultyModel?.facultyCrnsByType) return window.COSFacultyModel.facultyCrnsByType(facultyRows, selected);
     return new Set(facultyRows.filter(row => row.facultyType === selected).map(row => canon(row.crn)).filter(Boolean));
   }
 
@@ -3917,8 +3923,8 @@
     setFacultyFilterOptions('recommendationCourse', courseSource.map(calGetcCourseCode), 'All courses');
     setFacultyFilterOptions('recommendationModality', rows.map(row => row.modality), 'All modalities');
     setFacultyFilterOptions('recommendationTimeBlock', buildBusyTimeBuckets(rows).filter(row => row.sections).map(row => `${row.dayName} ${row.time}`), 'All time blocks');
-    const facultyRows = state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || [];
-    setFacultyFilterOptions('recommendationFacultyType', facultyRows.map(row => row.facultyType).filter(type => type && type !== 'OMIT'), 'All faculty types');
+    const facultyRows = reportableFacultyRows(state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || []);
+    setFacultyFilterOptions('recommendationFacultyType', facultyRows.map(row => row.facultyType).filter(Boolean), 'All faculty types');
   }
 
   function recommendationFilteredSourceRows() {
@@ -3931,8 +3937,10 @@
     const modality = document.getElementById('recommendationModality')?.value || '';
     const facultyType = document.getElementById('recommendationFacultyType')?.value || '';
     const excludeTutoring = document.getElementById('recommendationExcludeTutoring')?.checked !== false;
-    const facultyRows = state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || [];
-    const facultyCrns = facultyType ? new Set(facultyRows.filter(row => row.facultyType === facultyType).map(row => canon(row.crn)).filter(Boolean)) : null;
+    const facultyRows = reportableFacultyRows(state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || []);
+    const facultyCrns = facultyType
+      ? (window.COSFacultyModel?.facultyCrnsByType ? window.COSFacultyModel.facultyCrnsByType(facultyRows, facultyType) : new Set(facultyRows.filter(row => row.facultyType === facultyType).map(row => canon(row.crn)).filter(Boolean)))
+      : null;
     return (state.recommendationRows || [])
       .filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row))
       .filter(row => !(excludeTutoring && isTutoringOpenLabSection(row)))
@@ -4021,8 +4029,7 @@
         metrics: `room availability; student presence; fill rate; waitlist; room utilization ${(roomUse.utilization * 100).toFixed(1)}%`
       });
     }
-    const facultyRows = (state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || [])
-      .filter(row => row.facultyType !== 'OMIT');
+    const facultyRows = reportableFacultyRows(state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || []);
     const facultyBuckets = buildBusyTimeFacultyBuckets(facultyRows, supplyDemandSlots(busyTimeFixedRows(rows)));
     const primeFaculty = facultyBuckets.filter(row => ['MO', 'TU', 'WE', 'TH'].includes(row.day) && row.minutes >= 9 * 60 && row.minutes < 15 * 60 && row.total >= 3);
     const concentrated = primeFaculty.find(row => safeDiv(Math.max(row.fullTime, row.partTime), row.total) >= 0.75);
