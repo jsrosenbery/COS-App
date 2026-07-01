@@ -1766,6 +1766,43 @@ test('busy time dashboard is a standalone Development report summarizing core bu
   assert.match(text, /busy-time-dashboard\.csv/);
 });
 
+test('student choice opportunity is a standalone Development report with choice metrics', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /studentChoiceOpportunity: 'student-choice-opportunity'/);
+  assert.match(text, /\[REPORTS\.studentChoiceOpportunity\]: 'development'/);
+  assert.match(text, /Student Choice Opportunity/);
+  assert.match(text, /id="studentChoiceOpportunityReport"/);
+  assert.match(text, /id="studentChoiceCsv"/);
+  assert.match(text, /id="studentChoiceArchiveTerms"/);
+  assert.match(text, /id="studentChoiceFacultyCsv"/);
+  assert.match(text, /Unique courses/);
+  assert.match(text, /Unique CAL-GETC courses/);
+  assert.match(text, /Seats offered/);
+  assert.match(text, /Enrollment present/);
+  assert.match(text, /Fill rate/);
+  assert.match(text, /Empty seats/);
+  assert.match(text, /Course Choice Count/);
+  assert.match(text, /GE Choice Count/);
+  assert.match(text, /Subject Breadth Count/);
+  assert.match(text, /Seat Choice Count/);
+  assert.match(text, /Modality Choice Count/);
+  assert.match(text, /Campus Choice Count/);
+  assert.match(text, /High choice \/ high demand/);
+  assert.match(text, /High choice \/ weaker demand/);
+  assert.match(text, /Low choice \/ high demand/);
+  assert.match(text, /Low choice \/ limited evidence/);
+  assert.match(text, /Low choice \/ low demand/);
+  assert.match(text, /studentChoiceExcludeTutoring/);
+  assert.match(text, /isTutoringOpenLabSection\(row\)/);
+  assert.match(text, /row\.timeBlock !== 'ONLINE\/TBA'/);
+  assert.match(text, /sectionKey\(row\), day, row\.start, row\.end/);
+  assert.match(text, /function buildStudentChoiceBuckets/);
+  assert.match(text, /function renderStudentChoiceHeatmap/);
+  assert.match(text, /function renderStudentChoiceLineGraph/);
+  assert.match(text, /student-choice-opportunity\.csv/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

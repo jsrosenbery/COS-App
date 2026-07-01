@@ -19,6 +19,7 @@
     primeTimeAnalysis: 'prime-time-analysis',
     supplyDemand: 'supply-demand-analysis',
     busyTimeDashboard: 'busy-time-dashboard',
+    studentChoiceOpportunity: 'student-choice-opportunity',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
@@ -57,6 +58,7 @@
     [REPORTS.primeTimeAnalysis]: 'development',
     [REPORTS.supplyDemand]: 'development',
     [REPORTS.busyTimeDashboard]: 'development',
+    [REPORTS.studentChoiceOpportunity]: 'development',
     [REPORTS.facultyHeatmap]: 'development'
   };
   const REPORT_LABEL = {
@@ -78,6 +80,7 @@
     [REPORTS.primeTimeAnalysis]: 'Prime Time Analysis',
     [REPORTS.supplyDemand]: 'Supply vs Demand',
     [REPORTS.busyTimeDashboard]: 'Busy Time Dashboard',
+    [REPORTS.studentChoiceOpportunity]: 'Student Choice Opportunity',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
@@ -102,6 +105,7 @@
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
     REPORTS.busyTimeDashboard,
+    REPORTS.studentChoiceOpportunity,
     REPORTS.facultyHeatmap
   ];
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
@@ -155,6 +159,10 @@
     busyTimeFacultyRows: [],
     busyTimeTableRows: [],
     busyTimeRan: false,
+    studentChoiceRows: [],
+    studentChoiceFacultyRows: [],
+    studentChoiceBucketRows: [],
+    studentChoiceRan: false,
     conflictRows: [],
     conflictInput: [],
     conflictTerms: [],
@@ -1631,6 +1639,73 @@
           <div id="busyTimeObservations" class="analytics-legend"></div>
           <div id="busyTimeTable" class="analytics-table"></div>
           <div id="busyTimeLegend" class="analytics-legend"></div>
+        </div>
+        <div id="studentChoiceOpportunityReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Student Choice Opportunity</h2>
+            <p>Measures how much schedule choice students have by day and time, not just how many students enrolled.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Read This Report</h3>
+                <ul>
+                  <li>Use the heatmap to find day/time blocks with broad or narrow course choice.</li>
+                  <li>Use the line graph to compare choice and demand patterns across days.</li>
+                  <li>Use the table to audit course breadth, seats, enrollment, fill, empty seats, and waitlist by half-hour block.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>This report measures student schedule opportunity. Enrollment alone does not show whether students had meaningful choices.</li>
+                  <li>A time block may fill well because students prefer that time, or because very few alternatives exist.</li>
+                  <li>This report compares course variety, seat availability, and enrollment pressure across the day.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Choice CSV(s) <input id="studentChoiceCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveStudentChoiceUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="studentChoiceArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
+            <label>Faculty CSV <input id="studentChoiceFacultyCsv" type="file" accept=".csv" multiple></label>
+            <span id="studentChoiceStatus" class="analytics-note">No student choice rows loaded.</span>
+            <label>View
+              <select id="studentChoiceView">
+                <option value="all">All views</option>
+                <option value="heatmap">Heatmap</option>
+                <option value="line">Line Graph</option>
+                <option value="table">Summary Table</option>
+              </select>
+            </label>
+            <label>Metric
+              <select id="studentChoiceMetric">
+                <option value="uniqueCourses">Unique courses</option>
+                <option value="uniqueCalGetcCourses">Unique CAL-GETC courses</option>
+                <option value="seats">Seats offered</option>
+                <option value="enrollment">Enrollment present</option>
+                <option value="fillRate">Fill rate</option>
+                <option value="emptySeats">Empty seats</option>
+              </select>
+            </label>
+            <label>Term/source <select id="studentChoiceTerm"></select></label>
+            <label>Campus <select id="studentChoiceCampus"></select></label>
+            <label>Division <select id="studentChoiceDivision"></select></label>
+            <label>Department <select id="studentChoiceDepartment"></select></label>
+            <label>Discipline <select id="studentChoiceDiscipline"></select></label>
+            <label>Course <select id="studentChoiceCourse"></select></label>
+            <label>CAL-GETC <select id="studentChoiceCalGetc"></select></label>
+            <label>Modality <select id="studentChoiceModality"></select></label>
+            <label>Faculty type <select id="studentChoiceFacultyType"></select></label>
+            <label class="analytics-check"><input id="studentChoiceExcludeTutoring" type="checkbox" checked> Exclude Tutoring/Open Lab</label>
+            <button id="runStudentChoiceOpportunity" type="button">Run</button>
+            <button id="clearStudentChoiceOpportunity" type="button">Clear</button>
+            <button id="exportStudentChoiceOpportunity" type="button">Export CSV</button>
+          </div>
+          <div id="studentChoiceMetrics" class="analytics-metrics"></div>
+          <div id="studentChoiceHeatmap" class="analytics-insights"></div>
+          <div id="studentChoiceLineGraph" class="analytics-insights"></div>
+          <div id="studentChoiceTable" class="analytics-table"></div>
+          <div id="studentChoiceLegend" class="analytics-legend"></div>
         </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -3406,6 +3481,348 @@
     if (state.busyTimeRows.length) renderBusyTimeDashboard();
   }
 
+  function studentChoiceCalGetcCodes() {
+    return new Set(normalizedCalGetcRows().map(row => row.code));
+  }
+
+  function studentChoiceMatchesCalGetc(row) {
+    const selected = document.getElementById('studentChoiceCalGetc')?.value || '';
+    if (!selected) return true;
+    const courseCode = calGetcCourseCode(row);
+    const mappings = normalizedCalGetcRows().filter(item => item.code === courseCode);
+    if (selected.startsWith('COURSE:')) return courseCode === selected.slice(7);
+    if (selected.startsWith('AREA:')) return mappings.some(item => item.areas.includes(selected.slice(5)));
+    if (selected.startsWith('DIVISION:')) return mappings.some(item => item.divisions.includes(selected.slice(9)));
+    return true;
+  }
+
+  function setStudentChoiceCalGetcOptions() {
+    const select = document.getElementById('studentChoiceCalGetc');
+    if (!select) return;
+    const previous = select.value;
+    const rows = normalizedCalGetcRows();
+    const options = [{ value: '', label: 'All CAL-GETC' }];
+    const areas = new Set();
+    const divisions = new Set();
+    rows.forEach(row => {
+      row.areas.forEach(area => areas.add(area));
+      row.divisions.forEach(division => divisions.add(division));
+    });
+    [...areas].sort().forEach(area => options.push({ value: `AREA:${area}`, label: `Area: ${area}` }));
+    [...divisions].sort().forEach(division => options.push({ value: `DIVISION:${division}`, label: `Division: ${division}` }));
+    rows.map(row => row.code).sort().forEach(code => options.push({ value: `COURSE:${code}`, label: code }));
+    select.replaceChildren();
+    options.forEach(option => select.appendChild(new Option(option.label, option.value, false, option.value === previous)));
+    if (options.some(option => option.value === previous)) select.value = previous;
+  }
+
+  function updateStudentChoiceFilterOptions() {
+    const rows = state.studentChoiceRows || [];
+    setFacultyFilterOptions('studentChoiceTerm', rows.map(row => row.term), 'All terms');
+    setFacultyFilterOptions('studentChoiceCampus', rows.map(row => row.campus), 'All campuses');
+    setFacultyFilterOptions('studentChoiceDivision', rows.map(row => row.division), 'All divisions');
+    const division = document.getElementById('studentChoiceDivision')?.value || '';
+    const departmentSource = division ? rows.filter(row => row.division === division) : rows;
+    setFacultyFilterOptions('studentChoiceDepartment', departmentSource.map(row => row.department), 'All departments');
+    const department = document.getElementById('studentChoiceDepartment')?.value || '';
+    const disciplineSource = department ? departmentSource.filter(row => row.department === department) : departmentSource;
+    setFacultyFilterOptions('studentChoiceDiscipline', disciplineSource.map(row => row.subject), 'All disciplines');
+    const discipline = document.getElementById('studentChoiceDiscipline')?.value || '';
+    const courseSource = discipline ? disciplineSource.filter(row => row.subject === discipline) : disciplineSource;
+    setFacultyFilterOptions('studentChoiceCourse', courseSource.map(calGetcCourseCode), 'All courses');
+    setFacultyFilterOptions('studentChoiceModality', rows.map(row => row.modality), 'All modalities');
+    const facultyRows = state.studentChoiceFacultyRows?.length ? state.studentChoiceFacultyRows : state.facultyHeatmapRows || [];
+    setFacultyFilterOptions('studentChoiceFacultyType', facultyRows.map(row => row.facultyType).filter(type => type && type !== 'OMIT'), 'All faculty types');
+    setStudentChoiceCalGetcOptions();
+  }
+
+  function studentChoiceFacultyCrns() {
+    const selected = document.getElementById('studentChoiceFacultyType')?.value || '';
+    const facultyRows = state.studentChoiceFacultyRows?.length ? state.studentChoiceFacultyRows : state.facultyHeatmapRows || [];
+    if (!selected || !facultyRows.length) return null;
+    return new Set(facultyRows.filter(row => row.facultyType === selected).map(row => canon(row.crn)).filter(Boolean));
+  }
+
+  function studentChoiceFilteredRows() {
+    const term = document.getElementById('studentChoiceTerm')?.value || '';
+    const campus = document.getElementById('studentChoiceCampus')?.value || '';
+    const division = document.getElementById('studentChoiceDivision')?.value || '';
+    const department = document.getElementById('studentChoiceDepartment')?.value || '';
+    const discipline = document.getElementById('studentChoiceDiscipline')?.value || '';
+    const course = document.getElementById('studentChoiceCourse')?.value || '';
+    const modality = document.getElementById('studentChoiceModality')?.value || '';
+    const facultyCrns = studentChoiceFacultyCrns();
+    const excludeTutoring = document.getElementById('studentChoiceExcludeTutoring')?.checked !== false;
+    return (state.studentChoiceRows || [])
+      .filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row))
+      .filter(row => !(excludeTutoring && isTutoringOpenLabSection(row)))
+      .filter(row => {
+        if (term && row.term !== term) return false;
+        if (campus && row.campus !== campus) return false;
+        if (division && row.division !== division) return false;
+        if (department && row.department !== department) return false;
+        if (discipline && row.subject !== discipline) return false;
+        if (course && calGetcCourseCode(row) !== course) return false;
+        if (modality && row.modality !== modality) return false;
+        if (facultyCrns && !facultyCrns.has(canon(row.crn))) return false;
+        if (!studentChoiceMatchesCalGetc(row)) return false;
+        return true;
+      });
+  }
+
+  function studentChoiceMetricValue(row, metricName) {
+    if (metricName === 'uniqueCourses') return row.uniqueCourses;
+    if (metricName === 'uniqueCalGetcCourses') return row.uniqueCalGetcCourses;
+    if (metricName === 'fillRate') return row.fillRateNumber * 100;
+    return row[metricName] || 0;
+  }
+
+  function studentChoiceInterpretation(row) {
+    const highChoice = (row.uniqueCourses || 0) >= 5 || (row.seats || 0) >= 150;
+    const highDemand = (row.fillRateNumber || 0) >= 0.85 || (row.waitlist || 0) > 0;
+    const weakDemand = (row.fillRateNumber || 0) < 0.55 && (row.emptySeats || 0) > 0;
+    if (highChoice && highDemand) return 'High choice / high demand';
+    if (highChoice && weakDemand) return 'High choice / weaker demand';
+    if (!highChoice && highDemand) return 'Low choice / high demand';
+    if (!highChoice && (row.sections || 0) <= 1 && (row.enrollment || 0) <= 0) return 'Low choice / limited evidence';
+    return 'Low choice / low demand';
+  }
+
+  function buildStudentChoiceBuckets(rows, metricName = 'uniqueCourses') {
+    const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
+    const fixedRows = busyTimeFixedRows(rows);
+    const slots = supplyDemandSlots(fixedRows);
+    const calGetcCodes = studentChoiceCalGetcCodes();
+    const map = new Map();
+    dayKeys.forEach(day => slots.forEach(minutes => map.set(`${day}|${minutes}`, {
+      key: `${day}|${minutes}`,
+      day,
+      dayName: dayNames[day],
+      minutes,
+      time: formatPresenceHourLabel(minutes / 60),
+      courses: new Set(),
+      subjects: new Set(),
+      calGetcCourses: new Set(),
+      modalities: new Set(),
+      campuses: new Set(),
+      crns: new Set(),
+      seats: 0,
+      enrollment: 0,
+      studentPresence: 0,
+      waitlist: 0,
+      seen: new Set()
+    })));
+    fixedRows.forEach(row => {
+      const start = minutesFromTime(row.start);
+      const end = minutesFromTime(row.end);
+      if (start == null || end == null || end <= start) return;
+      const courseCode = calGetcCourseCode(row);
+      row.days.forEach(day => {
+        slots.forEach(minutes => {
+          if (end <= minutes || start >= minutes + 30) return;
+          const cell = map.get(`${day}|${minutes}`);
+          if (!cell) return;
+          const key = [row.term, sectionKey(row), day, row.start, row.end].join('|');
+          if (cell.seen.has(key)) return;
+          cell.seen.add(key);
+          cell.courses.add(courseCode);
+          cell.subjects.add(canon(row.subject));
+          if (calGetcCodes.has(courseCode)) cell.calGetcCourses.add(courseCode);
+          if (row.modality) cell.modalities.add(row.modality);
+          if (row.campus) cell.campuses.add(row.campus);
+          cell.crns.add(sectionKey(row));
+          const enrollment = busyTimeEnrollment(row);
+          const seats = row.cap || 0;
+          cell.seats += seats;
+          cell.enrollment += enrollment;
+          cell.studentPresence += enrollment;
+          cell.waitlist += row.waitlist || 0;
+        });
+      });
+    });
+    return [...map.values()].map(cell => {
+      const fillRateNumber = safeDiv(cell.enrollment, cell.seats);
+      const row = {
+        key: cell.key,
+        day: cell.dayName,
+        dayCode: cell.day,
+        timeBlock: cell.time,
+        minutes: cell.minutes,
+        uniqueCourses: cell.courses.size,
+        uniqueSubjects: cell.subjects.size,
+        uniqueCalGetcCourses: cell.calGetcCourses.size,
+        sections: cell.crns.size,
+        seats: cell.seats,
+        enrollment: cell.enrollment,
+        studentPresence: cell.studentPresence,
+        fillRate: `${(fillRateNumber * 100).toFixed(1)}%`,
+        fillRateNumber,
+        emptySeats: Math.max(0, cell.seats - cell.enrollment),
+        waitlist: cell.waitlist,
+        courseChoiceCount: cell.courses.size,
+        geChoiceCount: cell.calGetcCourses.size,
+        subjectBreadthCount: cell.subjects.size,
+        seatChoiceCount: cell.seats,
+        modalityChoiceCount: cell.modalities.size,
+        campusChoiceCount: cell.campuses.size,
+        metricValue: 0,
+        interpretation: ''
+      };
+      row.metricValue = studentChoiceMetricValue(row, metricName);
+      row.interpretation = studentChoiceInterpretation(row);
+      return row;
+    });
+  }
+
+  function renderStudentChoiceHeatmap(rows, metricName) {
+    const node = document.getElementById('studentChoiceHeatmap');
+    const view = document.getElementById('studentChoiceView')?.value || 'all';
+    if (!node) return;
+    node.style.display = view === 'all' || view === 'heatmap' ? '' : 'none';
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const slots = [...new Set(rows.map(row => row.minutes))].sort((a, b) => a - b);
+    const maxValue = Math.max(0, ...rows.map(row => row.metricValue || 0));
+    const headers = slots.map(minutes => `<th>${escapeAttr(formatPresenceHourLabel(minutes / 60))}</th>`).join('');
+    const body = dayNames.map(day => {
+      const cells = slots.map(minutes => {
+        const row = rows.find(item => item.day === day && item.minutes === minutes);
+        const value = row?.metricValue || 0;
+        const heat = maxValue ? value / maxValue : 0;
+        const level = value <= 0 ? 'empty' : heat >= 0.67 ? 'high' : heat >= 0.34 ? 'medium' : 'low';
+        const display = metricName === 'fillRate' && value ? `${value.toFixed(0)}%` : Math.round(value);
+        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(`${day} ${formatPresenceHourLabel(minutes / 60)} ${display}`)}">${value ? display : ''}</td>`;
+      }).join('');
+      return `<tr><th>${day}</th>${cells}</tr>`;
+    }).join('');
+    node.innerHTML = `<section class="presence-curve"><h3>Student Choice Heatmap</h3><div class="heatmap-wrap"><table class="heatmap"><thead><tr><th>Day / Time</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+  }
+
+  function renderStudentChoiceLineGraph(rows, metricName) {
+    const node = document.getElementById('studentChoiceLineGraph');
+    const view = document.getElementById('studentChoiceView')?.value || 'all';
+    if (!node) return;
+    node.style.display = view === 'all' || view === 'line' ? '' : 'none';
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const slots = [...new Set(rows.map(row => row.minutes))].sort((a, b) => a - b);
+    const maxValue = Math.max(1, ...rows.map(row => row.metricValue || 0));
+    const width = 920;
+    const height = 320;
+    const left = 48;
+    const right = 16;
+    const top = 20;
+    const bottom = 44;
+    const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2'];
+    const usableWidth = width - left - right;
+    const usableHeight = height - top - bottom;
+    const xFor = index => left + (slots.length <= 1 ? 0 : index / (slots.length - 1) * usableWidth);
+    const yFor = value => top + usableHeight - (value / maxValue * usableHeight);
+    const lines = dayNames.map((day, dayIndex) => {
+      const points = slots.map((minutes, index) => {
+        const item = rows.find(row => row.day === day && row.minutes === minutes);
+        return `${xFor(index).toFixed(1)},${yFor(item?.metricValue || 0).toFixed(1)}`;
+      }).join(' ');
+      return `<polyline fill="none" stroke="${colors[dayIndex]}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="${points}"></polyline>`;
+    }).join('');
+    const xTicks = slots.filter((_, index) => index % 2 === 0).map(minutes => {
+      const slotIndex = slots.indexOf(minutes);
+      return `<text x="${xFor(slotIndex).toFixed(1)}" y="${height - 16}" text-anchor="middle">${escapeAttr(formatPresenceHourLabel(minutes / 60).replace(':00 ', ''))}</text>`;
+    }).join('');
+    const legend = dayNames.map((day, index) => `<span><i style="background:${colors[index]}"></i>${escapeAttr(day)}</span>`).join('');
+    node.innerHTML = `
+      <section class="presence-curve supply-demand-line">
+        <h3>Student Choice Line Graph</h3>
+        <p>One line per day using the selected student choice metric.</p>
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Student Choice ${escapeAttr(metricName)} line graph">
+          <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#cbd5e1"></line>
+          <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#cbd5e1"></line>
+          <text x="8" y="${top + 10}" text-anchor="start">${escapeAttr(metricName === 'fillRate' ? '100%' : String(Math.round(maxValue)))}</text>
+          <text x="8" y="${height - bottom}" text-anchor="start">0</text>
+          ${xTicks}
+          ${lines}
+        </svg>
+        <div class="supply-demand-line-legend">${legend}</div>
+      </section>`;
+  }
+
+  function renderStudentChoiceOpportunity() {
+    const rows = studentChoiceFilteredRows();
+    const metricName = document.getElementById('studentChoiceMetric')?.value || 'uniqueCourses';
+    const buckets = buildStudentChoiceBuckets(rows, metricName);
+    state.studentChoiceBucketRows = buckets;
+    const nonEmpty = buckets.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
+    const highChoice = nonEmpty.filter(row => row.interpretation.startsWith('High choice')).length;
+    const lowChoiceHighDemand = nonEmpty.filter(row => row.interpretation === 'Low choice / high demand').length;
+    const totalSeats = nonEmpty.reduce((total, row) => total + row.seats, 0);
+    const totalEnrollment = nonEmpty.reduce((total, row) => total + row.enrollment, 0);
+    metric('studentChoiceMetrics', [
+      ['Course Choice Count', Math.max(0, ...nonEmpty.map(row => row.courseChoiceCount || 0))],
+      ['GE Choice Count', Math.max(0, ...nonEmpty.map(row => row.geChoiceCount || 0))],
+      ['Subject Breadth Count', Math.max(0, ...nonEmpty.map(row => row.subjectBreadthCount || 0))],
+      ['Seat Choice Count', totalSeats],
+      ['Modality Choice Count', Math.max(0, ...nonEmpty.map(row => row.modalityChoiceCount || 0))],
+      ['Campus Choice Count', Math.max(0, ...nonEmpty.map(row => row.campusChoiceCount || 0))],
+      ['High Choice Blocks', highChoice],
+      ['Low Choice / High Demand', lowChoiceHighDemand]
+    ]);
+    renderStudentChoiceHeatmap(buckets, metricName);
+    renderStudentChoiceLineGraph(buckets, metricName);
+    const view = document.getElementById('studentChoiceView')?.value || 'all';
+    const tableNode = document.getElementById('studentChoiceTable');
+    if (tableNode) tableNode.style.display = view === 'all' || view === 'table' ? '' : 'none';
+    const tableRows = nonEmpty.map(row => ({
+      day: row.day,
+      timeBlock: row.timeBlock,
+      uniqueCourses: row.uniqueCourses,
+      uniqueSubjects: row.uniqueSubjects,
+      uniqueCalGetcCourses: row.uniqueCalGetcCourses,
+      sections: row.sections,
+      seats: row.seats,
+      enrollment: row.enrollment,
+      fillRate: row.fillRate,
+      emptySeats: row.emptySeats,
+      waitlist: row.waitlist,
+      interpretation: row.interpretation
+    }));
+    table('studentChoiceTable', tableRows, ['day', 'timeBlock', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'sections', 'seats', 'enrollment', 'fillRate', 'emptySeats', 'waitlist', 'interpretation']);
+    document.getElementById('studentChoiceLegend').innerHTML = `
+      <strong>Student Choice Opportunity Methodology</strong>
+      <p>This report measures student schedule opportunity. Enrollment alone does not show whether students had meaningful choices. A time block may fill well because students prefer that time, or because very few alternatives exist. This report compares course variety, seat availability, and enrollment pressure across the day.</p>
+      <p>Fixed meeting rows are placed into every half-hour interval they overlap. Duplicate rows for the same CRN, day, start, and end are counted once per bucket. Online/TBA rows are excluded from physical time buckets. Tutoring/Open Lab sections are excluded by default when the checkbox is selected.</p>
+    `;
+    const status = document.getElementById('studentChoiceStatus');
+    if (status) status.textContent = `Loaded ${state.studentChoiceRows.length} row(s); ${rows.length} row(s) match filters; ${nonEmpty.length} active time block(s).`;
+    state.studentChoiceRan = true;
+  }
+
+  async function loadStudentChoiceRows() {
+    const uploadedRows = await readCsv(document.getElementById('studentChoiceCsv'), { sourceType: 'STUDENT_CHOICE_UPLOAD' });
+    const archivedRows = await readArchivedRows('studentChoiceArchiveTerms', { reportLabel: 'Student Choice Opportunity' });
+    state.studentChoiceRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
+    const facultyInput = document.getElementById('studentChoiceFacultyCsv');
+    state.studentChoiceFacultyRows = facultyInput?.files?.length ? await readFacultyScheduleFiles(facultyInput) : [];
+    updateStudentChoiceFilterOptions();
+  }
+
+  async function runStudentChoiceOpportunity() {
+    await loadStudentChoiceRows();
+    renderStudentChoiceOpportunity();
+  }
+
+  function clearStudentChoiceOpportunity() {
+    ['studentChoiceView', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceFacultyType'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.value = '';
+    });
+    const metricSelect = document.getElementById('studentChoiceMetric');
+    const viewSelect = document.getElementById('studentChoiceView');
+    const exclude = document.getElementById('studentChoiceExcludeTutoring');
+    if (metricSelect) metricSelect.value = 'uniqueCourses';
+    if (viewSelect) viewSelect.value = 'all';
+    if (exclude) exclude.checked = true;
+    if (state.studentChoiceRows.length) renderStudentChoiceOpportunity();
+  }
+
   async function loadWorkExperienceRows() {
     const raw = await readCsv(document.getElementById('workExperienceCsv'), { sourceType: 'WORK_EXPERIENCE' });
     state.workExperienceInput = dedupeEnrollmentRows(raw.map(normalize));
@@ -3495,6 +3912,7 @@
       setSelectOptions('roomFitArchiveTerms', options);
       setSelectOptions('sdArchiveTerms', options);
       setSelectOptions('busyTimeArchiveTerms', options);
+      setSelectOptions('studentChoiceArchiveTerms', options);
       setArchiveInspectionTermOptions();
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
@@ -8033,6 +8451,7 @@
     setReportDisplay(REPORTS.primeTimeAnalysis, 'primeTimeAnalysisReport');
     setReportDisplay(REPORTS.supplyDemand, 'supplyDemandReport');
     setReportDisplay(REPORTS.busyTimeDashboard, 'busyTimeDashboardReport');
+    setReportDisplay(REPORTS.studentChoiceOpportunity, 'studentChoiceOpportunityReport');
     setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
@@ -8120,6 +8539,10 @@
     if (selected === REPORTS.busyTimeDashboard && !state.busyTimeRan) {
       updateBusyTimeFilterOptions();
       document.getElementById('busyTimeTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
+    }
+    if (selected === REPORTS.studentChoiceOpportunity && !state.studentChoiceRan) {
+      updateStudentChoiceFilterOptions();
+      document.getElementById('studentChoiceTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -8566,6 +8989,22 @@
     });
     document.getElementById('clearBusyTimeDashboard')?.addEventListener('click', clearBusyTimeDashboard);
     document.getElementById('exportBusyTimeDashboard')?.addEventListener('click', () => exportRowsWithoutMethodology(state.busyTimeTableRows, 'busy-time-dashboard.csv'));
+    document.getElementById('runStudentChoiceOpportunity')?.addEventListener('click', () => runStudentChoiceOpportunity().catch(err => alert(err.message || 'Student Choice Opportunity failed.')));
+    document.getElementById('studentChoiceCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
+    document.getElementById('studentChoiceFacultyCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
+    document.getElementById('studentChoiceArchiveTerms')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
+    document.getElementById('archiveStudentChoiceUploads')?.addEventListener('click', () => archiveUploads('studentChoiceCsv').catch(err => alert(err.message || 'Archive failed.')));
+    ['studentChoiceView', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceFacultyType', 'studentChoiceExcludeTutoring'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => { if (state.studentChoiceRan) renderStudentChoiceOpportunity(); });
+    });
+    ['studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        updateStudentChoiceFilterOptions();
+        if (state.studentChoiceRan) renderStudentChoiceOpportunity();
+      });
+    });
+    document.getElementById('clearStudentChoiceOpportunity')?.addEventListener('click', clearStudentChoiceOpportunity);
+    document.getElementById('exportStudentChoiceOpportunity')?.addEventListener('click', () => exportRowsWithoutMethodology(state.studentChoiceBucketRows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), 'student-choice-opportunity.csv'));
     document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
     document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
     ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {
