@@ -1803,6 +1803,49 @@ test('student choice opportunity is a standalone Development report with choice 
   assert.match(text, /student-choice-opportunity\.csv/);
 });
 
+test('scheduling recommendation engine is advisory and covers recommendation categories', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /recommendationEngine: 'scheduling-recommendation-engine'/);
+  assert.match(text, /\[REPORTS\.recommendationEngine\]: 'development'/);
+  assert.match(text, /Scheduling Recommendation Engine/);
+  assert.match(text, /id="recommendationEngineReport"/);
+  assert.match(text, /id="recommendationCsv"/);
+  assert.match(text, /id="recommendationArchiveTerms"/);
+  assert.match(text, /id="recommendationFacultyCsv"/);
+  assert.match(text, /advisory-only/);
+  assert.match(text, /does not automatically change schedules/);
+  assert.match(text, /does not claim to prove student preference/);
+  assert.match(text, /Hidden Demand/);
+  assert.match(text, /Oversupply/);
+  assert.match(text, /Choice Gap/);
+  assert.match(text, /Faculty Concentration/);
+  assert.match(text, /Room Opportunity/);
+  assert.match(text, /Modality Imbalance/);
+  assert.match(text, /Consolidation Candidate/);
+  assert.match(text, /Expansion Candidate/);
+  assert.match(text, /Insufficient evidence/);
+  assert.match(text, /function recommendationConfidence/);
+  assert.match(text, /High/);
+  assert.match(text, /Medium/);
+  assert.match(text, /Low/);
+  assert.match(text, /observed enrollment/);
+  assert.match(text, /available supply/);
+  assert.match(text, /student choice opportunity/);
+  assert.match(text, /faculty assignment pattern/);
+  assert.match(text, /room availability/);
+  assert.match(text, /recommendationTitle/);
+  assert.match(text, /confidenceLevel/);
+  assert.match(text, /affectedTermSource/);
+  assert.match(text, /evidenceSummary/);
+  assert.match(text, /metricsUsed/);
+  assert.match(text, /whyThisMatters/);
+  assert.match(text, /suggestedAction/);
+  assert.match(text, /cautionsLimitations/);
+  assert.match(text, /scheduling-recommendations\.csv/);
+  assert.match(text, /scheduling-recommendations\.pdf/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

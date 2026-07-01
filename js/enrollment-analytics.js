@@ -20,6 +20,7 @@
     supplyDemand: 'supply-demand-analysis',
     busyTimeDashboard: 'busy-time-dashboard',
     studentChoiceOpportunity: 'student-choice-opportunity',
+    recommendationEngine: 'scheduling-recommendation-engine',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
@@ -59,6 +60,7 @@
     [REPORTS.supplyDemand]: 'development',
     [REPORTS.busyTimeDashboard]: 'development',
     [REPORTS.studentChoiceOpportunity]: 'development',
+    [REPORTS.recommendationEngine]: 'development',
     [REPORTS.facultyHeatmap]: 'development'
   };
   const REPORT_LABEL = {
@@ -81,6 +83,7 @@
     [REPORTS.supplyDemand]: 'Supply vs Demand',
     [REPORTS.busyTimeDashboard]: 'Busy Time Dashboard',
     [REPORTS.studentChoiceOpportunity]: 'Student Choice Opportunity',
+    [REPORTS.recommendationEngine]: 'Scheduling Recommendation Engine',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
@@ -106,6 +109,7 @@
     REPORTS.supplyDemand,
     REPORTS.busyTimeDashboard,
     REPORTS.studentChoiceOpportunity,
+    REPORTS.recommendationEngine,
     REPORTS.facultyHeatmap
   ];
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
@@ -163,6 +167,10 @@
     studentChoiceFacultyRows: [],
     studentChoiceBucketRows: [],
     studentChoiceRan: false,
+    recommendationRows: [],
+    recommendationFacultyRows: [],
+    recommendationOutputRows: [],
+    recommendationRan: false,
     conflictRows: [],
     conflictInput: [],
     conflictTerms: [],
@@ -1706,6 +1714,58 @@
           <div id="studentChoiceLineGraph" class="analytics-insights"></div>
           <div id="studentChoiceTable" class="analytics-table"></div>
           <div id="studentChoiceLegend" class="analytics-legend"></div>
+        </div>
+        <div id="recommendationEngineReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Scheduling Recommendation Engine</h2>
+            <p>Produces advisory-only, evidence-informed scheduling observations from supply, demand, choice, faculty, modality, prime-time, room, fill-rate, waitlist, and consolidation-style indicators. It does not automatically change schedules and does not claim to prove student preference.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>Evidence Used</h3>
+                <ul>
+                  <li>Observed enrollment, fill rate, waitlist, student presence, section supply, seat supply, course choice, modality mix, faculty assignment pattern, room usage, and consolidation-style low-fill indicators.</li>
+                  <li>Recommendations distinguish available supply from observed enrollment and student choice opportunity.</li>
+                  <li>When evidence is not strong enough, the engine labels the item as Insufficient evidence instead of forcing a recommendation.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Advisory Use Only</h3>
+                <ul>
+                  <li>Recommendations are evidence-informed, not deterministic.</li>
+                  <li>They are prompts for review and should be checked against program, equity, staffing, room, and student-service constraints.</li>
+                  <li>No schedules are changed automatically.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Recommendation CSV(s) <input id="recommendationCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveRecommendationUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="recommendationArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
+            <label>Faculty CSV <input id="recommendationFacultyCsv" type="file" accept=".csv" multiple></label>
+            <span id="recommendationStatus" class="analytics-note">No recommendation rows loaded.</span>
+            <label>Category <select id="recommendationCategory"></select></label>
+            <label>Confidence <select id="recommendationConfidence"></select></label>
+            <label>Term/source <select id="recommendationTerm"></select></label>
+            <label>Campus <select id="recommendationCampus"></select></label>
+            <label>Division <select id="recommendationDivision"></select></label>
+            <label>Department <select id="recommendationDepartment"></select></label>
+            <label>Discipline <select id="recommendationDiscipline"></select></label>
+            <label>Course <select id="recommendationCourse"></select></label>
+            <label>Time block <select id="recommendationTimeBlock"></select></label>
+            <label>Modality <select id="recommendationModality"></select></label>
+            <label>Faculty type <select id="recommendationFacultyType"></select></label>
+            <label class="analytics-check"><input id="recommendationExcludeTutoring" type="checkbox" checked> Exclude Tutoring/Open Lab</label>
+            <button id="runRecommendationEngine" type="button">Run</button>
+            <button id="clearRecommendationEngine" type="button">Clear</button>
+            <button id="exportRecommendationCsv" type="button">Export CSV</button>
+            <button id="exportRecommendationPdf" type="button">Export PDF</button>
+          </div>
+          <div id="recommendationMetrics" class="analytics-metrics"></div>
+          <div id="recommendationCards" class="analytics-insights"></div>
+          <div id="recommendationPriorityList" class="analytics-legend"></div>
+          <div id="recommendationTable" class="analytics-table"></div>
+          <div id="recommendationLegend" class="analytics-legend"></div>
         </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -3823,6 +3883,343 @@
     if (state.studentChoiceRows.length) renderStudentChoiceOpportunity();
   }
 
+  const recommendationCategories = [
+    'Hidden Demand',
+    'Oversupply',
+    'Choice Gap',
+    'Faculty Concentration',
+    'Room Opportunity',
+    'Modality Imbalance',
+    'Consolidation Candidate',
+    'Expansion Candidate',
+    'Insufficient evidence'
+  ];
+
+  function updateRecommendationFilterOptions() {
+    const rows = state.recommendationRows || [];
+    setFacultyFilterOptions('recommendationCategory', recommendationCategories, 'All categories');
+    setFacultyFilterOptions('recommendationConfidence', ['High', 'Medium', 'Low'], 'All confidence');
+    setFacultyFilterOptions('recommendationTerm', rows.map(row => row.term), 'All terms');
+    setFacultyFilterOptions('recommendationCampus', rows.map(row => row.campus), 'All campuses');
+    setFacultyFilterOptions('recommendationDivision', rows.map(row => row.division), 'All divisions');
+    const division = document.getElementById('recommendationDivision')?.value || '';
+    const departmentSource = division ? rows.filter(row => row.division === division) : rows;
+    setFacultyFilterOptions('recommendationDepartment', departmentSource.map(row => row.department), 'All departments');
+    const department = document.getElementById('recommendationDepartment')?.value || '';
+    const disciplineSource = department ? departmentSource.filter(row => row.department === department) : departmentSource;
+    setFacultyFilterOptions('recommendationDiscipline', disciplineSource.map(row => row.subject), 'All disciplines');
+    const discipline = document.getElementById('recommendationDiscipline')?.value || '';
+    const courseSource = discipline ? disciplineSource.filter(row => row.subject === discipline) : disciplineSource;
+    setFacultyFilterOptions('recommendationCourse', courseSource.map(calGetcCourseCode), 'All courses');
+    setFacultyFilterOptions('recommendationModality', rows.map(row => row.modality), 'All modalities');
+    setFacultyFilterOptions('recommendationTimeBlock', buildBusyTimeBuckets(rows).filter(row => row.sections).map(row => `${row.dayName} ${row.time}`), 'All time blocks');
+    const facultyRows = state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || [];
+    setFacultyFilterOptions('recommendationFacultyType', facultyRows.map(row => row.facultyType).filter(type => type && type !== 'OMIT'), 'All faculty types');
+  }
+
+  function recommendationFilteredSourceRows() {
+    const term = document.getElementById('recommendationTerm')?.value || '';
+    const campus = document.getElementById('recommendationCampus')?.value || '';
+    const division = document.getElementById('recommendationDivision')?.value || '';
+    const department = document.getElementById('recommendationDepartment')?.value || '';
+    const discipline = document.getElementById('recommendationDiscipline')?.value || '';
+    const course = document.getElementById('recommendationCourse')?.value || '';
+    const modality = document.getElementById('recommendationModality')?.value || '';
+    const facultyType = document.getElementById('recommendationFacultyType')?.value || '';
+    const excludeTutoring = document.getElementById('recommendationExcludeTutoring')?.checked !== false;
+    const facultyRows = state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || [];
+    const facultyCrns = facultyType ? new Set(facultyRows.filter(row => row.facultyType === facultyType).map(row => canon(row.crn)).filter(Boolean)) : null;
+    return (state.recommendationRows || [])
+      .filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row))
+      .filter(row => !(excludeTutoring && isTutoringOpenLabSection(row)))
+      .filter(row => {
+        if (term && row.term !== term) return false;
+        if (campus && row.campus !== campus) return false;
+        if (division && row.division !== division) return false;
+        if (department && row.department !== department) return false;
+        if (discipline && row.subject !== discipline) return false;
+        if (course && calGetcCourseCode(row) !== course) return false;
+        if (modality && row.modality !== modality) return false;
+        if (facultyCrns && !facultyCrns.has(canon(row.crn))) return false;
+        return true;
+      });
+  }
+
+  function recommendationConfidence(score, evidenceCount = 1) {
+    if (score >= 4 && evidenceCount >= 3) return 'High';
+    if (score >= 2 && evidenceCount >= 2) return 'Medium';
+    return 'Low';
+  }
+
+  function recommendationRecord(data) {
+    return {
+      recommendationTitle: data.title,
+      category: data.category,
+      confidenceLevel: data.confidence || data.confidenceLevel || 'Low',
+      affectedTermSource: data.term || data.affectedTermSource || 'Multiple/filtered',
+      campus: data.campus || 'All',
+      divisionDepartmentDiscipline: [data.division, data.department, data.discipline].filter(Boolean).join(' / ') || 'All',
+      courseOrCourseGroup: data.course || 'All',
+      dayTimeBlock: data.timeBlock || 'N/A',
+      evidenceSummary: data.evidence,
+      metricsUsed: data.metrics,
+      whyThisMatters: data.why,
+      suggestedAction: data.action,
+      cautionsLimitations: data.caution,
+      modality: data.modality || '',
+      facultyType: data.facultyType || ''
+    };
+  }
+
+  function recommendationBucketContext(row) {
+    return {
+      term: document.getElementById('recommendationTerm')?.value || 'Multiple/filtered',
+      campus: document.getElementById('recommendationCampus')?.value || 'All',
+      division: document.getElementById('recommendationDivision')?.value || '',
+      department: document.getElementById('recommendationDepartment')?.value || '',
+      discipline: document.getElementById('recommendationDiscipline')?.value || '',
+      course: document.getElementById('recommendationCourse')?.value || '',
+      timeBlock: row ? `${row.day} ${row.timeBlock || row.time}` : ''
+    };
+  }
+
+  function buildSchedulingRecommendations(rows) {
+    const recommendations = [];
+    const choiceBuckets = buildStudentChoiceBuckets(rows, 'uniqueCourses').filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
+    const supplyBuckets = buildSupplyDemandBuckets(rows, 'sections').rows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
+    const highDemand = choiceBuckets.filter(row => row.fillRateNumber >= 0.9 || row.waitlist > 0).sort((a, b) => (b.waitlist + b.fillRateNumber) - (a.waitlist + a.fillRateNumber));
+    const oversupply = choiceBuckets.filter(row => row.sections >= 3 && row.fillRateNumber < 0.55 && row.emptySeats >= 40).sort((a, b) => b.emptySeats - a.emptySeats);
+    const choiceGap = choiceBuckets.filter(row => row.uniqueCourses <= 2 && (row.fillRateNumber >= 0.8 || row.waitlist > 0)).sort((a, b) => b.fillRateNumber - a.fillRateNumber);
+    const addBucketRec = (row, category, title, action, extra = {}) => {
+      const ctx = recommendationBucketContext(row);
+      recommendations.push(recommendationRecord({
+        ...ctx,
+        ...extra,
+        title,
+        category,
+        confidence: recommendationConfidence((row.fillRateNumber >= 0.9 ? 2 : 0) + (row.waitlist > 0 ? 2 : 0) + (row.uniqueCourses <= 2 ? 1 : 0) + (row.emptySeats >= 40 ? 1 : 0), 4),
+        evidence: `${row.day} ${row.timeBlock}: ${row.sections} active sections, ${row.uniqueCourses} unique courses, ${row.seats} seats, ${row.enrollment} enrollment, ${row.fillRate}, ${row.emptySeats} empty seats, ${row.waitlist} waitlist.`,
+        metrics: 'observed enrollment; available supply; student choice opportunity; fill rate; waitlist; student presence',
+        why: 'This distinguishes observed enrollment from the amount of supply and choice students had at that time.',
+        action,
+        caution: 'Evidence-informed only. Does not prove student preference and should be reviewed against program, equity, staffing, room, and service constraints.'
+      }));
+    };
+    highDemand.slice(0, 3).forEach(row => addBucketRec(row, 'Hidden Demand', `Possible hidden demand around ${row.timeBlock}`, 'Review whether similar time blocks need more options before reducing supply elsewhere.'));
+    oversupply.slice(0, 3).forEach(row => addBucketRec(row, 'Oversupply', `Possible oversupply around ${row.timeBlock}`, 'Review low-fill supply and empty seats before expanding comparable offerings.', { confidence: recommendationConfidence(3, 3) }));
+    choiceGap.slice(0, 3).forEach(row => addBucketRec(row, 'Choice Gap', `Limited student choice around ${row.timeBlock}`, 'Review whether students have enough meaningful alternatives in this time block.'));
+    choiceGap.filter(row => row.waitlist > 0 || row.fillRateNumber >= 0.9).slice(0, 2).forEach(row => addBucketRec(row, 'Expansion Candidate', `Possible expansion candidate around ${row.timeBlock}`, 'Consider testing additional capacity in this pattern before reducing nearby supply.'));
+    const roomUse = busyTimeRoomUtilization(rows);
+    if (highDemand.length && roomUse.rooms && roomUse.utilization < 0.55) {
+      const row = highDemand[0];
+      addBucketRec(row, 'Room Opportunity', `Room opportunity near ${row.timeBlock}`, 'Review room availability during high-demand or low-choice periods.', {
+        confidence: recommendationConfidence(3, 3),
+        metrics: `room availability; student presence; fill rate; waitlist; room utilization ${(roomUse.utilization * 100).toFixed(1)}%`
+      });
+    }
+    const facultyRows = (state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || [])
+      .filter(row => row.facultyType !== 'OMIT');
+    const facultyBuckets = buildBusyTimeFacultyBuckets(facultyRows, supplyDemandSlots(busyTimeFixedRows(rows)));
+    const primeFaculty = facultyBuckets.filter(row => ['MO', 'TU', 'WE', 'TH'].includes(row.day) && row.minutes >= 9 * 60 && row.minutes < 15 * 60 && row.total >= 3);
+    const concentrated = primeFaculty.find(row => safeDiv(Math.max(row.fullTime, row.partTime), row.total) >= 0.75);
+    if (concentrated) {
+      const facultyType = concentrated.fullTime >= concentrated.partTime ? 'FULL_TIME' : 'PART_TIME';
+      recommendations.push(recommendationRecord({
+        title: `Faculty concentration in prime time`,
+        category: 'Faculty Concentration',
+        confidenceLevel: recommendationConfidence(3, 3),
+        affectedTermSource: document.getElementById('recommendationTerm')?.value || 'Multiple/filtered',
+        dayTimeBlock: `${concentrated.day} ${formatPresenceHourLabel(concentrated.minutes / 60)}`,
+        facultyType,
+        evidenceSummary: `${concentrated.total} faculty meeting rows in this prime-time bucket; ${Math.max(concentrated.fullTime, concentrated.partTime)} are ${facultyType}.`,
+        metricsUsed: 'faculty assignment pattern; prime-time analysis; student demand distribution',
+        whyThisMatters: 'Faculty assignment concentration can differ from student demand concentration and should be visible before interpreting schedule balance.',
+        suggestedAction: 'Review faculty assignment distribution against student demand patterns.',
+        cautionsLimitations: 'Faculty schedule data must be loaded or previously available. Advisory only.'
+      }));
+    }
+    const byDiscipline = new Map();
+    rows.forEach(row => {
+      const key = row.subject || 'Unknown';
+      if (!byDiscipline.has(key)) byDiscipline.set(key, { discipline: key, total: 0, modalities: new Map(), enrollment: 0, waitlist: 0 });
+      const bucket = byDiscipline.get(key);
+      bucket.total += 1;
+      bucket.enrollment += busyTimeEnrollment(row);
+      bucket.waitlist += row.waitlist || 0;
+      bucket.modalities.set(row.modality || 'Unknown', (bucket.modalities.get(row.modality || 'Unknown') || 0) + 1);
+    });
+    [...byDiscipline.values()].filter(row => row.total >= 5).forEach(row => {
+      const [modality, count] = [...row.modalities.entries()].sort((a, b) => b[1] - a[1])[0] || ['', 0];
+      if (safeDiv(count, row.total) >= 0.8 && row.modalities.size > 1) {
+        recommendations.push(recommendationRecord({
+          title: `Possible modality imbalance in ${row.discipline}`,
+          category: 'Modality Imbalance',
+          confidenceLevel: recommendationConfidence(3, 3),
+          affectedTermSource: document.getElementById('recommendationTerm')?.value || 'Multiple/filtered',
+          division: '',
+          discipline: row.discipline,
+          course: row.discipline,
+          modality,
+          evidenceSummary: `${count} of ${row.total} sections are ${modality}; enrollment ${row.enrollment}; waitlist ${row.waitlist}.`,
+          metricsUsed: 'faculty modality mix; observed enrollment; available supply; waitlist',
+          whyThisMatters: 'A dominant modality can limit student choice even when enrollment looks healthy.',
+          suggestedAction: 'Review modality mix against demand indicators in other modalities.',
+          cautionsLimitations: 'Does not prove preference for another modality; it flags imbalance for review.'
+        }));
+      }
+    });
+    const byCourse = new Map();
+    rows.forEach(row => {
+      const key = calGetcCourseCode(row);
+      if (!key) return;
+      if (!byCourse.has(key)) byCourse.set(key, { course: key, sections: 0, seats: 0, enrollment: 0, waitlist: 0 });
+      const bucket = byCourse.get(key);
+      bucket.sections += 1;
+      bucket.seats += row.cap || 0;
+      bucket.enrollment += busyTimeEnrollment(row);
+      bucket.waitlist += row.waitlist || 0;
+    });
+    [...byCourse.values()].forEach(row => {
+      const fill = safeDiv(row.enrollment, row.seats);
+      if (row.sections >= 3 && fill < 0.5 && row.seats - row.enrollment >= 30) {
+        recommendations.push(recommendationRecord({
+          title: `Possible consolidation candidate in ${row.course}`,
+          category: 'Consolidation Candidate',
+          confidenceLevel: recommendationConfidence(3, 3),
+          affectedTermSource: document.getElementById('recommendationTerm')?.value || 'Multiple/filtered',
+          course: row.course,
+          evidenceSummary: `${row.sections} sections, ${row.seats} seats, ${row.enrollment} enrollment, ${(fill * 100).toFixed(1)}% fill, ${row.seats - row.enrollment} empty seats.`,
+          metricsUsed: 'historical/current fill rates; empty seats; section consolidation logic; student choice opportunity',
+          whyThisMatters: 'Low-fill repeated sections may be review candidates if student choice is not materially reduced.',
+          suggestedAction: 'Review manually for consolidation feasibility and student choice impact.',
+          cautionsLimitations: 'Do not consolidate automatically. Check time, campus, modality, equity, and receiving capacity.'
+        }));
+      }
+    });
+    if (!recommendations.length && (rows || []).length) {
+      recommendations.push(recommendationRecord({
+        title: 'Insufficient evidence for advisory recommendation',
+        category: 'Insufficient evidence',
+        confidenceLevel: 'Low',
+        affectedTermSource: document.getElementById('recommendationTerm')?.value || 'Multiple/filtered',
+        evidenceSummary: `${rows.length} rows were loaded, but no category met the minimum evidence thresholds.`,
+        metricsUsed: 'observed enrollment; available supply; student choice opportunity; faculty assignment pattern; room availability',
+        whyThisMatters: 'The engine should not force a recommendation when evidence is weak or incomplete.',
+        suggestedAction: 'Load more relevant terms or narrow filters if a specific pattern is being investigated.',
+        cautionsLimitations: 'Insufficient evidence is not evidence of no issue.'
+      }));
+    }
+    if (!recommendations.length) {
+      recommendations.push(recommendationRecord({
+        title: 'Insufficient evidence',
+        category: 'Insufficient evidence',
+        confidenceLevel: 'Low',
+        affectedTermSource: 'No selected source',
+        evidenceSummary: 'No usable schedule rows were loaded for the selected scope.',
+        metricsUsed: 'No metrics available',
+        whyThisMatters: 'Recommendations require schedule, enrollment, supply, and choice evidence.',
+        suggestedAction: 'Upload a schedule CSV or select archived terms.',
+        cautionsLimitations: 'No conclusion can be drawn without data.'
+      }));
+    }
+    return recommendations;
+  }
+
+  function recommendationFilterOutput(rows) {
+    const category = document.getElementById('recommendationCategory')?.value || '';
+    const confidence = document.getElementById('recommendationConfidence')?.value || '';
+    const timeBlock = document.getElementById('recommendationTimeBlock')?.value || '';
+    return (rows || []).filter(row => {
+      if (category && row.category !== category) return false;
+      if (confidence && row.confidenceLevel !== confidence) return false;
+      if (timeBlock && row.dayTimeBlock !== timeBlock) return false;
+      return true;
+    });
+  }
+
+  function renderRecommendationEngine() {
+    const sourceRows = recommendationFilteredSourceRows();
+    const allRecommendations = buildSchedulingRecommendations(sourceRows);
+    const filteredRecommendations = recommendationFilterOutput(allRecommendations);
+    state.recommendationOutputRows = filteredRecommendations;
+    const byCategory = category => filteredRecommendations.filter(row => row.category === category).length;
+    metric('recommendationMetrics', [
+      ['Recommendations', filteredRecommendations.length],
+      ['High Confidence', filteredRecommendations.filter(row => row.confidenceLevel === 'High').length],
+      ['Hidden Demand', byCategory('Hidden Demand')],
+      ['Oversupply', byCategory('Oversupply')],
+      ['Choice Gap', byCategory('Choice Gap')],
+      ['Expansion Candidate', byCategory('Expansion Candidate')],
+      ['Consolidation Candidate', byCategory('Consolidation Candidate')],
+      ['Insufficient Evidence', byCategory('Insufficient evidence')]
+    ]);
+    document.getElementById('recommendationCards').innerHTML = filteredRecommendations.slice(0, 6).map(row => `
+      <section>
+        <h3>${escapeAttr(row.recommendationTitle)}</h3>
+        <ul>
+          <li><strong>Category:</strong> ${escapeAttr(row.category)}</li>
+          <li><strong>Confidence:</strong> ${escapeAttr(row.confidenceLevel)}</li>
+          <li><strong>Time:</strong> ${escapeAttr(row.dayTimeBlock)}</li>
+          <li><strong>Evidence:</strong> ${escapeAttr(row.evidenceSummary)}</li>
+          <li><strong>Action:</strong> ${escapeAttr(row.suggestedAction)}</li>
+        </ul>
+      </section>
+    `).join('') || '<section><p class="analytics-empty">No recommendation cards match the selected filters.</p></section>';
+    const priority = { High: 0, Medium: 1, Low: 2 };
+    const priorityRows = filteredRecommendations.slice().sort((a, b) => (priority[a.confidenceLevel] ?? 9) - (priority[b.confidenceLevel] ?? 9));
+    document.getElementById('recommendationPriorityList').innerHTML = `
+      <strong>Filterable Priority List</strong>
+      <ol>${priorityRows.slice(0, 12).map(row => `<li>${escapeAttr(row.confidenceLevel)} - ${escapeAttr(row.category)} - ${escapeAttr(row.recommendationTitle)}</li>`).join('')}</ol>
+    `;
+    table('recommendationTable', filteredRecommendations, ['recommendationTitle', 'category', 'confidenceLevel', 'affectedTermSource', 'campus', 'divisionDepartmentDiscipline', 'courseOrCourseGroup', 'dayTimeBlock', 'evidenceSummary', 'metricsUsed', 'whyThisMatters', 'suggestedAction', 'cautionsLimitations']);
+    document.getElementById('recommendationLegend').innerHTML = `
+      <strong>Recommendation Engine Methodology</strong>
+      <p>Recommendations are evidence-informed, not deterministic. The engine distinguishes observed enrollment, available supply, student choice opportunity, faculty assignment pattern, room availability, historical/current fill rates, waitlists when available, and consolidation-style low-fill indicators. It does not prove student preference and does not change schedules automatically.</p>
+    `;
+    const status = document.getElementById('recommendationStatus');
+    if (status) status.textContent = `Loaded ${state.recommendationRows.length} row(s); ${sourceRows.length} row(s) match source filters; ${filteredRecommendations.length} recommendation row(s).`;
+    state.recommendationRan = true;
+  }
+
+  async function loadRecommendationRows() {
+    const uploadedRows = await readCsv(document.getElementById('recommendationCsv'), { sourceType: 'RECOMMENDATION_UPLOAD' });
+    const archivedRows = await readArchivedRows('recommendationArchiveTerms', { reportLabel: 'Scheduling Recommendation Engine' });
+    state.recommendationRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
+    const facultyInput = document.getElementById('recommendationFacultyCsv');
+    state.recommendationFacultyRows = facultyInput?.files?.length ? await readFacultyScheduleFiles(facultyInput) : [];
+    updateRecommendationFilterOptions();
+  }
+
+  async function runRecommendationEngine() {
+    await loadRecommendationRows();
+    renderRecommendationEngine();
+  }
+
+  function clearRecommendationEngine() {
+    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationDivision', 'recommendationDepartment', 'recommendationDiscipline', 'recommendationCourse', 'recommendationTimeBlock', 'recommendationModality', 'recommendationFacultyType'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.value = '';
+    });
+    const exclude = document.getElementById('recommendationExcludeTutoring');
+    if (exclude) exclude.checked = true;
+    if (state.recommendationRows.length) renderRecommendationEngine();
+  }
+
+  async function exportRecommendationPdf() {
+    if (!window.html2canvas || !window.jspdf?.jsPDF) {
+      alert('PDF export is not available in this browser session. Use Export CSV for the recommendation data.');
+      return;
+    }
+    const report = document.getElementById('recommendationEngineReport');
+    const canvas = await window.html2canvas(report, { scale: 1.5 });
+    const pdf = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
+    const imgData = canvas.toDataURL('image/png');
+    const pageWidth = pdf.internal.pageSize.getWidth() - 40;
+    const pageHeight = pdf.internal.pageSize.getHeight() - 40;
+    pdf.addImage(imgData, 'PNG', 20, 20, pageWidth, Math.min(pageHeight, canvas.height * pageWidth / canvas.width));
+    pdf.save('scheduling-recommendations.pdf');
+  }
+
   async function loadWorkExperienceRows() {
     const raw = await readCsv(document.getElementById('workExperienceCsv'), { sourceType: 'WORK_EXPERIENCE' });
     state.workExperienceInput = dedupeEnrollmentRows(raw.map(normalize));
@@ -3913,6 +4310,7 @@
       setSelectOptions('sdArchiveTerms', options);
       setSelectOptions('busyTimeArchiveTerms', options);
       setSelectOptions('studentChoiceArchiveTerms', options);
+      setSelectOptions('recommendationArchiveTerms', options);
       setArchiveInspectionTermOptions();
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
@@ -8452,6 +8850,7 @@
     setReportDisplay(REPORTS.supplyDemand, 'supplyDemandReport');
     setReportDisplay(REPORTS.busyTimeDashboard, 'busyTimeDashboardReport');
     setReportDisplay(REPORTS.studentChoiceOpportunity, 'studentChoiceOpportunityReport');
+    setReportDisplay(REPORTS.recommendationEngine, 'recommendationEngineReport');
     setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
@@ -8543,6 +8942,10 @@
     if (selected === REPORTS.studentChoiceOpportunity && !state.studentChoiceRan) {
       updateStudentChoiceFilterOptions();
       document.getElementById('studentChoiceTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
+    }
+    if (selected === REPORTS.recommendationEngine && !state.recommendationRan) {
+      updateRecommendationFilterOptions();
+      document.getElementById('recommendationTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -9005,6 +9408,23 @@
     });
     document.getElementById('clearStudentChoiceOpportunity')?.addEventListener('click', clearStudentChoiceOpportunity);
     document.getElementById('exportStudentChoiceOpportunity')?.addEventListener('click', () => exportRowsWithoutMethodology(state.studentChoiceBucketRows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), 'student-choice-opportunity.csv'));
+    document.getElementById('runRecommendationEngine')?.addEventListener('click', () => runRecommendationEngine().catch(err => alert(err.message || 'Recommendation Engine failed.')));
+    document.getElementById('recommendationCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
+    document.getElementById('recommendationFacultyCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
+    document.getElementById('recommendationArchiveTerms')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
+    document.getElementById('archiveRecommendationUploads')?.addEventListener('click', () => archiveUploads('recommendationCsv').catch(err => alert(err.message || 'Archive failed.')));
+    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationTimeBlock', 'recommendationModality', 'recommendationFacultyType', 'recommendationExcludeTutoring'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => { if (state.recommendationRan) renderRecommendationEngine(); });
+    });
+    ['recommendationDivision', 'recommendationDepartment', 'recommendationDiscipline', 'recommendationCourse'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        updateRecommendationFilterOptions();
+        if (state.recommendationRan) renderRecommendationEngine();
+      });
+    });
+    document.getElementById('clearRecommendationEngine')?.addEventListener('click', clearRecommendationEngine);
+    document.getElementById('exportRecommendationCsv')?.addEventListener('click', () => exportRowsWithoutMethodology(state.recommendationOutputRows, 'scheduling-recommendations.csv'));
+    document.getElementById('exportRecommendationPdf')?.addEventListener('click', () => exportRecommendationPdf().catch(err => alert(err.message || 'PDF export failed.')));
     document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
     document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
     ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {
