@@ -941,8 +941,12 @@
 
   function reportOptionsHtml() {
     return REPORT_ORDER
-      .map(report => `<option value="${report}">${escapeAttr(REPORT_LABEL[report] || report)}</option>`)
+      .map(report => `<option value="${report}">${escapeAttr(lockedReportLabel(report))}</option>`)
       .join('');
+  }
+
+  function lockedReportLabel(report) {
+    return canAccess(report) ? REPORT_LABEL[report] || report : 'Locked report ••••••••';
   }
 
   function reportGroupsHtml() {
@@ -951,8 +955,8 @@
       const buttons = reports.length
         ? reports.map(report => `
             <button type="button" class="em-report-button" data-report-target="${report}" data-required-role="${role}">
-              <span>${escapeAttr(REPORT_LABEL[report] || report)}</span>
-              <small>Requires ${escapeAttr(ROLE_LABEL[role])}</small>
+              <span>${escapeAttr(lockedReportLabel(report))}</span>
+              <small>${canAccess(report) ? escapeAttr(ROLE_LABEL[role]) : 'Locked - unlock to view name'}</small>
             </button>
           `).join('')
         : '<p class="em-report-empty">No reports assigned.</p>';
@@ -8696,7 +8700,7 @@
     const hint = document.getElementById('emRequiredAccessHint');
     if (label) label.textContent = `${ROLE_LABEL[state.pendingAccessRole]} Password`;
     if (hint) {
-      const reportLabel = reportName ? REPORT_LABEL[reportName] || reportName : 'additional reports';
+      const reportLabel = reportName && canAccess(reportName) ? REPORT_LABEL[reportName] || reportName : 'the selected locked report';
       hint.textContent = `Unlock ${reportLabel}. Requires ${ROLE_LABEL[state.pendingAccessRole]} or higher; higher roles inherit lower permissions.`;
     }
     if (panel) panel.hidden = false;
@@ -8777,9 +8781,7 @@
       const locked = !canAccess(report);
       option.dataset.requiredRole = requiredRole;
       option.dataset.locked = locked ? 'true' : 'false';
-      option.textContent = locked
-        ? `[Locked] ${REPORT_LABEL[report] || option.textContent} - Requires ${ROLE_LABEL[requiredRole]}`
-        : (REPORT_LABEL[report] || option.textContent.replace(/^\[Locked\]\s*/, '').replace(/\s+- Requires .+$/, ''));
+      option.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
     });
     document.querySelectorAll('.em-report-button[data-report-target]').forEach(button => {
       const report = button.dataset.reportTarget || '';
@@ -8789,8 +8791,10 @@
       button.classList.toggle('is-locked', locked);
       button.setAttribute('aria-current', report === selected ? 'page' : 'false');
       button.setAttribute('aria-disabled', locked ? 'true' : 'false');
+      const label = button.querySelector('span');
+      if (label) label.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
       const note = button.querySelector('small');
-      if (note) note.textContent = locked ? `Locked - requires ${ROLE_LABEL[requiredRole]}` : ROLE_LABEL[requiredRole];
+      if (note) note.textContent = locked ? 'Locked - unlock to view name' : ROLE_LABEL[requiredRole];
     });
   }
 
@@ -8805,7 +8809,7 @@
     const requiredRole = REPORT_ACCESS[reportName] || 'general';
     panel.hidden = false;
     panel.innerHTML = `
-      <h3>[Locked] ${escapeAttr(REPORT_LABEL[reportName] || reportName)}</h3>
+      <h3>Locked report ••••••••</h3>
       <p>This report requires <strong>${escapeAttr(ROLE_LABEL[requiredRole])}</strong> access or higher.</p>
       <button type="button" data-unlock-report="${escapeAttr(reportName)}">Unlock This Report</button>
     `;
@@ -8833,7 +8837,7 @@
     const note = document.querySelector('.em-access-note');
     if (note) note.textContent = selectedAccessible
       ? `${ROLE_LABEL[currentAccessRole()]} access is active for this browser session.`
-      : `${REPORT_LABEL[selected]} requires ${ROLE_LABEL[REPORT_ACCESS[selected] || 'general']} access.`;
+      : `A locked report requires ${ROLE_LABEL[REPORT_ACCESS[selected] || 'general']} access.`;
     renderLockedReportPanel(selected);
     setReportDisplay(REPORTS.dashboard, 'dashboardReport');
     setReportDisplay(REPORTS.attrition, 'attritionReport');

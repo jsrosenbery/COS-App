@@ -1583,8 +1583,12 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /Access Level/);
   assert.match(text, /id="currentAccessLevel"/);
   assert.match(text, /Lock Reports/);
-  assert.match(text, /\[Locked\]/);
-  assert.match(text, /Requires \$\{ROLE_LABEL\[requiredRole\]\}/);
+  assert.match(text, /function lockedReportLabel/);
+  assert.match(text, /Locked report ••••••••/);
+  assert.match(text, /Locked - unlock to view name/);
+  assert.match(text, /the selected locked report/);
+  assert.match(text, /A locked report requires/);
+  assert.doesNotMatch(text, /\[Locked\] \$\{escapeAttr\(REPORT_LABEL/);
   assert.match(text, /data-unlock-report/);
   assert.match(text, /api\/auth\/role/);
   assert.match(text, /General supports file upload and maintenance passwords only/);
