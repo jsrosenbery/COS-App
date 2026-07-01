@@ -1591,7 +1591,7 @@ test('faculty development heatmap excludes online rows by default and permits ex
   assert.equal(onlineBuckets.rows.some(row => row.minutes < 6 * 60 && row.sections), false);
 });
 
-test('prime time analysis excludes online and TBA faculty rows by default', () => {
+test('prime time analysis excludes online by default and includes it only when selected', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
     { crn: 'F1', facultyType: 'FULL_TIME', insmCode: 'IP', days: ['MO'], startTime: '09:00', endTime: '10:00', actualEnroll: 20, maxEnroll: 30, lhe: 1, facultyId: '1', meetingType: 'Lecture' },
@@ -1606,6 +1606,13 @@ test('prime time analysis excludes online and TBA faculty rows by default', () =
   assert.equal(fullTime.totalValue, 1);
   assert.equal(partTime.totalValue, 0);
   assert.equal(enrollment.totalValue, 20);
+
+  const withOnline = COSEnrollmentAnalytics.primeTimeAnalysisRows(rows, ['In-Person', 'Hybrid', 'Online']);
+  const onlinePartTime = withOnline.find(row => row.category === 'Part-Time Sections');
+  const onlineEnrollment = withOnline.find(row => row.category === 'Student Enrollment');
+
+  assert.equal(onlinePartTime.totalValue, 1);
+  assert.equal(onlineEnrollment.totalValue, 60);
 });
 
 test('instructor availability keeps Monday-only lab separate from MWF lecture', () => {
@@ -1832,6 +1839,7 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /primeTimeAnalysis: 'prime-time-analysis'/);
   assert.match(text, /\[REPORTS\.primeTimeAnalysis\]: 'development'/);
   assert.match(text, /Prime Time Analysis/);
+  assert.match(text, /Prime Time Analysis defaults to physical instruction because it is intended to evaluate campus time-of-day concentration\. Online sections can be included manually\./);
   assert.match(text, /id="primeTimeAnalysisReport"/);
   assert.match(text, /id="primeTimeCsv"/);
   assert.match(text, /id="ptStart" type="time" value="09:00"/);
@@ -1843,6 +1851,9 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /id="ptDepartment"/);
   assert.match(text, /id="ptCourse"/);
   assert.match(text, /id="ptTerm"/);
+  assert.match(text, /id="ptModality" multiple size="3"/);
+  assert.match(text, /data-modality-quick="ptModality" data-modality-values="In-Person\|Hybrid"/);
+  assert.match(text, /data-modality-quick="ptModality" data-modality-values="In-Person\|Hybrid\|Online"/);
   assert.match(text, /id="exportPrimeTimeAnalysis"/);
   assert.match(text, /function primeTimeDefinition/);
   assert.match(text, /function rowOverlapsPrimeTime/);

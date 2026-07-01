@@ -1624,6 +1624,7 @@
           <div class="analytics-report-intro">
             <h2>Prime Time Analysis</h2>
             <p>Uses Faculty Schedule CSV uploads to measure how much faculty teaching, enrollment, and LHE occur during the selected prime-time window. The default prime-time window is Monday through Thursday, 9:00 AM-3:00 PM.</p>
+            <p class="analytics-note"><strong>Prime Time Analysis defaults to physical instruction because it is intended to evaluate campus time-of-day concentration. Online sections can be included manually.</strong></p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -1638,6 +1639,7 @@
                 <ul>
                   <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor.</li>
                   <li>A meeting is counted in prime time when any scheduled day overlaps the selected prime-time days and any part of the meeting overlaps the selected time window.</li>
+                  <li>The default modality scope is In-Person and Hybrid only. Use the modality multi-select or All Modalities button to include Online sections manually.</li>
                   <li>Enrollment uses ActualEnroll, seats uses MaxEnroll, and LHE uses uploaded LHE. Omitted faculty type rows are excluded.</li>
                   <li>Percentages are prime-time value divided by total value for the filtered population.</li>
                 </ul>
