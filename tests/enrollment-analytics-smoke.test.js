@@ -11,7 +11,7 @@ function loadEnrollmentModules() {
   };
   context.window.window = context.window;
   vm.createContext(context);
-  ['js/core/csv-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
+  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -32,7 +32,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment-analytics.js'].forEach(file => {
+  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -42,6 +42,7 @@ function loadEnrollmentAnalyticsRuntime() {
 function loadCoreModules() {
   return {
     csv: require('../js/core/csv-normalizer.js'),
+    modality: require('../js/core/modality-normalizer.js'),
     sectionModel: require('../js/core/section-model.js')
   };
 }
@@ -149,6 +150,41 @@ test('shared CSV normalizer builds canonical section fields from all-columns sea
   assert.equal(sectionRow.end, '10:25');
   assert.equal(sectionRow.modality, 'IN PERSON');
   assert.equal(sectionRow.timeBlock, '09:00-09:59');
+});
+
+test('shared modality normalizer maps every known app instructional method code', () => {
+  const { modality } = loadCoreModules();
+  modality.KNOWN_CODES.inPerson.forEach(code => {
+    assert.equal(modality.normalize(code, { INSTRUCTIONAL_METHOD_CODE: code }), 'IN PERSON', code);
+    assert.equal(modality.displayLabel('IN PERSON'), 'In-Person');
+  });
+  modality.KNOWN_CODES.hybrid.forEach(code => {
+    assert.equal(modality.normalize(code, { INSTRUCTIONAL_METHOD_CODE: code }), 'HYBRID', code);
+  });
+  modality.KNOWN_CODES.online.forEach(code => {
+    assert.equal(modality.normalize(code, { INSTRUCTIONAL_METHOD_CODE: code }), 'ONLINE', code);
+  });
+  modality.KNOWN_CODES.omitted.forEach(code => {
+    assert.equal(modality.normalize(code, { INSTRUCTIONAL_METHOD_CODE: code }), 'OMIT', code);
+  });
+});
+
+test('shared modality normalizer stores unmapped codes as UNKNOWN diagnostics', () => {
+  const { modality } = loadCoreModules();
+  const rows = [
+    { crn: '90001', subject: 'HIST', course: '018', instructionalMethod: 'ZZZ' },
+    { crn: '90002', subject: 'MATH', course: '021', instructionalMethod: 'ZZZ' }
+  ];
+  const diagnostics = modality.diagnosticRows(rows);
+
+  assert.equal(modality.normalize('ZZZ'), 'UNKNOWN');
+  assert.equal(modality.isReportable('UNKNOWN'), false);
+  assert.deepEqual(diagnostics.map(row => ({
+    originalInstructionalMethodCode: row.originalInstructionalMethodCode,
+    count: row.count,
+    currentMappedCategory: row.currentMappedCategory
+  })), [{ originalInstructionalMethodCode: 'ZZZ', count: 2, currentMappedCategory: 'UNKNOWN' }]);
+  assert.match(diagnostics[0].exampleCrnsCourses, /90001 \/ HIST 018/);
 });
 
 test('canonical CRN deduplication prevents enrollment inflation from repeated meeting rows', () => {
@@ -1457,6 +1493,92 @@ test('online placeholder times normalize to Online/TBA', () => {
   assert.equal(COSEnrollmentAnalytics.isOnlinePlaceholderTime(row), true);
 });
 
+test('development physical interval calculations exclude online and TBA rows by default', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const physical = section({ crn: 'IP1', modality: 'IN PERSON', days: ['MO'], dayPattern: 'M', start: '09:00', end: '10:00', timeBlock: '09:00-09:59', census: 20, actual: 18 });
+  const hybrid = section({ crn: 'HY1', modality: 'HYBRID', days: ['TU'], dayPattern: 'T', start: '10:00', end: '11:00', timeBlock: '10:00-10:59', census: 15, actual: 15 });
+  const onlineFixed = section({ crn: 'ON1', modality: 'ONLINE', days: ['MO'], dayPattern: 'M', start: '09:00', end: '10:00', timeBlock: 'ONLINE/TBA', census: 40, actual: 40 });
+  const onlinePlaceholder = section({ crn: 'ON2', modality: 'ONLINE', days: ['MO'], dayPattern: 'M', start: '00:00', end: '19:00', timeBlock: '00:00-00:59', census: 50, actual: 50 });
+  const tba = section({ crn: 'TBA1', modality: 'TBA', days: [], dayPattern: 'TBA', start: '', end: '', timeBlock: 'ONLINE/TBA', census: 10, actual: 10 });
+
+  const defaultRows = COSEnrollmentAnalytics.physicalIntervalRows([physical, hybrid, onlineFixed, onlinePlaceholder, tba]);
+  assert.deepEqual(defaultRows.map(row => row.crn).sort(), ['HY1', 'IP1']);
+
+  const withOnline = COSEnrollmentAnalytics.physicalIntervalRows([physical, onlineFixed, onlinePlaceholder, tba], { includeOnline: true });
+  assert.deepEqual(withOnline.map(row => row.crn).sort(), ['IP1']);
+});
+
+test('development time buckets do not create midnight values from online placeholders', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ crn: 'IP1', modality: 'IN PERSON', days: ['MO'], dayPattern: 'M', start: '09:00', end: '10:00', timeBlock: '09:00-09:59', census: 20, actual: 18 }),
+    section({ crn: 'ON2', modality: 'ONLINE', days: ['MO'], dayPattern: 'M', start: '00:00', end: '19:00', timeBlock: '00:00-00:59', census: 50, actual: 50 })
+  ];
+  const supply = COSEnrollmentAnalytics.buildSupplyDemandBuckets(rows, 'studentPresence');
+  const activeRows = supply.rows.filter(row => row.sections || row.studentPresence);
+
+  assert.equal(activeRows.some(row => row.minutes < 6 * 60), false);
+  assert.equal(activeRows.length, 2);
+  assert.equal(activeRows.every(row => row.studentPresence === 20), true);
+});
+
+test('development time buckets include online only when explicitly selected and fixed time is real', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ crn: 'ON1', modality: 'ONLINE', days: ['MO'], dayPattern: 'M', start: '09:00', end: '10:00', timeBlock: '09:00-09:59', census: 40, actual: 40 })
+  ];
+
+  assert.equal(COSEnrollmentAnalytics.buildStudentChoiceBuckets(rows, 'uniqueCourses').filter(row => row.sections).length, 0);
+  const withOnline = COSEnrollmentAnalytics.buildStudentChoiceBuckets(rows, 'uniqueCourses', { includeOnline: true }).filter(row => row.sections);
+  assert.equal(withOnline.length, 2);
+  assert.equal(withOnline[0].enrollment, 40);
+});
+
+test('scheduling recommendations are not generated from online placeholder time blocks', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ crn: 'ON2', modality: 'ONLINE', days: ['MO'], dayPattern: 'M', start: '00:00', end: '19:00', timeBlock: '00:00-00:59', cap: 10, census: 10, actual: 10, waitlist: 25 })
+  ];
+  const recommendations = COSEnrollmentAnalytics.buildSchedulingRecommendations(rows);
+
+  assert.equal(recommendations.length, 1);
+  assert.equal(recommendations[0].category, 'Insufficient evidence');
+  assert.equal(recommendations[0].dayTimeBlock, 'N/A');
+});
+
+test('faculty development heatmap excludes online rows by default and permits explicit online fixed-time rows', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    { crn: 'F1', facultyType: 'FULL_TIME', insmCode: 'IP', days: ['MO'], startTime: '09:00', endTime: '10:00', actualEnroll: 20, maxEnroll: 30, lhe: 1, facultyId: '1', meetingType: 'Lecture' },
+    { crn: 'F2', facultyType: 'PART_TIME', insmCode: 'ONL', days: ['MO'], startTime: '09:00', endTime: '10:00', actualEnroll: 40, maxEnroll: 40, lhe: 1, facultyId: '2', meetingType: 'Lecture' },
+    { crn: 'F3', facultyType: 'PART_TIME', insmCode: 'ONL', days: ['MO'], startTime: '00:00', endTime: '00:59', actualEnroll: 50, maxEnroll: 50, lhe: 1, facultyId: '3', meetingType: 'Lecture' }
+  ];
+
+  const defaultBuckets = COSEnrollmentAnalytics.buildFacultyHeatmapBuckets(rows, 'sections');
+  const onlineBuckets = COSEnrollmentAnalytics.buildFacultyHeatmapBuckets(rows, 'sections', { includeOnline: true });
+
+  assert.equal(defaultBuckets.rows.filter(row => row.sections).reduce((total, row) => total + row.sections, 0), 2);
+  assert.equal(onlineBuckets.rows.filter(row => row.sections).reduce((total, row) => total + row.sections, 0), 4);
+  assert.equal(onlineBuckets.rows.some(row => row.minutes < 6 * 60 && row.sections), false);
+});
+
+test('prime time analysis excludes online and TBA faculty rows by default', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    { crn: 'F1', facultyType: 'FULL_TIME', insmCode: 'IP', days: ['MO'], startTime: '09:00', endTime: '10:00', actualEnroll: 20, maxEnroll: 30, lhe: 1, facultyId: '1', meetingType: 'Lecture' },
+    { crn: 'F2', facultyType: 'PART_TIME', insmCode: 'ONL', days: ['MO'], startTime: '09:00', endTime: '10:00', actualEnroll: 40, maxEnroll: 40, lhe: 1, facultyId: '2', meetingType: 'Lecture' },
+    { crn: 'F3', facultyType: 'PART_TIME', insmCode: 'IP', days: [], startTime: '', endTime: '', actualEnroll: 15, maxEnroll: 20, lhe: 1, facultyId: '3', meetingType: 'Lab' }
+  ];
+  const analysis = COSEnrollmentAnalytics.primeTimeAnalysisRows(rows);
+  const fullTime = analysis.find(row => row.category === 'Full-Time Sections');
+  const partTime = analysis.find(row => row.category === 'Part-Time Sections');
+  const enrollment = analysis.find(row => row.category === 'Student Enrollment');
+
+  assert.equal(fullTime.totalValue, 1);
+  assert.equal(partTime.totalValue, 0);
+  assert.equal(enrollment.totalValue, 20);
+});
+
 test('instructor availability keeps Monday-only lab separate from MWF lecture', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
@@ -1665,10 +1787,10 @@ test('faculty modality is a standalone Development report using INSM codes', () 
   assert.match(text, /Full-Time/);
   assert.match(text, /Part-Time/);
   assert.match(text, /Unknown/);
-  assert.match(text, /In Person/);
+  assert.match(text, /In-Person/);
   assert.match(text, /Hybrid/);
   assert.match(text, /Online/);
-  assert.match(text, /Other/);
+  assert.doesNotMatch(text, /Other modality buckets/);
   assert.match(text, /faculty-modality-bar/);
   assert.match(text, /facultyModalityTableRows/);
   assert.match(text, /faculty-modality\.csv/);
@@ -1876,7 +1998,7 @@ test('snapshot manager defaults first day as primary manual snapshot', () => {
   assert.match(text, /Census 1, Census 2, and Final are already present in Banner source exports/);
 });
 
-test('modality balance includes dual enrollment toggle and methodology note', () => {
+test('modality balance uses shared three-category modality normalization and diagnostics', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
 
@@ -1893,8 +2015,10 @@ test('modality balance includes dual enrollment toggle and methodology note', ()
   assert.match(index, /modality-course-comparison-table/);
   assert.match(index, /Course-Level Term Differences/);
   assert.match(app, /includeDualEnrollment/);
-  assert.match(app, /code === 'DE'/);
-  assert.match(app, /category === 'Dual Enrollment'/);
+  assert.match(app, /COSModalityNormalizer\.normalize/);
+  assert.match(app, /renderModalityDiagnostics/);
+  assert.match(app, /Unmapped Instructional Method Diagnostics/);
+  assert.match(app, /isReportableModalityCategory/);
   assert.match(app, /loadModalityArchiveRowsFromBackend/);
   assert.match(app, /api\/analytics-archive/);
   assert.match(app, /let modalityLoadedSourceRows = null/);
@@ -1983,7 +2107,8 @@ test('requested analytics regression coverage is represented in smoke tests', ()
 
   [
     /getModalityCategory/,
-    /code === 'DE'/,
+    /COSModalityNormalizer\.normalize/,
+    /isReportableModalityCategory/,
     /modality-include-de/,
     /calculateRoomFitFlags/,
     /Underutilized Room/,

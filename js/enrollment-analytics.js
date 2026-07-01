@@ -514,23 +514,25 @@
   }
 
   function normalizeModality(text, row) {
+    if (window.COSModalityNormalizer?.normalize) return window.COSModalityNormalizer.normalize(text, row?.raw || row);
     const raw = canon(text);
     const code = canon(val(row, ['INSTRUCTIONAL_METHOD_CODE', 'Instructional Method Code', 'Method Code']) || text);
-    if (code === 'DE' || /DUAL\s*ENROLL/.test(raw)) return 'DUAL ENROLLMENT';
+    if (code === 'DE' || /DUAL\s*ENROLL/.test(raw)) return 'OMIT';
     if (modalityGroups.omitted.has(code)) return 'OMIT';
     if (modalityGroups.online.has(code)) return 'ONLINE';
     if (modalityGroups.inPerson.has(code)) return 'IN PERSON';
     if (modalityGroups.hybrid.has(code)) return 'HYBRID';
     if (/ONLINE|WEB|ASYNC/.test(raw)) return 'ONLINE';
     if (/HYBRID|PARTIAL/.test(raw)) return 'HYBRID';
-    if (/TBA/.test(raw)) return 'TBA';
-    return raw || 'IN PERSON';
+    if (/IN[ -]?PERSON|FACE[ -]?TO[ -]?FACE|ON[ -]?CAMPUS/.test(raw)) return 'IN PERSON';
+    return 'UNKNOWN';
   }
 
   function isOmittedInstructionalMethod(row) {
     if (row?.isWorkExperience) return false;
     const rawMethod = canon(val(row.raw || {}, fields.modality));
     return row.modality === 'OMIT' ||
+      row.modality === 'UNKNOWN' ||
       row.accountingReportable === false ||
       modalityGroups.omitted.has(rawMethod) ||
       /DUAL\s*ENROLL/.test(rawMethod);
@@ -538,7 +540,7 @@
 
   function isDualEnrollmentRow(row) {
     const rawMethod = canon(val(row?.raw || {}, fields.modality));
-    return row?.modality === 'DUAL ENROLLMENT' || rawMethod === 'DE' || /DUAL\s*ENROLL/.test(rawMethod);
+    return rawMethod === 'DE' || /DUAL\s*ENROLL/.test(rawMethod);
   }
 
   function isStudentPresenceOmitted(row) {
@@ -639,6 +641,44 @@
     if (/^0?0:00(?:\s*-\s*0?0:(?:00|59))?$/.test(block)) return true;
     if (start >= '00:00' && start <= '00:59') return true;
     return start === '00:00' && (end === '00:00' || end === '00:59');
+  }
+
+  function rowInstructionModality(row) {
+    const direct = row?.modality || row?.Modality || row?.instructionalMethod || row?.INSTRUCTIONAL_METHOD || row?.INSM_CODE_SSBSECT || row?.raw?.INSTRUCTIONAL_METHOD || row?.raw?.INSM_CODE_SSBSECT || '';
+    return canon(normalizeModality(direct, row));
+  }
+
+  function isPhysicalInstructionModality(row) {
+    const modality = rowInstructionModality(row);
+    return modality === 'IN PERSON' || modality === 'HYBRID';
+  }
+
+  function isOnlineInstructionModality(row) {
+    return rowInstructionModality(row) === 'ONLINE';
+  }
+
+  function hasUsablePhysicalInterval(row) {
+    const start = minutesFromTime(row?.start || row?.startTime);
+    const end = minutesFromTime(row?.end || row?.endTime);
+    if (!Array.isArray(row?.days) || !row.days.length) return false;
+    if (start == null || end == null || end <= start) return false;
+    if (canon(row?.timeBlock) === 'ONLINE/TBA') return false;
+    if (start === 0 && end <= 59) return false;
+    if (isOnlinePlaceholderTime(row)) return false;
+    return true;
+  }
+
+  function physicalIntervalRows(rows, options = {}) {
+    const includeOnline = options.includeOnline === true;
+    return (rows || []).filter(row => {
+      if (!hasUsablePhysicalInterval(row)) return false;
+      if (isPhysicalInstructionModality(row)) return true;
+      return includeOnline && isOnlineInstructionModality(row);
+    });
+  }
+
+  function includeOnlineFromSelect(id) {
+    return rowInstructionModality({ modality: document.getElementById(id)?.value || '' }) === 'ONLINE';
   }
 
   function sectionKey(section) {
@@ -1456,7 +1496,7 @@
                 <h3>How to Use This Report</h3>
                 <ul>
                   <li>Upload one or more Faculty Schedule CSV files, then click Load Faculty Modality.</li>
-                  <li>Review Full-Time, Part-Time, and Unknown faculty type rows split into In Person, Hybrid, Online, and Other modality buckets.</li>
+                  <li>Review Full-Time, Part-Time, and Unknown faculty type rows split into In-Person, Hybrid, and Online modality buckets.</li>
                   <li>Use campus, division, department, course, and term filters to narrow the population before exporting.</li>
                 </ul>
               </div>
@@ -1464,7 +1504,7 @@
                 <h3>Methodology</h3>
                 <ul>
                   <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor.</li>
-                  <li>Modality is determined from INSM_CODE_SSBSECT using the same instructional method mapping used by TIMBER enrollment reports.</li>
+                  <li>Modality is determined from INSM_CODE_SSBSECT using the shared TIMBER instructional method mapping. Unknown or omitted codes are excluded from standard analytics and should be reviewed through diagnostics.</li>
                   <li>Sections counts deduped instructional meeting rows. Faculty Count counts distinct faculty in each faculty type and modality bucket. Enrollment uses ActualEnroll, Seats uses MaxEnroll, and LHE uses uploaded LHE.</li>
                   <li>AE and X faculty type rows are omitted. JP is Part-Time, FT/TE are Full-Time, and unrecognized FCNT_CODE values are Unknown.</li>
                 </ul>
@@ -2324,6 +2364,8 @@
 
   function facultyFilterSourceRows() {
     const rows = reportableFacultyRows(state.facultyHeatmapRows);
+    const selectedModality = document.getElementById('fhModality')?.value || '';
+    const includeOnline = facultyInstructionModality({ insmCode: selectedModality }) === 'Online';
     const scoped = rows.filter(row => {
       const term = document.getElementById('fhTerm')?.value || '';
       const facultyType = document.getElementById('fhFacultyType')?.value || '';
@@ -2334,6 +2376,8 @@
       const subject = document.getElementById('fhSubject')?.value || '';
       const course = document.getElementById('fhCourse')?.value || '';
       const modality = document.getElementById('fhModality')?.value || '';
+      if (!facultyHasUsablePhysicalInterval(row)) return false;
+      if (!facultyIsPhysicalModality(row) && !(includeOnline && facultyInstructionModality(row) === 'Online')) return false;
       if (term && facultyTerm(row) !== term) return false;
       if (facultyType && row.facultyType !== facultyType) return false;
       if (meetingType && row.meetingType !== meetingType) return false;
@@ -2365,10 +2409,19 @@
     setFacultyFilterOptions('fhModality', rows.map(facultyModalityValue), 'All modalities');
   }
 
-  function facultyHeatmapSlots(rows) {
+  function facultyIntervalRows(rows, options = {}) {
+    const includeOnline = options.includeOnline === true;
+    return reportableFacultyRows(rows).filter(row => {
+      if (!facultyHasUsablePhysicalInterval(row)) return false;
+      if (facultyIsPhysicalModality(row)) return true;
+      return includeOnline && facultyInstructionModality(row) === 'Online';
+    });
+  }
+
+  function facultyHeatmapSlots(rows, options = {}) {
     let min = 6 * 60;
     let max = 22 * 60;
-    reportableFacultyRows(rows).forEach(row => {
+    facultyIntervalRows(rows, options).forEach(row => {
       const start = minutesFromTime(row.startTime || row.start);
       const end = minutesFromTime(row.endTime || row.end);
       if (start != null && end != null && end > start) {
@@ -2388,10 +2441,10 @@
     return 1;
   }
 
-  function buildFacultyHeatmapBuckets(rows, metricName) {
+  function buildFacultyHeatmapBuckets(rows, metricName, options = {}) {
     const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
     const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
-    const slots = facultyHeatmapSlots(rows);
+    const slots = facultyHeatmapSlots(rows, options);
     const cellMap = new Map();
     dayKeys.forEach(day => {
       slots.forEach(minutes => {
@@ -2412,7 +2465,7 @@
         });
       });
     });
-    reportableFacultyRows(rows).forEach(row => {
+    facultyIntervalRows(rows, options).forEach(row => {
       const start = minutesFromTime(row.startTime || row.start);
       const end = minutesFromTime(row.endTime || row.end);
       if (start == null || end == null || end <= start) return;
@@ -2449,7 +2502,7 @@
   }
 
   function facultyHeatmapPeakByType(rows, facultyType) {
-    const built = buildFacultyHeatmapBuckets(reportableFacultyRows(rows).filter(row => row.facultyType === facultyType), 'sections');
+    const built = buildFacultyHeatmapBuckets(reportableFacultyRows(rows).filter(row => row.facultyType === facultyType), 'sections', { includeOnline: includeOnlineFromSelect('fhModality') });
     return peakFacultyHeatmapCell(built.rows, 'sections');
   }
 
@@ -2478,7 +2531,7 @@
       const terms = [...new Set(sourceRows.map(facultyTerm))].sort().join(', ');
       status.textContent = `Loaded ${sourceRows.length} deduped meeting row(s). Terms: ${terms || 'Unspecified'}.`;
     }
-    const built = buildFacultyHeatmapBuckets(rows, metricName);
+    const built = buildFacultyHeatmapBuckets(rows, metricName, { includeOnline: includeOnlineFromSelect('fhModality') });
     state.facultyHeatmapBucketRows = built.rows;
     const maxValue = Math.max(0, ...built.rows.map(row => row.metricValue || 0));
     const cellByKey = new Map(built.rows.map(row => [row.key, row]));
@@ -2561,10 +2614,23 @@
 
   function facultyInstructionModality(row) {
     const normalized = normalizeModality(row?.insmCode || '', { raw: { INSTRUCTIONAL_METHOD_CODE: row?.insmCode || '' } });
-    if (normalized === 'IN PERSON') return 'In Person';
-    if (normalized === 'HYBRID') return 'Hybrid';
-    if (normalized === 'ONLINE') return 'Online';
-    return 'Other';
+    return window.COSModalityNormalizer?.displayLabel
+      ? window.COSModalityNormalizer.displayLabel(normalized)
+      : ({ 'IN PERSON': 'In-Person', HYBRID: 'Hybrid', ONLINE: 'Online' }[normalized] || 'Unknown');
+  }
+
+  function facultyIsPhysicalModality(row) {
+    const modality = facultyInstructionModality(row);
+    return modality === 'In-Person' || modality === 'Hybrid';
+  }
+
+  function facultyHasUsablePhysicalInterval(row) {
+    const start = minutesFromTime(row?.startTime || row?.start);
+    const end = minutesFromTime(row?.endTime || row?.end);
+    if (!Array.isArray(row?.days) || !row.days.length) return false;
+    if (start == null || end == null || end <= start) return false;
+    if (start === 0 && end <= 59) return false;
+    return true;
   }
 
   function facultyModalityFilterRows() {
@@ -2603,7 +2669,7 @@
       ['PART_TIME', 'Part-Time'],
       ['UNKNOWN', 'Unknown']
     ];
-    const modalities = ['In Person', 'Hybrid', 'Online', 'Other'];
+    const modalities = ['In-Person', 'Hybrid', 'Online'];
     const buckets = new Map();
     facultyTypes.forEach(([, label]) => {
       modalities.forEach(modality => {
@@ -2624,6 +2690,7 @@
       const facultyType = facultyTypes.find(([code]) => code === row.facultyType)?.[1];
       if (!facultyType) return;
       const modality = facultyInstructionModality(row);
+      if (!['In-Person', 'Hybrid', 'Online'].includes(modality)) return;
       const bucket = buckets.get(`${facultyType}|${modality}`);
       if (!bucket) return;
       bucket.sections += 1;
@@ -2680,10 +2747,10 @@
         ['Full-Time sections', 0],
         ['Part-Time sections', 0],
         ['Unknown sections', 0],
-        ['In Person sections', 0],
+        ['In-Person sections', 0],
         ['Hybrid sections', 0],
         ['Online sections', 0],
-        ['Other sections', 0]
+        ['Unknown/Omitted rows excluded', reportableFacultyRows(sourceRows).filter(row => !['In-Person', 'Hybrid', 'Online'].includes(facultyInstructionModality(row))).length]
       ]);
       document.getElementById('facultyModalityChart').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Modality.</p>';
       document.getElementById('facultyModalityTable').innerHTML = '<p class="analytics-empty">No faculty modality data loaded.</p>';
@@ -2704,16 +2771,16 @@
       ['Full-Time sections', byType('Full-Time')],
       ['Part-Time sections', byType('Part-Time')],
       ['Unknown sections', byType('Unknown')],
-      ['In Person sections', byModality('In Person')],
+      ['In-Person sections', byModality('In-Person')],
       ['Hybrid sections', byModality('Hybrid')],
       ['Online sections', byModality('Online')],
-      ['Other sections', byModality('Other')]
+      ['Unknown/Omitted rows excluded', sourceRows.filter(row => !['In-Person', 'Hybrid', 'Online'].includes(facultyInstructionModality(row))).length]
     ]);
     renderFacultyModalityChart(tableRows);
     table('facultyModalityTable', tableRows, ['facultyType', 'modality', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe', 'sectionShare', 'sourceCodes']);
     document.getElementById('facultyModalityLegend').innerHTML = `
       <strong>Faculty Modality Methodology</strong>
-      <p>Modality is mapped from INSM_CODE_SSBSECT. TIMBER instructional method mappings classify known in-person, hybrid, and online codes; anything outside those groups is shown as Other for review. Section counts use deduped faculty meeting rows, so distinct lecture/lab/activity meetings remain visible while duplicate source rows are not inflated.</p>
+      <p>Modality is mapped from INSM_CODE_SSBSECT with the shared TIMBER modality normalizer. User-facing modality results display only In-Person, Hybrid, and Online. Unknown or omitted codes are excluded from standard analytics and should be reviewed in diagnostics/validation outputs.</p>
     `;
     state.facultyModalityRan = true;
   }
@@ -2756,6 +2823,7 @@
     const department = document.getElementById('ptDepartment')?.value || '';
     const course = document.getElementById('ptCourse')?.value || '';
     return reportableFacultyRows(state.primeTimeRows)
+      .filter(row => facultyIsPhysicalModality(row) && facultyHasUsablePhysicalInterval(row))
       .filter(row => {
         if (term && facultyTerm(row) !== term) return false;
         if (campus && row.campus !== campus) return false;
@@ -2796,7 +2864,9 @@
 
   function primeTimeAnalysisRows(rows) {
     const definition = primeTimeDefinition();
-    const analyzed = reportableFacultyRows(rows).map(row => ({
+    const analyzed = reportableFacultyRows(rows)
+      .filter(row => facultyIsPhysicalModality(row) && facultyHasUsablePhysicalInterval(row))
+      .map(row => ({
       ...row,
       isPrimeTime: rowOverlapsPrimeTime(row, definition),
       enrollment: row.actualEnroll || 0,
@@ -3008,10 +3078,10 @@
     return 'Low Activity';
   }
 
-  function buildSupplyDemandBuckets(rows, metricName) {
+  function buildSupplyDemandBuckets(rows, metricName, options = {}) {
     const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
     const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
-    const fixedRows = rows.filter(row => Array.isArray(row.days) && row.days.length && row.start && row.end && row.timeBlock !== 'ONLINE/TBA');
+    const fixedRows = physicalIntervalRows(rows, options);
     const slots = supplyDemandSlots(fixedRows);
     const map = new Map();
     dayKeys.forEach(day => {
@@ -3179,9 +3249,10 @@
     const rows = await loadSupplyDemandRows();
     const filtered = supplyDemandFilteredRows();
     const metricName = document.getElementById('sdMetric')?.value || 'sections';
-    const built = buildSupplyDemandBuckets(filtered, metricName);
+    const intervalOptions = { includeOnline: includeOnlineFromSelect('sdModality') };
+    const built = buildSupplyDemandBuckets(filtered, metricName, intervalOptions);
     state.supplyDemandBucketRows = built.rows;
-    renderSupplyDemandMetrics(filtered, built);
+    renderSupplyDemandMetrics(physicalIntervalRows(filtered, intervalOptions), built);
     renderSupplyDemandHeatmap(built, metricName);
     renderSupplyDemandLineGraph(built, metricName);
     const view = document.getElementById('sdView')?.value || 'all';
@@ -3193,7 +3264,7 @@
       <p>Supply is scheduled sections and seats offered. Realized demand is census enrollment when available, otherwise current enrollment, plus waitlist when present. Enrollment alone cannot demonstrate student preference because students can only enroll in sections that were offered at available times, campuses, and modalities. Hidden Demand identifies limited supply with waitlist pressure; Oversupplied identifies multiple low-filled buckets with empty seats.</p>
     `;
     const status = document.getElementById('supplyDemandStatus');
-    if (status) status.textContent = `Loaded ${rows.length} row(s); ${filtered.length} row(s) match filters.`;
+    if (status) status.textContent = `Loaded ${rows.length} row(s); ${filtered.length} row(s) match filters; ${physicalIntervalRows(filtered, intervalOptions).length} fixed physical/time-selected row(s).`;
     state.supplyDemandRan = true;
   }
 
@@ -3264,18 +3335,14 @@
     return row.census == null ? row.actual || 0 : row.census || 0;
   }
 
-  function busyTimeFixedRows(rows) {
-    return (rows || []).filter(row => {
-      const start = minutesFromTime(row.start);
-      const end = minutesFromTime(row.end);
-      return Array.isArray(row.days) && row.days.length && start != null && end != null && end > start && row.timeBlock !== 'ONLINE/TBA';
-    });
+  function busyTimeFixedRows(rows, options = {}) {
+    return physicalIntervalRows(rows, options);
   }
 
-  function buildBusyTimeBuckets(rows) {
+  function buildBusyTimeBuckets(rows, options = {}) {
     const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
     const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
-    const fixedRows = busyTimeFixedRows(rows);
+    const fixedRows = busyTimeFixedRows(rows, options);
     const slots = supplyDemandSlots(fixedRows);
     const map = new Map();
     dayKeys.forEach(day => {
@@ -3380,9 +3447,9 @@
     return peak / total;
   }
 
-  function busyTimeDurationRows(rows) {
+  function busyTimeDurationRows(rows, options = {}) {
     const buckets = new Map();
-    busyTimeFixedRows(rows).forEach(row => {
+    busyTimeFixedRows(rows, options).forEach(row => {
       const start = minutesFromTime(row.start);
       const end = minutesFromTime(row.end);
       const minutes = end - start;
@@ -3398,9 +3465,9 @@
     return [...buckets.values()].map(row => ({ duration: row.duration, courses: row.courses, enrollment: row.enrollment }));
   }
 
-  function busyTimeRoomUtilization(rows) {
+  function busyTimeRoomUtilization(rows, options = {}) {
     const rooms = new Map();
-    busyTimeFixedRows(rows).forEach(row => {
+    busyTimeFixedRows(rows, options).forEach(row => {
       const room = [row.campus, row.building, row.roomOnly || row.room].filter(Boolean).join(' / ') || 'Unassigned';
       if (!rooms.has(room)) rooms.set(room, { room, minutes: 0, meetings: new Set() });
       const bucket = rooms.get(room);
@@ -3461,8 +3528,9 @@
     const sourceRows = state.busyTimeRows || [];
     const rows = busyTimeFilteredRows();
     const facultyRows = busyTimeFacultyRowsForScope();
-    const bucketRows = buildBusyTimeBuckets(rows);
-    const slots = supplyDemandSlots(busyTimeFixedRows(rows));
+    const intervalOptions = { includeOnline: includeOnlineFromSelect('busyTimeModality') };
+    const bucketRows = buildBusyTimeBuckets(rows, intervalOptions);
+    const slots = supplyDemandSlots(busyTimeFixedRows(rows, intervalOptions));
     const facultyBuckets = buildBusyTimeFacultyBuckets(facultyRows, slots);
     const primeRows = busyTimePrimeRows(bucketRows);
     const primePresence = primeRows.reduce((total, row) => total + row.studentPresence, 0);
@@ -3474,7 +3542,7 @@
     const dayRows = bucketRows.filter(row => row.minutes >= 8 * 60 && row.minutes < 16 * 60);
     const eveningSeats = eveningRows.reduce((total, row) => total + row.seats, 0);
     const eveningEnrollment = eveningRows.reduce((total, row) => total + row.enrollment, 0);
-    const roomUse = busyTimeRoomUtilization(rows);
+    const roomUse = busyTimeRoomUtilization(rows, intervalOptions);
     const metrics = {
       studentPeak: busyTimePeak(bucketRows, 'studentPresence'),
       supplyPeak: busyTimePeak(bucketRows, 'sections'),
@@ -3498,7 +3566,7 @@
       ['Peak Student Time', busyTimeCellLabel(metrics.studentPeak, 'studentPresence')],
       ['Peak Section Supply', busyTimeCellLabel(metrics.supplyPeak, 'sections')]
     ]);
-    const durationRows = busyTimeDurationRows(rows);
+    const durationRows = busyTimeDurationRows(rows, intervalOptions);
     renderBusyTimeCharts(bucketRows, durationRows, facultyBuckets);
     document.getElementById('busyTimeObservations').innerHTML = `
       <strong>Observations</strong>
@@ -3658,10 +3726,10 @@
     return 'Low choice / low demand';
   }
 
-  function buildStudentChoiceBuckets(rows, metricName = 'uniqueCourses') {
+  function buildStudentChoiceBuckets(rows, metricName = 'uniqueCourses', options = {}) {
     const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
     const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
-    const fixedRows = busyTimeFixedRows(rows);
+    const fixedRows = busyTimeFixedRows(rows, options);
     const slots = supplyDemandSlots(fixedRows);
     const calGetcCodes = studentChoiceCalGetcCodes();
     const map = new Map();
@@ -3818,7 +3886,7 @@
   function renderStudentChoiceOpportunity() {
     const rows = studentChoiceFilteredRows();
     const metricName = document.getElementById('studentChoiceMetric')?.value || 'uniqueCourses';
-    const buckets = buildStudentChoiceBuckets(rows, metricName);
+    const buckets = buildStudentChoiceBuckets(rows, metricName, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
     state.studentChoiceBucketRows = buckets;
     const nonEmpty = buckets.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
     const highChoice = nonEmpty.filter(row => row.interpretation.startsWith('High choice')).length;
@@ -3995,10 +4063,11 @@
     };
   }
 
-  function buildSchedulingRecommendations(rows) {
+  function buildSchedulingRecommendations(rows, options = {}) {
     const recommendations = [];
-    const choiceBuckets = buildStudentChoiceBuckets(rows, 'uniqueCourses').filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
-    const supplyBuckets = buildSupplyDemandBuckets(rows, 'sections').rows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
+    const recommendationRows = busyTimeFixedRows(rows, options);
+    const choiceBuckets = buildStudentChoiceBuckets(recommendationRows, 'uniqueCourses', options).filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
+    const supplyBuckets = buildSupplyDemandBuckets(recommendationRows, 'sections', options).rows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
     const highDemand = choiceBuckets.filter(row => row.fillRateNumber >= 0.9 || row.waitlist > 0).sort((a, b) => (b.waitlist + b.fillRateNumber) - (a.waitlist + a.fillRateNumber));
     const oversupply = choiceBuckets.filter(row => row.sections >= 3 && row.fillRateNumber < 0.55 && row.emptySeats >= 40).sort((a, b) => b.emptySeats - a.emptySeats);
     const choiceGap = choiceBuckets.filter(row => row.uniqueCourses <= 2 && (row.fillRateNumber >= 0.8 || row.waitlist > 0)).sort((a, b) => b.fillRateNumber - a.fillRateNumber);
@@ -4021,7 +4090,7 @@
     oversupply.slice(0, 3).forEach(row => addBucketRec(row, 'Oversupply', `Possible oversupply around ${row.timeBlock}`, 'Review low-fill supply and empty seats before expanding comparable offerings.', { confidence: recommendationConfidence(3, 3) }));
     choiceGap.slice(0, 3).forEach(row => addBucketRec(row, 'Choice Gap', `Limited student choice around ${row.timeBlock}`, 'Review whether students have enough meaningful alternatives in this time block.'));
     choiceGap.filter(row => row.waitlist > 0 || row.fillRateNumber >= 0.9).slice(0, 2).forEach(row => addBucketRec(row, 'Expansion Candidate', `Possible expansion candidate around ${row.timeBlock}`, 'Consider testing additional capacity in this pattern before reducing nearby supply.'));
-    const roomUse = busyTimeRoomUtilization(rows);
+    const roomUse = busyTimeRoomUtilization(recommendationRows, options);
     if (highDemand.length && roomUse.rooms && roomUse.utilization < 0.55) {
       const row = highDemand[0];
       addBucketRec(row, 'Room Opportunity', `Room opportunity near ${row.timeBlock}`, 'Review room availability during high-demand or low-choice periods.', {
@@ -4030,7 +4099,7 @@
       });
     }
     const facultyRows = reportableFacultyRows(state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || []);
-    const facultyBuckets = buildBusyTimeFacultyBuckets(facultyRows, supplyDemandSlots(busyTimeFixedRows(rows)));
+    const facultyBuckets = buildBusyTimeFacultyBuckets(facultyRows, supplyDemandSlots(recommendationRows));
     const primeFaculty = facultyBuckets.filter(row => ['MO', 'TU', 'WE', 'TH'].includes(row.day) && row.minutes >= 9 * 60 && row.minutes < 15 * 60 && row.total >= 3);
     const concentrated = primeFaculty.find(row => safeDiv(Math.max(row.fullTime, row.partTime), row.total) >= 0.75);
     if (concentrated) {
@@ -4050,7 +4119,7 @@
       }));
     }
     const byDiscipline = new Map();
-    rows.forEach(row => {
+    recommendationRows.forEach(row => {
       const key = row.subject || 'Unknown';
       if (!byDiscipline.has(key)) byDiscipline.set(key, { discipline: key, total: 0, modalities: new Map(), enrollment: 0, waitlist: 0 });
       const bucket = byDiscipline.get(key);
@@ -4107,13 +4176,13 @@
         }));
       }
     });
-    if (!recommendations.length && (rows || []).length) {
+    if (!recommendations.length && recommendationRows.length) {
       recommendations.push(recommendationRecord({
         title: 'Insufficient evidence for advisory recommendation',
         category: 'Insufficient evidence',
         confidenceLevel: 'Low',
         affectedTermSource: document.getElementById('recommendationTerm')?.value || 'Multiple/filtered',
-        evidenceSummary: `${rows.length} rows were loaded, but no category met the minimum evidence thresholds.`,
+        evidenceSummary: `${recommendationRows.length} fixed physical/time-selected rows were loaded, but no category met the minimum evidence thresholds.`,
         metricsUsed: 'observed enrollment; available supply; student choice opportunity; faculty assignment pattern; room availability',
         whyThisMatters: 'The engine should not force a recommendation when evidence is weak or incomplete.',
         suggestedAction: 'Load more relevant terms or narrow filters if a specific pattern is being investigated.',
@@ -4150,7 +4219,7 @@
 
   function renderRecommendationEngine() {
     const sourceRows = recommendationFilteredSourceRows();
-    const allRecommendations = buildSchedulingRecommendations(sourceRows);
+    const allRecommendations = buildSchedulingRecommendations(sourceRows, { includeOnline: includeOnlineFromSelect('recommendationModality') });
     const filteredRecommendations = recommendationFilterOutput(allRecommendations);
     state.recommendationOutputRows = filteredRecommendations;
     const byCategory = category => filteredRecommendations.filter(row => row.category === category).length;
@@ -8194,7 +8263,7 @@
     if (!legend) return;
     const items = [
       ['Consolidation CSV(s)', 'Optional upload for this report. Calculations use only selected Consolidation CSV upload files and archived terms selected in the Consolidation archived-term selector. The report does not silently pull every archived term or the current room grid.'],
-      ['Instructional methods', 'Online, In Person, and Hybrid are derived from instructional method codes. Online codes include ONL, 71, 72, O1, OL, ONN, ONS, OO, OS, OSS, OT, OTS, ON, and OSL. In-person codes include IP, 02, 22, 022, 02H, 02O, 02S, 02T, 02N, 04, 06, 07, 08, 09, 12, XX, and YY. Hybrid codes include HYB, OH, OHF, FLX, and OHS. CPL, DE, CBE, and unmapped archived code 98 are omitted from this report.'],
+      ['Instructional methods', 'Online, In-Person, and Hybrid are derived from instructional method codes. Online codes include ONL, 71, 72, O1, OL, ONN, ONS, OO, OS, OSS, OT, OTS, ON, and OSL. In-person codes include IP, 02, 22, 022, 02H, 02O, 02S, 02T, 02N, 04, 06, 07, 08, 09, 12, XX, and YY. Hybrid codes include HYB, OH, OHF, FLX, and OHS. CPL, DE, CBE, 20, and unmapped archived code 98 are omitted from this report.'],
       ['Decision term', 'The term being reviewed for planned consolidation opportunities. For in-person rows, the decision term supplies planned sections, meeting patterns, and capacity, not the enrollment demand used to trigger recommendations.'],
       ['Curriculum Crosswalk', 'Configured curriculum/CCN crosswalk rows map old course numbers to current/synonym course numbers before historical demand, online reduction, and in-person consolidation groupings are calculated. Example: ENGL 001 history can support ENGL C1000 when that crosswalk row exists.'],
       ['Min sections', 'Minimum number of decision-term in-person or hybrid sections a course must have before consolidation groups are considered. Online reduction rows use a separate minimum of two online sections, then require enough historical vacancy to remove at least one section.'],
@@ -9496,7 +9565,16 @@
     canAccessRole,
     canAccess,
     normalizeRow: normalize,
+    modalityNormalizer: window.COSModalityNormalizer,
     isOnlinePlaceholderTime,
+    rowInstructionModality,
+    hasUsablePhysicalInterval,
+    physicalIntervalRows,
+    buildSupplyDemandBuckets,
+    buildStudentChoiceBuckets,
+    buildSchedulingRecommendations,
+    buildFacultyHeatmapBuckets,
+    primeTimeAnalysisRows,
     tutoringOpenLabConfig: TUTORING_OPEN_LAB_CONFIG,
     isTutoringOpenLabSection,
     instructorScheduleRows,

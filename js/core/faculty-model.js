@@ -1,10 +1,11 @@
 (function (root, factory) {
   const csv = root.COSCsvNormalizer || (typeof require === 'function' ? require('./csv-normalizer') : null);
   const utils = root.COSFacultyUtils || (typeof require === 'function' ? require('./faculty-utils') : null);
-  const api = factory(csv, utils);
+  const modality = root.COSModalityNormalizer || (typeof require === 'function' ? require('./modality-normalizer') : null);
+  const api = factory(csv, utils, modality);
   root.COSFacultyModel = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (csv, utils) {
+})(typeof window !== 'undefined' ? window : globalThis, function (csv, utils, modalityNormalizer) {
   'use strict';
 
   if (!csv) throw new Error('COSCsvNormalizer is required before COSFacultyModel.');
@@ -174,16 +175,13 @@
   function buildFacultyModalityRows(rows) {
     const buckets = new Map();
     ['FULL_TIME', 'PART_TIME', 'UNKNOWN'].forEach(facultyType => {
-      ['In Person', 'Hybrid', 'Online', 'Other'].forEach(modality => {
+      ['In-Person', 'Hybrid', 'Online'].forEach(modality => {
         buckets.set(`${facultyType}|${modality}`, { facultyType, modality, sections: 0, enrollment: 0, seats: 0, lhe: 0 });
       });
     });
     const modalityFor = row => {
-      const code = utils.normalizeCode(row.insmCode || '');
-      if (['IP', '02', '22', '02H', '02O', '02S', '02T', '04', '06', '07', '08', '09', '12', 'XX', 'YY'].includes(code)) return 'In Person';
-      if (['HYB', 'OH', 'OHF', 'FLX', 'OHS'].includes(code)) return 'Hybrid';
-      if (['ONL', '71', '72', 'O1', 'OL', 'ONN', 'ONS', 'OO', 'OS', 'OSS', 'OT', 'OTS'].includes(code)) return 'Online';
-      return 'Other';
+      const category = modalityNormalizer?.normalize ? modalityNormalizer.normalize(row.insmCode || '', { INSM_CODE_SSBSECT: row.insmCode || '' }) : 'UNKNOWN';
+      return modalityNormalizer?.displayLabel ? modalityNormalizer.displayLabel(category) : ({ 'IN PERSON': 'In-Person', HYBRID: 'Hybrid', ONLINE: 'Online' }[category] || 'Unknown');
     };
     reportableFacultyRows(rows).forEach(row => {
       const key = `${row.facultyType}|${modalityFor(row)}`;

@@ -119,6 +119,7 @@ test('faculty modules expose browser-compatible APIs', () => {
   vm.createContext(context);
   [
     'js/core/csv-normalizer.js',
+    'js/core/modality-normalizer.js',
     'js/core/faculty-utils.js',
     'js/core/faculty-model.js',
     'js/core/faculty-parser.js'
@@ -208,7 +209,7 @@ test('Faculty Modality calculation omits AE and X faculty rows', () => {
   const rows = omittedFacultyRows();
   const modalityRows = facultyModel.buildFacultyModalityRows(rows);
   const totalSections = modalityRows.reduce((total, row) => total + row.sections, 0);
-  const inPersonRows = modalityRows.filter(row => row.modality === 'In Person');
+  const inPersonRows = modalityRows.filter(row => row.modality === 'In-Person');
 
   assert.equal(totalSections, 2);
   assert.equal(inPersonRows.reduce((total, row) => total + row.enrollment, 0), 32);

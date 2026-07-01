@@ -1,9 +1,10 @@
 (function (root, factory) {
   const csv = root.COSCsvNormalizer || (typeof require === 'function' ? require('./csv-normalizer') : null);
-  const api = factory(csv);
+  const modality = root.COSModalityNormalizer || (typeof require === 'function' ? require('./modality-normalizer') : null);
+  const api = factory(csv, modality);
   root.COSSectionModel = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (csv) {
+})(typeof window !== 'undefined' ? window : globalThis, function (csv, modalityNormalizer) {
   'use strict';
 
   if (!csv) throw new Error('COSCsvNormalizer is required before COSSectionModel.');
@@ -107,17 +108,17 @@
   }
 
   function normalizeModality(method, row = {}) {
+    if (modalityNormalizer?.normalize) return modalityNormalizer.normalize(method, row);
     const raw = csv.canon(method || csv.extractField(row, csv.fields.instructionalMethod));
     const code = csv.canon(csv.extractField(row, ['INSTRUCTIONAL_METHOD_CODE', 'Instructional Method Code', 'Method Code']) || raw);
-    if (code === 'DE' || /DUAL\s*ENROLL/.test(raw)) return 'DUAL ENROLLMENT';
     if (modalityGroups.omitted.has(code)) return 'OMIT';
     if (modalityGroups.online.has(code)) return 'ONLINE';
     if (modalityGroups.inPerson.has(code)) return 'IN PERSON';
     if (modalityGroups.hybrid.has(code)) return 'HYBRID';
     if (/ONLINE|WEB|ASYNC|REMOTE|VIRTUAL/.test(raw)) return 'ONLINE';
     if (/HYBRID|PARTIAL/.test(raw)) return 'HYBRID';
-    if (/TBA/.test(raw)) return 'TBA';
-    return raw || 'IN PERSON';
+    if (/IN[ -]?PERSON|FACE[ -]?TO[ -]?FACE|ON[ -]?CAMPUS/.test(raw)) return 'IN PERSON';
+    return 'UNKNOWN';
   }
 
   function isOnlinePlaceholderTime(row) {
@@ -134,7 +135,7 @@
   }
 
   function timeBlock(start, modality) {
-    if (!start || modality === 'ONLINE' || modality === 'TBA') return 'ONLINE/TBA';
+    if (!start || modality === 'ONLINE' || modality === 'UNKNOWN') return 'ONLINE/TBA';
     const hour = Number(start.slice(0, 2));
     if (!Number.isFinite(hour)) return 'ONLINE/TBA';
     return `${String(hour).padStart(2, '0')}:00-${String(hour).padStart(2, '0')}:59`;
@@ -232,7 +233,7 @@
       timeBlock: timeBlockValue,
       room: csv.canon([base.building, base.roomOnly].filter(Boolean).join(' ')),
       isOnline: modality === 'ONLINE',
-      isPhysical: Boolean(days.length && times.start && times.end && modality !== 'ONLINE' && modality !== 'TBA'),
+      isPhysical: Boolean(days.length && times.start && times.end && (modality === 'IN PERSON' || modality === 'HYBRID')),
       isTutoringOpenLab: tutoringOpenLabCourses.has(base.courseCode)
     };
   }

@@ -300,23 +300,23 @@ const DEFAULT_MODALITY_DEFINITIONS = [
   { code: 'OTS', modality: 'Online', omitted: false },
   { code: 'ON', modality: 'Online', omitted: false },
   { code: 'OSL', modality: 'Online', omitted: false },
-  { code: 'IP', modality: 'In Person', omitted: false },
-  { code: '02', modality: 'In Person', omitted: false },
-  { code: '22', modality: 'In Person', omitted: false },
-  { code: '022', modality: 'In Person', omitted: false },
-  { code: '02H', modality: 'In Person', omitted: false },
-  { code: '02O', modality: 'In Person', omitted: false },
-  { code: '02S', modality: 'In Person', omitted: false },
-  { code: '02T', modality: 'In Person', omitted: false },
-  { code: '02N', modality: 'In Person', omitted: false },
-  { code: '04', modality: 'In Person', omitted: false },
-  { code: '06', modality: 'In Person', omitted: false },
-  { code: '07', modality: 'In Person', omitted: false },
-  { code: '08', modality: 'In Person', omitted: false },
-  { code: '09', modality: 'In Person', omitted: false },
-  { code: '12', modality: 'In Person', omitted: false },
-  { code: 'XX', modality: 'In Person', omitted: false },
-  { code: 'YY', modality: 'In Person', omitted: false },
+  { code: 'IP', modality: 'In-Person', omitted: false },
+  { code: '02', modality: 'In-Person', omitted: false },
+  { code: '22', modality: 'In-Person', omitted: false },
+  { code: '022', modality: 'In-Person', omitted: false },
+  { code: '02H', modality: 'In-Person', omitted: false },
+  { code: '02O', modality: 'In-Person', omitted: false },
+  { code: '02S', modality: 'In-Person', omitted: false },
+  { code: '02T', modality: 'In-Person', omitted: false },
+  { code: '02N', modality: 'In-Person', omitted: false },
+  { code: '04', modality: 'In-Person', omitted: false },
+  { code: '06', modality: 'In-Person', omitted: false },
+  { code: '07', modality: 'In-Person', omitted: false },
+  { code: '08', modality: 'In-Person', omitted: false },
+  { code: '09', modality: 'In-Person', omitted: false },
+  { code: '12', modality: 'In-Person', omitted: false },
+  { code: 'XX', modality: 'In-Person', omitted: false },
+  { code: 'YY', modality: 'In-Person', omitted: false },
   { code: 'HYB', modality: 'Hybrid', omitted: false },
   { code: 'OH', modality: 'Hybrid', omitted: false },
   { code: 'OHF', modality: 'Hybrid', omitted: false },
@@ -3057,16 +3057,16 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function getModalityCategory(method) {
-    const value = String(method || '').trim();
-    const code = normalizeModalityCode(value);
-    const normalized = value.toLowerCase();
-    if (code === 'DE' || /dual\s*enroll/.test(normalized)) return 'Dual Enrollment';
-    if (modalityDefinitionMap.has(code)) return modalityDefinitionMap.get(code);
-    if (!value) return 'Unspecified';
-    if (/(hybrid|blended|partially online|part online|partially distance)/.test(normalized)) return 'Hybrid';
-    if (/(online|web|internet|distance|asynchronous|synchronous|remote|virtual)/.test(normalized)) return 'Online';
-    if (/(in[ -]?person|face[ -]?to[ -]?face|on[ -]?campus|lecture|lab|activity|clinical|field)/.test(normalized)) return 'In Person';
-    return 'Other';
+    const category = window.COSModalityNormalizer?.normalize
+      ? window.COSModalityNormalizer.normalize(method, { INSTRUCTIONAL_METHOD_CODE: method })
+      : '';
+    if (window.COSModalityNormalizer?.isReportable?.(category)) return window.COSModalityNormalizer.displayLabel(category);
+    return category || 'UNKNOWN';
+  }
+
+  function isReportableModalityCategory(category) {
+    const normalized = String(category || '').toUpperCase().replace('-', ' ');
+    return normalized === 'IN PERSON' || normalized === 'HYBRID' || normalized === 'ONLINE';
   }
 
   function getCanonicalSection(section) {
@@ -3184,7 +3184,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const disciplines = [...new Set(rows.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
     const departments = [...new Set(rows.map(getDepartment).filter(Boolean))].sort();
     const courses = [...new Set(rows.map(getCourseCode).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    const modalityOptions = [...new Set(rows.map(section => getModalityCategory(getInstructionalMethod(section) || 'Unspecified')).filter(Boolean))].sort();
+    const modalityOptions = [...new Set(rows.map(section => getModalityCategory(getInstructionalMethod(section) || 'Unspecified')).filter(isReportableModalityCategory))].sort();
     const levels = [...new Set(rows.map(section => getCourseLevel(getCourseParts(section).courseNumber)).filter(Boolean))]
       .sort((a, b) => getCourseLevelSort(a) - getCourseLevelSort(b));
     if (modalityDecisionTermSelect) resetSelect(modalityDecisionTermSelect, terms, modalityLoadedSourceRows?.length ? 'All loaded source terms' : 'Current room-grid term', '');
@@ -3270,11 +3270,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       seenSections.add(identity);
 
       const rawMethod = canonical?.instructionalMethod || getInstructionalMethod(section) || 'Unspecified';
-      const methodCode = normalizeModalityCode(rawMethod);
       const category = getModalityCategory(rawMethod);
+      if (!isReportableModalityCategory(category)) return;
       if (!valueMatchesAny(category, selectedModality)) return;
-      if (omittedModalityCodes.has(methodCode) && !(includeDualEnrollment && (methodCode === 'DE' || category === 'Dual Enrollment'))) return;
-      if (!includeDualEnrollment && (methodCode === 'DE' || category === 'Dual Enrollment')) return;
       rows.push({
         section,
         identity,
@@ -3317,7 +3315,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
     const total = Array.from(categories.values()).reduce((sum, item) => sum + item.count, 0);
     const totalEnrollment = Array.from(categories.values()).reduce((sum, item) => sum + item.enrollment, 0);
-    const order = ['In Person', 'Online', 'Hybrid', 'Dual Enrollment', 'Flex', 'Other', 'Unspecified'];
+    const order = ['In-Person', 'Online', 'Hybrid'];
     return Array.from(categories.values())
       .map(item => ({
         ...item,
@@ -3349,12 +3347,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const summaryItems = [
       `Sections: ${total}`,
       `Enrollment: ${totalEnrollment}`,
-      `In Person: ${rows.find(row => row.category === 'In Person')?.count || 0}`,
+      `In-Person: ${rows.find(row => row.category === 'In-Person')?.count || 0}`,
       `Online: ${rows.find(row => row.category === 'Online')?.count || 0}`,
       `Hybrid: ${rows.find(row => row.category === 'Hybrid')?.count || 0}`,
-      `Dual Enrollment: ${rows.find(row => row.category === 'Dual Enrollment')?.count || 0}`,
-      `Flex: ${rows.find(row => row.category === 'Flex')?.count || 0}`,
-      `Other/Unspecified: ${rows.filter(row => row.category === 'Other' || row.category === 'Unspecified').reduce((sum, row) => sum + row.count, 0)}`,
       `Tutoring/Open Lab Rows Excluded: ${tutoringOpenLabRowsExcluded}`
     ];
     summaryItems.forEach(text => {
@@ -3371,6 +3366,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
 
     renderModalityComparison(rows);
+    renderModalityDiagnostics();
     renderModalityPieCharts(rows);
 
     rows.forEach(row => {
@@ -3420,6 +3416,29 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       }
     });
     renderModalityCourseComparisonTable();
+  }
+
+  function renderModalityDiagnostics() {
+    if (!modalityComparison || !window.COSModalityNormalizer?.diagnosticRows) return;
+    const diagnostics = window.COSModalityNormalizer.diagnosticRows(getModalitySourceRows(), row => getInstructionalMethod(row));
+    if (!diagnostics.length) return;
+    const section = document.createElement('section');
+    section.className = 'modality-diagnostics';
+    const rows = diagnostics.map(row => `
+      <tr>
+        <td>${escapeHTML(row.originalInstructionalMethodCode)}</td>
+        <td>${row.count}</td>
+        <td>${escapeHTML(row.currentMappedCategory)}</td>
+        <td>${escapeHTML(row.exampleCrnsCourses || '')}</td>
+      </tr>`).join('');
+    section.innerHTML = `
+      <h3>Unmapped Instructional Method Diagnostics</h3>
+      <p>Unknown instructional method codes are stored internally as UNKNOWN and excluded from standard modality analytics until mapped.</p>
+      <div class="table-scroll"><table class="modality-diagnostics-table">
+        <thead><tr><th>Original instructional method code</th><th>Count</th><th>Current mapped category</th><th>Example CRNs/courses</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+    modalityComparison.appendChild(section);
   }
 
   function modalityTermLabel() {
@@ -3724,13 +3743,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   const modalityColors = {
-    'In Person': '#1d4f8f',
+    'In-Person': '#1d4f8f',
     Online: '#7c3aed',
-    Hybrid: '#f59e0b',
-    'Dual Enrollment': '#16a34a',
-    Flex: '#db2777',
-    Other: '#64748b',
-    Unspecified: '#334155'
+    Hybrid: '#f59e0b'
   };
 
   function modalityColor(category) {
@@ -4268,6 +4283,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         ModalityCategory: modalityCategory
       };
     }).filter(r => {
+      if (!isReportableModalityCategory(r.ModalityCategory)) return false;
       // Omit if room is blank, N/A, LIVE, ONLINE
       if (!isValidRoom(r.Building, r.Room)) return false;
       if (isOnlineTbaHeatmapRow(r)) return false;
