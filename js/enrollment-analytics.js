@@ -1900,6 +1900,8 @@
             <label>Discipline <select id="recommendationDiscipline"></select></label>
             <label>Course <select id="recommendationCourse"></select></label>
             <label>Time block <select id="recommendationTimeBlock"></select></label>
+            <label>Earliest recommended start <input id="recommendationStartEarliest" type="time" value="07:00" step="1800"></label>
+            <label>Latest recommended start <input id="recommendationStartLatest" type="time" value="19:00" step="1800"></label>
             <label>Modality <select id="recommendationModality" multiple size="3"></select></label>
             <button type="button" data-modality-quick="recommendationModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
             <button type="button" data-modality-quick="recommendationModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
@@ -4172,14 +4174,51 @@
     };
   }
 
+  function recommendationPlanningWindow(options = {}) {
+    const configured = options.planningWindow || {};
+    const earliestRaw = configured.earliest ?? configured.start ?? document.getElementById('recommendationStartEarliest')?.value ?? '07:00';
+    const latestRaw = configured.latest ?? configured.end ?? document.getElementById('recommendationStartLatest')?.value ?? '19:00';
+    const earliest = minutesFromTime(earliestRaw) ?? 7 * 60;
+    const latest = minutesFromTime(latestRaw) ?? 19 * 60;
+    return earliest <= latest
+      ? { earliest, latest }
+      : { earliest: 7 * 60, latest: 19 * 60 };
+  }
+
+  function bucketInPlanningWindow(row, window) {
+    const minutes = Number.isFinite(row?.minutes) ? row.minutes : null;
+    if (minutes == null) return false;
+    return minutes >= window.earliest && minutes <= window.latest;
+  }
+
+  function addOutsidePlanningDiagnostic(diagnostics, row, category) {
+    if (!diagnostics || !row) return;
+    const key = `${category}|${row.day}|${row.minutes}`;
+    if (diagnostics.some(item => item.key === key)) return;
+    diagnostics.push({
+      key,
+      category,
+      timeBlock: `${row.dayName || row.day || ''} ${row.timeBlock || row.time || ''}`.trim(),
+      evidenceSummary: `${row.sections || 0} sections, ${row.uniqueCourses || 0} unique courses, ${row.fillRate || '0%'} fill, ${row.waitlist || 0} waitlist.`,
+      reason: 'Outside selected planning window'
+    });
+  }
+
   function buildSchedulingRecommendations(rows, options = {}) {
     const recommendations = [];
     const recommendationRows = busyTimeFixedRows(rows, options);
     const choiceBuckets = buildStudentChoiceBuckets(recommendationRows, 'uniqueCourses', options).filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
     const supplyBuckets = buildSupplyDemandBuckets(recommendationRows, 'sections', options).rows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
-    const highDemand = choiceBuckets.filter(row => row.fillRateNumber >= 0.9 || row.waitlist > 0).sort((a, b) => (b.waitlist + b.fillRateNumber) - (a.waitlist + a.fillRateNumber));
+    const planningWindow = recommendationPlanningWindow(options);
+    const outsidePlanningDiagnostics = Array.isArray(options.outsidePlanningDiagnostics) ? options.outsidePlanningDiagnostics : [];
+    const highDemandAll = choiceBuckets.filter(row => row.fillRateNumber >= 0.9 || row.waitlist > 0).sort((a, b) => (b.waitlist + b.fillRateNumber) - (a.waitlist + a.fillRateNumber));
     const oversupply = choiceBuckets.filter(row => row.sections >= 3 && row.fillRateNumber < 0.55 && row.emptySeats >= 40).sort((a, b) => b.emptySeats - a.emptySeats);
-    const choiceGap = choiceBuckets.filter(row => row.uniqueCourses <= 2 && (row.fillRateNumber >= 0.8 || row.waitlist > 0)).sort((a, b) => b.fillRateNumber - a.fillRateNumber);
+    const choiceGapAll = choiceBuckets.filter(row => row.uniqueCourses <= 2 && (row.fillRateNumber >= 0.8 || row.waitlist > 0)).sort((a, b) => b.fillRateNumber - a.fillRateNumber);
+    highDemandAll.filter(row => !bucketInPlanningWindow(row, planningWindow)).forEach(row => addOutsidePlanningDiagnostic(outsidePlanningDiagnostics, row, 'Hidden Demand'));
+    choiceGapAll.filter(row => !bucketInPlanningWindow(row, planningWindow)).forEach(row => addOutsidePlanningDiagnostic(outsidePlanningDiagnostics, row, 'Choice Gap'));
+    choiceGapAll.filter(row => (row.waitlist > 0 || row.fillRateNumber >= 0.9) && !bucketInPlanningWindow(row, planningWindow)).forEach(row => addOutsidePlanningDiagnostic(outsidePlanningDiagnostics, row, 'Expansion Candidate'));
+    const highDemand = highDemandAll.filter(row => bucketInPlanningWindow(row, planningWindow));
+    const choiceGap = choiceGapAll.filter(row => bucketInPlanningWindow(row, planningWindow));
     const addBucketRec = (row, category, title, action, extra = {}) => {
       const ctx = recommendationBucketContext(row);
       recommendations.push(recommendationRecord({
@@ -4200,6 +4239,9 @@
     choiceGap.slice(0, 3).forEach(row => addBucketRec(row, 'Choice Gap', `Limited student choice around ${row.timeBlock}`, 'Review whether students have enough meaningful alternatives in this time block.'));
     choiceGap.filter(row => row.waitlist > 0 || row.fillRateNumber >= 0.9).slice(0, 2).forEach(row => addBucketRec(row, 'Expansion Candidate', `Possible expansion candidate around ${row.timeBlock}`, 'Consider testing additional capacity in this pattern before reducing nearby supply.'));
     const roomUse = busyTimeRoomUtilization(recommendationRows, options);
+    if (!highDemand.length && highDemandAll.length && roomUse.rooms && roomUse.utilization < 0.55) {
+      addOutsidePlanningDiagnostic(outsidePlanningDiagnostics, highDemandAll[0], 'Room Opportunity');
+    }
     if (highDemand.length && roomUse.rooms && roomUse.utilization < 0.55) {
       const row = highDemand[0];
       addBucketRec(row, 'Room Opportunity', `Room opportunity near ${row.timeBlock}`, 'Review room availability during high-demand or low-choice periods.', {
@@ -4328,9 +4370,16 @@
 
   function renderRecommendationEngine() {
     const sourceRows = recommendationFilteredSourceRows();
-    const allRecommendations = buildSchedulingRecommendations(sourceRows, { includeOnline: includeOnlineFromSelect('recommendationModality') });
+    const outsidePlanningDiagnostics = [];
+    const planningWindow = recommendationPlanningWindow();
+    const allRecommendations = buildSchedulingRecommendations(sourceRows, {
+      includeOnline: includeOnlineFromSelect('recommendationModality'),
+      planningWindow,
+      outsidePlanningDiagnostics
+    });
     const filteredRecommendations = recommendationFilterOutput(allRecommendations);
     state.recommendationOutputRows = filteredRecommendations;
+    state.recommendationOutsidePlanningRows = outsidePlanningDiagnostics;
     const byCategory = category => filteredRecommendations.filter(row => row.category === category).length;
     metric('recommendationMetrics', [
       ['Recommendations', filteredRecommendations.length],
@@ -4340,6 +4389,7 @@
       ['Choice Gap', byCategory('Choice Gap')],
       ['Expansion Candidate', byCategory('Expansion Candidate')],
       ['Consolidation Candidate', byCategory('Consolidation Candidate')],
+      ['Outside Planning Window', outsidePlanningDiagnostics.length],
       ['Insufficient Evidence', byCategory('Insufficient evidence')]
     ]);
     document.getElementById('recommendationCards').innerHTML = filteredRecommendations.slice(0, 6).map(row => `
@@ -4361,12 +4411,15 @@
       <ol>${priorityRows.slice(0, 12).map(row => `<li>${escapeAttr(row.confidenceLevel)} - ${escapeAttr(row.category)} - ${escapeAttr(row.recommendationTitle)}</li>`).join('')}</ol>
     `;
     table('recommendationTable', filteredRecommendations, ['recommendationTitle', 'category', 'confidenceLevel', 'affectedTermSource', 'campus', 'divisionDepartmentDiscipline', 'courseOrCourseGroup', 'dayTimeBlock', 'evidenceSummary', 'metricsUsed', 'whyThisMatters', 'suggestedAction', 'cautionsLimitations']);
+    const outsideItems = outsidePlanningDiagnostics.slice(0, 8).map(row => `<li>${escapeAttr(row.category)} - ${escapeAttr(row.timeBlock)}: ${escapeAttr(row.reason)}</li>`).join('');
     document.getElementById('recommendationLegend').innerHTML = `
       <strong>Recommendation Engine Methodology</strong>
       <p>Recommendations are evidence-informed, not deterministic. The engine distinguishes observed enrollment, available supply, student choice opportunity, faculty assignment pattern, room availability, historical/current fill rates, waitlists when available, and consolidation-style low-fill indicators. It does not prove student preference and does not change schedules automatically.</p>
+      <p>Time-based expansion, choice-gap, hidden-demand, and room-opportunity recommendations use a planning window of ${escapeAttr(formatPresenceHourLabel(planningWindow.earliest / 60))}-${escapeAttr(formatPresenceHourLabel(planningWindow.latest / 60))}. Candidates outside that window are suppressed from active recommendations and listed here for diagnostics.</p>
+      ${outsidePlanningDiagnostics.length ? `<strong>Outside planning window diagnostics</strong><ul>${outsideItems}</ul>` : '<p>No outside planning window diagnostics.</p>'}
     `;
     const status = document.getElementById('recommendationStatus');
-    if (status) status.textContent = `Loaded ${state.recommendationRows.length} row(s); ${sourceRows.length} row(s) match source filters; ${filteredRecommendations.length} recommendation row(s).`;
+    if (status) status.textContent = `Loaded ${state.recommendationRows.length} row(s); ${sourceRows.length} row(s) match source filters; ${filteredRecommendations.length} recommendation row(s); ${outsidePlanningDiagnostics.length} outside planning window diagnostic(s).`;
     state.recommendationRan = true;
   }
 
@@ -4389,6 +4442,10 @@
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    const earliest = document.getElementById('recommendationStartEarliest');
+    const latest = document.getElementById('recommendationStartLatest');
+    if (earliest) earliest.value = '07:00';
+    if (latest) latest.value = '19:00';
     setModalitySelectValues('recommendationModality', PHYSICAL_MODALITY_LABELS);
     const exclude = document.getElementById('recommendationExcludeTutoring');
     if (exclude) exclude.checked = true;
@@ -9603,7 +9660,7 @@
     document.getElementById('recommendationFacultyCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
     document.getElementById('recommendationArchiveTerms')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
     document.getElementById('archiveRecommendationUploads')?.addEventListener('click', () => archiveUploads('recommendationCsv').catch(err => alert(err.message || 'Archive failed.')));
-    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationTimeBlock', 'recommendationModality', 'recommendationFacultyType', 'recommendationExcludeTutoring'].forEach(id => {
+    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationTimeBlock', 'recommendationStartEarliest', 'recommendationStartLatest', 'recommendationModality', 'recommendationFacultyType', 'recommendationExcludeTutoring'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.recommendationRan) renderRecommendationEngine(); });
     });
     ['recommendationDivision', 'recommendationDepartment', 'recommendationDiscipline', 'recommendationCourse'].forEach(id => {

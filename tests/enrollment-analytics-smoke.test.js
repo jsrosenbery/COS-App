@@ -1575,6 +1575,41 @@ test('scheduling recommendations are not generated from online placeholder time 
   assert.equal(recommendations[0].dayTimeBlock, 'N/A');
 });
 
+test('scheduling recommendations suppress 9:30 PM expansion choice-gap candidates by default', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({
+      crn: 'NIGHT1',
+      subject: 'HIST',
+      course: '018',
+      modality: 'IN PERSON',
+      days: ['MO'],
+      dayPattern: 'M',
+      start: '21:30',
+      end: '22:00',
+      timeBlock: '21:30-21:59',
+      cap: 30,
+      census: 30,
+      actual: 30,
+      waitlist: 12
+    })
+  ];
+  const diagnostics = [];
+  const recommendations = COSEnrollmentAnalytics.buildSchedulingRecommendations(rows, { outsidePlanningDiagnostics: diagnostics });
+  const activeCategories = recommendations.map(row => row.category);
+
+  assert.equal(activeCategories.includes('Hidden Demand'), false);
+  assert.equal(activeCategories.includes('Choice Gap'), false);
+  assert.equal(activeCategories.includes('Expansion Candidate'), false);
+  assert.ok(diagnostics.some(row => row.category === 'Hidden Demand' && /9:30 PM/.test(row.timeBlock)));
+
+  const expanded = COSEnrollmentAnalytics.buildSchedulingRecommendations(rows, { planningWindow: { earliest: '07:00', latest: '22:00' } });
+  const expandedCategories = expanded.map(row => row.category);
+  assert.equal(expandedCategories.includes('Hidden Demand'), true);
+  assert.equal(expandedCategories.includes('Choice Gap'), true);
+  assert.equal(expandedCategories.includes('Expansion Candidate'), true);
+});
+
 test('faculty development heatmap excludes online rows by default and permits explicit online fixed-time rows', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
@@ -1979,6 +2014,8 @@ test('scheduling recommendation engine is advisory and covers recommendation cat
   assert.match(text, /id="recommendationCsv"/);
   assert.match(text, /id="recommendationArchiveTerms"/);
   assert.match(text, /id="recommendationFacultyCsv"/);
+  assert.match(text, /id="recommendationStartEarliest" type="time" value="07:00"/);
+  assert.match(text, /id="recommendationStartLatest" type="time" value="19:00"/);
   assert.match(text, /advisory-only/);
   assert.match(text, /does not automatically change schedules/);
   assert.match(text, /does not claim to prove student preference/);
@@ -2000,6 +2037,8 @@ test('scheduling recommendation engine is advisory and covers recommendation cat
   assert.match(text, /student choice opportunity/);
   assert.match(text, /faculty assignment pattern/);
   assert.match(text, /room availability/);
+  assert.match(text, /Outside planning window diagnostics/);
+  assert.match(text, /Candidates outside that window are suppressed from active recommendations/);
   assert.match(text, /recommendationTitle/);
   assert.match(text, /confidenceLevel/);
   assert.match(text, /affectedTermSource/);
