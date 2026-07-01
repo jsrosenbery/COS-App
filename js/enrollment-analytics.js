@@ -677,8 +677,95 @@
     });
   }
 
+  const REPORTABLE_MODALITY_LABELS = ['In-Person', 'Hybrid', 'Online'];
+  const PHYSICAL_MODALITY_LABELS = ['In-Person', 'Hybrid'];
+
+  function displayModalityLabel(value, row = null) {
+    const raw = String(value || '').trim();
+    if (REPORTABLE_MODALITY_LABELS.includes(raw) || raw === 'Unknown') return raw;
+    const category = normalizeModality(raw, row || { raw: { INSTRUCTIONAL_METHOD_CODE: raw } });
+    if (window.COSModalityNormalizer?.displayLabel) return window.COSModalityNormalizer.displayLabel(category);
+    if (category === 'IN PERSON') return 'In-Person';
+    if (category === 'HYBRID') return 'Hybrid';
+    if (category === 'ONLINE') return 'Online';
+    return 'Unknown';
+  }
+
+  function modalityDiagnosticsEnabled() {
+    return document.getElementById('modalityDiagnosticsMode')?.checked === true
+      || document.getElementById('emDiagnosticsMode')?.checked === true;
+  }
+
+  function modalityOptionLabels() {
+    return modalityDiagnosticsEnabled() ? [...REPORTABLE_MODALITY_LABELS, 'Unknown'] : REPORTABLE_MODALITY_LABELS;
+  }
+
+  function selectedOptionValues(select) {
+    if (!select) return [];
+    if (select.multiple) return Array.from(select.selectedOptions || []).map(option => option.value).filter(Boolean);
+    return select.value ? [select.value] : [];
+  }
+
+  function setModalitySelectValues(id, labels = PHYSICAL_MODALITY_LABELS) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const allowed = new Set(modalityOptionLabels());
+    const wanted = new Set((labels || []).filter(label => allowed.has(label)));
+    Array.from(select.options || []).forEach(option => {
+      option.selected = wanted.has(option.value);
+    });
+  }
+
+  function setModalitySelectOptions(id, defaultLabels = PHYSICAL_MODALITY_LABELS) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const previous = selectedOptionValues(select);
+    const options = modalityOptionLabels();
+    select.multiple = true;
+    select.size = Math.max(3, Math.min(4, options.length));
+    select.replaceChildren();
+    options.forEach(label => select.appendChild(new Option(label, label)));
+    const defaults = previous.filter(label => options.includes(label));
+    setModalitySelectValues(id, defaults.length ? defaults : defaultLabels);
+  }
+
+  function initializeDevelopmentModalityFilters() {
+    ['fhModality', 'ptModality', 'sdModality', 'busyTimeModality', 'studentChoiceModality', 'recommendationModality']
+      .forEach(id => setModalitySelectOptions(id, PHYSICAL_MODALITY_LABELS));
+    setModalitySelectOptions('fmModality', REPORTABLE_MODALITY_LABELS);
+  }
+
+  function selectedModalityLabels(id, defaultLabels = PHYSICAL_MODALITY_LABELS) {
+    const select = document.getElementById(id);
+    const options = modalityOptionLabels();
+    const selected = selectedOptionValues(select).filter(label => options.includes(label));
+    return new Set(selected.length ? selected : defaultLabels);
+  }
+
+  function modalityMatchesLabelList(row, labels = PHYSICAL_MODALITY_LABELS) {
+    const selected = new Set(labels || []);
+    const category = rowInstructionModality(row);
+    const label = displayModalityLabel(category, row);
+    if (category === 'UNKNOWN') return selected.has('Unknown');
+    return selected.has(label);
+  }
+
+  function facultyModalityMatchesLabelList(row, labels = PHYSICAL_MODALITY_LABELS) {
+    const selected = new Set(labels || []);
+    const label = facultyInstructionModality(row);
+    return selected.has(label);
+  }
+
+  function rowMatchesSelectedModality(row, id, defaultLabels = PHYSICAL_MODALITY_LABELS) {
+    return modalityMatchesLabelList(row, [...selectedModalityLabels(id, defaultLabels)]);
+  }
+
+  function facultyMatchesSelectedModality(row, id, defaultLabels = PHYSICAL_MODALITY_LABELS) {
+    return facultyModalityMatchesLabelList(row, [...selectedModalityLabels(id, defaultLabels)]);
+  }
+
   function includeOnlineFromSelect(id) {
-    return rowInstructionModality({ modality: document.getElementById(id)?.value || '' }) === 'ONLINE';
+    return selectedModalityLabels(id, PHYSICAL_MODALITY_LABELS).has('Online');
   }
 
   function sectionKey(section) {
@@ -1479,7 +1566,9 @@
             <label>Department <select id="fhDepartment"></select></label>
             <label>Discipline <select id="fhSubject"></select></label>
             <label>Course <select id="fhCourse"></select></label>
-            <label>Modality <select id="fhModality"></select></label>
+            <label>Modality <select id="fhModality" multiple size="3"></select></label>
+            <button type="button" data-modality-quick="fhModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
+            <button type="button" data-modality-quick="fhModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
             <button id="clearFacultyHeatmap" type="button">Clear</button>
           </div>
           <div id="facultyHeatmapMetrics" class="analytics-metrics"></div>
@@ -1520,6 +1609,9 @@
             <label>Division <select id="fmDivision"></select></label>
             <label>Department <select id="fmDepartment"></select></label>
             <label>Course <select id="fmCourse"></select></label>
+            <label>Modality <select id="fmModality" multiple size="3"></select></label>
+            <button type="button" data-modality-quick="fmModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
+            <button type="button" data-modality-quick="fmModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
             <button id="clearFacultyModality" type="button">Clear</button>
             <button id="exportFacultyModality" type="button">Export CSV</button>
           </div>
@@ -1574,6 +1666,9 @@
             <label>Division <select id="ptDivision"></select></label>
             <label>Department <select id="ptDepartment"></select></label>
             <label>Course <select id="ptCourse"></select></label>
+            <label>Modality <select id="ptModality" multiple size="3"></select></label>
+            <button type="button" data-modality-quick="ptModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
+            <button type="button" data-modality-quick="ptModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
             <button id="clearPrimeTimeAnalysis" type="button">Clear</button>
             <button id="exportPrimeTimeAnalysis" type="button">Export CSV</button>
           </div>
@@ -1636,7 +1731,9 @@
             <label>Department <select id="sdDepartment"></select></label>
             <label>Course <select id="sdCourse"></select></label>
             <label>CAL-GETC <select id="sdCalGetc"></select></label>
-            <label>Modality <select id="sdModality"></select></label>
+            <label>Modality <select id="sdModality" multiple size="3"></select></label>
+            <button type="button" data-modality-quick="sdModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
+            <button type="button" data-modality-quick="sdModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
             <button id="runSupplyDemand" type="button">Run</button>
             <button id="clearSupplyDemand" type="button">Clear</button>
             <button id="exportSupplyDemand" type="button">Export CSV</button>
@@ -1681,7 +1778,9 @@
             <label>Division <select id="busyTimeDivision"></select></label>
             <label>Department <select id="busyTimeDepartment"></select></label>
             <label>Course <select id="busyTimeCourse"></select></label>
-            <label>Modality <select id="busyTimeModality"></select></label>
+            <label>Modality <select id="busyTimeModality" multiple size="3"></select></label>
+            <button type="button" data-modality-quick="busyTimeModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
+            <button type="button" data-modality-quick="busyTimeModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
             <button id="runBusyTimeDashboard" type="button">Run</button>
             <button id="clearBusyTimeDashboard" type="button">Clear</button>
             <button id="exportBusyTimeDashboard" type="button">Export CSV</button>
@@ -1746,7 +1845,9 @@
             <label>Discipline <select id="studentChoiceDiscipline"></select></label>
             <label>Course <select id="studentChoiceCourse"></select></label>
             <label>CAL-GETC <select id="studentChoiceCalGetc"></select></label>
-            <label>Modality <select id="studentChoiceModality"></select></label>
+            <label>Modality <select id="studentChoiceModality" multiple size="3"></select></label>
+            <button type="button" data-modality-quick="studentChoiceModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
+            <button type="button" data-modality-quick="studentChoiceModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
             <label>Faculty type <select id="studentChoiceFacultyType"></select></label>
             <label class="analytics-check"><input id="studentChoiceExcludeTutoring" type="checkbox" checked> Exclude Tutoring/Open Lab</label>
             <button id="runStudentChoiceOpportunity" type="button">Run</button>
@@ -1797,7 +1898,9 @@
             <label>Discipline <select id="recommendationDiscipline"></select></label>
             <label>Course <select id="recommendationCourse"></select></label>
             <label>Time block <select id="recommendationTimeBlock"></select></label>
-            <label>Modality <select id="recommendationModality"></select></label>
+            <label>Modality <select id="recommendationModality" multiple size="3"></select></label>
+            <button type="button" data-modality-quick="recommendationModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
+            <button type="button" data-modality-quick="recommendationModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
             <label>Faculty type <select id="recommendationFacultyType"></select></label>
             <label class="analytics-check"><input id="recommendationExcludeTutoring" type="checkbox" checked> Exclude Tutoring/Open Lab</label>
             <button id="runRecommendationEngine" type="button">Run</button>
@@ -2364,8 +2467,6 @@
 
   function facultyFilterSourceRows() {
     const rows = reportableFacultyRows(state.facultyHeatmapRows);
-    const selectedModality = document.getElementById('fhModality')?.value || '';
-    const includeOnline = facultyInstructionModality({ insmCode: selectedModality }) === 'Online';
     const scoped = rows.filter(row => {
       const term = document.getElementById('fhTerm')?.value || '';
       const facultyType = document.getElementById('fhFacultyType')?.value || '';
@@ -2375,9 +2476,8 @@
       const department = document.getElementById('fhDepartment')?.value || '';
       const subject = document.getElementById('fhSubject')?.value || '';
       const course = document.getElementById('fhCourse')?.value || '';
-      const modality = document.getElementById('fhModality')?.value || '';
       if (!facultyHasUsablePhysicalInterval(row)) return false;
-      if (!facultyIsPhysicalModality(row) && !(includeOnline && facultyInstructionModality(row) === 'Online')) return false;
+      if (!facultyMatchesSelectedModality(row, 'fhModality', PHYSICAL_MODALITY_LABELS)) return false;
       if (term && facultyTerm(row) !== term) return false;
       if (facultyType && row.facultyType !== facultyType) return false;
       if (meetingType && row.meetingType !== meetingType) return false;
@@ -2386,7 +2486,6 @@
       if (department && row.departmentId !== department) return false;
       if (subject && row.subject !== subject) return false;
       if (course && facultyCourseValue(row) !== course) return false;
-      if (modality && facultyModalityValue(row) !== modality) return false;
       return true;
     });
     return scoped;
@@ -2406,7 +2505,7 @@
     const subject = document.getElementById('fhSubject')?.value || '';
     const courseSource = subject ? subjectSource.filter(row => row.subject === subject) : subjectSource;
     setFacultyFilterOptions('fhCourse', courseSource.map(facultyCourseValue), 'All courses');
-    setFacultyFilterOptions('fhModality', rows.map(facultyModalityValue), 'All modalities');
+    setModalitySelectOptions('fhModality', PHYSICAL_MODALITY_LABELS);
   }
 
   function facultyIntervalRows(rows, options = {}) {
@@ -2603,10 +2702,11 @@
   }
 
   function clearFacultyScheduleHeatmap() {
-    ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhDivision', 'fhDepartment', 'fhSubject', 'fhCourse', 'fhModality'].forEach(id => {
+    ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhDivision', 'fhDepartment', 'fhSubject', 'fhCourse'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    setModalitySelectValues('fhModality', PHYSICAL_MODALITY_LABELS);
     const metricSelect = document.getElementById('fhMetric');
     if (metricSelect) metricSelect.value = 'sections';
     renderFacultyScheduleHeatmap();
@@ -2641,6 +2741,7 @@
     const course = document.getElementById('fmCourse')?.value || '';
     return reportableFacultyRows(state.facultyModalityRows)
       .filter(row => {
+        if (!facultyMatchesSelectedModality(row, 'fmModality', REPORTABLE_MODALITY_LABELS)) return false;
         if (term && facultyTerm(row) !== term) return false;
         if (campus && row.campus !== campus) return false;
         if (division && row.divisionId !== division) return false;
@@ -2661,6 +2762,7 @@
     const department = document.getElementById('fmDepartment')?.value || '';
     const courseSource = department ? departmentSource.filter(row => row.departmentId === department) : departmentSource;
     setFacultyFilterOptions('fmCourse', courseSource.map(facultyCourseValue), 'All courses');
+    setModalitySelectOptions('fmModality', REPORTABLE_MODALITY_LABELS);
   }
 
   function buildFacultyModalityRows(rows) {
@@ -2797,6 +2899,7 @@
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    setModalitySelectValues('fmModality', REPORTABLE_MODALITY_LABELS);
     renderFacultyModality();
   }
 
@@ -2823,8 +2926,9 @@
     const department = document.getElementById('ptDepartment')?.value || '';
     const course = document.getElementById('ptCourse')?.value || '';
     return reportableFacultyRows(state.primeTimeRows)
-      .filter(row => facultyIsPhysicalModality(row) && facultyHasUsablePhysicalInterval(row))
+      .filter(row => facultyHasUsablePhysicalInterval(row))
       .filter(row => {
+        if (!facultyMatchesSelectedModality(row, 'ptModality', PHYSICAL_MODALITY_LABELS)) return false;
         if (term && facultyTerm(row) !== term) return false;
         if (campus && row.campus !== campus) return false;
         if (division && row.divisionId !== division) return false;
@@ -2845,6 +2949,7 @@
     const department = document.getElementById('ptDepartment')?.value || '';
     const courseSource = department ? departmentSource.filter(row => row.departmentId === department) : departmentSource;
     setFacultyFilterOptions('ptCourse', courseSource.map(facultyCourseValue), 'All courses');
+    setModalitySelectOptions('ptModality', PHYSICAL_MODALITY_LABELS);
   }
 
   function primeTimeStat(label, rows, predicate, valueKey = 'sections') {
@@ -2862,10 +2967,11 @@
     };
   }
 
-  function primeTimeAnalysisRows(rows) {
+  function primeTimeAnalysisRows(rows, modalityLabels = PHYSICAL_MODALITY_LABELS) {
     const definition = primeTimeDefinition();
     const analyzed = reportableFacultyRows(rows)
-      .filter(row => facultyIsPhysicalModality(row) && facultyHasUsablePhysicalInterval(row))
+      .filter(row => facultyHasUsablePhysicalInterval(row))
+      .filter(row => facultyModalityMatchesLabelList(row, modalityLabels))
       .map(row => ({
       ...row,
       isPrimeTime: rowOverlapsPrimeTime(row, definition),
@@ -2923,7 +3029,7 @@
       status.textContent = `Loaded ${sourceRows.length} deduped meeting row(s). Terms: ${terms || 'Unspecified'}.`;
     }
     const rows = primeTimeFilterRows();
-    const tableRows = primeTimeAnalysisRows(rows);
+    const tableRows = primeTimeAnalysisRows(rows, [...selectedModalityLabels('ptModality', PHYSICAL_MODALITY_LABELS)]);
     state.primeTimeTableRows = tableRows;
     renderPrimeTimeGauges(tableRows);
     const pick = label => tableRows.find(row => row.category === label)?.percentPrime || '0%';
@@ -2958,6 +3064,7 @@
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    setModalitySelectValues('ptModality', PHYSICAL_MODALITY_LABELS);
     const start = document.getElementById('ptStart');
     const end = document.getElementById('ptEnd');
     if (start) start.value = '09:00';
@@ -3025,7 +3132,7 @@
     const department = document.getElementById('sdDepartment')?.value || '';
     const courseSource = department ? departmentSource.filter(row => row.department === department) : departmentSource;
     setFacultyFilterOptions('sdCourse', courseSource.map(calGetcCourseCode), 'All courses');
-    setFacultyFilterOptions('sdModality', rows.map(row => row.modality), 'All modalities');
+    setModalitySelectOptions('sdModality', PHYSICAL_MODALITY_LABELS);
     setSupplyDemandCalGetcOptions();
   }
 
@@ -3035,7 +3142,6 @@
     const division = document.getElementById('sdDivision')?.value || '';
     const department = document.getElementById('sdDepartment')?.value || '';
     const course = document.getElementById('sdCourse')?.value || '';
-    const modality = document.getElementById('sdModality')?.value || '';
     return (state.supplyDemandRows || [])
       .filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row))
       .filter(row => {
@@ -3044,7 +3150,7 @@
         if (division && row.division !== division) return false;
         if (department && row.department !== department) return false;
         if (course && calGetcCourseCode(row) !== course) return false;
-        if (modality && row.modality !== modality) return false;
+        if (!rowMatchesSelectedModality(row, 'sdModality', PHYSICAL_MODALITY_LABELS)) return false;
         if (!supplyDemandMatchesCalGetc(row)) return false;
         return true;
       });
@@ -3269,10 +3375,11 @@
   }
 
   function clearSupplyDemand() {
-    ['sdTerm', 'sdCampus', 'sdDivision', 'sdDepartment', 'sdCourse', 'sdCalGetc', 'sdModality'].forEach(id => {
+    ['sdTerm', 'sdCampus', 'sdDivision', 'sdDepartment', 'sdCourse', 'sdCalGetc'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    setModalitySelectValues('sdModality', PHYSICAL_MODALITY_LABELS);
     const metricSelect = document.getElementById('sdMetric');
     const viewSelect = document.getElementById('sdView');
     if (metricSelect) metricSelect.value = 'sections';
@@ -3291,7 +3398,7 @@
     const department = document.getElementById('busyTimeDepartment')?.value || '';
     const courseSource = department ? departmentSource.filter(row => row.department === department) : departmentSource;
     setFacultyFilterOptions('busyTimeCourse', courseSource.map(calGetcCourseCode), 'All courses');
-    setFacultyFilterOptions('busyTimeModality', rows.map(row => row.modality), 'All modalities');
+    setModalitySelectOptions('busyTimeModality', PHYSICAL_MODALITY_LABELS);
   }
 
   function busyTimeFilteredRows() {
@@ -3300,7 +3407,6 @@
     const division = document.getElementById('busyTimeDivision')?.value || '';
     const department = document.getElementById('busyTimeDepartment')?.value || '';
     const course = document.getElementById('busyTimeCourse')?.value || '';
-    const modality = document.getElementById('busyTimeModality')?.value || '';
     return (state.busyTimeRows || [])
       .filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row))
       .filter(row => {
@@ -3309,7 +3415,7 @@
         if (division && row.division !== division) return false;
         if (department && row.department !== department) return false;
         if (course && calGetcCourseCode(row) !== course) return false;
-        if (modality && row.modality !== modality) return false;
+        if (!rowMatchesSelectedModality(row, 'busyTimeModality', PHYSICAL_MODALITY_LABELS)) return false;
         return true;
       });
   }
@@ -3322,6 +3428,7 @@
     const course = document.getElementById('busyTimeCourse')?.value || '';
     return reportableFacultyRows(state.busyTimeFacultyRows?.length ? state.busyTimeFacultyRows : state.facultyHeatmapRows || [])
       .filter(row => {
+        if (!facultyMatchesSelectedModality(row, 'busyTimeModality', PHYSICAL_MODALITY_LABELS)) return false;
         if (term && facultyTerm(row) !== term) return false;
         if (campus && row.campus !== campus) return false;
         if (division && row.divisionId !== division) return false;
@@ -3611,10 +3718,11 @@
   }
 
   function clearBusyTimeDashboard() {
-    ['busyTimeTerm', 'busyTimeCampus', 'busyTimeDivision', 'busyTimeDepartment', 'busyTimeCourse', 'busyTimeModality'].forEach(id => {
+    ['busyTimeTerm', 'busyTimeCampus', 'busyTimeDivision', 'busyTimeDepartment', 'busyTimeCourse'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    setModalitySelectValues('busyTimeModality', PHYSICAL_MODALITY_LABELS);
     if (state.busyTimeRows.length) renderBusyTimeDashboard();
   }
 
@@ -3667,7 +3775,7 @@
     const discipline = document.getElementById('studentChoiceDiscipline')?.value || '';
     const courseSource = discipline ? disciplineSource.filter(row => row.subject === discipline) : disciplineSource;
     setFacultyFilterOptions('studentChoiceCourse', courseSource.map(calGetcCourseCode), 'All courses');
-    setFacultyFilterOptions('studentChoiceModality', rows.map(row => row.modality), 'All modalities');
+    setModalitySelectOptions('studentChoiceModality', PHYSICAL_MODALITY_LABELS);
     const facultyRows = reportableFacultyRows(state.studentChoiceFacultyRows?.length ? state.studentChoiceFacultyRows : state.facultyHeatmapRows || []);
     setFacultyFilterOptions('studentChoiceFacultyType', facultyRows.map(row => row.facultyType).filter(Boolean), 'All faculty types');
     setStudentChoiceCalGetcOptions();
@@ -3688,7 +3796,6 @@
     const department = document.getElementById('studentChoiceDepartment')?.value || '';
     const discipline = document.getElementById('studentChoiceDiscipline')?.value || '';
     const course = document.getElementById('studentChoiceCourse')?.value || '';
-    const modality = document.getElementById('studentChoiceModality')?.value || '';
     const facultyCrns = studentChoiceFacultyCrns();
     const excludeTutoring = document.getElementById('studentChoiceExcludeTutoring')?.checked !== false;
     return (state.studentChoiceRows || [])
@@ -3701,7 +3808,7 @@
         if (department && row.department !== department) return false;
         if (discipline && row.subject !== discipline) return false;
         if (course && calGetcCourseCode(row) !== course) return false;
-        if (modality && row.modality !== modality) return false;
+        if (!rowMatchesSelectedModality(row, 'studentChoiceModality', PHYSICAL_MODALITY_LABELS)) return false;
         if (facultyCrns && !facultyCrns.has(canon(row.crn))) return false;
         if (!studentChoiceMatchesCalGetc(row)) return false;
         return true;
@@ -3948,10 +4055,11 @@
   }
 
   function clearStudentChoiceOpportunity() {
-    ['studentChoiceView', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceFacultyType'].forEach(id => {
+    ['studentChoiceView', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse', 'studentChoiceCalGetc', 'studentChoiceFacultyType'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    setModalitySelectValues('studentChoiceModality', PHYSICAL_MODALITY_LABELS);
     const metricSelect = document.getElementById('studentChoiceMetric');
     const viewSelect = document.getElementById('studentChoiceView');
     const exclude = document.getElementById('studentChoiceExcludeTutoring');
@@ -3989,7 +4097,7 @@
     const discipline = document.getElementById('recommendationDiscipline')?.value || '';
     const courseSource = discipline ? disciplineSource.filter(row => row.subject === discipline) : disciplineSource;
     setFacultyFilterOptions('recommendationCourse', courseSource.map(calGetcCourseCode), 'All courses');
-    setFacultyFilterOptions('recommendationModality', rows.map(row => row.modality), 'All modalities');
+    setModalitySelectOptions('recommendationModality', PHYSICAL_MODALITY_LABELS);
     setFacultyFilterOptions('recommendationTimeBlock', buildBusyTimeBuckets(rows).filter(row => row.sections).map(row => `${row.dayName} ${row.time}`), 'All time blocks');
     const facultyRows = reportableFacultyRows(state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || []);
     setFacultyFilterOptions('recommendationFacultyType', facultyRows.map(row => row.facultyType).filter(Boolean), 'All faculty types');
@@ -4002,7 +4110,6 @@
     const department = document.getElementById('recommendationDepartment')?.value || '';
     const discipline = document.getElementById('recommendationDiscipline')?.value || '';
     const course = document.getElementById('recommendationCourse')?.value || '';
-    const modality = document.getElementById('recommendationModality')?.value || '';
     const facultyType = document.getElementById('recommendationFacultyType')?.value || '';
     const excludeTutoring = document.getElementById('recommendationExcludeTutoring')?.checked !== false;
     const facultyRows = reportableFacultyRows(state.recommendationFacultyRows?.length ? state.recommendationFacultyRows : state.facultyHeatmapRows || []);
@@ -4019,7 +4126,7 @@
         if (department && row.department !== department) return false;
         if (discipline && row.subject !== discipline) return false;
         if (course && calGetcCourseCode(row) !== course) return false;
-        if (modality && row.modality !== modality) return false;
+        if (!rowMatchesSelectedModality(row, 'recommendationModality', PHYSICAL_MODALITY_LABELS)) return false;
         if (facultyCrns && !facultyCrns.has(canon(row.crn))) return false;
         return true;
       });
@@ -4276,10 +4383,11 @@
   }
 
   function clearRecommendationEngine() {
-    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationDivision', 'recommendationDepartment', 'recommendationDiscipline', 'recommendationCourse', 'recommendationTimeBlock', 'recommendationModality', 'recommendationFacultyType'].forEach(id => {
+    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationDivision', 'recommendationDepartment', 'recommendationDiscipline', 'recommendationCourse', 'recommendationTimeBlock', 'recommendationFacultyType'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    setModalitySelectValues('recommendationModality', PHYSICAL_MODALITY_LABELS);
     const exclude = document.getElementById('recommendationExcludeTutoring');
     if (exclude) exclude.checked = true;
     if (state.recommendationRows.length) renderRecommendationEngine();
@@ -9416,7 +9524,7 @@
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
     document.getElementById('loadFacultyModality')?.addEventListener('click', () => loadFacultyModality().catch(err => alert(err.message || 'Faculty Modality load failed.')));
     document.getElementById('facultyModalityCsv')?.addEventListener('change', () => loadFacultyModality().catch(err => console.warn(err)));
-    ['fmTerm', 'fmCampus'].forEach(id => {
+    ['fmTerm', 'fmCampus', 'fmModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderFacultyModality);
     });
     ['fmDivision', 'fmDepartment', 'fmCourse'].forEach(id => {
@@ -9429,7 +9537,7 @@
     document.getElementById('exportFacultyModality')?.addEventListener('click', () => exportRowsWithoutMethodology(state.facultyModalityTableRows, 'faculty-modality.csv'));
     document.getElementById('loadPrimeTimeAnalysis')?.addEventListener('click', () => loadPrimeTimeAnalysis().catch(err => alert(err.message || 'Prime Time Analysis load failed.')));
     document.getElementById('primeTimeCsv')?.addEventListener('change', () => loadPrimeTimeAnalysis().catch(err => console.warn(err)));
-    ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd'].forEach(id => {
+    ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd', 'ptModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderPrimeTimeAnalysis);
     });
     ['ptDivision', 'ptDepartment', 'ptCourse'].forEach(id => {
@@ -9523,6 +9631,13 @@
     document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-demand-forecast-${demandTargetSlug()}.xls`));
     document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
+      const modalityQuickButton = event.target.closest('[data-modality-quick]');
+      if (modalityQuickButton) {
+        const selectId = modalityQuickButton.dataset.modalityQuick;
+        setModalitySelectValues(selectId, (modalityQuickButton.dataset.modalityValues || '').split('|').filter(Boolean));
+        document.getElementById(selectId)?.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
       const unlockButton = event.target.closest('[data-unlock-report]');
       if (unlockButton) {
         requestReportAccess(unlockButton.dataset.unlockReport);
@@ -9549,6 +9664,7 @@
   function init() {
     ensureOptions();
     buildUi();
+    initializeDevelopmentModalityFilters();
     injectStyle();
     wire();
     refreshAnalyticsArchiveOptions();
@@ -9566,6 +9682,9 @@
     canAccess,
     normalizeRow: normalize,
     modalityNormalizer: window.COSModalityNormalizer,
+    displayModalityLabel,
+    modalityMatchesLabelList,
+    facultyModalityMatchesLabelList,
     isOnlinePlaceholderTime,
     rowInstructionModality,
     hasUsablePhysicalInterval,

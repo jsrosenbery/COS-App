@@ -1508,6 +1508,35 @@ test('development physical interval calculations exclude online and TBA rows by 
   assert.deepEqual(withOnline.map(row => row.crn).sort(), ['IP1']);
 });
 
+test('development modality helpers support physical-only and all-modality selections', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const inPerson = COSEnrollmentAnalytics.normalizeRow({ CRN: '10001', 'Instructional Method': 'IP' });
+  const hybrid = COSEnrollmentAnalytics.normalizeRow({ CRN: '10002', 'Instructional Method': 'HYB' });
+  const online = COSEnrollmentAnalytics.normalizeRow({ CRN: '10003', 'Instructional Method': 'ONL' });
+  const unknown = COSEnrollmentAnalytics.normalizeRow({ CRN: '10004', 'Instructional Method': 'ZZZ' });
+
+  assert.equal(COSEnrollmentAnalytics.modalityMatchesLabelList(inPerson, ['In-Person', 'Hybrid']), true);
+  assert.equal(COSEnrollmentAnalytics.modalityMatchesLabelList(hybrid, ['In-Person', 'Hybrid']), true);
+  assert.equal(COSEnrollmentAnalytics.modalityMatchesLabelList(online, ['In-Person', 'Hybrid']), false);
+  assert.equal(COSEnrollmentAnalytics.modalityMatchesLabelList(online, ['In-Person', 'Hybrid', 'Online']), true);
+  assert.equal(COSEnrollmentAnalytics.modalityMatchesLabelList(unknown, ['In-Person', 'Hybrid', 'Online']), false);
+  assert.equal(COSEnrollmentAnalytics.modalityMatchesLabelList(unknown, ['Unknown']), true);
+});
+
+test('development faculty modality helper supports physical-only and all-modality selections', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const lecture = { insmCode: 'IP' };
+  const hybrid = { insmCode: 'HYB' };
+  const online = { insmCode: 'ONL' };
+  const unknown = { insmCode: 'ZZZ' };
+
+  assert.equal(COSEnrollmentAnalytics.facultyModalityMatchesLabelList(lecture, ['In-Person', 'Hybrid']), true);
+  assert.equal(COSEnrollmentAnalytics.facultyModalityMatchesLabelList(hybrid, ['In-Person', 'Hybrid']), true);
+  assert.equal(COSEnrollmentAnalytics.facultyModalityMatchesLabelList(online, ['In-Person', 'Hybrid']), false);
+  assert.equal(COSEnrollmentAnalytics.facultyModalityMatchesLabelList(online, ['In-Person', 'Hybrid', 'Online']), true);
+  assert.equal(COSEnrollmentAnalytics.facultyModalityMatchesLabelList(unknown, ['Unknown']), true);
+});
+
 test('development time buckets do not create midnight values from online placeholders', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
@@ -1970,6 +1999,30 @@ test('scheduling recommendation engine is advisory and covers recommendation cat
   assert.match(text, /cautionsLimitations/);
   assert.match(text, /scheduling-recommendations\.csv/);
   assert.match(text, /scheduling-recommendations\.pdf/);
+});
+
+test('development reports use multi-select modality filters with quick-select controls', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const modalityIds = [
+    'fhModality',
+    'fmModality',
+    'ptModality',
+    'sdModality',
+    'busyTimeModality',
+    'studentChoiceModality',
+    'recommendationModality'
+  ];
+
+  modalityIds.forEach(id => {
+    assert.match(text, new RegExp(`id="${id}" multiple size="3"`));
+    assert.match(text, new RegExp(`data-modality-quick="${id}" data-modality-values="In-Person\\|Hybrid"`));
+    assert.match(text, new RegExp(`data-modality-quick="${id}" data-modality-values="In-Person\\|Hybrid\\|Online"`));
+  });
+  assert.match(text, /const PHYSICAL_MODALITY_LABELS = \['In-Person', 'Hybrid'\]/);
+  assert.match(text, /const REPORTABLE_MODALITY_LABELS = \['In-Person', 'Hybrid', 'Online'\]/);
+  assert.match(text, /function setModalitySelectOptions/);
+  assert.match(text, /function rowMatchesSelectedModality/);
+  assert.match(text, /function facultyMatchesSelectedModality/);
 });
 
 test('enrollment analytics supports supplemental work experience upload controls', () => {
