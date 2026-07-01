@@ -1739,6 +1739,33 @@ test('supply vs demand is a standalone Development report with heatmap line and 
   assert.match(text, /supply-vs-demand\.csv/);
 });
 
+test('busy time dashboard is a standalone Development report summarizing core busy-time signals', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /busyTimeDashboard: 'busy-time-dashboard'/);
+  assert.match(text, /\[REPORTS\.busyTimeDashboard\]: 'development'/);
+  assert.match(text, /Busy Time Dashboard/);
+  assert.match(text, /id="busyTimeDashboardReport"/);
+  assert.match(text, /id="busyTimeCsv"/);
+  assert.match(text, /id="busyTimeArchiveTerms"/);
+  assert.match(text, /id="busyTimeFacultyCsv"/);
+  assert.match(text, /Prime Time Score/);
+  assert.match(text, /Faculty Concentration/);
+  assert.match(text, /Student Concentration/);
+  assert.match(text, /Seat Supply/);
+  assert.match(text, /Demand Pressure/);
+  assert.match(text, /Room Utilization/);
+  assert.match(text, /High enrollment appears to coincide with high section supply/);
+  assert.match(text, /Evening sections have limited supply but consistently high fill/);
+  assert.match(text, /Full-time faculty are concentrated between 9 AM and 2 PM/);
+  assert.match(text, /Student demand remains strong after 4 PM/);
+  assert.match(text, /summarizes data only and does not make scheduling recommendations/i);
+  assert.match(text, /function runBusyTimeDashboard/);
+  assert.match(text, /function buildBusyTimeBuckets/);
+  assert.match(text, /function buildBusyTimeFacultyBuckets/);
+  assert.match(text, /busy-time-dashboard\.csv/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

@@ -18,6 +18,7 @@
     facultyModality: 'faculty-modality',
     primeTimeAnalysis: 'prime-time-analysis',
     supplyDemand: 'supply-demand-analysis',
+    busyTimeDashboard: 'busy-time-dashboard',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
@@ -55,6 +56,7 @@
     [REPORTS.facultyModality]: 'development',
     [REPORTS.primeTimeAnalysis]: 'development',
     [REPORTS.supplyDemand]: 'development',
+    [REPORTS.busyTimeDashboard]: 'development',
     [REPORTS.facultyHeatmap]: 'development'
   };
   const REPORT_LABEL = {
@@ -75,6 +77,7 @@
     [REPORTS.facultyModality]: 'Faculty Modality',
     [REPORTS.primeTimeAnalysis]: 'Prime Time Analysis',
     [REPORTS.supplyDemand]: 'Supply vs Demand',
+    [REPORTS.busyTimeDashboard]: 'Busy Time Dashboard',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
@@ -98,6 +101,7 @@
     REPORTS.facultyModality,
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
+    REPORTS.busyTimeDashboard,
     REPORTS.facultyHeatmap
   ];
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
@@ -147,6 +151,10 @@
     supplyDemandRows: [],
     supplyDemandBucketRows: [],
     supplyDemandRan: false,
+    busyTimeRows: [],
+    busyTimeFacultyRows: [],
+    busyTimeTableRows: [],
+    busyTimeRan: false,
     conflictRows: [],
     conflictInput: [],
     conflictTerms: [],
@@ -1578,6 +1586,51 @@
           <div id="supplyDemandLineGraph" class="analytics-insights"></div>
           <div id="supplyDemandTable" class="analytics-table"></div>
           <div id="supplyDemandLegend" class="analytics-legend"></div>
+        </div>
+        <div id="busyTimeDashboardReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Busy Time Dashboard</h2>
+            <p>Summarizes busy-time patterns by combining student presence, course duration, faculty heatmap, supply vs demand, prime time, and room utilization signals. This dashboard summarizes data only and does not make scheduling recommendations.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>Inputs</h3>
+                <ul>
+                  <li>Use Section Seating CSV files or archived terms for student, section, seat, demand, and room utilization signals.</li>
+                  <li>Use an optional Faculty Schedule CSV to add full-time and part-time faculty concentration signals.</li>
+                  <li>Existing loaded Faculty Heatmap rows are reused when no Faculty CSV is selected here.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Half-hour buckets count each CRN/day/start/end once, then add enrollment, seats, and room usage to every interval the class overlaps.</li>
+                  <li>Prime time defaults to Monday-Thursday, 9:00 AM-3:00 PM.</li>
+                  <li>Observations describe alignment or contrast among supply, demand, faculty concentration, student concentration, and room utilization. They are not scheduling recommendations.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Schedule CSV(s) <input id="busyTimeCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveBusyTimeUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="busyTimeArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
+            <label>Faculty CSV <input id="busyTimeFacultyCsv" type="file" accept=".csv" multiple></label>
+            <span id="busyTimeStatus" class="analytics-note">No Busy Time rows loaded.</span>
+            <label>Term <select id="busyTimeTerm"></select></label>
+            <label>Campus <select id="busyTimeCampus"></select></label>
+            <label>Division <select id="busyTimeDivision"></select></label>
+            <label>Department <select id="busyTimeDepartment"></select></label>
+            <label>Course <select id="busyTimeCourse"></select></label>
+            <label>Modality <select id="busyTimeModality"></select></label>
+            <button id="runBusyTimeDashboard" type="button">Run</button>
+            <button id="clearBusyTimeDashboard" type="button">Clear</button>
+            <button id="exportBusyTimeDashboard" type="button">Export CSV</button>
+          </div>
+          <div id="busyTimeMetrics" class="analytics-metrics"></div>
+          <div id="busyTimeCharts" class="analytics-insights"></div>
+          <div id="busyTimeObservations" class="analytics-legend"></div>
+          <div id="busyTimeTable" class="analytics-table"></div>
+          <div id="busyTimeLegend" class="analytics-legend"></div>
         </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -3014,6 +3067,345 @@
     if (state.supplyDemandRows.length) runSupplyDemand().catch(err => console.warn(err));
   }
 
+  function updateBusyTimeFilterOptions() {
+    const rows = state.busyTimeRows || [];
+    setFacultyFilterOptions('busyTimeTerm', rows.map(row => row.term), 'All terms');
+    setFacultyFilterOptions('busyTimeCampus', rows.map(row => row.campus), 'All campuses');
+    setFacultyFilterOptions('busyTimeDivision', rows.map(row => row.division), 'All divisions');
+    const division = document.getElementById('busyTimeDivision')?.value || '';
+    const departmentSource = division ? rows.filter(row => row.division === division) : rows;
+    setFacultyFilterOptions('busyTimeDepartment', departmentSource.map(row => row.department), 'All departments');
+    const department = document.getElementById('busyTimeDepartment')?.value || '';
+    const courseSource = department ? departmentSource.filter(row => row.department === department) : departmentSource;
+    setFacultyFilterOptions('busyTimeCourse', courseSource.map(calGetcCourseCode), 'All courses');
+    setFacultyFilterOptions('busyTimeModality', rows.map(row => row.modality), 'All modalities');
+  }
+
+  function busyTimeFilteredRows() {
+    const term = document.getElementById('busyTimeTerm')?.value || '';
+    const campus = document.getElementById('busyTimeCampus')?.value || '';
+    const division = document.getElementById('busyTimeDivision')?.value || '';
+    const department = document.getElementById('busyTimeDepartment')?.value || '';
+    const course = document.getElementById('busyTimeCourse')?.value || '';
+    const modality = document.getElementById('busyTimeModality')?.value || '';
+    return (state.busyTimeRows || [])
+      .filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row))
+      .filter(row => {
+        if (term && row.term !== term) return false;
+        if (campus && row.campus !== campus) return false;
+        if (division && row.division !== division) return false;
+        if (department && row.department !== department) return false;
+        if (course && calGetcCourseCode(row) !== course) return false;
+        if (modality && row.modality !== modality) return false;
+        return true;
+      });
+  }
+
+  function busyTimeFacultyRowsForScope() {
+    const term = document.getElementById('busyTimeTerm')?.value || '';
+    const campus = document.getElementById('busyTimeCampus')?.value || '';
+    const division = document.getElementById('busyTimeDivision')?.value || '';
+    const department = document.getElementById('busyTimeDepartment')?.value || '';
+    const course = document.getElementById('busyTimeCourse')?.value || '';
+    return (state.busyTimeFacultyRows?.length ? state.busyTimeFacultyRows : state.facultyHeatmapRows || [])
+      .filter(row => row.facultyType !== 'OMIT')
+      .filter(row => {
+        if (term && facultyTerm(row) !== term) return false;
+        if (campus && row.campus !== campus) return false;
+        if (division && row.divisionId !== division) return false;
+        if (department && row.departmentId !== department) return false;
+        if (course && facultyCourseValue(row) !== course) return false;
+        return true;
+      });
+  }
+
+  function busyTimeEnrollment(row) {
+    return row.census == null ? row.actual || 0 : row.census || 0;
+  }
+
+  function busyTimeFixedRows(rows) {
+    return (rows || []).filter(row => {
+      const start = minutesFromTime(row.start);
+      const end = minutesFromTime(row.end);
+      return Array.isArray(row.days) && row.days.length && start != null && end != null && end > start && row.timeBlock !== 'ONLINE/TBA';
+    });
+  }
+
+  function buildBusyTimeBuckets(rows) {
+    const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
+    const fixedRows = busyTimeFixedRows(rows);
+    const slots = supplyDemandSlots(fixedRows);
+    const map = new Map();
+    dayKeys.forEach(day => {
+      slots.forEach(minutes => map.set(`${day}|${minutes}`, {
+        key: `${day}|${minutes}`,
+        day,
+        dayName: dayNames[day],
+        minutes,
+        time: formatPresenceHourLabel(minutes / 60),
+        sections: 0,
+        seats: 0,
+        enrollment: 0,
+        studentPresence: 0,
+        waitlist: 0,
+        emptySeats: 0,
+        roomMinutes: 0,
+        seen: new Set()
+      }));
+    });
+    fixedRows.forEach(row => {
+      const start = minutesFromTime(row.start);
+      const end = minutesFromTime(row.end);
+      row.days.forEach(day => {
+        slots.forEach(minutes => {
+          if (end <= minutes || start >= minutes + 30) return;
+          const cell = map.get(`${day}|${minutes}`);
+          if (!cell) return;
+          const key = [row.term, sectionKey(row), day, row.start, row.end].join('|');
+          if (cell.seen.has(key)) return;
+          cell.seen.add(key);
+          const enrollment = busyTimeEnrollment(row);
+          const seats = row.cap || 0;
+          cell.sections += 1;
+          cell.seats += seats;
+          cell.enrollment += enrollment;
+          cell.studentPresence += enrollment;
+          cell.waitlist += row.waitlist || 0;
+          cell.emptySeats += Math.max(0, seats - enrollment);
+          cell.roomMinutes += Math.min(end, minutes + 30) - Math.max(start, minutes);
+        });
+      });
+    });
+    return [...map.values()].map(row => ({
+      ...row,
+      fillRateNumber: safeDiv(row.enrollment, row.seats),
+      fillRate: `${(safeDiv(row.enrollment, row.seats) * 100).toFixed(1)}%`
+    }));
+  }
+
+  function buildBusyTimeFacultyBuckets(rows, slots) {
+    const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const map = new Map();
+    dayKeys.forEach(day => slots.forEach(minutes => map.set(`${day}|${minutes}`, {
+      day,
+      minutes,
+      fullTime: 0,
+      partTime: 0,
+      total: 0,
+      seen: new Set()
+    })));
+    (rows || []).forEach(row => {
+      const start = minutesFromTime(row.startTime || row.start);
+      const end = minutesFromTime(row.endTime || row.end);
+      if (start == null || end == null || end <= start) return;
+      (row.days || []).forEach(day => {
+        slots.forEach(minutes => {
+          if (end <= minutes || start >= minutes + 30) return;
+          const cell = map.get(`${day}|${minutes}`);
+          if (!cell) return;
+          const key = row.deduplicationKey || [row.crn, day, row.startTime || row.start, row.endTime || row.end, row.facultyId || row.facultyName].join('|');
+          if (cell.seen.has(key)) return;
+          cell.seen.add(key);
+          cell.total += 1;
+          if (row.facultyType === 'FULL_TIME') cell.fullTime += 1;
+          if (row.facultyType === 'PART_TIME') cell.partTime += 1;
+        });
+      });
+    });
+    return [...map.values()];
+  }
+
+  function busyTimePrimeRows(bucketRows) {
+    return (bucketRows || []).filter(row => ['MO', 'TU', 'WE', 'TH'].includes(row.day) && row.minutes >= 9 * 60 && row.minutes < 15 * 60);
+  }
+
+  function busyTimePeak(rows, field) {
+    return (rows || []).slice().sort((a, b) => (b[field] || 0) - (a[field] || 0))[0] || null;
+  }
+
+  function busyTimeCellLabel(cell, field = 'studentPresence') {
+    if (!cell || !(cell[field] || 0)) return 'N/A';
+    return `${cell.dayName || cell.day} ${cell.time || formatPresenceHourLabel(cell.minutes / 60)} (${Math.round(cell[field] || 0)})`;
+  }
+
+  function busyTimeConcentration(rows, field) {
+    const total = (rows || []).reduce((sumTotal, row) => sumTotal + (row[field] || 0), 0);
+    if (!total) return 0;
+    const peak = Math.max(0, ...(rows || []).map(row => row[field] || 0));
+    return peak / total;
+  }
+
+  function busyTimeDurationRows(rows) {
+    const buckets = new Map();
+    busyTimeFixedRows(rows).forEach(row => {
+      const start = minutesFromTime(row.start);
+      const end = minutesFromTime(row.end);
+      const minutes = end - start;
+      const label = minutes < 60 ? '< 1 hr' : minutes < 90 ? '1-1.5 hrs' : minutes < 150 ? '1.5-2.5 hrs' : minutes < 210 ? '2.5-3.5 hrs' : '3.5+ hrs';
+      const key = [sectionKey(row), row.start, row.end, row.dayPattern].join('|');
+      if (!buckets.has(label)) buckets.set(label, { duration: label, courses: 0, enrollment: 0, seen: new Set() });
+      const bucket = buckets.get(label);
+      if (bucket.seen.has(key)) return;
+      bucket.seen.add(key);
+      bucket.courses += 1;
+      bucket.enrollment += busyTimeEnrollment(row);
+    });
+    return [...buckets.values()].map(row => ({ duration: row.duration, courses: row.courses, enrollment: row.enrollment }));
+  }
+
+  function busyTimeRoomUtilization(rows) {
+    const rooms = new Map();
+    busyTimeFixedRows(rows).forEach(row => {
+      const room = [row.campus, row.building, row.roomOnly || row.room].filter(Boolean).join(' / ') || 'Unassigned';
+      if (!rooms.has(room)) rooms.set(room, { room, minutes: 0, meetings: new Set() });
+      const bucket = rooms.get(room);
+      const start = minutesFromTime(row.start);
+      const end = minutesFromTime(row.end);
+      (row.days || []).forEach(day => {
+        const key = [sectionKey(row), day, row.start, row.end].join('|');
+        if (bucket.meetings.has(key)) return;
+        bucket.meetings.add(key);
+        bucket.minutes += end - start;
+      });
+    });
+    const availableMinutes = Math.max(1, rooms.size * 5 * 16 * 60);
+    const scheduledMinutes = [...rooms.values()].reduce((total, row) => total + row.minutes, 0);
+    return { rooms: rooms.size, scheduledHours: scheduledMinutes / 60, utilization: scheduledMinutes / availableMinutes };
+  }
+
+  function busyTimeObservationRows(metrics) {
+    const rows = [];
+    if (metrics.supplyPeak && metrics.studentPeak && metrics.supplyPeak.key === metrics.studentPeak.key) {
+      rows.push('High enrollment appears to coincide with high section supply.');
+    }
+    if (metrics.eveningFillRate >= 0.8 && metrics.eveningSections < metrics.daySections * 0.35) {
+      rows.push('Evening sections have limited supply but consistently high fill.');
+    }
+    if (metrics.facultyFtPeak && metrics.facultyFtPeak.minutes >= 9 * 60 && metrics.facultyFtPeak.minutes <= 14 * 60) {
+      rows.push('Full-time faculty are concentrated between 9 AM and 2 PM.');
+    }
+    if (metrics.afterFourPresenceShare >= 0.15) {
+      rows.push('Student demand remains strong after 4 PM.');
+    }
+    if (!rows.length) rows.push('No dominant busy-time pattern stands out in the current filtered data.');
+    return rows;
+  }
+
+  function renderBusyTimeCharts(bucketRows, durationRows, facultyBuckets) {
+    const node = document.getElementById('busyTimeCharts');
+    if (!node) return;
+    const topStudentRows = bucketRows.filter(row => row.studentPresence).slice().sort((a, b) => b.studentPresence - a.studentPresence).slice(0, 8);
+    const maxPresence = Math.max(1, ...topStudentRows.map(row => row.studentPresence || 0));
+    const presenceBars = topStudentRows.map(row => `
+      <div class="busy-time-bar-row"><span>${escapeAttr(`${row.dayName} ${row.time}`)}</span><div><i style="width:${((row.studentPresence || 0) / maxPresence * 100).toFixed(1)}%"></i></div><strong>${Math.round(row.studentPresence || 0)}</strong></div>`).join('');
+    const maxDuration = Math.max(1, ...durationRows.map(row => row.courses || 0));
+    const durationBars = durationRows.map(row => `
+      <div class="busy-time-bar-row"><span>${escapeAttr(row.duration)}</span><div><i style="width:${((row.courses || 0) / maxDuration * 100).toFixed(1)}%"></i></div><strong>${row.courses}</strong></div>`).join('');
+    const facultyPeakRows = facultyBuckets.filter(row => row.total).slice().sort((a, b) => b.total - a.total).slice(0, 8);
+    const maxFaculty = Math.max(1, ...facultyPeakRows.map(row => row.total || 0));
+    const facultyBars = facultyPeakRows.map(row => `
+      <div class="busy-time-bar-row"><span>${escapeAttr(`${row.day} ${formatPresenceHourLabel(row.minutes / 60)}`)}</span><div><i style="width:${((row.total || 0) / maxFaculty * 100).toFixed(1)}%"></i></div><strong>${row.total}</strong></div>`).join('');
+    node.innerHTML = `
+      <section><h3>Student Presence Peaks</h3>${presenceBars || '<p class="analytics-empty">No student presence buckets.</p>'}</section>
+      <section><h3>Course Duration Mix</h3>${durationBars || '<p class="analytics-empty">No fixed-duration courses.</p>'}</section>
+      <section><h3>Faculty Concentration Peaks</h3>${facultyBars || '<p class="analytics-empty">No faculty rows loaded.</p>'}</section>
+    `;
+  }
+
+  function renderBusyTimeDashboard() {
+    const sourceRows = state.busyTimeRows || [];
+    const rows = busyTimeFilteredRows();
+    const facultyRows = busyTimeFacultyRowsForScope();
+    const bucketRows = buildBusyTimeBuckets(rows);
+    const slots = supplyDemandSlots(busyTimeFixedRows(rows));
+    const facultyBuckets = buildBusyTimeFacultyBuckets(facultyRows, slots);
+    const primeRows = busyTimePrimeRows(bucketRows);
+    const primePresence = primeRows.reduce((total, row) => total + row.studentPresence, 0);
+    const allPresence = bucketRows.reduce((total, row) => total + row.studentPresence, 0);
+    const seats = bucketRows.reduce((total, row) => total + row.seats, 0);
+    const enrollment = bucketRows.reduce((total, row) => total + row.enrollment, 0);
+    const waitlist = bucketRows.reduce((total, row) => total + row.waitlist, 0);
+    const eveningRows = bucketRows.filter(row => row.minutes >= 16 * 60);
+    const dayRows = bucketRows.filter(row => row.minutes >= 8 * 60 && row.minutes < 16 * 60);
+    const eveningSeats = eveningRows.reduce((total, row) => total + row.seats, 0);
+    const eveningEnrollment = eveningRows.reduce((total, row) => total + row.enrollment, 0);
+    const roomUse = busyTimeRoomUtilization(rows);
+    const metrics = {
+      studentPeak: busyTimePeak(bucketRows, 'studentPresence'),
+      supplyPeak: busyTimePeak(bucketRows, 'sections'),
+      facultyFtPeak: busyTimePeak(facultyBuckets, 'fullTime'),
+      eveningFillRate: safeDiv(eveningEnrollment, eveningSeats),
+      eveningSections: eveningRows.reduce((total, row) => total + row.sections, 0),
+      daySections: dayRows.reduce((total, row) => total + row.sections, 0),
+      afterFourPresenceShare: safeDiv(eveningRows.reduce((total, row) => total + row.studentPresence, 0), allPresence)
+    };
+    const primeScore = safeDiv(primePresence, allPresence);
+    const facultyConcentration = busyTimeConcentration(facultyBuckets, 'total');
+    const studentConcentration = busyTimeConcentration(bucketRows, 'studentPresence');
+    const demandPressure = safeDiv(enrollment + waitlist, seats);
+    metric('busyTimeMetrics', [
+      ['Prime Time Score', `${(primeScore * 100).toFixed(1)}%`],
+      ['Faculty Concentration', `${(facultyConcentration * 100).toFixed(1)}%`],
+      ['Student Concentration', `${(studentConcentration * 100).toFixed(1)}%`],
+      ['Seat Supply', seats],
+      ['Demand Pressure', `${(demandPressure * 100).toFixed(1)}%`],
+      ['Room Utilization', `${(roomUse.utilization * 100).toFixed(1)}%`],
+      ['Peak Student Time', busyTimeCellLabel(metrics.studentPeak, 'studentPresence')],
+      ['Peak Section Supply', busyTimeCellLabel(metrics.supplyPeak, 'sections')]
+    ]);
+    const durationRows = busyTimeDurationRows(rows);
+    renderBusyTimeCharts(bucketRows, durationRows, facultyBuckets);
+    document.getElementById('busyTimeObservations').innerHTML = `
+      <strong>Observations</strong>
+      <ul>${busyTimeObservationRows(metrics).map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul>
+      <p>These are descriptive summaries only. They do not recommend adding, moving, or canceling sections.</p>
+    `;
+    state.busyTimeTableRows = bucketRows
+      .filter(row => row.sections || row.studentPresence || row.seats || row.waitlist)
+      .map(row => ({
+        day: row.dayName,
+        time: row.time,
+        sections: row.sections,
+        seats: row.seats,
+        enrollment: row.enrollment,
+        studentPresence: row.studentPresence,
+        fillRate: row.fillRate,
+        waitlist: row.waitlist,
+        emptySeats: row.emptySeats
+      }));
+    table('busyTimeTable', state.busyTimeTableRows, ['day', 'time', 'sections', 'seats', 'enrollment', 'studentPresence', 'fillRate', 'waitlist', 'emptySeats']);
+    document.getElementById('busyTimeLegend').innerHTML = `
+      <strong>Busy Time Dashboard Methodology</strong>
+      <p>Student Presence and Supply vs Demand use half-hour buckets from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by half-hour bucket. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Room Utilization is scheduled room time divided by a standard weekday instructional-room availability window.</p>
+    `;
+    const status = document.getElementById('busyTimeStatus');
+    if (status) status.textContent = `Loaded ${sourceRows.length} schedule row(s); ${rows.length} row(s) match filters; ${facultyRows.length || 0} faculty row(s).`;
+    state.busyTimeRan = true;
+  }
+
+  async function loadBusyTimeDashboardRows() {
+    const uploadedRows = await readCsv(document.getElementById('busyTimeCsv'), { sourceType: 'BUSY_TIME_UPLOAD' });
+    const archivedRows = await readArchivedRows('busyTimeArchiveTerms', { reportLabel: 'Busy Time Dashboard' });
+    state.busyTimeRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
+    const facultyInput = document.getElementById('busyTimeFacultyCsv');
+    state.busyTimeFacultyRows = facultyInput?.files?.length ? await readFacultyScheduleFiles(facultyInput) : [];
+    updateBusyTimeFilterOptions();
+  }
+
+  async function runBusyTimeDashboard() {
+    await loadBusyTimeDashboardRows();
+    renderBusyTimeDashboard();
+  }
+
+  function clearBusyTimeDashboard() {
+    ['busyTimeTerm', 'busyTimeCampus', 'busyTimeDivision', 'busyTimeDepartment', 'busyTimeCourse', 'busyTimeModality'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.value = '';
+    });
+    if (state.busyTimeRows.length) renderBusyTimeDashboard();
+  }
+
   async function loadWorkExperienceRows() {
     const raw = await readCsv(document.getElementById('workExperienceCsv'), { sourceType: 'WORK_EXPERIENCE' });
     state.workExperienceInput = dedupeEnrollmentRows(raw.map(normalize));
@@ -3102,6 +3494,7 @@
       setSelectOptions('conflictArchiveTerms', options);
       setSelectOptions('roomFitArchiveTerms', options);
       setSelectOptions('sdArchiveTerms', options);
+      setSelectOptions('busyTimeArchiveTerms', options);
       setArchiveInspectionTermOptions();
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
@@ -7639,6 +8032,7 @@
     setReportDisplay(REPORTS.facultyModality, 'facultyModalityReport');
     setReportDisplay(REPORTS.primeTimeAnalysis, 'primeTimeAnalysisReport');
     setReportDisplay(REPORTS.supplyDemand, 'supplyDemandReport');
+    setReportDisplay(REPORTS.busyTimeDashboard, 'busyTimeDashboardReport');
     setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
@@ -7722,6 +8116,10 @@
       updateSupplyDemandFilterOptions();
       setSupplyDemandCalGetcOptions();
       document.getElementById('supplyDemandTable').innerHTML = '<p class="analytics-empty">Upload CSV files or select archived terms, then click Run.</p>';
+    }
+    if (selected === REPORTS.busyTimeDashboard && !state.busyTimeRan) {
+      updateBusyTimeFilterOptions();
+      document.getElementById('busyTimeTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -7841,6 +8239,10 @@
       .supply-demand-line-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;color:#334862;font-size:12px}
       .supply-demand-line-legend span{display:inline-flex;align-items:center;gap:4px}
       .supply-demand-line-legend i{display:inline-block;width:12px;height:12px;border-radius:50%}
+      .busy-time-bar-row{display:grid;grid-template-columns:minmax(110px,1fr) minmax(120px,2fr) auto;gap:8px;align-items:center;margin:7px 0;color:#334862;font-size:12px}
+      .busy-time-bar-row div{height:12px;background:#e6edf5;border-radius:999px;overflow:hidden}
+      .busy-time-bar-row i{display:block;height:100%;background:linear-gradient(90deg,#f97316,#1f7aa8);border-radius:999px}
+      .busy-time-bar-row strong{color:#123367}
       .analytics-insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px}
       .analytics-insights section{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px}
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
@@ -8148,6 +8550,22 @@
     });
     document.getElementById('clearSupplyDemand')?.addEventListener('click', clearSupplyDemand);
     document.getElementById('exportSupplyDemand')?.addEventListener('click', () => exportRowsWithoutMethodology(state.supplyDemandBucketRows, 'supply-vs-demand.csv'));
+    document.getElementById('runBusyTimeDashboard')?.addEventListener('click', () => runBusyTimeDashboard().catch(err => alert(err.message || 'Busy Time Dashboard failed.')));
+    document.getElementById('busyTimeCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
+    document.getElementById('busyTimeFacultyCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
+    document.getElementById('busyTimeArchiveTerms')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
+    document.getElementById('archiveBusyTimeUploads')?.addEventListener('click', () => archiveUploads('busyTimeCsv').catch(err => alert(err.message || 'Archive failed.')));
+    ['busyTimeTerm', 'busyTimeCampus', 'busyTimeModality'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => { if (state.busyTimeRan) renderBusyTimeDashboard(); });
+    });
+    ['busyTimeDivision', 'busyTimeDepartment', 'busyTimeCourse'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        updateBusyTimeFilterOptions();
+        if (state.busyTimeRan) renderBusyTimeDashboard();
+      });
+    });
+    document.getElementById('clearBusyTimeDashboard')?.addEventListener('click', clearBusyTimeDashboard);
+    document.getElementById('exportBusyTimeDashboard')?.addEventListener('click', () => exportRowsWithoutMethodology(state.busyTimeTableRows, 'busy-time-dashboard.csv'));
     document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
     document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
     ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {
