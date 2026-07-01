@@ -1703,6 +1703,42 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /prime-time-analysis\.csv/);
 });
 
+test('supply vs demand is a standalone Development report with heatmap line and table views', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /supplyDemand: 'supply-demand-analysis'/);
+  assert.match(text, /\[REPORTS\.supplyDemand\]: 'development'/);
+  assert.match(text, /Supply vs Demand/);
+  assert.match(text, /id="supplyDemandReport"/);
+  assert.match(text, /id="supplyDemandCsv"/);
+  assert.match(text, /id="sdArchiveTerms"/);
+  assert.match(text, /id="sdView"/);
+  assert.match(text, /id="sdMetric"/);
+  assert.match(text, /Sections/);
+  assert.match(text, /Seats Offered/);
+  assert.match(text, /Student Presence/);
+  assert.match(text, /Fill Rate/);
+  assert.match(text, /Waitlist/);
+  assert.match(text, /Empty Seats/);
+  assert.match(text, /id="sdCampus"/);
+  assert.match(text, /id="sdDivision"/);
+  assert.match(text, /id="sdDepartment"/);
+  assert.match(text, /id="sdCourse"/);
+  assert.match(text, /id="sdCalGetc"/);
+  assert.match(text, /id="sdModality"/);
+  assert.match(text, /function runSupplyDemand/);
+  assert.match(text, /function buildSupplyDemandBuckets/);
+  assert.match(text, /function renderSupplyDemandHeatmap/);
+  assert.match(text, /function renderSupplyDemandLineGraph/);
+  assert.match(text, /High Demand/);
+  assert.match(text, /Hidden Demand/);
+  assert.match(text, /Balanced/);
+  assert.match(text, /Oversupplied/);
+  assert.match(text, /Low Activity/);
+  assert.match(text, /enrollment alone cannot prove student preference/i);
+  assert.match(text, /supply-vs-demand\.csv/);
+});
+
 test('enrollment analytics supports supplemental work experience upload controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

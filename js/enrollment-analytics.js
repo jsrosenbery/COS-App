@@ -17,6 +17,7 @@
     facultyHeatmap: 'faculty-schedule-heatmap',
     facultyModality: 'faculty-modality',
     primeTimeAnalysis: 'prime-time-analysis',
+    supplyDemand: 'supply-demand-analysis',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
@@ -53,6 +54,7 @@
     [REPORTS.studentPresence]: 'em',
     [REPORTS.facultyModality]: 'development',
     [REPORTS.primeTimeAnalysis]: 'development',
+    [REPORTS.supplyDemand]: 'development',
     [REPORTS.facultyHeatmap]: 'development'
   };
   const REPORT_LABEL = {
@@ -72,6 +74,7 @@
     [REPORTS.studentPresence]: 'Student Presence Analytics',
     [REPORTS.facultyModality]: 'Faculty Modality',
     [REPORTS.primeTimeAnalysis]: 'Prime Time Analysis',
+    [REPORTS.supplyDemand]: 'Supply vs Demand',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
@@ -94,6 +97,7 @@
     REPORTS.studentPresence,
     REPORTS.facultyModality,
     REPORTS.primeTimeAnalysis,
+    REPORTS.supplyDemand,
     REPORTS.facultyHeatmap
   ];
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
@@ -140,6 +144,9 @@
     primeTimeRows: [],
     primeTimeTableRows: [],
     primeTimeRan: false,
+    supplyDemandRows: [],
+    supplyDemandBucketRows: [],
+    supplyDemandRan: false,
     conflictRows: [],
     conflictInput: [],
     conflictTerms: [],
@@ -1507,6 +1514,71 @@
           <div id="primeTimeTable" class="analytics-table"></div>
           <div id="primeTimeLegend" class="analytics-legend"></div>
         </div>
+        <div id="supplyDemandReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Supply vs Demand</h2>
+            <p>Compares scheduled instructional supply against realized student demand by half-hour interval. This report is for pattern diagnosis: enrollment alone cannot prove student preference because available section supply strongly shapes observed demand.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Upload Section Seating CSV files or select archived terms, then click Run.</li>
+                  <li>Use the metric toggle to inspect sections, seats, enrollment, student presence, fill rate, waitlist, or empty seats by day/time.</li>
+                  <li>Use campus, division, department, course, CAL-GETC, modality, and term filters to narrow the population.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Only rows with fixed meeting days and start/end times contribute to the half-hour grid. Online/TBA/no-time rows are not placed into physical time buckets.</li>
+                  <li>Each section contributes to every half-hour interval it overlaps on every scheduled day. Duplicate rows for the same CRN/day/start/end are counted once per bucket.</li>
+                  <li>Student Presence uses census enrollment when available and current enrollment otherwise. Fill Rate = enrollment / seats offered. Empty Seats = seats offered - enrollment.</li>
+                  <li>Interpretation labels compare supply and demand indicators. They are planning prompts, not proof of student preference or automatic scheduling decisions.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Supply/Demand CSV(s) <input id="supplyDemandCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveSupplyDemandUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="sdArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
+            <span id="supplyDemandStatus" class="analytics-note">No supply/demand rows loaded.</span>
+            <label>View
+              <select id="sdView">
+                <option value="all">All views</option>
+                <option value="heatmap">Heatmap</option>
+                <option value="line">Line Graph</option>
+                <option value="table">Summary Table</option>
+              </select>
+            </label>
+            <label>Metric
+              <select id="sdMetric">
+                <option value="sections">Sections</option>
+                <option value="seats">Seats Offered</option>
+                <option value="enrollment">Enrollment</option>
+                <option value="studentPresence">Student Presence</option>
+                <option value="fillRate">Fill Rate</option>
+                <option value="waitlist">Waitlist</option>
+                <option value="emptySeats">Empty Seats</option>
+              </select>
+            </label>
+            <label>Term <select id="sdTerm"></select></label>
+            <label>Campus <select id="sdCampus"></select></label>
+            <label>Division <select id="sdDivision"></select></label>
+            <label>Department <select id="sdDepartment"></select></label>
+            <label>Course <select id="sdCourse"></select></label>
+            <label>CAL-GETC <select id="sdCalGetc"></select></label>
+            <label>Modality <select id="sdModality"></select></label>
+            <button id="runSupplyDemand" type="button">Run</button>
+            <button id="clearSupplyDemand" type="button">Clear</button>
+            <button id="exportSupplyDemand" type="button">Export CSV</button>
+          </div>
+          <div id="supplyDemandMetrics" class="analytics-metrics"></div>
+          <div id="supplyDemandHeatmap" class="analytics-insights"></div>
+          <div id="supplyDemandLineGraph" class="analytics-insights"></div>
+          <div id="supplyDemandTable" class="analytics-table"></div>
+          <div id="supplyDemandLegend" class="analytics-legend"></div>
+        </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition Trend</h2>
@@ -2631,6 +2703,317 @@
     renderPrimeTimeAnalysis();
   }
 
+  function calGetcCourseCode(row) {
+    return canon([row?.subject, row?.course].filter(Boolean).join(' '));
+  }
+
+  function normalizedCalGetcRows() {
+    const source = Array.isArray(window.CAL_GETC_MAPPING) ? window.CAL_GETC_MAPPING : [];
+    return source.map(item => ({
+      code: canon(item.code || item.Code || item.course || item.Course || item['Course Code']),
+      areas: String(item.areas || item.Areas || item.area || item.Area || item['CAL-GETC Area'] || '')
+        .split(/[,;|]/).map(value => canon(value)).filter(Boolean),
+      divisions: String(item.divisions || item.Divisions || item.division || item.Division || item['CAL-GETC Division'] || '')
+        .split(/[,;|]/).map(value => canon(value)).filter(Boolean)
+    })).filter(item => item.code);
+  }
+
+  function setSupplyDemandCalGetcOptions() {
+    const select = document.getElementById('sdCalGetc');
+    if (!select) return;
+    const previous = select.value;
+    const rows = normalizedCalGetcRows();
+    const options = [{ value: '', label: 'All CAL-GETC' }];
+    const areas = new Set();
+    const divisions = new Set();
+    rows.forEach(row => {
+      row.areas.forEach(area => areas.add(area));
+      row.divisions.forEach(division => divisions.add(division));
+    });
+    [...areas].sort().forEach(area => options.push({ value: `AREA:${area}`, label: `Area: ${area}` }));
+    [...divisions].sort().forEach(division => options.push({ value: `DIVISION:${division}`, label: `Division: ${division}` }));
+    rows.map(row => row.code).sort().forEach(code => options.push({ value: `COURSE:${code}`, label: code }));
+    select.replaceChildren();
+    options.forEach(option => select.appendChild(new Option(option.label, option.value, false, option.value === previous)));
+    if (options.some(option => option.value === previous)) select.value = previous;
+  }
+
+  function supplyDemandMatchesCalGetc(row) {
+    const selected = document.getElementById('sdCalGetc')?.value || '';
+    if (!selected) return true;
+    const courseCode = calGetcCourseCode(row);
+    const mappings = normalizedCalGetcRows().filter(item => item.code === courseCode);
+    if (selected.startsWith('COURSE:')) return courseCode === selected.slice(7);
+    if (selected.startsWith('AREA:')) return mappings.some(item => item.areas.includes(selected.slice(5)));
+    if (selected.startsWith('DIVISION:')) return mappings.some(item => item.divisions.includes(selected.slice(9)));
+    return true;
+  }
+
+  function updateSupplyDemandFilterOptions() {
+    const rows = (state.supplyDemandRows || []).filter(row => !row.isWorkExperience);
+    setFacultyFilterOptions('sdTerm', rows.map(row => row.term), 'All terms');
+    setFacultyFilterOptions('sdCampus', rows.map(row => row.campus), 'All campuses');
+    setFacultyFilterOptions('sdDivision', rows.map(row => row.division), 'All divisions');
+    const division = document.getElementById('sdDivision')?.value || '';
+    const departmentSource = division ? rows.filter(row => row.division === division) : rows;
+    setFacultyFilterOptions('sdDepartment', departmentSource.map(row => row.department), 'All departments');
+    const department = document.getElementById('sdDepartment')?.value || '';
+    const courseSource = department ? departmentSource.filter(row => row.department === department) : departmentSource;
+    setFacultyFilterOptions('sdCourse', courseSource.map(calGetcCourseCode), 'All courses');
+    setFacultyFilterOptions('sdModality', rows.map(row => row.modality), 'All modalities');
+    setSupplyDemandCalGetcOptions();
+  }
+
+  function supplyDemandFilteredRows() {
+    const term = document.getElementById('sdTerm')?.value || '';
+    const campus = document.getElementById('sdCampus')?.value || '';
+    const division = document.getElementById('sdDivision')?.value || '';
+    const department = document.getElementById('sdDepartment')?.value || '';
+    const course = document.getElementById('sdCourse')?.value || '';
+    const modality = document.getElementById('sdModality')?.value || '';
+    return (state.supplyDemandRows || [])
+      .filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row))
+      .filter(row => {
+        if (term && row.term !== term) return false;
+        if (campus && row.campus !== campus) return false;
+        if (division && row.division !== division) return false;
+        if (department && row.department !== department) return false;
+        if (course && calGetcCourseCode(row) !== course) return false;
+        if (modality && row.modality !== modality) return false;
+        if (!supplyDemandMatchesCalGetc(row)) return false;
+        return true;
+      });
+  }
+
+  function supplyDemandEnrollment(row) {
+    return row.census == null ? row.actual || 0 : row.census || 0;
+  }
+
+  function supplyDemandSlots(rows) {
+    let min = 6 * 60;
+    let max = 22 * 60;
+    (rows || []).forEach(row => {
+      const start = minutesFromTime(row.start);
+      const end = minutesFromTime(row.end);
+      if (start != null && end != null && end > start) {
+        min = Math.min(min, Math.floor(start / 30) * 30);
+        max = Math.max(max, Math.ceil(end / 30) * 30);
+      }
+    });
+    const slots = [];
+    for (let minutes = min; minutes < max; minutes += 30) slots.push(minutes);
+    return slots;
+  }
+
+  function supplyDemandInterpretation(row) {
+    if ((row.sections || 0) <= 0 && (row.enrollment || 0) <= 0 && (row.waitlist || 0) <= 0) return 'Low Activity';
+    if ((row.fillRateNumber || 0) >= 0.9 || (row.waitlist || 0) > 0) return row.sections <= 1 && row.waitlist > 0 ? 'Hidden Demand' : 'High Demand';
+    if ((row.sections || 0) >= 3 && (row.fillRateNumber || 0) < 0.55 && (row.emptySeats || 0) > 0) return 'Oversupplied';
+    if ((row.fillRateNumber || 0) >= 0.65 && (row.fillRateNumber || 0) < 0.9) return 'Balanced';
+    return 'Low Activity';
+  }
+
+  function buildSupplyDemandBuckets(rows, metricName) {
+    const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
+    const fixedRows = rows.filter(row => Array.isArray(row.days) && row.days.length && row.start && row.end && row.timeBlock !== 'ONLINE/TBA');
+    const slots = supplyDemandSlots(fixedRows);
+    const map = new Map();
+    dayKeys.forEach(day => {
+      slots.forEach(minutes => {
+        const key = `${day}|${minutes}`;
+        map.set(key, {
+          key,
+          day,
+          dayName: dayNames[day],
+          minutes,
+          time: formatPresenceHourLabel(minutes / 60),
+          sections: 0,
+          seats: 0,
+          enrollment: 0,
+          studentPresence: 0,
+          waitlist: 0,
+          emptySeats: 0,
+          fillRate: '0%',
+          fillRateNumber: 0,
+          seen: new Set()
+        });
+      });
+    });
+    fixedRows.forEach(row => {
+      const start = minutesFromTime(row.start);
+      const end = minutesFromTime(row.end);
+      if (start == null || end == null || end <= start) return;
+      row.days.forEach(day => {
+        slots.forEach(minutes => {
+          if (end <= minutes || start >= minutes + 30) return;
+          const cell = map.get(`${day}|${minutes}`);
+          if (!cell) return;
+          const key = [row.term, sectionKey(row), day, row.start, row.end].join('|');
+          if (cell.seen.has(key)) return;
+          cell.seen.add(key);
+          const enrollment = supplyDemandEnrollment(row);
+          cell.sections += 1;
+          cell.seats += row.cap || 0;
+          cell.enrollment += enrollment;
+          cell.studentPresence += enrollment;
+          cell.waitlist += row.waitlist || 0;
+        });
+      });
+    });
+    const bucketRows = [...map.values()].map(row => {
+      const fillRateNumber = safeDiv(row.enrollment, row.seats);
+      const emptySeats = Math.max(0, row.seats - row.enrollment);
+      const out = {
+        day: row.dayName,
+        time: row.time,
+        sections: row.sections,
+        seats: row.seats,
+        enrollment: row.enrollment,
+        studentPresence: row.studentPresence,
+        fillRate: `${(fillRateNumber * 100).toFixed(1)}%`,
+        fillRateNumber,
+        waitlist: row.waitlist,
+        emptySeats,
+        interpretation: ''
+      };
+      out.interpretation = supplyDemandInterpretation(out);
+      out.metricValue = metricName === 'fillRate' ? fillRateNumber * 100 : out[metricName] || 0;
+      return out;
+    });
+    return { dayKeys, dayNames, slots, rows: bucketRows };
+  }
+
+  function renderSupplyDemandHeatmap(built, metricName) {
+    const node = document.getElementById('supplyDemandHeatmap');
+    const view = document.getElementById('sdView')?.value || 'all';
+    if (!node) return;
+    node.style.display = view === 'all' || view === 'heatmap' ? '' : 'none';
+    const maxValue = Math.max(0, ...built.rows.map(row => row.metricValue || 0));
+    const headers = built.slots.map(minutes => `<th>${escapeAttr(formatPresenceHourLabel(minutes / 60))}</th>`).join('');
+    const body = built.dayKeys.map(day => {
+      const cells = built.slots.map(minutes => {
+        const row = built.rows.find(item => item.day === built.dayNames[day] && item.time === formatPresenceHourLabel(minutes / 60));
+        const value = row?.metricValue || 0;
+        const heat = maxValue ? value / maxValue : 0;
+        const level = value <= 0 ? 'empty' : heat >= 0.67 ? 'high' : heat >= 0.34 ? 'medium' : 'low';
+        const display = metricName === 'fillRate' && value ? `${value.toFixed(0)}%` : Math.round(value);
+        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(`${built.dayNames[day]} ${formatPresenceHourLabel(minutes / 60)} ${display}`)}">${value ? display : ''}</td>`;
+      }).join('');
+      return `<tr><th>${built.dayNames[day]}</th>${cells}</tr>`;
+    }).join('');
+    node.innerHTML = `<section class="presence-curve"><h3>Supply vs Demand Heatmap</h3><div class="heatmap-wrap"><table class="heatmap"><thead><tr><th>Day / Time</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+  }
+
+  function renderSupplyDemandLineGraph(built, metricName) {
+    const node = document.getElementById('supplyDemandLineGraph');
+    const view = document.getElementById('sdView')?.value || 'all';
+    if (!node) return;
+    node.style.display = view === 'all' || view === 'line' ? '' : 'none';
+    const maxValue = Math.max(1, ...built.rows.map(row => row.metricValue || 0));
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const width = 920;
+    const height = 320;
+    const left = 48;
+    const right = 16;
+    const top = 20;
+    const bottom = 44;
+    const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2'];
+    const usableWidth = width - left - right;
+    const usableHeight = height - top - bottom;
+    const xFor = index => left + (built.slots.length <= 1 ? 0 : index / (built.slots.length - 1) * usableWidth);
+    const yFor = value => top + usableHeight - (value / maxValue * usableHeight);
+    const lines = dayNames.map((day, dayIndex) => {
+      const points = built.slots.map((minutes, index) => {
+        const time = formatPresenceHourLabel(minutes / 60);
+        const item = built.rows.find(row => row.day === day && row.time === time);
+        return `${xFor(index).toFixed(1)},${yFor(item?.metricValue || 0).toFixed(1)}`;
+      }).join(' ');
+      return `<polyline fill="none" stroke="${colors[dayIndex]}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="${points}"></polyline>`;
+    }).join('');
+    const xTicks = built.slots.filter((_, index) => index % 2 === 0).map((minutes, index) => {
+      const slotIndex = built.slots.indexOf(minutes);
+      return `<text x="${xFor(slotIndex).toFixed(1)}" y="${height - 16}" text-anchor="middle">${escapeAttr(formatPresenceHourLabel(minutes / 60).replace(':00 ', ''))}</text>`;
+    }).join('');
+    const legend = dayNames.map((day, index) => `<span><i style="background:${colors[index]}"></i>${escapeAttr(day)}</span>`).join('');
+    node.innerHTML = `
+      <section class="presence-curve supply-demand-line">
+        <h3>Supply vs Demand Line Graph</h3>
+        <p>One line per day using the selected metric across half-hour intervals.</p>
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Supply vs Demand ${escapeAttr(metricName)} line graph">
+          <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#cbd5e1"></line>
+          <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#cbd5e1"></line>
+          <text x="8" y="${top + 10}" text-anchor="start">${escapeAttr(metricName === 'fillRate' ? '100%' : String(Math.round(maxValue)))}</text>
+          <text x="8" y="${height - bottom}" text-anchor="start">0</text>
+          ${xTicks}
+          ${lines}
+        </svg>
+        <div class="supply-demand-line-legend">${legend}</div>
+      </section>`;
+  }
+
+  function renderSupplyDemandMetrics(rows, built) {
+    const totalSections = rows.length;
+    const totalSeats = sum(rows, 'cap');
+    const totalEnrollment = rows.reduce((total, row) => total + supplyDemandEnrollment(row), 0);
+    const totalWaitlist = sum(rows, 'waitlist');
+    const highDemand = built.rows.filter(row => row.interpretation === 'High Demand').length;
+    const hiddenDemand = built.rows.filter(row => row.interpretation === 'Hidden Demand').length;
+    const oversupplied = built.rows.filter(row => row.interpretation === 'Oversupplied').length;
+    metric('supplyDemandMetrics', [
+      ['Sections', totalSections],
+      ['Seats Offered', totalSeats],
+      ['Enrollment', totalEnrollment],
+      ['Fill Rate', `${(safeDiv(totalEnrollment, totalSeats) * 100).toFixed(1)}%`],
+      ['Waitlist', totalWaitlist],
+      ['High Demand Buckets', highDemand],
+      ['Hidden Demand Buckets', hiddenDemand],
+      ['Oversupplied Buckets', oversupplied]
+    ]);
+  }
+
+  async function loadSupplyDemandRows() {
+    const uploadedRows = await readCsv(document.getElementById('supplyDemandCsv'), { sourceType: 'SUPPLY_DEMAND_UPLOAD' });
+    const archivedRows = await readArchivedRows('sdArchiveTerms', { reportLabel: 'Supply vs Demand' });
+    state.supplyDemandRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
+    updateSupplyDemandFilterOptions();
+    return state.supplyDemandRows;
+  }
+
+  async function runSupplyDemand() {
+    const rows = await loadSupplyDemandRows();
+    const filtered = supplyDemandFilteredRows();
+    const metricName = document.getElementById('sdMetric')?.value || 'sections';
+    const built = buildSupplyDemandBuckets(filtered, metricName);
+    state.supplyDemandBucketRows = built.rows;
+    renderSupplyDemandMetrics(filtered, built);
+    renderSupplyDemandHeatmap(built, metricName);
+    renderSupplyDemandLineGraph(built, metricName);
+    const view = document.getElementById('sdView')?.value || 'all';
+    const tableNode = document.getElementById('supplyDemandTable');
+    if (tableNode) tableNode.style.display = view === 'all' || view === 'table' ? '' : 'none';
+    table('supplyDemandTable', built.rows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), ['day', 'time', 'sections', 'seats', 'enrollment', 'studentPresence', 'fillRate', 'waitlist', 'emptySeats', 'interpretation']);
+    document.getElementById('supplyDemandLegend').innerHTML = `
+      <strong>Supply vs Demand Methodology</strong>
+      <p>Supply is scheduled sections and seats offered. Realized demand is census enrollment when available, otherwise current enrollment, plus waitlist when present. Enrollment alone cannot demonstrate student preference because students can only enroll in sections that were offered at available times, campuses, and modalities. Hidden Demand identifies limited supply with waitlist pressure; Oversupplied identifies multiple low-filled buckets with empty seats.</p>
+    `;
+    const status = document.getElementById('supplyDemandStatus');
+    if (status) status.textContent = `Loaded ${rows.length} row(s); ${filtered.length} row(s) match filters.`;
+    state.supplyDemandRan = true;
+  }
+
+  function clearSupplyDemand() {
+    ['sdTerm', 'sdCampus', 'sdDivision', 'sdDepartment', 'sdCourse', 'sdCalGetc', 'sdModality'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.value = '';
+    });
+    const metricSelect = document.getElementById('sdMetric');
+    const viewSelect = document.getElementById('sdView');
+    if (metricSelect) metricSelect.value = 'sections';
+    if (viewSelect) viewSelect.value = 'all';
+    if (state.supplyDemandRows.length) runSupplyDemand().catch(err => console.warn(err));
+  }
+
   async function loadWorkExperienceRows() {
     const raw = await readCsv(document.getElementById('workExperienceCsv'), { sourceType: 'WORK_EXPERIENCE' });
     state.workExperienceInput = dedupeEnrollmentRows(raw.map(normalize));
@@ -2718,6 +3101,7 @@
       setSelectOptions('spArchiveTerms', options);
       setSelectOptions('conflictArchiveTerms', options);
       setSelectOptions('roomFitArchiveTerms', options);
+      setSelectOptions('sdArchiveTerms', options);
       setArchiveInspectionTermOptions();
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
@@ -7254,6 +7638,7 @@
     setReportDisplay(REPORTS.instructorAvailability, 'instructorAvailabilityReport');
     setReportDisplay(REPORTS.facultyModality, 'facultyModalityReport');
     setReportDisplay(REPORTS.primeTimeAnalysis, 'primeTimeAnalysisReport');
+    setReportDisplay(REPORTS.supplyDemand, 'supplyDemandReport');
     setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
@@ -7332,6 +7717,11 @@
     if (selected === REPORTS.primeTimeAnalysis) {
       updatePrimeTimeFilterOptions();
       renderPrimeTimeAnalysis();
+    }
+    if (selected === REPORTS.supplyDemand && !state.supplyDemandRan) {
+      updateSupplyDemandFilterOptions();
+      setSupplyDemandCalGetcOptions();
+      document.getElementById('supplyDemandTable').innerHTML = '<p class="analytics-empty">Upload CSV files or select archived terms, then click Run.</p>';
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -7446,6 +7836,11 @@
       .prime-time-gauge-card small{margin-top:4px;color:#51657c}
       .prime-time-gauge{width:104px;height:104px;margin:0 auto;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#1f7aa8 calc(var(--pct) * 1turn),#e8eef5 0)}
       .prime-time-gauge span{display:grid;place-items:center;width:74px;height:74px;border-radius:50%;background:#fff;color:#123367;font-weight:900}
+      .supply-demand-line svg{width:100%;min-height:260px;background:#fff;border:1px solid #e2eaf3;border-radius:8px}
+      .supply-demand-line text{font-size:11px;fill:#51657c}
+      .supply-demand-line-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;color:#334862;font-size:12px}
+      .supply-demand-line-legend span{display:inline-flex;align-items:center;gap:4px}
+      .supply-demand-line-legend i{display:inline-block;width:12px;height:12px;border-radius:50%}
       .analytics-insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px}
       .analytics-insights section{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px}
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
@@ -7738,6 +8133,21 @@
     document.querySelectorAll('.ptDay').forEach(node => node.addEventListener('change', renderPrimeTimeAnalysis));
     document.getElementById('clearPrimeTimeAnalysis')?.addEventListener('click', clearPrimeTimeAnalysis);
     document.getElementById('exportPrimeTimeAnalysis')?.addEventListener('click', () => exportRowsWithoutMethodology(state.primeTimeTableRows, 'prime-time-analysis.csv'));
+    document.getElementById('runSupplyDemand')?.addEventListener('click', () => runSupplyDemand().catch(err => alert(err.message || 'Supply vs Demand failed.')));
+    document.getElementById('supplyDemandCsv')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
+    document.getElementById('sdArchiveTerms')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
+    document.getElementById('archiveSupplyDemandUploads')?.addEventListener('click', () => archiveUploads('supplyDemandCsv').catch(err => alert(err.message || 'Archive failed.')));
+    ['sdView', 'sdMetric', 'sdTerm', 'sdCampus', 'sdCalGetc', 'sdModality'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => { if (state.supplyDemandRan) runSupplyDemand().catch(err => console.warn(err)); });
+    });
+    ['sdDivision', 'sdDepartment', 'sdCourse'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        updateSupplyDemandFilterOptions();
+        if (state.supplyDemandRan) runSupplyDemand().catch(err => console.warn(err));
+      });
+    });
+    document.getElementById('clearSupplyDemand')?.addEventListener('click', clearSupplyDemand);
+    document.getElementById('exportSupplyDemand')?.addEventListener('click', () => exportRowsWithoutMethodology(state.supplyDemandBucketRows, 'supply-vs-demand.csv'));
     document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
     document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
     ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {
