@@ -135,6 +135,11 @@ function formatHourLabel(hour) {
   return `${h12}:${String(minutes).padStart(2, '0')} ${ap}`;
 }
 
+function formatHeatmapTimeHeader(hour) {
+  const [time, period] = formatHourLabel(hour).split(' ');
+  return `<span class="heatmap-time-label"><span>${escapeHTML(time)}</span><span>${escapeHTML(period || '')}</span></span>`;
+}
+
 function extractField(r, keys) {
   if (!r || typeof r !== 'object') return '';
   for (const k of keys) {
@@ -4534,7 +4539,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     let html = '<table class="heatmap">';
     html += `<thead><tr><th>Day/Start Time<br><span>${escapeHTML(heatmapMetricLabel(metric))}</span></th>`;
     hours.forEach(h=>{
-      html+=`<th>${formatHourLabel(h)}</th>`;
+      html+=`<th>${formatHeatmapTimeHeader(h)}</th>`;
     });
     html+='</tr></thead><tbody>';
     hmDays.forEach(d=>{

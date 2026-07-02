@@ -2730,7 +2730,7 @@
     state.facultyHeatmapBucketRows = built.rows;
     const maxValue = Math.max(0, ...built.rows.map(row => row.metricValue || 0));
     const cellByKey = new Map(built.rows.map(row => [row.key, row]));
-    const headers = built.slots.map(minutes => `<th>${escapeAttr(formatPresenceHourLabel(minutes / 60))}</th>`).join('');
+    const headers = built.slots.map(minutes => `<th>${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
     const body = built.dayKeys.map(day => {
       const cells = built.slots.map(minutes => {
         const cell = cellByKey.get(`${day}|${minutes}`);
@@ -3554,7 +3554,7 @@
     if (!node) return;
     node.style.display = view === 'all' || view === 'heatmap' ? '' : 'none';
     const maxValue = Math.max(0, ...built.rows.map(row => row.metricValue || 0));
-    const headers = built.slots.map(minutes => `<th>${escapeAttr(formatPresenceHourLabel(minutes / 60))}</th>`).join('');
+    const headers = built.slots.map(minutes => `<th>${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
     const body = built.dayKeys.map(day => {
       const cells = built.slots.map(minutes => {
         const row = built.rows.find(item => item.day === built.dayNames[day] && item.time === formatPresenceHourLabel(minutes / 60));
@@ -4359,7 +4359,7 @@
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const slots = [...new Set(rows.map(row => row.minutes))].sort((a, b) => a - b);
     const maxValue = Math.max(0, ...rows.map(row => row.metricValue || 0));
-    const headers = slots.map(minutes => `<th>${escapeAttr(formatPresenceHourLabel(minutes / 60))}</th>`).join('');
+    const headers = slots.map(minutes => `<th>${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
     const body = dayNames.map(day => {
       const cells = slots.map(minutes => {
         const row = rows.find(item => item.day === day && item.minutes === minutes);
@@ -6526,6 +6526,11 @@
     const ap = h24 < 12 ? 'AM' : 'PM';
     const h12 = h24 % 12 || 12;
     return `${h12}:${String(minutes).padStart(2, '0')} ${ap}`;
+  }
+
+  function formatHeatmapTimeHeader(hour) {
+    const [time, period] = formatPresenceHourLabel(hour).split(' ');
+    return `<span class="heatmap-time-label"><span>${escapeAttr(time)}</span><span>${escapeAttr(period || '')}</span></span>`;
   }
 
   function presenceHourKey(hour) {
@@ -9951,8 +9956,9 @@
       .presence-curve p{margin:0 0 10px;color:#51657c;font-size:13px}
       .presence-curve .heatmap-wrap{width:100%;max-width:100%;overflow-x:hidden}
       .presence-curve table{width:100%;min-width:0;table-layout:fixed}
-      .presence-curve .heatmap th,.presence-curve .heatmap td{padding:clamp(4px,.55vw,8px) clamp(3px,.45vw,7px);font-size:clamp(10px,.8vw,12px);line-height:1.15;white-space:normal;overflow-wrap:anywhere}
-      .presence-curve .heatmap tbody th{width:clamp(64px,8vw,104px)}
+      .presence-curve .heatmap th,.presence-curve .heatmap td{padding:clamp(5px,.56vw,8px) clamp(2px,.36vw,6px);font-size:clamp(12px,.78vw,13px);line-height:1.15;text-align:center;white-space:nowrap;overflow-wrap:normal;word-break:normal}
+      .presence-curve .heatmap .heatmap-time-label{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.05;white-space:nowrap}
+      .presence-curve .heatmap tbody th{width:clamp(96px,8.5vw,128px)}
       .presence-curve td{position:relative;height:34px;vertical-align:middle;overflow:hidden}
       .presence-curve .presence-bar{position:absolute;left:6px;right:auto;top:8px;bottom:8px;border-radius:999px;background:linear-gradient(90deg,#1f5f99,#2aa889);opacity:.26}
       .presence-curve td strong{position:relative;z-index:1;color:#123367}
@@ -10010,7 +10016,7 @@
       @media (max-width:760px){
         .analytics-insights{grid-template-columns:1fr}
         .presence-curve .heatmap-wrap{overflow-x:auto}
-        .presence-curve table{min-width:680px}
+        .presence-curve table{min-width:720px}
         .supply-demand-line svg{min-height:190px}
         .prime-time-gauges{grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr))}
       }

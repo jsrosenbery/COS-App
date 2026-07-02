@@ -2406,7 +2406,9 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(css, /\.heatmap \{\s*width: 100%;\s*min-width: 0;\s*table-layout: fixed;/);
   assert.match(css, /\.heatmap-wrap \{\s*width: 100%;\s*max-width: 100%;\s*overflow-x: hidden;/);
   assert.match(css, /@media \(max-width: 760px\)/);
-  assert.match(css, /\.heatmap \{\s*min-width: 680px;/);
+  assert.match(css, /\.heatmap \{\s*min-width: 720px;/);
+  assert.match(css, /\.heatmap-time-label/);
+  assert.doesNotMatch(css, /\.heatmap th,[\s\S]*?overflow-wrap: anywhere;/);
 });
 
 test('development graphics default to container-width responsive layouts', () => {
@@ -2420,7 +2422,10 @@ test('development graphics default to container-width responsive layouts', () =>
   assert.match(analytics, /\.supply-demand-line svg\{display:block;width:100%;max-width:100%;height:auto;/);
   assert.match(analytics, /\.prime-time-gauge\{width:clamp/);
   assert.match(analytics, /@media \(max-width:760px\)\{/);
-  assert.match(analytics, /\.presence-curve table\{min-width:680px\}/);
+  assert.match(analytics, /\.presence-curve table\{min-width:720px\}/);
+  assert.match(analytics, /function formatHeatmapTimeHeader/);
+  assert.match(analytics, /\.presence-curve \.heatmap \.heatmap-time-label/);
+  assert.doesNotMatch(analytics, /\.presence-curve \.heatmap th,\.presence-curve \.heatmap td\{[^}]*overflow-wrap:anywhere/);
 });
 
 test('standard analytics expose tutoring open lab exclusion controls and diagnostics', () => {
