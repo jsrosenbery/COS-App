@@ -2693,7 +2693,21 @@
         const heat = maxValue ? value / maxValue : 0;
         const level = value <= 0 ? 'empty' : heat >= 0.67 ? 'high' : heat >= 0.34 ? 'medium' : 'low';
         const display = metricName === 'lhe' && value ? value.toFixed(1) : Math.round(value);
-        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(`${built.dayNames[day]} ${formatPresenceHourLabel(minutes / 60)}: ${display}`)}">${value ? display : ''}</td>`;
+        const tooltip = analyticsTooltip([
+          ['Day', built.dayNames[day]],
+          ['Time', formatPresenceHourLabel(minutes / 60)],
+          [metricDisplayLabel(metricName), display],
+          ['Sections', cell?.sections || 0],
+          ['Seats', cell?.seats || 0],
+          ['Enrollment', cell?.enrollment || 0],
+          ['Faculty Count', cell?.facultyCount || 0],
+          ['LHE', cell?.lhe ? cell.lhe.toFixed(1) : 0],
+          ['Modality scope', selectedModalityScopeLabel('fhModality')],
+          ['Campus', selectedFilterLabel('fhCampus')],
+          ['Faculty type', selectedFilterLabel('fhFacultyType')],
+          ['Meeting type', selectedFilterLabel('fhMeetingType')]
+        ]);
+        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
       }).join('');
       return `<tr><th>${built.dayNames[day]}</th>${cells}</tr>`;
     }).join('');
@@ -3043,10 +3057,23 @@
   function renderPrimeTimeGauges(rows) {
     const node = document.getElementById('primeTimeGauges');
     if (!node) return;
+    const definition = primeTimeDefinition();
+    const primeWindow = `${formatPresenceHourLabel(definition.start / 60)}-${formatPresenceHourLabel(definition.end / 60)}`;
+    const primeDays = [...definition.days].map(day => dayLabels[day] || day).join(', ') || 'No days selected';
     node.innerHTML = rows.map(row => {
       const pct = Math.max(0, Math.min(1, row.percentNumber || 0));
+      const tooltip = analyticsTooltip([
+        ['Metric', row.category],
+        ['Metric value', row.percentPrime],
+        ['Prime value', row.primeValue],
+        ['Total value', row.totalValue],
+        ['Time', primeWindow],
+        ['Day', primeDays],
+        ['Modality scope', selectedModalityScopeLabel('ptModality')],
+        ['Campus', selectedFilterLabel('ptCampus')]
+      ]);
       return `
-        <section class="prime-time-gauge-card">
+        <section class="prime-time-gauge-card" title="${escapeAttr(tooltip)}">
           <div class="prime-time-gauge" style="--pct:${pct}">
             <span>${escapeAttr(row.percentPrime)}</span>
           </div>
@@ -3320,7 +3347,21 @@
         const heat = maxValue ? value / maxValue : 0;
         const level = value <= 0 ? 'empty' : heat >= 0.67 ? 'high' : heat >= 0.34 ? 'medium' : 'low';
         const display = metricName === 'fillRate' && value ? `${value.toFixed(0)}%` : Math.round(value);
-        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(`${built.dayNames[day]} ${formatPresenceHourLabel(minutes / 60)} ${display}`)}">${value ? display : ''}</td>`;
+        const tooltip = analyticsTooltip([
+          ['Day', built.dayNames[day]],
+          ['Time', formatPresenceHourLabel(minutes / 60)],
+          [metricDisplayLabel(metricName), display],
+          ['Sections', row?.sections || 0],
+          ['Seats', row?.seats || 0],
+          ['Enrollment', row?.enrollment || 0],
+          ['Student Presence', row?.studentPresence || 0],
+          ['Fill rate', row?.fillRate || '0.0%'],
+          ['Waitlist', row?.waitlist || 0],
+          ['Empty seats', row?.emptySeats || 0],
+          ['Modality scope', selectedModalityScopeLabel('sdModality')],
+          ['Campus', selectedFilterLabel('sdCampus')]
+        ]);
+        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
       }).join('');
       return `<tr><th>${built.dayNames[day]}</th>${cells}</tr>`;
     }).join('');
@@ -3346,12 +3387,30 @@
     const xFor = index => left + (built.slots.length <= 1 ? 0 : index / (built.slots.length - 1) * usableWidth);
     const yFor = value => top + usableHeight - (value / maxValue * usableHeight);
     const lines = dayNames.map((day, dayIndex) => {
-      const points = built.slots.map((minutes, index) => {
+      const pointItems = built.slots.map((minutes, index) => {
         const time = formatPresenceHourLabel(minutes / 60);
         const item = built.rows.find(row => row.day === day && row.time === time);
-        return `${xFor(index).toFixed(1)},${yFor(item?.metricValue || 0).toFixed(1)}`;
-      }).join(' ');
-      return `<polyline fill="none" stroke="${colors[dayIndex]}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="${points}"></polyline>`;
+        const value = item?.metricValue || 0;
+        const display = metricName === 'fillRate' && value ? `${value.toFixed(1)}%` : Math.round(value);
+        const tooltip = analyticsTooltip([
+          ['Day', day],
+          ['Time', time],
+          [metricDisplayLabel(metricName), display],
+          ['Sections', item?.sections || 0],
+          ['Seats', item?.seats || 0],
+          ['Enrollment', item?.enrollment || 0],
+          ['Student Presence', item?.studentPresence || 0],
+          ['Fill rate', item?.fillRate || '0.0%'],
+          ['Waitlist', item?.waitlist || 0],
+          ['Empty seats', item?.emptySeats || 0],
+          ['Modality scope', selectedModalityScopeLabel('sdModality')],
+          ['Campus', selectedFilterLabel('sdCampus')]
+        ]);
+        return { x: xFor(index), y: yFor(value), tooltip };
+      });
+      const points = pointItems.map(point => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+      const pointNodes = pointItems.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" fill="${colors[dayIndex]}" opacity="0.85"><title>${escapeAttr(point.tooltip)}</title></circle>`).join('');
+      return `<polyline fill="none" stroke="${colors[dayIndex]}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="${points}"></polyline>${pointNodes}`;
     }).join('');
     const xTicks = built.slots.filter((_, index) => index % 2 === 0).map((minutes, index) => {
       const slotIndex = built.slots.indexOf(minutes);
@@ -3666,15 +3725,47 @@
     if (!node) return;
     const topStudentRows = bucketRows.filter(row => row.studentPresence).slice().sort((a, b) => b.studentPresence - a.studentPresence).slice(0, 8);
     const maxPresence = Math.max(1, ...topStudentRows.map(row => row.studentPresence || 0));
-    const presenceBars = topStudentRows.map(row => `
-      <div class="busy-time-bar-row"><span>${escapeAttr(`${row.dayName} ${row.time}`)}</span><div><i style="width:${((row.studentPresence || 0) / maxPresence * 100).toFixed(1)}%"></i></div><strong>${Math.round(row.studentPresence || 0)}</strong></div>`).join('');
+    const presenceBars = topStudentRows.map(row => {
+      const tooltip = analyticsTooltip([
+        ['Day', row.dayName],
+        ['Time', row.time],
+        ['Student Presence', Math.round(row.studentPresence || 0)],
+        ['Sections', row.sections || 0],
+        ['Seats', row.seats || 0],
+        ['Enrollment', row.enrollment || 0],
+        ['Fill rate', row.fillRate || '0.0%'],
+        ['Waitlist', row.waitlist || 0],
+        ['Empty seats', row.emptySeats || 0],
+        ['Modality scope', selectedModalityScopeLabel('busyTimeModality')],
+        ['Campus', selectedFilterLabel('busyTimeCampus')]
+      ]);
+      return `<div class="busy-time-bar-row" title="${escapeAttr(tooltip)}"><span>${escapeAttr(`${row.dayName} ${row.time}`)}</span><div><i style="width:${((row.studentPresence || 0) / maxPresence * 100).toFixed(1)}%"></i></div><strong>${Math.round(row.studentPresence || 0)}</strong></div>`;
+    }).join('');
     const maxDuration = Math.max(1, ...durationRows.map(row => row.courses || 0));
-    const durationBars = durationRows.map(row => `
-      <div class="busy-time-bar-row"><span>${escapeAttr(row.duration)}</span><div><i style="width:${((row.courses || 0) / maxDuration * 100).toFixed(1)}%"></i></div><strong>${row.courses}</strong></div>`).join('');
+    const durationBars = durationRows.map(row => {
+      const tooltip = analyticsTooltip([
+        ['Metric', 'Course Duration'],
+        ['Time', row.duration],
+        ['Sections', row.courses || 0],
+        ['Enrollment', row.enrollment || 0],
+        ['Modality scope', selectedModalityScopeLabel('busyTimeModality')],
+        ['Campus', selectedFilterLabel('busyTimeCampus')]
+      ]);
+      return `<div class="busy-time-bar-row" title="${escapeAttr(tooltip)}"><span>${escapeAttr(row.duration)}</span><div><i style="width:${((row.courses || 0) / maxDuration * 100).toFixed(1)}%"></i></div><strong>${row.courses}</strong></div>`;
+    }).join('');
     const facultyPeakRows = facultyBuckets.filter(row => row.total).slice().sort((a, b) => b.total - a.total).slice(0, 8);
     const maxFaculty = Math.max(1, ...facultyPeakRows.map(row => row.total || 0));
-    const facultyBars = facultyPeakRows.map(row => `
-      <div class="busy-time-bar-row"><span>${escapeAttr(`${row.day} ${formatPresenceHourLabel(row.minutes / 60)}`)}</span><div><i style="width:${((row.total || 0) / maxFaculty * 100).toFixed(1)}%"></i></div><strong>${row.total}</strong></div>`).join('');
+    const facultyBars = facultyPeakRows.map(row => {
+      const tooltip = analyticsTooltip([
+        ['Day', row.day],
+        ['Time', formatPresenceHourLabel(row.minutes / 60)],
+        ['Faculty Count', row.total || 0],
+        ['Full-Time', row.fullTime || 0],
+        ['Part-Time', row.partTime || 0],
+        ['Campus', selectedFilterLabel('busyTimeCampus')]
+      ]);
+      return `<div class="busy-time-bar-row" title="${escapeAttr(tooltip)}"><span>${escapeAttr(`${row.day} ${formatPresenceHourLabel(row.minutes / 60)}`)}</span><div><i style="width:${((row.total || 0) / maxFaculty * 100).toFixed(1)}%"></i></div><strong>${row.total}</strong></div>`;
+    }).join('');
     node.innerHTML = `
       <section><h3>Student Presence Peaks</h3>${presenceBars || '<p class="analytics-empty">No student presence buckets.</p>'}</section>
       <section><h3>Course Duration Mix</h3>${durationBars || '<p class="analytics-empty">No fixed-duration courses.</p>'}</section>
@@ -3987,7 +4078,24 @@
         const heat = maxValue ? value / maxValue : 0;
         const level = value <= 0 ? 'empty' : heat >= 0.67 ? 'high' : heat >= 0.34 ? 'medium' : 'low';
         const display = metricName === 'fillRate' && value ? `${value.toFixed(0)}%` : Math.round(value);
-        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(`${day} ${formatPresenceHourLabel(minutes / 60)} ${display}`)}">${value ? display : ''}</td>`;
+        const tooltip = analyticsTooltip([
+          ['Day', day],
+          ['Time', formatPresenceHourLabel(minutes / 60)],
+          [metricDisplayLabel(metricName), display],
+          ['Unique courses', row?.uniqueCourses || 0],
+          ['Unique subjects', row?.uniqueSubjects || 0],
+          ['Unique CAL-GETC courses', row?.uniqueCalGetcCourses || 0],
+          ['Sections', row?.sections || 0],
+          ['Seats', row?.seats || 0],
+          ['Enrollment', row?.enrollment || 0],
+          ['Fill rate', row?.fillRate || '0.0%'],
+          ['Waitlist', row?.waitlist || 0],
+          ['Empty seats', row?.emptySeats || 0],
+          ['Modality scope', selectedModalityScopeLabel('studentChoiceModality')],
+          ['Campus', selectedFilterLabel('studentChoiceCampus')],
+          ['Faculty type', selectedFilterLabel('studentChoiceFacultyType')]
+        ]);
+        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
       }).join('');
       return `<tr><th>${day}</th>${cells}</tr>`;
     }).join('');
@@ -4014,11 +4122,32 @@
     const xFor = index => left + (slots.length <= 1 ? 0 : index / (slots.length - 1) * usableWidth);
     const yFor = value => top + usableHeight - (value / maxValue * usableHeight);
     const lines = dayNames.map((day, dayIndex) => {
-      const points = slots.map((minutes, index) => {
+      const pointItems = slots.map((minutes, index) => {
         const item = rows.find(row => row.day === day && row.minutes === minutes);
-        return `${xFor(index).toFixed(1)},${yFor(item?.metricValue || 0).toFixed(1)}`;
-      }).join(' ');
-      return `<polyline fill="none" stroke="${colors[dayIndex]}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="${points}"></polyline>`;
+        const value = item?.metricValue || 0;
+        const display = metricName === 'fillRate' && value ? `${value.toFixed(1)}%` : Math.round(value);
+        const tooltip = analyticsTooltip([
+          ['Day', day],
+          ['Time', formatPresenceHourLabel(minutes / 60)],
+          [metricDisplayLabel(metricName), display],
+          ['Unique courses', item?.uniqueCourses || 0],
+          ['Unique subjects', item?.uniqueSubjects || 0],
+          ['Unique CAL-GETC courses', item?.uniqueCalGetcCourses || 0],
+          ['Sections', item?.sections || 0],
+          ['Seats', item?.seats || 0],
+          ['Enrollment', item?.enrollment || 0],
+          ['Fill rate', item?.fillRate || '0.0%'],
+          ['Waitlist', item?.waitlist || 0],
+          ['Empty seats', item?.emptySeats || 0],
+          ['Modality scope', selectedModalityScopeLabel('studentChoiceModality')],
+          ['Campus', selectedFilterLabel('studentChoiceCampus')],
+          ['Faculty type', selectedFilterLabel('studentChoiceFacultyType')]
+        ]);
+        return { x: xFor(index), y: yFor(value), tooltip };
+      });
+      const points = pointItems.map(point => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+      const pointNodes = pointItems.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" fill="${colors[dayIndex]}" opacity="0.85"><title>${escapeAttr(point.tooltip)}</title></circle>`).join('');
+      return `<polyline fill="none" stroke="${colors[dayIndex]}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="${points}"></polyline>${pointNodes}`;
     }).join('');
     const xTicks = slots.filter((_, index) => index % 2 === 0).map(minutes => {
       const slotIndex = slots.indexOf(minutes);
@@ -6224,7 +6353,18 @@
           tooltip: {
             enabled: true,
             callbacks: {
-              label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}`
+              title: items => {
+                const item = items?.[0];
+                if (!item) return '';
+                const dataset = item.dataset || {};
+                return `${dataset.presenceDay || dataset.label || ''} ${item.label || ''}`.trim();
+              },
+              label: ctx => [
+                `Estimated Students Present: ${ctx.parsed.y || 0}`,
+                `Term/source: ${ctx.dataset.presenceTerm || 'Selected terms'}`,
+                `Campus: ${selectedFilterLabel('spCampusScope', 'All COS/HAC/TCC')}`,
+                `Modality scope: ${document.getElementById('spIncludeOtherModalities')?.checked ? 'In-Person, Hybrid, Other selected modalities' : 'In-Person, Hybrid'}`
+              ]
             }
           }
         },
@@ -8318,6 +8458,45 @@
 
   function safeDiv(a, b) {
     return b ? a / b : 0;
+  }
+
+  function analyticsTooltip(fields) {
+    return (fields || [])
+      .filter(([_, value]) => value !== undefined && value !== null && value !== '')
+      .map(([label, value]) => `${label}: ${value}`)
+      .join('\n');
+  }
+
+  function selectedFilterLabel(id, fallback = 'All') {
+    const node = typeof document !== 'undefined' ? document.getElementById(id) : null;
+    if (!node) return fallback;
+    if (node.multiple) {
+      const values = selectedOptionValues(node);
+      return values.length ? values.join(', ') : fallback;
+    }
+    return node.value || fallback;
+  }
+
+  function selectedModalityScopeLabel(id, defaultLabels = PHYSICAL_MODALITY_LABELS) {
+    return [...selectedModalityLabels(id, defaultLabels)].join(', ') || 'None';
+  }
+
+  function metricDisplayLabel(metricName) {
+    const labels = {
+      sections: 'Sections',
+      facultyCount: 'Faculty Count',
+      enrollment: 'Enrollment',
+      seats: 'Seats',
+      lhe: 'LHE',
+      studentPresence: 'Student Presence',
+      fillRate: 'Fill Rate',
+      waitlist: 'Waitlist',
+      emptySeats: 'Empty Seats',
+      uniqueCourses: 'Unique Courses',
+      uniqueSubjects: 'Unique Subjects',
+      uniqueCalGetcCourses: 'Unique CAL-GETC Courses'
+    };
+    return labels[metricName] || label(metricName);
   }
 
   function metric(id, items) {

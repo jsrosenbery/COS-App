@@ -2395,6 +2395,19 @@ test('student presence graph uses course duration line chart pattern inside pres
   assert.match(text, /Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday/);
 });
 
+test('development report visuals expose concise hover tooltips', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /function analyticsTooltip/);
+  assert.match(text, /Modality scope/);
+  assert.match(text, /Faculty type/);
+  assert.match(text, /Meeting type/);
+  assert.match(text, /title="\$\{escapeAttr\(tooltip\)\}"/);
+  assert.match(text, /<title>\$\{escapeAttr\(point\.tooltip\)\}<\/title>/);
+  assert.match(text, /Estimated Students Present: \$\{ctx\.parsed\.y \|\| 0\}/);
+  assert.match(text, /Campus: \$\{selectedFilterLabel\('spCampusScope'/);
+});
+
 test('dashboard compact tables use short headers and nowrap CSS', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
