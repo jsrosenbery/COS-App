@@ -2171,17 +2171,24 @@ test('modality balance uses shared three-category modality normalization and dia
   assert.match(app, /const terms = \[\.\.\.new Set\(rows\.map\(getSectionTerm\)/);
   assert.match(app, /function getModalityComparisonTerms/);
   assert.match(app, /function getModalityComparisonSourceRows/);
+  assert.match(app, /const matchingSourceRows = sourceRows\.filter\(row => termMatches\(getSectionTerm\(row\), term\)\)/);
+  assert.match(app, /return archiveRows;/);
   assert.match(app, /resetSelect\(select, comparisonTerms, 'None', ''\)/);
   assert.match(app, /calculateModalityBalance\(\{ term, sourceRows: getModalityComparisonSourceRows\(term\) \}\)/);
+  assert.match(app, /const sourceRows = options\.sourceRows \|\| getModalitySourceRows\(\)/);
   assert.match(app, /selectedValues\(modalityCampusSelect\)/);
   assert.match(app, /selectedValues\(modalityCourseSelect\)/);
   assert.match(app, /selectedValues\(modalityModalitySelect\)/);
   assert.match(app, /function modalityFilteredSections/);
+  assert.match(app, /function getModalitySectionIdentity/);
   assert.match(app, /function modalityCourseComparisonRows/);
   assert.match(app, /function renderModalityCourseComparisonTable/);
   assert.match(app, /function modalityCourseComparisonExportRows/);
-  assert.match(app, /modalityPieCard\('Class Count Mix'/);
-  assert.match(app, /modalityPieCard\('Enrollment Mix'/);
+  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Class Count Mix`/);
+  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Enrollment Mix`/);
+  assert.match(app, /function modalityMixGraphData/);
+  assert.match(app, /className = 'modality-mix-bars'/);
+  assert.doesNotMatch(app, /sections, \$\{Math\.round\(row\.share \* 100\)\}%; \$\{row\.enrollment\} enrollment/);
   assert.match(app, /function exportModalityBalance/);
   assert.match(app, /modalityExportBtn\.addEventListener\('click', exportModalityBalance\)/);
   assert.match(app, /Graph Data/);
@@ -2193,6 +2200,9 @@ test('modality balance uses shared three-category modality normalization and dia
   assert.match(app, /Focus term minus comparison term by unique CRN course\/modality grouping/);
   assert.match(app, /signedPctChange/);
   assert.match(app, /Current Loaded Term/);
+  assert.match(app, /modalityBalanceTestHooks/);
+  assert.match(app, /normalizeTermLabel\(canonical\.term\)/);
+  assert.match(app, /CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL/);
 });
 
 test('instructional method validation is available in Development reports', () => {

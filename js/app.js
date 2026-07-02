@@ -843,7 +843,14 @@ document.addEventListener('DOMContentLoaded', () => {
     renderModalityBalance: () => renderModalityTool(),
     renderRoomFitReport: () => renderRoomFitReport().catch(err => alert(err.message || 'Room Fit Analysis failed.')),
     renderRoomFitReportTable: () => renderRoomFitReportTable(),
-    exportRoomFitReport: () => exportRoomFitReport()
+    exportRoomFitReport: () => exportRoomFitReport(),
+    modalityBalanceTestHooks: {
+      normalizeTermLabel,
+      termMatches,
+      getEnrollmentValue,
+      getModalitySectionIdentity,
+      modalityMixGraphData
+    }
   };
 
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
@@ -3153,6 +3160,14 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     ].filter(Boolean).join('|') || `ROW:${index}`;
   }
 
+  function getModalitySectionIdentity(section, index) {
+    const canonical = getCanonicalSection(section);
+    const term = canonical?.term ? normalizeTermLabel(canonical.term) : getSectionTerm(section);
+    const crn = canonical?.crn || extractField(section, ['CRN', 'Course Reference Number', 'crn']);
+    if (crn) return `${term || 'UNKNOWN'}|CRN:${crn}`;
+    return getSectionIdentity(section, index);
+  }
+
   function getDivision(section) {
     return extractField(section, ['Division', 'Academic Division', 'Department Division', 'School', 'Area']);
   }
@@ -3181,9 +3196,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function getModalityComparisonSourceRows(term = '') {
     if (!term) return getModalitySourceRows();
     const sourceRows = getModalitySourceRows();
-    if (sourceRows.some(row => termMatches(getSectionTerm(row), term))) return sourceRows;
+    const matchingSourceRows = sourceRows.filter(row => termMatches(getSectionTerm(row), term));
+    if (matchingSourceRows.length) return matchingSourceRows;
     const archiveRows = modalityArchiveRows.filter(row => termMatches(getSectionTerm(row), term));
-    return archiveRows.length ? archiveRows : sourceRows;
+    return archiveRows;
   }
 
   function normalizeTermLabel(value) {
@@ -3305,7 +3321,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     let tutoringOpenLabRowsExcluded = 0;
     const seenSections = new Set();
     const rows = [];
-    const sourceRows = getModalitySourceRows();
+    const sourceRows = options.sourceRows || getModalitySourceRows();
 
     sourceRows.forEach((section, index) => {
       const canonical = getCanonicalSection(section);
@@ -3329,7 +3345,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (!valueMatchesAny(courseLevel, selectedLevel)) return;
       if (!sectionMatchesCalGetc(section, selectedCalGetc)) return;
 
-      const identity = getSectionIdentity(section, index);
+      const identity = getModalitySectionIdentity(section, index);
       if (seenSections.has(identity)) return;
       seenSections.add(identity);
 
@@ -3434,20 +3450,6 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     renderModalityPieCharts(rows);
 
     rows.forEach(row => {
-      const bar = document.createElement('div');
-      bar.className = 'modality-bar';
-      const label = document.createElement('div');
-      label.className = 'modality-bar-label';
-      label.textContent = `${row.category} (${row.count} sections, ${Math.round(row.share * 100)}%; ${row.enrollment} enrollment, ${Math.round(row.enrollmentShare * 100)}%)`;
-      const track = document.createElement('div');
-      track.className = 'modality-bar-track';
-      const fill = document.createElement('div');
-      fill.className = `modality-bar-fill ${row.category.toLowerCase().replace(/\s+/g, '-')}`;
-      fill.style.width = `${Math.max(row.share * 100, 2)}%`;
-      track.appendChild(fill);
-      bar.append(label, track);
-      modalityChart.appendChild(bar);
-
       if (tbody) {
         const tr = document.createElement('tr');
         [row.category, row.count, row.enrollment, `${(row.share * 100).toFixed(1)}%`, `${(row.enrollmentShare * 100).toFixed(1)}%`].forEach(value => {
@@ -3818,49 +3820,55 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function renderModalityPieCharts(rows) {
     if (!modalityChart) return;
-    const existingBars = Array.from(modalityChart.children);
     modalityChart.replaceChildren();
     const charts = document.createElement('div');
     charts.className = 'modality-pie-grid';
     charts.append(
-      modalityPieCard('Class Count Mix', 'Share of unique CRNs by modality for the current loaded/selected focus term.', rows, 'count', 'share'),
-      modalityPieCard('Enrollment Mix', 'Share of enrollment by modality for the current loaded/selected focus term.', rows, 'enrollment', 'enrollmentShare')
+      modalityPieCard(`${modalityTermLabel()} Class Count Mix`, 'Unique CRNs by modality for the selected focus term.', rows, 'count', 'share'),
+      modalityPieCard(`${modalityTermLabel()} Enrollment Mix`, 'Enrollment by modality using census enrollment first, then actual/current enrollment.', rows, 'enrollment', 'enrollmentShare')
     );
     modalityChart.appendChild(charts);
-    existingBars.forEach(bar => modalityChart.appendChild(bar));
   }
 
   function modalityPieCard(title, description, rows, metricKey, shareKey) {
     const card = document.createElement('section');
     card.className = 'modality-pie-card';
-    const sortedRows = rows.filter(row => row[metricKey] > 0);
-    let cursor = 0;
-    const segments = sortedRows.map(row => {
-      const start = cursor;
-      const end = cursor + row[shareKey] * 100;
-      cursor = end;
-      return `${modalityColor(row.category)} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
-    });
-    const pie = document.createElement('div');
-    pie.className = 'modality-pie';
-    pie.style.background = segments.length ? `conic-gradient(${segments.join(', ')})` : 'rgba(32, 66, 96, 0.12)';
-    const content = document.createElement('div');
+    const graphRows = modalityMixGraphData(rows, metricKey, shareKey);
     const heading = document.createElement('h3');
     heading.textContent = title;
     const body = document.createElement('p');
     body.textContent = description;
-    const legend = document.createElement('div');
-    legend.className = 'modality-pie-legend';
-    sortedRows.forEach(row => {
-      const item = document.createElement('span');
-      const swatch = document.createElement('i');
-      swatch.style.background = modalityColor(row.category);
-      item.append(swatch, document.createTextNode(`${row.category}: ${row[metricKey]} (${(row[shareKey] * 100).toFixed(1)}%)`));
-      legend.appendChild(item);
+    const graph = document.createElement('div');
+    graph.className = 'modality-mix-bars';
+    graphRows.forEach(row => {
+      const line = document.createElement('div');
+      line.className = 'modality-mix-row';
+      const label = document.createElement('div');
+      label.className = 'modality-mix-label';
+      label.innerHTML = `<span>${escapeHTML(row.category)}</span><strong>${row.value} (${row.percentLabel})</strong>`;
+      const track = document.createElement('div');
+      track.className = 'modality-bar-track';
+      const fill = document.createElement('div');
+      fill.className = `modality-bar-fill ${row.category.toLowerCase().replace(/\s+/g, '-')}`;
+      fill.style.width = `${Math.max(row.share * 100, row.value ? 2 : 0)}%`;
+      fill.style.background = modalityColor(row.category);
+      track.appendChild(fill);
+      line.append(label, track);
+      graph.appendChild(line);
     });
-    content.append(heading, body, legend);
-    card.append(pie, content);
+    card.append(heading, body, graph);
     return card;
+  }
+
+  function modalityMixGraphData(rows, metricKey, shareKey) {
+    return rows
+      .filter(row => (row[metricKey] || 0) > 0)
+      .map(row => ({
+        category: row.category,
+        value: row[metricKey] || 0,
+        share: row[shareKey] || 0,
+        percentLabel: `${((row[shareKey] || 0) * 100).toFixed(1)}%`
+      }));
   }
 
   function signedNumber(value) {
