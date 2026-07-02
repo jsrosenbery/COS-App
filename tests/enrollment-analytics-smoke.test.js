@@ -1694,28 +1694,40 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   const reportOrderEnd = text.indexOf('];', reportOrderStart);
   const reportOrderBlock = text.slice(reportOrderStart, reportOrderEnd);
 
-  assert.match(text, /REPORT_GROUP_ORDER = \['dean', 'em', 'admin', 'development'\]/);
+  assert.match(text, /const REPORT_WORKFLOW_GROUPS = \[/);
+  assert.match(text, /label: 'Dean \/ Schedule Analysis'/);
+  assert.match(text, /label: 'Enrollment Management'/);
+  assert.match(text, /label: 'Development'/);
+  assert.match(text, /label: 'Admin'/);
   assert.match(text, /function reportGroupsHtml/);
   assert.match(text, /class="em-report-groups"/);
   assert.match(text, /class="em-report-button"/);
-  assert.match(text, /data-report-role="\$\{role\}"/);
+  assert.match(text, /data-report-role="\$\{group\.key\}"/);
+  assert.match(text, /data-required-role="\$\{REPORT_ACCESS\[report\] \|\| 'general'\}"/);
   assert.match(text, /id="emReportSelect" hidden/);
   [
-    'REPORTS.archiveInspection',
-    'REPORTS.snapshotManager',
-    'REPORTS.workExperience',
-    'REPORTS.duration',
-    'REPORTS.dashboard',
     'REPORTS.heatmap',
-    'REPORTS.instructorAvailability',
+    'REPORTS.duration',
+    'REPORTS.studentPresence',
+    'REPORTS.utilization',
+    'REPORTS.roomFit',
     'REPORTS.modality',
-    'REPORTS.conflictCheck',
+    'REPORTS.instructorAvailability',
+    'REPORTS.dashboard',
     'REPORTS.attrition',
     'REPORTS.demand',
-    'REPORTS.roomFit',
-    'REPORTS.utilization',
     'REPORTS.consolidation',
-    'REPORTS.studentPresence'
+    'REPORTS.conflictCheck',
+    'REPORTS.facultyHeatmap',
+    'REPORTS.facultyModality',
+    'REPORTS.primeTimeAnalysis',
+    'REPORTS.supplyDemand',
+    'REPORTS.studentChoiceOpportunity',
+    'REPORTS.busyTimeDashboard',
+    'REPORTS.recommendationEngine',
+    'REPORTS.archiveInspection',
+    'REPORTS.snapshotManager',
+    'REPORTS.workExperience'
   ].reduce((lastIndex, report) => {
     const indexOfReport = reportOrderBlock.indexOf(report);
     assert.ok(indexOfReport > lastIndex, `${report} should appear in grouped report order`);

@@ -87,30 +87,77 @@
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
-  const REPORT_GROUP_ORDER = ['dean', 'em', 'admin', 'development'];
   const REPORT_ORDER = [
-    REPORTS.archiveInspection,
-    REPORTS.snapshotManager,
-    REPORTS.workExperience,
-    REPORTS.duration,
-    REPORTS.dashboard,
     REPORTS.heatmap,
-    REPORTS.instructorAvailability,
+    REPORTS.duration,
+    REPORTS.studentPresence,
+    REPORTS.utilization,
+    REPORTS.roomFit,
     REPORTS.modality,
-    REPORTS.conflictCheck,
+    REPORTS.instructorAvailability,
+    REPORTS.dashboard,
     REPORTS.attrition,
     REPORTS.demand,
-    REPORTS.roomFit,
-    REPORTS.utilization,
     REPORTS.consolidation,
-    REPORTS.studentPresence,
+    REPORTS.conflictCheck,
+    REPORTS.facultyHeatmap,
     REPORTS.facultyModality,
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
-    REPORTS.busyTimeDashboard,
     REPORTS.studentChoiceOpportunity,
+    REPORTS.busyTimeDashboard,
     REPORTS.recommendationEngine,
-    REPORTS.facultyHeatmap
+    REPORTS.archiveInspection,
+    REPORTS.snapshotManager,
+    REPORTS.workExperience
+  ];
+  const REPORT_WORKFLOW_GROUPS = [
+    {
+      key: 'schedule-analysis',
+      label: 'Dean / Schedule Analysis',
+      reports: [
+        REPORTS.heatmap,
+        REPORTS.duration,
+        REPORTS.studentPresence,
+        REPORTS.utilization,
+        REPORTS.roomFit,
+        REPORTS.modality,
+        REPORTS.instructorAvailability
+      ]
+    },
+    {
+      key: 'enrollment-management',
+      label: 'Enrollment Management',
+      reports: [
+        REPORTS.dashboard,
+        REPORTS.attrition,
+        REPORTS.demand,
+        REPORTS.consolidation,
+        REPORTS.conflictCheck
+      ]
+    },
+    {
+      key: 'development',
+      label: 'Development',
+      reports: [
+        REPORTS.facultyHeatmap,
+        REPORTS.facultyModality,
+        REPORTS.primeTimeAnalysis,
+        REPORTS.supplyDemand,
+        REPORTS.studentChoiceOpportunity,
+        REPORTS.busyTimeDashboard,
+        REPORTS.recommendationEngine
+      ]
+    },
+    {
+      key: 'admin',
+      label: 'Admin',
+      reports: [
+        REPORTS.archiveInspection,
+        REPORTS.snapshotManager,
+        REPORTS.workExperience
+      ]
+    }
   ];
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
   const ROLE_STORAGE_KEY = 'cos-access-role';
@@ -1077,19 +1124,19 @@
   }
 
   function reportGroupsHtml() {
-    return REPORT_GROUP_ORDER.map(role => {
-      const reports = REPORT_ORDER.filter(report => (REPORT_ACCESS[report] || 'general') === role);
+    return REPORT_WORKFLOW_GROUPS.map(group => {
+      const reports = group.reports.filter(report => REPORT_ORDER.includes(report));
       const buttons = reports.length
         ? reports.map(report => `
-            <button type="button" class="em-report-button" data-report-target="${report}" data-required-role="${role}">
+            <button type="button" class="em-report-button" data-report-target="${report}" data-required-role="${REPORT_ACCESS[report] || 'general'}">
               <span>${escapeAttr(lockedReportLabel(report))}</span>
-              <small>${canAccess(report) ? escapeAttr(ROLE_LABEL[role]) : 'Locked - unlock to view name'}</small>
+              <small>${canAccess(report) ? escapeAttr(ROLE_LABEL[REPORT_ACCESS[report] || 'general']) : 'Locked - unlock to view name'}</small>
             </button>
           `).join('')
         : '<p class="em-report-empty">No reports assigned.</p>';
       return `
-        <section class="em-report-group" data-report-role="${role}">
-          <h3>${escapeAttr(ROLE_LABEL[role])}</h3>
+        <section class="em-report-group" data-report-role="${group.key}">
+          <h3>${escapeAttr(group.label)}</h3>
           <div class="em-report-button-list">${buttons}</div>
         </section>
       `;
