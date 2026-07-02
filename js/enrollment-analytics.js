@@ -16,6 +16,7 @@
     instructorAvailability: 'instructor-availability',
     facultyHeatmap: 'faculty-schedule-heatmap',
     facultyModality: 'faculty-modality',
+    instructionalMethodValidation: 'instructional-method-validation',
     primeTimeAnalysis: 'prime-time-analysis',
     supplyDemand: 'supply-demand-analysis',
     busyTimeDashboard: 'busy-time-dashboard',
@@ -56,6 +57,7 @@
     [REPORTS.consolidation]: 'em',
     [REPORTS.studentPresence]: 'em',
     [REPORTS.facultyModality]: 'development',
+    [REPORTS.instructionalMethodValidation]: 'development',
     [REPORTS.primeTimeAnalysis]: 'development',
     [REPORTS.supplyDemand]: 'development',
     [REPORTS.busyTimeDashboard]: 'development',
@@ -79,6 +81,7 @@
     [REPORTS.consolidation]: 'Section Consolidation Opportunities',
     [REPORTS.studentPresence]: 'Student Presence Analytics',
     [REPORTS.facultyModality]: 'Faculty Modality',
+    [REPORTS.instructionalMethodValidation]: 'Instructional Method Validation',
     [REPORTS.primeTimeAnalysis]: 'Prime Time Analysis',
     [REPORTS.supplyDemand]: 'Supply vs Demand',
     [REPORTS.busyTimeDashboard]: 'Busy Time Dashboard',
@@ -102,6 +105,7 @@
     REPORTS.conflictCheck,
     REPORTS.facultyHeatmap,
     REPORTS.facultyModality,
+    REPORTS.instructionalMethodValidation,
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
     REPORTS.studentChoiceOpportunity,
@@ -142,6 +146,7 @@
       reports: [
         REPORTS.facultyHeatmap,
         REPORTS.facultyModality,
+        REPORTS.instructionalMethodValidation,
         REPORTS.primeTimeAnalysis,
         REPORTS.supplyDemand,
         REPORTS.studentChoiceOpportunity,
@@ -200,6 +205,9 @@
     facultyModalityRows: [],
     facultyModalityTableRows: [],
     facultyModalityRan: false,
+    instructionalMethodValidationRows: [],
+    instructionalMethodValidationTableRows: [],
+    instructionalMethodValidationRan: false,
     primeTimeRows: [],
     primeTimeTableRows: [],
     primeTimeRan: false,
@@ -1667,6 +1675,42 @@
           <div id="facultyModalityTable" class="analytics-table"></div>
           <div id="facultyModalityLegend" class="analytics-legend"></div>
         </div>
+        <div id="instructionalMethodValidationReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Instructional Method Validation</h2>
+            <p>Shows how raw instructional method codes are mapped into In-Person, Hybrid, Online, Omitted, or Unknown before analytics calculations use them.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Upload Section Seating or Faculty Schedule CSV files, or select archived terms, then click Run Validation.</li>
+                  <li>Review unknown/unmapped codes before relying on modality, time-based, or physical-presence analytics.</li>
+                  <li>Export the table when a code needs to be reviewed or added to the shared modality map.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Methodology</h3>
+                <ul>
+                  <li>Raw codes come from Instructional Method, INSTRUCTIONAL_METHOD_CODE, or INSM_CODE_SSBSECT style fields.</li>
+                  <li>The shared modality normalizer maps each code to In-Person, Hybrid, Online, Omitted, or Unknown.</li>
+                  <li>Unknown and omitted codes are not allowed to silently enter standard analytics.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Validation CSV(s) <input id="instructionalMethodValidationCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveInstructionalMethodValidationUploads" type="button">Archive Uploads</button>
+            <label>Archived terms <select id="instructionalMethodValidationArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
+            <span id="instructionalMethodValidationStatus" class="analytics-note">No instructional method rows loaded.</span>
+            <button id="runInstructionalMethodValidation" type="button">Run Validation</button>
+            <button id="clearInstructionalMethodValidation" type="button">Clear</button>
+            <button id="exportInstructionalMethodValidation" type="button">Export CSV</button>
+          </div>
+          <div id="instructionalMethodValidationMetrics" class="analytics-metrics"></div>
+          <div id="instructionalMethodValidationTable" class="analytics-table"></div>
+          <div id="instructionalMethodValidationLegend" class="analytics-legend"></div>
+        </div>
         <div id="primeTimeAnalysisReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Prime Time Analysis</h2>
@@ -2985,6 +3029,148 @@
     });
     setModalitySelectValues('fmModality', REPORTABLE_MODALITY_LABELS);
     renderFacultyModality();
+  }
+
+  function instructionalMethodRawCode(row) {
+    if (window.COSModalityNormalizer?.extractInstructionalCode) {
+      const code = window.COSModalityNormalizer.extractInstructionalCode(row?.raw || row, row?.instructionalMethod || row?.insmCode || row?.modality || '');
+      return code || 'BLANK';
+    }
+    return canon(val(row?.raw || row || {}, fields.modality) || row?.instructionalMethod || row?.insmCode || row?.modality || '') || 'BLANK';
+  }
+
+  function instructionalMethodValidationCategory(code, row) {
+    const category = normalizeModality(code, row?.raw || row || { raw: { INSTRUCTIONAL_METHOD_CODE: code } });
+    return window.COSModalityNormalizer?.displayLabel
+      ? window.COSModalityNormalizer.displayLabel(category)
+      : displayModalityLabel(category, row);
+  }
+
+  function instructionalMethodIncludedByDefault(category) {
+    return category === 'In-Person' || category === 'Hybrid';
+  }
+
+  function instructionalMethodValidationRows(rows) {
+    const map = new Map();
+    (rows || []).forEach(row => {
+      const rawCode = instructionalMethodRawCode(row);
+      const category = instructionalMethodValidationCategory(rawCode, row);
+      const key = `${rawCode}|${category}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          rawInstructionalMethodCode: rawCode,
+          normalizedModality: category,
+          rowCount: 0,
+          crns: new Set(),
+          courses: new Set(),
+          placeholderRows: 0
+        });
+      }
+      const bucket = map.get(key);
+      bucket.rowCount += 1;
+      if (row?.crn) bucket.crns.add(canon(row.crn));
+      const course = calGetcCourseCode(row) || row?.courseCode || [row?.subject, row?.course].filter(Boolean).join(' ');
+      if (course) bucket.courses.add(course);
+      if (isOnlinePlaceholderTime(row) || canon(row?.timeBlock) === 'ONLINE/TBA') bucket.placeholderRows += 1;
+    });
+    return [...map.values()].map(row => {
+      const isUnknown = row.normalizedModality === 'Unknown';
+      const isExcluded = row.normalizedModality === 'Omitted' || isUnknown;
+      const isPlaceholder = row.normalizedModality === 'Online' && row.placeholderRows > 0;
+      const flags = [
+        isUnknown ? 'Unknown/unmapped code' : '',
+        isExcluded ? 'Excluded from standard analytics' : '',
+        isPlaceholder ? 'Online/TBA placeholder detected' : ''
+      ].filter(Boolean);
+      return {
+        rawInstructionalMethodCode: row.rawInstructionalMethodCode,
+        normalizedModality: row.normalizedModality,
+        rowCount: row.rowCount,
+        crnCount: row.crns.size,
+        exampleCourses: [...row.courses].slice(0, 8).join('; '),
+        exampleCrns: [...row.crns].slice(0, 8).join('; '),
+        includedByDefaultInPhysicalTimeAnalysis: instructionalMethodIncludedByDefault(row.normalizedModality) ? 'Yes' : 'No',
+        flags: flags.join('; ') || 'Mapped',
+        highlight: isUnknown ? 'Unknown' : isExcluded ? 'Excluded' : isPlaceholder ? 'Online/TBA placeholder' : 'Mapped'
+      };
+    }).sort((a, b) =>
+      a.highlight.localeCompare(b.highlight) ||
+      a.normalizedModality.localeCompare(b.normalizedModality) ||
+      a.rawInstructionalMethodCode.localeCompare(b.rawInstructionalMethodCode, undefined, { numeric: true })
+    );
+  }
+
+  async function loadInstructionalMethodValidationRows() {
+    const uploadedRows = await readCsv(document.getElementById('instructionalMethodValidationCsv'), { sourceType: 'INSTRUCTIONAL_METHOD_VALIDATION_UPLOAD' });
+    const archivedRows = await readArchivedRows('instructionalMethodValidationArchiveTerms', { reportLabel: 'Instructional Method Validation' });
+    state.instructionalMethodValidationRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
+    return state.instructionalMethodValidationRows;
+  }
+
+  function renderInstructionalMethodValidation() {
+    const sourceRows = state.instructionalMethodValidationRows || [];
+    const tableRows = instructionalMethodValidationRows(sourceRows);
+    state.instructionalMethodValidationTableRows = tableRows;
+    const unknown = tableRows.filter(row => row.highlight === 'Unknown').length;
+    const excluded = tableRows.filter(row => row.highlight === 'Excluded').length;
+    const placeholders = tableRows.filter(row => row.highlight === 'Online/TBA placeholder').length;
+    metric('instructionalMethodValidationMetrics', [
+      ['Raw Codes', tableRows.length],
+      ['Rows Reviewed', sourceRows.length],
+      ['Unknown Codes', unknown],
+      ['Excluded Codes', excluded],
+      ['Online/TBA Placeholder Codes', placeholders]
+    ]);
+    table('instructionalMethodValidationTable', tableRows, [
+      'rawInstructionalMethodCode',
+      'normalizedModality',
+      'rowCount',
+      'crnCount',
+      'exampleCourses',
+      'exampleCrns',
+      'includedByDefaultInPhysicalTimeAnalysis',
+      'flags'
+    ]);
+    renderMethodologyPanel(document.getElementById('instructionalMethodValidationLegend'), {
+      title: 'Instructional Method Validation Methodology & Data Dictionary',
+      purpose: 'Shows which raw instructional method codes are mapped into In-Person, Hybrid, Online, Omitted, or Unknown before reports use them.',
+      metricsUsed: ['Raw instructional method code', 'Normalized modality', 'Count of rows', 'Count of CRNs', 'Included by default in physical time-based analysis'],
+      calculationRules: 'Rows are normalized with the shared TIMBER modality normalizer. Codes mapped to In-Person or Hybrid are included by default in physical time-based analysis. Online is excluded from physical time analysis unless selected. Omitted and Unknown are excluded from standard analytics and surfaced here for review.',
+      assumptions: 'Unknown/unmapped codes should be reviewed before relying on modality or physical-time analytics. Online rows with no fixed time or 00:00 placeholder time are treated as Online/TBA placeholders.',
+      limitations: 'This report validates code mapping and default inclusion behavior. It does not determine whether a course should be offered in a modality or whether a code is valid in Banner.',
+      items: [
+        ['Raw instructional method code', 'Original code from Instructional Method, INSTRUCTIONAL_METHOD_CODE, INSM_CODE_SSBSECT, or related source fields.'],
+        ['Normalized modality', 'Shared mapped category shown to users: In-Person, Hybrid, Online, Omitted, or Unknown.'],
+        ['Included by default in physical time-based analysis', 'Yes only for In-Person and Hybrid codes. Online, Omitted, and Unknown are excluded unless a report explicitly allows expansion.'],
+        ['Online/TBA placeholder detected', 'At least one row for the code uses Online/TBA or a 00:00 placeholder time block.']
+      ],
+      version: 'Methodology v1.0'
+    });
+    const status = document.getElementById('instructionalMethodValidationStatus');
+    if (status) status.textContent = `Loaded ${sourceRows.length} row(s); ${tableRows.length} instructional method code row(s).`;
+    state.instructionalMethodValidationRan = true;
+  }
+
+  async function runInstructionalMethodValidation() {
+    await loadInstructionalMethodValidationRows();
+    renderInstructionalMethodValidation();
+  }
+
+  function clearInstructionalMethodValidation() {
+    state.instructionalMethodValidationRows = [];
+    state.instructionalMethodValidationTableRows = [];
+    metric('instructionalMethodValidationMetrics', [
+      ['Raw Codes', 0],
+      ['Rows Reviewed', 0],
+      ['Unknown Codes', 0],
+      ['Excluded Codes', 0],
+      ['Online/TBA Placeholder Codes', 0]
+    ]);
+    document.getElementById('instructionalMethodValidationTable').innerHTML = '<p class="analytics-empty">No instructional method validation has been run.</p>';
+    document.getElementById('instructionalMethodValidationLegend').innerHTML = '';
+    const status = document.getElementById('instructionalMethodValidationStatus');
+    if (status) status.textContent = 'No instructional method rows loaded.';
+    state.instructionalMethodValidationRan = false;
   }
 
   function primeTimeDefinition() {
@@ -4858,6 +5044,7 @@
       setSelectOptions('spArchiveTerms', options);
       setSelectOptions('conflictArchiveTerms', options);
       setSelectOptions('roomFitArchiveTerms', options);
+      setSelectOptions('instructionalMethodValidationArchiveTerms', options);
       setSelectOptions('sdArchiveTerms', options);
       setSelectOptions('busyTimeArchiveTerms', options);
       setSelectOptions('studentChoiceArchiveTerms', options);
@@ -8636,8 +8823,16 @@
     const display = rows.slice(0, 500);
     document.getElementById(id).innerHTML = display.length ? `
       <table><thead><tr>${columns.map((c, index) => `<th><button type="button" class="analytics-sort" data-column="${index}" aria-label="Sort by ${label(c)}">${label(c)} <span aria-hidden="true"></span></button></th>`).join('')}</tr></thead>
-      <tbody>${display.map((row) => `<tr>${columns.map((c) => `<td data-sort="${escapeAttr(sortValue(row[c], c))}">${format(row[c], c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` :
+      <tbody>${display.map((row) => `<tr class="${validationRowClass(row)}">${columns.map((c) => `<td data-sort="${escapeAttr(sortValue(row[c], c))}">${format(row[c], c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` :
       '<p class="analytics-empty">No rows match the selected criteria.</p>';
+  }
+
+  function validationRowClass(row) {
+    const highlight = canon(row?.highlight);
+    if (highlight === 'UNKNOWN') return 'analytics-row-warning';
+    if (highlight === 'EXCLUDED') return 'analytics-row-muted';
+    if (highlight === 'ONLINE/TBA PLACEHOLDER') return 'analytics-row-info';
+    return '';
   }
 
   function escapeAttr(value) {
@@ -9021,6 +9216,14 @@
       missingStartCrns: 'Missing Start CRNs',
       missingEndCrns: 'Missing End CRNs',
       note: 'Note',
+      rawInstructionalMethodCode: 'Raw Instructional Method Code',
+      normalizedModality: 'Normalized Modality',
+      rowCount: 'Rows',
+      crnCount: 'Distinct CRNs',
+      exampleCourses: 'Example Courses',
+      exampleCrns: 'Example CRNs',
+      includedByDefaultInPhysicalTimeAnalysis: 'Included by Default in Physical Time Analysis',
+      flags: 'Validation Flags',
       choiceDiversityIndex: 'Choice Diversity Index',
       subject: 'Discipline',
       decisionTerm: 'Decision Term',
@@ -9509,6 +9712,7 @@
     setReportDisplay(REPORTS.studentPresence, 'studentPresenceReport');
     setReportDisplay(REPORTS.instructorAvailability, 'instructorAvailabilityReport');
     setReportDisplay(REPORTS.facultyModality, 'facultyModalityReport');
+    setReportDisplay(REPORTS.instructionalMethodValidation, 'instructionalMethodValidationReport');
     setReportDisplay(REPORTS.primeTimeAnalysis, 'primeTimeAnalysisReport');
     setReportDisplay(REPORTS.supplyDemand, 'supplyDemandReport');
     setReportDisplay(REPORTS.busyTimeDashboard, 'busyTimeDashboardReport');
@@ -9588,6 +9792,9 @@
     if (selected === REPORTS.facultyModality) {
       updateFacultyModalityFilterOptions();
       renderFacultyModality();
+    }
+    if (selected === REPORTS.instructionalMethodValidation && !state.instructionalMethodValidationRan) {
+      clearInstructionalMethodValidation();
     }
     if (selected === REPORTS.primeTimeAnalysis) {
       updatePrimeTimeFilterOptions();
@@ -9682,6 +9889,9 @@
       .analytics-metrics div{border:1px solid #d8e1ec;border-radius:8px;padding:12px;background:#f8fbff}
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
       .analytics-metrics span{font-size:12px;color:#51657c;text-transform:uppercase}
+      .analytics-table tr.analytics-row-warning td{background:#fff7ed;color:#7c2d12;font-weight:800}
+      .analytics-table tr.analytics-row-muted td{background:#f3f4f6;color:#4b5563}
+      .analytics-table tr.analytics-row-info td{background:#eff6ff;color:#1e3a8a}
       #roomFitReportMetrics button.room-fit-card{border:1px solid #f59e0b;border-radius:18px;padding:14px 16px;background:linear-gradient(135deg,#fff7ed,#fed7aa);box-shadow:0 8px 18px rgba(180,83,9,.16);cursor:pointer;text-align:center}
       #roomFitReportMetrics button.room-fit-card strong{display:block;font-size:24px;color:#7c2d12}
       #roomFitReportMetrics button.room-fit-card span{display:block;margin-top:4px;color:#9a3412;font-size:12px;font-weight:900;letter-spacing:.03em;text-transform:uppercase}
@@ -10020,6 +10230,12 @@
     });
     document.getElementById('clearFacultyModality')?.addEventListener('click', clearFacultyModality);
     document.getElementById('exportFacultyModality')?.addEventListener('click', () => exportRowsWithoutMethodology(state.facultyModalityTableRows, 'faculty-modality.csv'));
+    document.getElementById('runInstructionalMethodValidation')?.addEventListener('click', () => runInstructionalMethodValidation().catch(err => alert(err.message || 'Instructional Method Validation failed.')));
+    document.getElementById('instructionalMethodValidationCsv')?.addEventListener('change', () => runInstructionalMethodValidation().catch(err => console.warn(err)));
+    document.getElementById('instructionalMethodValidationArchiveTerms')?.addEventListener('change', () => runInstructionalMethodValidation().catch(err => console.warn(err)));
+    document.getElementById('archiveInstructionalMethodValidationUploads')?.addEventListener('click', () => archiveUploads('instructionalMethodValidationCsv').catch(err => alert(err.message || 'Archive failed.')));
+    document.getElementById('clearInstructionalMethodValidation')?.addEventListener('click', clearInstructionalMethodValidation);
+    document.getElementById('exportInstructionalMethodValidation')?.addEventListener('click', () => exportRowsWithoutMethodology(state.instructionalMethodValidationTableRows, 'instructional-method-validation.csv'));
     document.getElementById('loadPrimeTimeAnalysis')?.addEventListener('click', () => loadPrimeTimeAnalysis().catch(err => alert(err.message || 'Prime Time Analysis load failed.')));
     document.getElementById('primeTimeCsv')?.addEventListener('change', () => loadPrimeTimeAnalysis().catch(err => console.warn(err)));
     ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd', 'ptModality'].forEach(id => {
@@ -10177,6 +10393,7 @@
     buildSupplyDemandBuckets,
     buildStudentChoiceBuckets,
     buildSchedulingRecommendations,
+    instructionalMethodValidationRows,
     buildFacultyHeatmapBuckets,
     primeTimeAnalysisRows,
     tutoringOpenLabConfig: TUTORING_OPEN_LAB_CONFIG,

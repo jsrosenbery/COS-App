@@ -2195,6 +2195,59 @@ test('modality balance uses shared three-category modality normalization and dia
   assert.match(app, /Current Loaded Term/);
 });
 
+test('instructional method validation is available in Development reports', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  assert.match(app, /instructionalMethodValidation: 'instructional-method-validation'/);
+  assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'development'/);
+  assert.match(app, /Instructional Method Validation/);
+  assert.match(app, /id="instructionalMethodValidationReport"/);
+  assert.match(app, /id="instructionalMethodValidationCsv"/);
+  assert.match(app, /id="instructionalMethodValidationArchiveTerms"/);
+  assert.match(app, /id="runInstructionalMethodValidation"/);
+  assert.match(app, /id="exportInstructionalMethodValidation"/);
+  assert.match(app, /setReportDisplay\(REPORTS\.instructionalMethodValidation, 'instructionalMethodValidationReport'\)/);
+  assert.match(app, /instructional-method-validation\.csv/);
+  assert.match(app, /Unknown\/unmapped code/);
+  assert.match(app, /Online\/TBA placeholder detected/);
+});
+
+test('instructional method validation surfaces unknown codes instead of silently including them', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2026',
+      CRN: '90001',
+      Subject: 'HIST',
+      Course: '018',
+      INSTRUCTIONAL_METHOD_CODE: 'ZZZ',
+      'Instructional Method': 'ZZZ',
+      CENSUS_ENROLL: '22',
+      ACTUAL_ENROLL: '24'
+    }),
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2026',
+      CRN: '90002',
+      Subject: 'ENGL',
+      Course: 'C1000',
+      INSTRUCTIONAL_METHOD_CODE: 'IP',
+      'Instructional Method': 'IP',
+      CENSUS_ENROLL: '30'
+    })
+  ];
+  const validation = COSEnrollmentAnalytics.instructionalMethodValidationRows(rows);
+  const unknown = validation.find(row => row.rawInstructionalMethodCode === 'ZZZ');
+  const inPerson = validation.find(row => row.rawInstructionalMethodCode === 'IP');
+
+  assert.equal(unknown.normalizedModality, 'Unknown');
+  assert.equal(unknown.rowCount, 1);
+  assert.equal(unknown.crnCount, 1);
+  assert.equal(unknown.includedByDefaultInPhysicalTimeAnalysis, 'No');
+  assert.match(unknown.flags, /Unknown\/unmapped code/);
+  assert.match(unknown.flags, /Excluded from standard analytics/);
+  assert.equal(inPerson.normalizedModality, 'In-Person');
+  assert.equal(inPerson.includedByDefaultInPhysicalTimeAnalysis, 'Yes');
+});
+
 test('requested analytics regression coverage is represented in smoke tests', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
