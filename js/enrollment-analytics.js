@@ -1881,6 +1881,7 @@
               <select id="studentChoiceMetric">
                 <option value="uniqueCourses">Unique courses</option>
                 <option value="uniqueCalGetcCourses">Unique CAL-GETC courses</option>
+                <option value="choiceDiversityIndex">Choice Diversity Index</option>
                 <option value="seats">Seats offered</option>
                 <option value="enrollment">Enrollment present</option>
                 <option value="fillRate">Fill rate</option>
@@ -3590,6 +3591,20 @@
     return row.census == null ? row.actual || 0 : row.census || 0;
   }
 
+  function choiceDiversityIndex({ uniqueCourses = 0, uniqueSubjects = 0, uniqueCalGetcCourses = 0, sections = 0, maxCourseSections = 0 } = {}) {
+    if (!sections || !uniqueCourses) return 0;
+    const breadth = uniqueCourses * 0.5 + uniqueSubjects * 0.3 + uniqueCalGetcCourses * 0.2;
+    const breadthScore = Math.min(1, breadth / 8);
+    const concentrationShare = Math.min(1, safeDiv(maxCourseSections || 0, sections));
+    const distributionScore = 1 - concentrationShare;
+    const concentrationAdjusted = 0.35 + distributionScore * 0.65;
+    return Math.round(Math.max(0, Math.min(1, breadthScore * concentrationAdjusted)) * 100);
+  }
+
+  function maxCourseCount(courseCounts) {
+    return Math.max(0, ...[...(courseCounts?.values?.() || [])]);
+  }
+
   function busyTimeFixedRows(rows, options = {}) {
     return physicalIntervalRows(rows, options);
   }
@@ -3614,12 +3629,18 @@
         waitlist: 0,
         emptySeats: 0,
         roomMinutes: 0,
+        courses: new Set(),
+        subjects: new Set(),
+        calGetcCourses: new Set(),
+        courseCounts: new Map(),
         seen: new Set()
       }));
     });
+    const calGetcCodes = studentChoiceCalGetcCodes();
     fixedRows.forEach(row => {
       const start = minutesFromTime(row.start);
       const end = minutesFromTime(row.end);
+      const courseCode = calGetcCourseCode(row);
       row.days.forEach(day => {
         slots.forEach(minutes => {
           if (end <= minutes || start >= minutes + 30) return;
@@ -3637,11 +3658,27 @@
           cell.waitlist += row.waitlist || 0;
           cell.emptySeats += Math.max(0, seats - enrollment);
           cell.roomMinutes += Math.min(end, minutes + 30) - Math.max(start, minutes);
+          if (courseCode) {
+            cell.courses.add(courseCode);
+            cell.courseCounts.set(courseCode, (cell.courseCounts.get(courseCode) || 0) + 1);
+          }
+          if (row.subject) cell.subjects.add(canon(row.subject));
+          if (calGetcCodes.has(courseCode)) cell.calGetcCourses.add(courseCode);
         });
       });
     });
     return [...map.values()].map(row => ({
       ...row,
+      uniqueCourses: row.courses.size,
+      uniqueSubjects: row.subjects.size,
+      uniqueCalGetcCourses: row.calGetcCourses.size,
+      choiceDiversityIndex: choiceDiversityIndex({
+        uniqueCourses: row.courses.size,
+        uniqueSubjects: row.subjects.size,
+        uniqueCalGetcCourses: row.calGetcCourses.size,
+        sections: row.sections,
+        maxCourseSections: maxCourseCount(row.courseCounts)
+      }),
       fillRateNumber: safeDiv(row.enrollment, row.seats),
       fillRate: `${(safeDiv(row.enrollment, row.seats) * 100).toFixed(1)}%`
     }));
@@ -3768,6 +3805,7 @@
         ['Day', row.dayName],
         ['Time', row.time],
         ['Student Presence', Math.round(row.studentPresence || 0)],
+        ['Choice Diversity Index', row.choiceDiversityIndex || 0],
         ['Sections', row.sections || 0],
         ['Seats', row.seats || 0],
         ['Enrollment', row.enrollment || 0],
@@ -3843,10 +3881,12 @@
     const facultyConcentration = busyTimeConcentration(facultyBuckets, 'total');
     const studentConcentration = busyTimeConcentration(bucketRows, 'studentPresence');
     const demandPressure = safeDiv(enrollment + waitlist, seats);
+    const peakChoiceDiversity = Math.max(0, ...bucketRows.map(row => row.choiceDiversityIndex || 0));
     metric('busyTimeMetrics', [
       ['Prime Time Score', `${(primeScore * 100).toFixed(1)}%`],
       ['Faculty Concentration', `${(facultyConcentration * 100).toFixed(1)}%`],
       ['Student Concentration', `${(studentConcentration * 100).toFixed(1)}%`],
+      ['Peak Choice Diversity Index', peakChoiceDiversity],
       ['Seat Supply', seats],
       ['Demand Pressure', `${(demandPressure * 100).toFixed(1)}%`],
       ['Room Utilization', `${(roomUse.utilization * 100).toFixed(1)}%`],
@@ -3869,15 +3909,16 @@
         seats: row.seats,
         enrollment: row.enrollment,
         studentPresence: row.studentPresence,
+        choiceDiversityIndex: row.choiceDiversityIndex,
         fillRate: row.fillRate,
         waitlist: row.waitlist,
         emptySeats: row.emptySeats
       }));
-    table('busyTimeTable', state.busyTimeTableRows, ['day', 'time', 'sections', 'seats', 'enrollment', 'studentPresence', 'fillRate', 'waitlist', 'emptySeats']);
+    table('busyTimeTable', state.busyTimeTableRows, ['day', 'time', 'sections', 'seats', 'enrollment', 'studentPresence', 'choiceDiversityIndex', 'fillRate', 'waitlist', 'emptySeats']);
     renderMethodologyPanel(document.getElementById('busyTimeLegend'), {
       title: 'Busy Time Dashboard Methodology & Data Dictionary',
       purpose: 'Summarizes busy-time patterns by combining student presence, course duration, faculty concentration, supply/demand, prime time, and room utilization signals.',
-      metricsUsed: ['Student Presence', 'Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Faculty Count', 'Prime-Time Concentration'],
+      metricsUsed: ['Student Presence', 'Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Choice Diversity Index', 'Faculty Count', 'Prime-Time Concentration'],
       calculationRules: 'Student Presence and Supply vs Demand use half-hour buckets from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by half-hour bucket. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Room Utilization is scheduled room time divided by a standard weekday instructional-room availability window.',
       assumptions: 'Dashboard observations are descriptive summaries only. They are intended to show alignment or contrast among supply, demand, faculty concentration, student concentration, and room utilization.',
       limitations: 'This dashboard does not make scheduling recommendations and does not include every operational constraint, such as budget, program sequencing, instructor availability, or room setup requirements.',
@@ -3886,7 +3927,8 @@
         ['Faculty Concentration', 'Share of included faculty bucket activity occurring in the busiest faculty time bucket.'],
         ['Student Concentration', 'Share of included student presence occurring in the busiest student-presence bucket.'],
         ['Seat Supply', 'Total seats offered across included fixed meeting buckets.'],
-        ['Demand Pressure', '(Enrollment + waitlist) divided by seats offered.']
+        ['Demand Pressure', '(Enrollment + waitlist) divided by seats offered.'],
+        ['Choice Diversity Index', '0-100 index. Formula blends course breadth, subject breadth, GE breadth, and a concentration penalty based on the largest single-course share of active sections in the bucket.']
       ],
       version: 'Methodology v1.0'
     });
@@ -4010,6 +4052,7 @@
   function studentChoiceMetricValue(row, metricName) {
     if (metricName === 'uniqueCourses') return row.uniqueCourses;
     if (metricName === 'uniqueCalGetcCourses') return row.uniqueCalGetcCourses;
+    if (metricName === 'choiceDiversityIndex') return row.choiceDiversityIndex;
     if (metricName === 'fillRate') return row.fillRateNumber * 100;
     return row[metricName] || 0;
   }
@@ -4044,6 +4087,7 @@
       modalities: new Set(),
       campuses: new Set(),
       crns: new Set(),
+      courseCounts: new Map(),
       seats: 0,
       enrollment: 0,
       studentPresence: 0,
@@ -4064,6 +4108,7 @@
           if (cell.seen.has(key)) return;
           cell.seen.add(key);
           cell.courses.add(courseCode);
+          cell.courseCounts.set(courseCode, (cell.courseCounts.get(courseCode) || 0) + 1);
           cell.subjects.add(canon(row.subject));
           if (calGetcCodes.has(courseCode)) cell.calGetcCourses.add(courseCode);
           if (row.modality) cell.modalities.add(row.modality);
@@ -4090,6 +4135,7 @@
         uniqueSubjects: cell.subjects.size,
         uniqueCalGetcCourses: cell.calGetcCourses.size,
         sections: cell.crns.size,
+        maxCourseSections: maxCourseCount(cell.courseCounts),
         seats: cell.seats,
         enrollment: cell.enrollment,
         studentPresence: cell.studentPresence,
@@ -4103,6 +4149,13 @@
         seatChoiceCount: cell.seats,
         modalityChoiceCount: cell.modalities.size,
         campusChoiceCount: cell.campuses.size,
+        choiceDiversityIndex: choiceDiversityIndex({
+          uniqueCourses: cell.courses.size,
+          uniqueSubjects: cell.subjects.size,
+          uniqueCalGetcCourses: cell.calGetcCourses.size,
+          sections: cell.crns.size,
+          maxCourseSections: maxCourseCount(cell.courseCounts)
+        }),
         metricValue: 0,
         interpretation: ''
       };
@@ -4135,6 +4188,7 @@
           ['Unique courses', row?.uniqueCourses || 0],
           ['Unique subjects', row?.uniqueSubjects || 0],
           ['Unique CAL-GETC courses', row?.uniqueCalGetcCourses || 0],
+          ['Choice Diversity Index', row?.choiceDiversityIndex || 0],
           ['Sections', row?.sections || 0],
           ['Seats', row?.seats || 0],
           ['Enrollment', row?.enrollment || 0],
@@ -4183,6 +4237,7 @@
           ['Unique courses', item?.uniqueCourses || 0],
           ['Unique subjects', item?.uniqueSubjects || 0],
           ['Unique CAL-GETC courses', item?.uniqueCalGetcCourses || 0],
+          ['Choice Diversity Index', item?.choiceDiversityIndex || 0],
           ['Sections', item?.sections || 0],
           ['Seats', item?.seats || 0],
           ['Enrollment', item?.enrollment || 0],
@@ -4237,6 +4292,7 @@
       ['Seat Choice Count', totalSeats],
       ['Modality Choice Count', Math.max(0, ...nonEmpty.map(row => row.modalityChoiceCount || 0))],
       ['Campus Choice Count', Math.max(0, ...nonEmpty.map(row => row.campusChoiceCount || 0))],
+      ['Peak Choice Diversity Index', Math.max(0, ...nonEmpty.map(row => row.choiceDiversityIndex || 0))],
       ['High Choice Blocks', highChoice],
       ['Low Choice / High Demand', lowChoiceHighDemand]
     ]);
@@ -4251,6 +4307,7 @@
       uniqueCourses: row.uniqueCourses,
       uniqueSubjects: row.uniqueSubjects,
       uniqueCalGetcCourses: row.uniqueCalGetcCourses,
+      choiceDiversityIndex: row.choiceDiversityIndex,
       sections: row.sections,
       seats: row.seats,
       enrollment: row.enrollment,
@@ -4259,11 +4316,11 @@
       waitlist: row.waitlist,
       interpretation: row.interpretation
     }));
-    table('studentChoiceTable', tableRows, ['day', 'timeBlock', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'sections', 'seats', 'enrollment', 'fillRate', 'emptySeats', 'waitlist', 'interpretation']);
+    table('studentChoiceTable', tableRows, ['day', 'timeBlock', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'choiceDiversityIndex', 'sections', 'seats', 'enrollment', 'fillRate', 'emptySeats', 'waitlist', 'interpretation']);
     renderMethodologyPanel(document.getElementById('studentChoiceLegend'), {
       title: 'Student Choice Opportunity Methodology & Data Dictionary',
       purpose: 'Measures how much schedule choice students have by day and time, not just how many students enrolled.',
-      metricsUsed: ['Campus Choice Count', 'Course Choice Count', 'GE Choice Count', 'Subject Breadth Count', 'Seat Choice Count', 'Modality Choice Count', 'Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats'],
+      metricsUsed: ['Campus Choice Count', 'Course Choice Count', 'GE Choice Count', 'Subject Breadth Count', 'Seat Choice Count', 'Modality Choice Count', 'Choice Diversity Index', 'Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats'],
       calculationRules: 'Fixed meeting rows are placed into every half-hour interval they overlap. Duplicate rows for the same CRN, day, start, and end are counted once per bucket. Online/TBA rows are excluded from physical time buckets unless selected. Tutoring/Open Lab sections are excluded by default when the checkbox is selected.',
       assumptions: 'Enrollment alone does not show whether students had meaningful choices. A time block may fill well because students prefer that time, or because very few alternatives exist.',
       limitations: 'Choice counts indicate available schedule variety in the uploaded data. They do not include student intent, unseen conflicts, program sequencing, commute constraints, or course substitution rules not represented in the source data.',
@@ -4271,6 +4328,7 @@
         ['Unique Courses', 'Distinct discipline + course combinations available in a time bucket.'],
         ['Unique Subjects', 'Distinct subject/discipline codes available in a time bucket.'],
         ['Unique CAL-GETC Courses', 'Distinct courses in the bucket that map to configured CAL-GETC areas.'],
+        ['Choice Diversity Index', '0-100 index. Formula blends course breadth, subject breadth, GE breadth, and a concentration penalty based on the largest single-course share of active sections in the bucket.'],
         ['High choice / high demand', 'A bucket with broad choice and strong enrollment/fill indicators.'],
         ['Low choice / high demand', 'A bucket with limited choice and strong enrollment/fill indicators.']
       ],
@@ -8564,7 +8622,8 @@
       emptySeats: 'Empty Seats',
       uniqueCourses: 'Unique Courses',
       uniqueSubjects: 'Unique Subjects',
-      uniqueCalGetcCourses: 'Unique CAL-GETC Courses'
+      uniqueCalGetcCourses: 'Unique CAL-GETC Courses',
+      choiceDiversityIndex: 'Choice Diversity Index'
     };
     return labels[metricName] || label(metricName);
   }
@@ -8862,6 +8921,7 @@
     ['Subject Breadth Count', 'Number of distinct subject/discipline codes represented in a day/time bucket.'],
     ['Seat Choice Count', 'Total section capacity offered in a day/time bucket. This measures the quantity of seats available, not the number of distinct courses.'],
     ['Modality Choice Count', 'Number of distinct reportable modality categories represented in a bucket. User-facing categories are In-Person, Hybrid, and Online.'],
+    ['Choice Diversity Index', '0-100 index that increases when a time block has more unique courses, more unique subjects, more CAL-GETC/GE choices, and less concentration in only one or two courses. High diversity means many different courses/subjects are available. Low diversity means many seats or sections may be concentrated in a small number of courses.'],
     ['Student Presence', 'Estimated students physically scheduled in a time block. Uses census enrollment when available, otherwise actual/current enrollment, and adds that enrollment to each half-hour interval the section overlaps.'],
     ['Sections Active', 'Distinct CRNs active in a day/time bucket. Duplicate meeting rows for the same CRN/day/start/end are counted once.'],
     ['Seats Offered', 'Total section capacity available in the selected scope or time bucket.'],
@@ -8961,6 +9021,7 @@
       missingStartCrns: 'Missing Start CRNs',
       missingEndCrns: 'Missing End CRNs',
       note: 'Note',
+      choiceDiversityIndex: 'Choice Diversity Index',
       subject: 'Discipline',
       decisionTerm: 'Decision Term',
       excludedPlanningTerm: 'Planning Term Excluded',

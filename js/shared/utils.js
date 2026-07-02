@@ -22,6 +22,7 @@
     ['Subject Breadth Count', 'Number of distinct subject/discipline codes represented in a day/time bucket.'],
     ['Seat Choice Count', 'Total section capacity offered in a day/time bucket.'],
     ['Modality Choice Count', 'Number of distinct reportable modality categories represented in a bucket.'],
+    ['Choice Diversity Index', '0-100 index that increases when a time block has more unique courses, more unique subjects, more CAL-GETC/GE choices, and less concentration in only one or two courses. High diversity means many different courses/subjects are available. Low diversity means many seats or sections may be concentrated in a small number of courses.'],
     ['Student Presence', 'Estimated students physically scheduled in a time block. Uses census enrollment when available, otherwise actual/current enrollment, and adds that enrollment to each half-hour interval the section overlaps.'],
     ['Sections Active', 'Distinct CRNs active in a day/time bucket. Duplicate meeting rows for the same CRN/day/start/end are counted once.'],
     ['Seats Offered', 'Total section capacity available in the selected scope or time bucket.'],

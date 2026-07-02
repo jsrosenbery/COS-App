@@ -1966,6 +1966,8 @@ test('busy time dashboard is a standalone Development report summarizing core bu
   assert.match(text, /Faculty Concentration/);
   assert.match(text, /Student Concentration/);
   assert.match(text, /Seat Supply/);
+  assert.match(text, /Peak Choice Diversity Index/);
+  assert.match(text, /choiceDiversityIndex/);
   assert.match(text, /Demand Pressure/);
   assert.match(text, /Room Utilization/);
   assert.match(text, /High enrollment appears to coincide with high section supply/);
@@ -2001,6 +2003,9 @@ test('student choice opportunity is a standalone Development report with choice 
   assert.match(text, /Seat Choice Count/);
   assert.match(text, /Modality Choice Count/);
   assert.match(text, /Campus Choice Count/);
+  assert.match(text, /Choice Diversity Index/);
+  assert.match(text, /<option value="choiceDiversityIndex">Choice Diversity Index<\/option>/);
+  assert.match(text, /choiceDiversityIndex/);
   assert.match(text, /High choice \/ high demand/);
   assert.match(text, /High choice \/ weaker demand/);
   assert.match(text, /Low choice \/ high demand/);
@@ -2014,6 +2019,30 @@ test('student choice opportunity is a standalone Development report with choice 
   assert.match(text, /function renderStudentChoiceHeatmap/);
   assert.match(text, /function renderStudentChoiceLineGraph/);
   assert.match(text, /student-choice-opportunity\.csv/);
+});
+
+test('choice diversity index rewards broad course choice over repeated sections', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const source = text.match(/function choiceDiversityIndex\([\s\S]*?\n  \}/)?.[0];
+  assert.ok(source, 'choiceDiversityIndex helper should exist');
+  const choiceDiversityIndex = new Function('safeDiv', `${source}; return choiceDiversityIndex;`)((a, b) => (b ? a / b : 0));
+
+  const repeatedFewCourses = choiceDiversityIndex({
+    uniqueCourses: 1,
+    uniqueSubjects: 1,
+    uniqueCalGetcCourses: 0,
+    sections: 6,
+    maxCourseSections: 6
+  });
+  const broadCourses = choiceDiversityIndex({
+    uniqueCourses: 6,
+    uniqueSubjects: 4,
+    uniqueCalGetcCourses: 3,
+    sections: 6,
+    maxCourseSections: 1
+  });
+
+  assert.ok(repeatedFewCourses < broadCourses, `${repeatedFewCourses} should be lower than ${broadCourses}`);
 });
 
 test('scheduling recommendation engine is advisory and covers recommendation categories', () => {
@@ -2425,6 +2454,7 @@ test('reports use standardized methodology and metric definitions', () => {
     'Subject Breadth Count',
     'Seat Choice Count',
     'Modality Choice Count',
+    'Choice Diversity Index',
     'Student Presence',
     'Sections Active',
     'Seats Offered',
