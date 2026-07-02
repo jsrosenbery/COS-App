@@ -9347,31 +9347,34 @@
       .faculty-modality-other{background:#64748b}
       .prime-time-days span{display:flex;flex-wrap:wrap;gap:8px}
       .prime-time-days span label{display:inline-flex;flex-direction:row;align-items:center;gap:3px;font-weight:800}
-      .prime-time-gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:0 0 14px}
+      .prime-time-gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:12px;margin:0 0 14px}
       .prime-time-gauge-card{border:1px solid #d8e1ec;border-radius:10px;background:#fff;padding:12px;text-align:center}
       .prime-time-gauge-card strong,.prime-time-gauge-card small{display:block}
       .prime-time-gauge-card strong{margin-top:8px;color:#123367}
       .prime-time-gauge-card small{margin-top:4px;color:#51657c}
-      .prime-time-gauge{width:104px;height:104px;margin:0 auto;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#1f7aa8 calc(var(--pct) * 1turn),#e8eef5 0)}
-      .prime-time-gauge span{display:grid;place-items:center;width:74px;height:74px;border-radius:50%;background:#fff;color:#123367;font-weight:900}
-      .supply-demand-line svg{width:100%;min-height:260px;background:#fff;border:1px solid #e2eaf3;border-radius:8px}
+      .prime-time-gauge{width:clamp(78px,12vw,104px);height:clamp(78px,12vw,104px);margin:0 auto;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#1f7aa8 calc(var(--pct) * 1turn),#e8eef5 0)}
+      .prime-time-gauge span{display:grid;place-items:center;width:70%;height:70%;border-radius:50%;background:#fff;color:#123367;font-weight:900;font-size:clamp(12px,1.4vw,16px)}
+      .supply-demand-line svg{display:block;width:100%;max-width:100%;height:auto;min-height:220px;background:#fff;border:1px solid #e2eaf3;border-radius:8px}
       .supply-demand-line text{font-size:11px;fill:#51657c}
       .supply-demand-line-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;color:#334862;font-size:12px}
       .supply-demand-line-legend span{display:inline-flex;align-items:center;gap:4px}
       .supply-demand-line-legend i{display:inline-block;width:12px;height:12px;border-radius:50%}
-      .busy-time-bar-row{display:grid;grid-template-columns:minmax(110px,1fr) minmax(120px,2fr) auto;gap:8px;align-items:center;margin:7px 0;color:#334862;font-size:12px}
+      .busy-time-bar-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(80px,2fr) auto;gap:8px;align-items:center;margin:7px 0;color:#334862;font-size:clamp(11px,1.2vw,12px)}
       .busy-time-bar-row div{height:12px;background:#e6edf5;border-radius:999px;overflow:hidden}
       .busy-time-bar-row i{display:block;height:100%;background:linear-gradient(90deg,#f97316,#1f7aa8);border-radius:999px}
       .busy-time-bar-row strong{color:#123367}
-      .analytics-insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px}
-      .analytics-insights section{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px}
+      .analytics-insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px;margin-bottom:14px;max-width:100%}
+      .analytics-insights section{min-width:0;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px;overflow:hidden}
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
       .analytics-insights ul{margin:0;padding-left:18px;color:#334862}
       .analytics-insights li{margin:4px 0;line-height:1.3}
       .presence-curve{grid-column:1/-1}
       .presence-curve p{margin:0 0 10px;color:#51657c;font-size:13px}
-      .presence-curve table{min-width:760px}
-      .presence-curve td{position:relative;min-width:72px;height:34px;vertical-align:middle;overflow:hidden}
+      .presence-curve .heatmap-wrap{width:100%;max-width:100%;overflow-x:hidden}
+      .presence-curve table{width:100%;min-width:0;table-layout:fixed}
+      .presence-curve .heatmap th,.presence-curve .heatmap td{padding:clamp(4px,.55vw,8px) clamp(3px,.45vw,7px);font-size:clamp(10px,.8vw,12px);line-height:1.15;white-space:normal;overflow-wrap:anywhere}
+      .presence-curve .heatmap tbody th{width:clamp(64px,8vw,104px)}
+      .presence-curve td{position:relative;height:34px;vertical-align:middle;overflow:hidden}
       .presence-curve .presence-bar{position:absolute;left:6px;right:auto;top:8px;bottom:8px;border-radius:999px;background:linear-gradient(90deg,#1f5f99,#2aa889);opacity:.26}
       .presence-curve td strong{position:relative;z-index:1;color:#123367}
       .dashboard-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
@@ -9425,6 +9428,13 @@
       .methodology-panel summary{cursor:pointer;font-weight:900;color:#123367;font-size:16px}
       .methodology-panel-body{padding-top:10px}
       .methodology-panel-body section{margin-top:8px}
+      @media (max-width:760px){
+        .analytics-insights{grid-template-columns:1fr}
+        .presence-curve .heatmap-wrap{overflow-x:auto}
+        .presence-curve table{min-width:680px}
+        .supply-demand-line svg{min-height:190px}
+        .prime-time-gauges{grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr))}
+      }
     </style>`);
   }
 

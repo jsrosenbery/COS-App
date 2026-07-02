@@ -488,7 +488,7 @@ button:hover,
 
 #heatmapContainer {
   min-height: 600px;
-  overflow-x: auto;
+  overflow-x: hidden;
   padding: 0.75rem 0;
 }
 
@@ -623,7 +623,8 @@ button:hover,
 
 .heatmap {
   width: 100%;
-  min-width: 820px;
+  min-width: 0;
+  table-layout: fixed;
   margin-top: 1rem;
   border-collapse: separate;
   border-spacing: 0;
@@ -636,21 +637,26 @@ button:hover,
 
 .heatmap th,
 .heatmap td {
-  padding: 0.65rem 0.55rem;
+  padding: clamp(0.28rem, 0.65vw, 0.65rem) clamp(0.2rem, 0.55vw, 0.55rem);
   border-right: 1px solid rgba(32, 66, 96, 0.12);
   border-bottom: 1px solid rgba(32, 66, 96, 0.12);
   text-align: center;
+  font-size: clamp(0.62rem, 0.72vw, 0.86rem);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .heatmap thead th {
   color: #fff;
   background: linear-gradient(135deg, var(--brand), var(--brand-2));
-  font-size: 0.86rem;
+  font-size: clamp(0.62rem, 0.72vw, 0.86rem);
+  white-space: normal;
 }
 
 .heatmap tbody th {
   position: sticky;
   left: 0;
+  width: clamp(4.4rem, 8vw, 7.2rem);
   z-index: 1;
   color: var(--brand);
   background: #f8fbff;
@@ -759,6 +765,12 @@ button:hover,
   background: #fff;
   color: var(--brand);
   font-weight: 800;
+}
+
+.heatmap-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .utilization-pill-filter {
@@ -1196,6 +1208,15 @@ button:hover,
   #linechart-tool,
   #schedule-container {
     width: calc(100% - 1rem);
+  }
+
+  #heatmapContainer,
+  .heatmap-wrap {
+    overflow-x: auto;
+  }
+
+  .heatmap {
+    min-width: 680px;
   }
 
   .room-catalog-admin,
