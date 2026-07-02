@@ -2408,6 +2408,47 @@ test('development report visuals expose concise hover tooltips', () => {
   assert.match(text, /Campus: \$\{selectedFilterLabel\('spCampusScope'/);
 });
 
+test('reports use standardized methodology and metric definitions', () => {
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const utils = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+
+  ['Purpose', 'Metrics Used', 'Calculation Rules', 'Assumptions', 'Limitations'].forEach(heading => {
+    assert.match(analytics, new RegExp(`<h4>${heading}<\\/h4>`));
+    assert.match(utils, new RegExp(`<h4>${heading}<\\/h4>`));
+  });
+  [
+    'Campus Choice Count',
+    'Course Choice Count',
+    'GE Choice Count',
+    'Subject Breadth Count',
+    'Seat Choice Count',
+    'Modality Choice Count',
+    'Student Presence',
+    'Sections Active',
+    'Seats Offered',
+    'Enrollment Present',
+    'Fill Rate',
+    'Waitlist Pressure',
+    'Empty Seats',
+    'Faculty Count',
+    'LHE',
+    'Prime-Time Concentration',
+    'Choice Gap',
+    'Hidden Demand',
+    'Oversupply',
+    'Expansion Candidate',
+    'Consolidation Candidate'
+  ].forEach(metric => assert.match(utils, new RegExp(metric.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
+  assert.match(utils, /Census enrollment is preferred when available/);
+  assert.match(utils, /Reports show evidence-informed patterns, not proof of student preference/);
+  assert.match(app, /renderSchedulingAnalysisMethodologyPanels/);
+  ['heatmap-standard-methodology', 'utilization-standard-methodology', 'modality-standard-methodology', 'linechart-standard-methodology'].forEach(id => {
+    assert.match(index, new RegExp(`id="${id}"`));
+  });
+});
+
 test('dashboard compact tables use short headers and nowrap CSS', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

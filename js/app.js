@@ -664,7 +664,66 @@ function sectionMatchesCalGetc(section, calGetcValue) {
   return codes.includes(courseCode);
 }
 
+function renderSchedulingAnalysisMethodologyPanels() {
+  const renderPanel = window.COSUtils?.renderStandardMethodologyPanel;
+  if (!renderPanel) return;
+  renderPanel(document.getElementById('heatmap-standard-methodology'), {
+    title: 'Heatmap Analytics Methodology & Data Dictionary',
+    purpose: 'Shows when classes begin by day and half-hour start-time bucket, with optional enrollment, capacity, and fill-rate metric views.',
+    metricsUsed: ['Sections Active', 'Enrollment Present', 'Seats Offered', 'Fill Rate', 'Student Presence', 'Empty Seats'],
+    calculationRules: 'A section is placed in the day/start-time bucket for each meeting day it uses. Repeated rows for the same CRN/day/start bucket are counted once. Enrollment-weighted mode sums census enrollment when available and actual/current enrollment otherwise. Seat capacity mode sums section capacity. Fill-rate mode divides enrollment by capacity after deduplication.',
+    assumptions: 'Heatmap Analytics is a start-time view. It complements Course Duration because starts and active classroom load answer different questions.',
+    limitations: 'A busy start-time bucket does not prove student preference. It reflects the schedule that was offered and does not include constraints outside the uploaded data.',
+    items: [
+      ['Section Count Heatmap', 'Counts distinct CRNs that start in each day/half-hour bucket.'],
+      ['Enrollment-Weighted Heatmap', 'Sums enrollment for distinct CRNs starting in each bucket.'],
+      ['Seat Capacity Heatmap', 'Sums seats offered for distinct CRNs starting in each bucket.']
+    ]
+  });
+  renderPanel(document.getElementById('utilization-standard-methodology'), {
+    title: 'Room Utilization and Room Fit Methodology & Data Dictionary',
+    purpose: 'Evaluates room use quality and capacity fit for scheduled physical sections.',
+    metricsUsed: ['Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Empty Seats', 'Prime-Time Concentration'],
+    calculationRules: 'Room utilization uses scheduled instructional room hours divided by available instructional hours, with separate component scores for overall use, prime-time use, distribution, and fragmentation. Room fit compares room capacity against section capacity and census/current enrollment.',
+    assumptions: 'Prime time defaults to Monday-Thursday, 9:00 AM-3:00 PM. VISFSC rooms are excluded from utilization. Online/TBA and no-room rows are excluded from room fit analysis.',
+    limitations: 'Room utilization does not account for specialized equipment, pedagogy, furniture layout, accessibility needs, or intentional under-scheduling for program reasons.',
+    items: [
+      ['Overall Room Utilization Score', 'Overall Utilization 40% + Prime-Time Utilization 25% + Distribution Score 20% + Fragmentation Score 15%.'],
+      ['Opportunity Score', 'Unused total and prime-time availability, weighted toward unused prime-time capacity. Displayed separately from the overall score.'],
+      ['Underutilized Room', 'Section capacity or enrollment uses less than the configured share of room capacity, defaulting to 70%.'],
+      ['Over Capacity Risk', 'Section capacity exceeds assigned room capacity.'],
+      ['Enrollment Exceeds Room Capacity', 'Census/current enrollment exceeds assigned room capacity.']
+    ]
+  });
+  renderPanel(document.getElementById('modality-standard-methodology'), {
+    title: 'Modality Balance Methodology & Data Dictionary',
+    purpose: 'Compares class count and enrollment distribution across In-Person, Hybrid, and Online modalities by selected term and comparison terms.',
+    metricsUsed: ['Sections Active', 'Enrollment Present', 'Fill Rate', 'Modality Choice Count'],
+    calculationRules: 'Instructional Method codes are normalized into In-Person, Hybrid, or Online. Section counts deduplicate by CRN so multi-meeting rows do not inflate modality counts. Enrollment is calculated separately from class counts because the same number of sections can serve different numbers of students.',
+    assumptions: 'Dual Enrollment is excluded by default and can be included intentionally. Unknown instructional method codes are stored internally as UNKNOWN and excluded from standard modality analytics until mapped.',
+    limitations: 'Modality balance describes the offered schedule and enrolled students. It does not prove student modality preference or account for course-level pedagogical constraints.',
+    items: [
+      ['Class Count Mix', 'Distinct CRNs by normalized modality.'],
+      ['Enrollment Mix', 'Enrollment by normalized modality using census enrollment when available and actual/current enrollment otherwise.'],
+      ['Percentage Difference', 'Focus term percentage minus comparison term percentage for the selected modality metric.']
+    ]
+  });
+  renderPanel(document.getElementById('linechart-standard-methodology'), {
+    title: 'Course Duration and Student Presence Graph Methodology & Data Dictionary',
+    purpose: 'Shows how active course load or estimated student presence persists across half-hour intervals by day of week.',
+    metricsUsed: ['Sections Active', 'Student Presence', 'Enrollment Present', 'Seats Offered'],
+    calculationRules: 'Each valid physical meeting contributes to every half-hour interval it overlaps. Course Count mode counts active sections. Student Presence mode uses census enrollment when available and actual/current enrollment otherwise. Duplicate CRN/day/start/end rows are counted once.',
+    assumptions: 'Online/TBA placeholder rows are excluded from physical interval calculations. Lecture/lab/activity can count separately when meeting times differ.',
+    limitations: 'The graph estimates scheduled presence, not actual attendance or campus traffic. It reflects only loaded schedule data and selected filters.',
+    items: [
+      ['Course Count', 'Number of distinct active section meetings overlapping a half-hour interval.'],
+      ['Estimated Students Present', 'Enrollment assigned to each half-hour interval where the section is active.']
+    ]
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  renderSchedulingAnalysisMethodologyPanels();
   const terms = [
     'Summer 2026','Fall 2026','Spring 2027',
     'Summer 2027','Fall 2027','Spring 2028',

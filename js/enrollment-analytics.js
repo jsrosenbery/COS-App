@@ -2752,10 +2752,19 @@
         lhe: Number(row.lhe.toFixed(2))
       }));
     table('facultyHeatmapTable', nonEmpty, ['day', 'time', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe']);
-    document.getElementById('facultyHeatmapLegend').innerHTML = `
-      <strong>Faculty Schedule Heatmap Methodology</strong>
-      <p>Rows are normalized by the Faculty Schedule parser and deduplicated by CRN, day pattern, start/end time, meeting type, and instructor. Each meeting contributes to every overlapping half-hour bucket on every scheduled day. Omitted faculty types are excluded from this Development report.</p>
-    `;
+    renderMethodologyPanel(document.getElementById('facultyHeatmapLegend'), {
+      title: 'Faculty Schedule Heatmap Methodology & Data Dictionary',
+      purpose: 'Shows when faculty instructional activity is concentrated by half-hour interval using Faculty Schedule CSV data.',
+      metricsUsed: ['Sections Active', 'Faculty Count', 'Enrollment Present', 'Seats Offered', 'LHE', 'Faculty Type', 'Meeting Type'],
+      calculationRules: 'Rows are normalized by the Faculty Schedule parser and deduplicated by CRN, day pattern, start/end time, meeting type, and instructor. Each meeting contributes to every overlapping half-hour bucket on every scheduled day.',
+      assumptions: 'Faculty Type maps FCNT_CODE values. Meeting Type maps SCHD_CODE_SSRMEET values. Omitted faculty types are excluded before calculations.',
+      limitations: 'This report reflects only uploaded Faculty Schedule rows. It does not include workload rules, reassigned time, non-instructional duties, or unuploaded assignments.',
+      items: [
+        ['Faculty Type', 'FCNT_CODE mapping: FT and TE are Full-Time, JP is Part-Time, unknown codes are Unknown, and AE/X omitted rows are excluded.'],
+        ['Meeting Type', 'SCHD_CODE_SSRMEET mapping: 2 is Lecture, 4 is Lab, XX is Activity, and all other codes are Other.']
+      ],
+      version: 'Methodology v1.0'
+    });
     state.facultyHeatmapRan = true;
   }
 
@@ -2945,10 +2954,19 @@
     ]);
     renderFacultyModalityChart(tableRows);
     table('facultyModalityTable', tableRows, ['facultyType', 'modality', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe', 'sectionShare', 'sourceCodes']);
-    document.getElementById('facultyModalityLegend').innerHTML = `
-      <strong>Faculty Modality Methodology</strong>
-      <p>Modality is mapped from INSM_CODE_SSBSECT with the shared TIMBER modality normalizer. User-facing modality results display only In-Person, Hybrid, and Online. Unknown or omitted codes are excluded from standard analytics and should be reviewed in diagnostics/validation outputs.</p>
-    `;
+    renderMethodologyPanel(document.getElementById('facultyModalityLegend'), {
+      title: 'Faculty Modality Methodology & Data Dictionary',
+      purpose: 'Summarizes teaching modality by faculty type from Faculty Schedule CSV rows.',
+      metricsUsed: ['Sections Active', 'Faculty Count', 'Enrollment Present', 'Seats Offered', 'LHE', 'Modality Choice Count'],
+      calculationRules: 'Modality is mapped from INSM_CODE_SSBSECT with the shared TIMBER modality normalizer. Sections are grouped by faculty type and modality after reportable faculty rows are filtered and deduplicated.',
+      assumptions: 'User-facing modality results display only In-Person, Hybrid, and Online. Unknown or omitted codes are excluded from standard analytics and should be reviewed in diagnostics/validation outputs.',
+      limitations: 'This report does not infer faculty preference, load eligibility, or assignment policy. It only summarizes uploaded schedule rows.',
+      items: [
+        ['Section Share', 'Sections in the faculty type/modality row divided by all included sections after filters.'],
+        ['Source Codes', 'Original INSM_CODE_SSBSECT values that mapped into the displayed modality row.']
+      ],
+      version: 'Methodology v1.0'
+    });
     state.facultyModalityRan = true;
   }
 
@@ -3123,10 +3141,20 @@
     table('primeTimeTable', tableRows, ['category', 'primeValue', 'totalValue', 'percentPrime']);
     const definition = primeTimeDefinition();
     const dayNames = [...definition.days].map(day => dayLabels[day] || day).join(', ') || 'No days selected';
-    document.getElementById('primeTimeLegend').innerHTML = `
-      <strong>Prime Time Analysis Methodology</strong>
-      <p>Prime time currently uses ${escapeAttr(dayNames)}, ${escapeAttr(formatPresenceHourLabel(definition.start / 60))}-${escapeAttr(formatPresenceHourLabel(definition.end / 60))}. A meeting counts as prime time when any scheduled day and any part of the meeting overlaps the selected window. Percent Prime = prime-time value / total value for the filtered reportable faculty schedule rows.</p>
-    `;
+    renderMethodologyPanel(document.getElementById('primeTimeLegend'), {
+      title: 'Prime Time Analysis Methodology & Data Dictionary',
+      purpose: 'Measures how much faculty instruction, enrollment, and LHE are concentrated during the selected campus prime-time window.',
+      metricsUsed: ['Prime-Time Concentration', 'Faculty Count', 'Enrollment Present', 'LHE', 'Sections Active'],
+      calculationRules: `Prime time currently uses ${dayNames}, ${formatPresenceHourLabel(definition.start / 60)}-${formatPresenceHourLabel(definition.end / 60)}. A meeting counts as prime time when any scheduled day and any part of the meeting overlaps the selected window. Percent Prime = prime-time value / total value for the filtered reportable faculty schedule rows.`,
+      assumptions: 'Prime Time Analysis defaults to physical instruction because it evaluates campus time-of-day concentration. Online sections can be included manually.',
+      limitations: 'Prime-time concentration describes schedule placement. It does not determine whether a placement is pedagogically, contractually, or operationally appropriate.',
+      items: [
+        ['Percent Prime', 'Prime-time value divided by total value for the selected metric.'],
+        ['Prime Value', 'Selected metric value occurring inside the configured prime-time window.'],
+        ['Total Value', 'Selected metric value across all included reportable faculty schedule rows.']
+      ],
+      version: 'Methodology v1.0'
+    });
     state.primeTimeRan = true;
   }
 
@@ -3475,10 +3503,20 @@
     const tableNode = document.getElementById('supplyDemandTable');
     if (tableNode) tableNode.style.display = view === 'all' || view === 'table' ? '' : 'none';
     table('supplyDemandTable', built.rows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), ['day', 'time', 'sections', 'seats', 'enrollment', 'studentPresence', 'fillRate', 'waitlist', 'emptySeats', 'interpretation']);
-    document.getElementById('supplyDemandLegend').innerHTML = `
-      <strong>Supply vs Demand Methodology</strong>
-      <p>Supply is scheduled sections and seats offered. Realized demand is census enrollment when available, otherwise current enrollment, plus waitlist when present. Enrollment alone cannot demonstrate student preference because students can only enroll in sections that were offered at available times, campuses, and modalities. Hidden Demand identifies limited supply with waitlist pressure; Oversupplied identifies multiple low-filled buckets with empty seats.</p>
-    `;
+    renderMethodologyPanel(document.getElementById('supplyDemandLegend'), {
+      title: 'Supply vs Demand Methodology & Data Dictionary',
+      purpose: 'Compares scheduled instructional supply against realized student demand by half-hour interval.',
+      metricsUsed: ['Sections Active', 'Seats Offered', 'Enrollment Present', 'Student Presence', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Hidden Demand', 'Oversupply'],
+      calculationRules: 'Supply is scheduled sections and seats offered. Realized demand is census enrollment when available, otherwise current enrollment, plus waitlist when present. Each section contributes to every half-hour interval it overlaps, with duplicate CRN/day/start/end rows counted once.',
+      assumptions: 'Enrollment alone cannot demonstrate student preference because students can only enroll in sections that were offered at available times, campuses, and modalities.',
+      limitations: 'Interpretation labels are planning prompts. They do not prove preference or recommend schedule changes by themselves.',
+      items: [
+        ['High Demand', 'A bucket with strong fill or waitlist indicators relative to offered seats.'],
+        ['Balanced', 'A bucket where supply and enrollment pressure appear reasonably aligned.'],
+        ['Low Activity', 'A bucket with little or no section activity after filters.']
+      ],
+      version: 'Methodology v1.0'
+    });
     const status = document.getElementById('supplyDemandStatus');
     if (status) status.textContent = `Loaded ${rows.length} row(s); ${filtered.length} row(s) match filters; ${physicalIntervalRows(filtered, intervalOptions).length} fixed physical/time-selected row(s).`;
     state.supplyDemandRan = true;
@@ -3836,10 +3874,22 @@
         emptySeats: row.emptySeats
       }));
     table('busyTimeTable', state.busyTimeTableRows, ['day', 'time', 'sections', 'seats', 'enrollment', 'studentPresence', 'fillRate', 'waitlist', 'emptySeats']);
-    document.getElementById('busyTimeLegend').innerHTML = `
-      <strong>Busy Time Dashboard Methodology</strong>
-      <p>Student Presence and Supply vs Demand use half-hour buckets from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by half-hour bucket. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Room Utilization is scheduled room time divided by a standard weekday instructional-room availability window.</p>
-    `;
+    renderMethodologyPanel(document.getElementById('busyTimeLegend'), {
+      title: 'Busy Time Dashboard Methodology & Data Dictionary',
+      purpose: 'Summarizes busy-time patterns by combining student presence, course duration, faculty concentration, supply/demand, prime time, and room utilization signals.',
+      metricsUsed: ['Student Presence', 'Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Faculty Count', 'Prime-Time Concentration'],
+      calculationRules: 'Student Presence and Supply vs Demand use half-hour buckets from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by half-hour bucket. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Room Utilization is scheduled room time divided by a standard weekday instructional-room availability window.',
+      assumptions: 'Dashboard observations are descriptive summaries only. They are intended to show alignment or contrast among supply, demand, faculty concentration, student concentration, and room utilization.',
+      limitations: 'This dashboard does not make scheduling recommendations and does not include every operational constraint, such as budget, program sequencing, instructor availability, or room setup requirements.',
+      items: [
+        ['Prime Time Score', 'Share of all included student presence occurring during the standard prime-time window.'],
+        ['Faculty Concentration', 'Share of included faculty bucket activity occurring in the busiest faculty time bucket.'],
+        ['Student Concentration', 'Share of included student presence occurring in the busiest student-presence bucket.'],
+        ['Seat Supply', 'Total seats offered across included fixed meeting buckets.'],
+        ['Demand Pressure', '(Enrollment + waitlist) divided by seats offered.']
+      ],
+      version: 'Methodology v1.0'
+    });
     const status = document.getElementById('busyTimeStatus');
     if (status) status.textContent = `Loaded ${sourceRows.length} schedule row(s); ${rows.length} row(s) match filters; ${facultyRows.length || 0} faculty row(s).`;
     state.busyTimeRan = true;
@@ -4210,11 +4260,22 @@
       interpretation: row.interpretation
     }));
     table('studentChoiceTable', tableRows, ['day', 'timeBlock', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'sections', 'seats', 'enrollment', 'fillRate', 'emptySeats', 'waitlist', 'interpretation']);
-    document.getElementById('studentChoiceLegend').innerHTML = `
-      <strong>Student Choice Opportunity Methodology</strong>
-      <p>This report measures student schedule opportunity. Enrollment alone does not show whether students had meaningful choices. A time block may fill well because students prefer that time, or because very few alternatives exist. This report compares course variety, seat availability, and enrollment pressure across the day.</p>
-      <p>Fixed meeting rows are placed into every half-hour interval they overlap. Duplicate rows for the same CRN, day, start, and end are counted once per bucket. Online/TBA rows are excluded from physical time buckets. Tutoring/Open Lab sections are excluded by default when the checkbox is selected.</p>
-    `;
+    renderMethodologyPanel(document.getElementById('studentChoiceLegend'), {
+      title: 'Student Choice Opportunity Methodology & Data Dictionary',
+      purpose: 'Measures how much schedule choice students have by day and time, not just how many students enrolled.',
+      metricsUsed: ['Campus Choice Count', 'Course Choice Count', 'GE Choice Count', 'Subject Breadth Count', 'Seat Choice Count', 'Modality Choice Count', 'Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats'],
+      calculationRules: 'Fixed meeting rows are placed into every half-hour interval they overlap. Duplicate rows for the same CRN, day, start, and end are counted once per bucket. Online/TBA rows are excluded from physical time buckets unless selected. Tutoring/Open Lab sections are excluded by default when the checkbox is selected.',
+      assumptions: 'Enrollment alone does not show whether students had meaningful choices. A time block may fill well because students prefer that time, or because very few alternatives exist.',
+      limitations: 'Choice counts indicate available schedule variety in the uploaded data. They do not include student intent, unseen conflicts, program sequencing, commute constraints, or course substitution rules not represented in the source data.',
+      items: [
+        ['Unique Courses', 'Distinct discipline + course combinations available in a time bucket.'],
+        ['Unique Subjects', 'Distinct subject/discipline codes available in a time bucket.'],
+        ['Unique CAL-GETC Courses', 'Distinct courses in the bucket that map to configured CAL-GETC areas.'],
+        ['High choice / high demand', 'A bucket with broad choice and strong enrollment/fill indicators.'],
+        ['Low choice / high demand', 'A bucket with limited choice and strong enrollment/fill indicators.']
+      ],
+      version: 'Methodology v1.0'
+    });
     const status = document.getElementById('studentChoiceStatus');
     if (status) status.textContent = `Loaded ${state.studentChoiceRows.length} row(s); ${rows.length} row(s) match filters; ${nonEmpty.length} active time block(s).`;
     state.studentChoiceRan = true;
@@ -4588,12 +4649,21 @@
     `;
     table('recommendationTable', filteredRecommendations, ['recommendationTitle', 'category', 'confidenceLevel', 'affectedTermSource', 'campus', 'divisionDepartmentDiscipline', 'courseOrCourseGroup', 'dayTimeBlock', 'evidenceSummary', 'metricsUsed', 'whyThisMatters', 'suggestedAction', 'cautionsLimitations']);
     const outsideItems = outsidePlanningDiagnostics.slice(0, 8).map(row => `<li>${escapeAttr(row.category)} - ${escapeAttr(row.timeBlock)}: ${escapeAttr(row.reason)}</li>`).join('');
-    document.getElementById('recommendationLegend').innerHTML = `
-      <strong>Recommendation Engine Methodology</strong>
-      <p>Recommendations are evidence-informed, not deterministic. The engine distinguishes observed enrollment, available supply, student choice opportunity, faculty assignment pattern, room availability, historical/current fill rates, waitlists when available, and consolidation-style low-fill indicators. It does not prove student preference and does not change schedules automatically.</p>
-      <p>Time-based expansion, choice-gap, hidden-demand, and room-opportunity recommendations use a planning window of ${escapeAttr(formatPresenceHourLabel(planningWindow.earliest / 60))}-${escapeAttr(formatPresenceHourLabel(planningWindow.latest / 60))}. Candidates outside that window are suppressed from active recommendations and listed here for diagnostics.</p>
-      ${outsidePlanningDiagnostics.length ? `<strong>Outside planning window diagnostics</strong><ul>${outsideItems}</ul>` : '<p>No outside planning window diagnostics.</p>'}
-    `;
+    renderMethodologyPanel(document.getElementById('recommendationLegend'), {
+      title: 'Scheduling Recommendation Engine Methodology & Data Dictionary',
+      purpose: 'Produces advisory-only, evidence-informed scheduling observations from supply, demand, choice, faculty, modality, prime-time, room, fill-rate, waitlist, and consolidation-style indicators.',
+      metricsUsed: ['Hidden Demand', 'Oversupply', 'Choice Gap', 'Expansion Candidate', 'Consolidation Candidate', 'Student Presence', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Faculty Count', 'Prime-Time Concentration'],
+      calculationRules: `Recommendations distinguish observed enrollment, available supply, student choice opportunity, faculty assignment pattern, room availability, historical/current fill rates, waitlists when available, and consolidation-style low-fill indicators. Time-based expansion, choice-gap, hidden-demand, and room-opportunity recommendations use a planning window of ${formatPresenceHourLabel(planningWindow.earliest / 60)}-${formatPresenceHourLabel(planningWindow.latest / 60)}. Candidates outside that window are suppressed from active recommendations and listed in diagnostics.`,
+      assumptions: 'Recommendations are evidence-informed, not deterministic. The engine does not prove student preference and does not change schedules automatically.',
+      limitations: 'Insufficient evidence is reported when signals are weak or incomplete. Recommendations must still be checked against program, equity, staffing, room, contract, budget, and leadership constraints.',
+      items: [
+        ['Confidence Level', 'High, Medium, or Low based on strength and consistency of available evidence.'],
+        ['Metrics Used', 'Plain-language list of the signals contributing to a recommendation row.'],
+        ['Outside Planning Window', `Suppressed diagnostic item for time-based candidates outside ${formatPresenceHourLabel(planningWindow.earliest / 60)}-${formatPresenceHourLabel(planningWindow.latest / 60)}.`],
+        ['Outside planning window diagnostics', outsidePlanningDiagnostics.length ? outsideItems.replace(/<[^>]+>/g, ' ') : 'No outside planning window diagnostics.']
+      ],
+      version: 'Methodology v1.0'
+    });
     const status = document.getElementById('recommendationStatus');
     if (status) status.textContent = `Loaded ${state.recommendationRows.length} row(s); ${sourceRows.length} row(s) match source filters; ${filteredRecommendations.length} recommendation row(s); ${outsidePlanningDiagnostics.length} outside planning window diagnostic(s).`;
     state.recommendationRan = true;
@@ -8785,23 +8855,82 @@
     });
   }
 
+  const COMMON_ANALYTICS_DEFINITIONS = window.COSUtils?.commonAnalyticsDefinitions || [
+    ['Campus Choice Count', 'Number of distinct campus codes represented in a day/time bucket after filters and exclusions are applied.'],
+    ['Course Choice Count', 'Number of distinct discipline + course combinations available in a day/time bucket after CRN/day/time deduplication.'],
+    ['GE Choice Count', 'Number of distinct CAL-GETC mapped courses available in a day/time bucket after filters are applied.'],
+    ['Subject Breadth Count', 'Number of distinct subject/discipline codes represented in a day/time bucket.'],
+    ['Seat Choice Count', 'Total section capacity offered in a day/time bucket. This measures the quantity of seats available, not the number of distinct courses.'],
+    ['Modality Choice Count', 'Number of distinct reportable modality categories represented in a bucket. User-facing categories are In-Person, Hybrid, and Online.'],
+    ['Student Presence', 'Estimated students physically scheduled in a time block. Uses census enrollment when available, otherwise actual/current enrollment, and adds that enrollment to each half-hour interval the section overlaps.'],
+    ['Sections Active', 'Distinct CRNs active in a day/time bucket. Duplicate meeting rows for the same CRN/day/start/end are counted once.'],
+    ['Seats Offered', 'Total section capacity available in the selected scope or time bucket.'],
+    ['Enrollment Present', 'Enrollment represented in a selected time bucket, using census enrollment when available and actual/current enrollment when census is unavailable.'],
+    ['Fill Rate', 'Enrollment divided by seats offered. Census enrollment is preferred; actual/current enrollment is used when census is unavailable.'],
+    ['Waitlist Pressure', 'Waitlist count relative to seat supply and fill rate. Used as an indicator that observed enrollment may understate demand when sections are full or near full.'],
+    ['Empty Seats', 'Seats offered minus enrollment, floored at zero unless a report explicitly displays over-capacity context.'],
+    ['Faculty Count', 'Distinct faculty represented in a bucket after omitting faculty rows marked as omitted.'],
+    ['LHE', 'Lecture Hour Equivalent value from the Faculty Schedule source. LHE is summed across included instructional meeting rows after deduplication.'],
+    ['Prime-Time Concentration', 'Share of the selected metric occurring during the configured prime-time window. Default prime time is Monday-Thursday, 9:00 AM-3:00 PM.'],
+    ['Choice Gap', 'A planning pattern where student choice is limited relative to enrollment pressure or fill behavior. It is an evidence-informed prompt, not proof of unmet preference.'],
+    ['Hidden Demand', 'A planning pattern where limited supply, high fill, waitlist pressure, or strong presence suggests demand may be constrained by the available schedule.'],
+    ['Oversupply', 'A planning pattern where seats or sections are high relative to enrollment, fill, and waitlist evidence.'],
+    ['Expansion Candidate', 'A recommendation category indicating that added capacity may be worth review when demand evidence is strong and choice/supply are limited.'],
+    ['Consolidation Candidate', 'A recommendation category indicating that low-filled sections may be worth review when receiving capacity and student choice impacts appear manageable.']
+  ];
+
+  const STANDARD_ANALYTICS_ASSUMPTIONS = window.COSUtils?.standardAnalyticsAssumptions || [
+    'Census enrollment is preferred when available.',
+    'Actual/current enrollment is used when census is unavailable.',
+    'Online/TBA sections are excluded from physical time-based analysis unless selected.',
+    'Duplicate CRNs are counted once unless distinct meeting times exist.',
+    'Lecture/lab/activity may count separately when meeting times differ.',
+    'Reports show evidence-informed patterns, not proof of student preference.'
+  ];
+
+  function methodologyList(items) {
+    return Array.isArray(items) ? items.filter(Boolean).map(item => `<li>${escapeAttr(item)}</li>`).join('') : '';
+  }
+
+  function methodologyDefinitions(items) {
+    const map = new Map();
+    [...COMMON_ANALYTICS_DEFINITIONS, ...(items || [])].forEach(([term, definition]) => {
+      if (!term || map.has(term)) return;
+      map.set(term, definition);
+    });
+    return [...map.entries()];
+  }
+
   function renderMethodologyPanel(node, config) {
+    if (!node) return;
+    const metricsUsed = Array.isArray(config.metricsUsed) && config.metricsUsed.length
+      ? config.metricsUsed
+      : (config.items || []).slice(0, 10).map(([term]) => term);
+    const assumptions = [
+      ...(config.assumptions ? [config.assumptions] : []),
+      ...STANDARD_ANALYTICS_ASSUMPTIONS
+    ];
+    const definitions = methodologyDefinitions(config.items);
     node.innerHTML = `
       <details class="methodology-panel">
         <summary>Methodology & Data Dictionary</summary>
         <div class="methodology-panel-body">
           <h3>${escapeAttr(config.title)}</h3>
           <section>
-            <h4>Report Purpose</h4>
+            <h4>Purpose</h4>
             <p>${escapeAttr(config.purpose)}</p>
           </section>
           <section>
-            <h4>Methodology</h4>
-            <p>${escapeAttr(config.methodology)}</p>
+            <h4>Metrics Used</h4>
+            <ul>${methodologyList(metricsUsed)}</ul>
+          </section>
+          <section>
+            <h4>Calculation Rules</h4>
+            <p>${escapeAttr(config.calculationRules || config.methodology || '')}</p>
           </section>
           <section>
             <h4>Assumptions</h4>
-            <p>${escapeAttr(config.assumptions)}</p>
+            <ul>${methodologyList(assumptions)}</ul>
           </section>
           <section>
             <h4>Limitations</h4>
@@ -8809,7 +8938,7 @@
           </section>
           <section>
             <h4>Definitions, Calculations, and Headers</h4>
-            <dl>${config.items.map(([term, definition]) => `<div><dt>${escapeAttr(term)}</dt><dd>${escapeAttr(definition)}</dd></div>`).join('')}</dl>
+            <dl>${definitions.map(([term, definition]) => `<div><dt>${escapeAttr(term)}</dt><dd>${escapeAttr(definition)}</dd></div>`).join('')}</dl>
           </section>
           <section>
             <h4>Version Information</h4>

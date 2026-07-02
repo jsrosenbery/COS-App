@@ -140,6 +140,7 @@
         Optional metric modes keep the same day/start-time layout: Section count counts distinct CRNs, Enrollment-weighted sums census/current enrollment once per CRN per bucket, Seat capacity sums section capacity once per CRN per bucket, and Fill-rate shows enrollment divided by capacity after that deduplication. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM. Underutilized periods use the current planning threshold of less than 70% fill. Online/TBA rows using a 00:00-00:59 placeholder block are excluded from physical start-time heatmap counts.
       </p>
     </div>
+    <div id="heatmap-standard-methodology" class="analysis-explainer"></div>
     <div id="controls">
       <label>Heatmap CSV(s):
         <input id="heatmap-source-csv" type="file" accept=".csv" multiple>
@@ -336,6 +337,7 @@
         </tbody>
       </table>
     </div>
+    <div id="utilization-standard-methodology" class="analysis-explainer"></div>
     <div id="utilization-summary" class="utilization-summary"></div>
     <div id="utilization-map" class="utilization-map"></div>
     <section class="room-fit-section">
@@ -425,6 +427,7 @@
     <div class="modality-note">
       This view uses the Instructional Method column from the uploaded CSV and counts unique CRNs when available, so multi-meeting sections are not counted more than once. Class counts and enrollment are shown as separate comparison views because a modality can have a similar number of sections but materially different student enrollment. Dual Enrollment is excluded by default because it can materially change modality balance; use the checkbox to include it intentionally.
     </div>
+    <div id="modality-standard-methodology" class="analysis-explainer"></div>
     <div id="modality-summary" class="modality-summary"></div>
     <div id="modality-comparison" class="modality-comparison"></div>
     <div id="modality-chart" class="modality-chart"></div>
@@ -493,6 +496,7 @@
         This graph and the heatmap answer different questions. The heatmap shows when classes begin, while the duration graph shows how long demand remains active. Reviewing both together makes it easier to spot whether congestion is caused by many simultaneous starts, long overlapping meetings, or both.
       </p>
     </div>
+    <div id="linechart-standard-methodology" class="analysis-explainer"></div>
     <div id="linechart-controls">
       <label>Duration CSV(s):
         <input id="linechart-source-csv" type="file" accept=".csv" multiple>
