@@ -224,6 +224,205 @@
       </details>`;
   }
 
+  function timestampLabel(date = new Date()) {
+    return date.toLocaleString();
+  }
+
+  function heatmapExportStatus(message, ok = true) {
+    let node = document.getElementById('heatmap-export-status');
+    if (!node) {
+      node = document.createElement('div');
+      node.id = 'heatmap-export-status';
+      node.className = 'analytics-note heatmap-export-status';
+      document.body.appendChild(node);
+    }
+    node.textContent = message;
+    node.dataset.status = ok ? 'ok' : 'error';
+    window.setTimeout?.(() => { node.textContent = ''; }, 5000);
+  }
+
+  function heatmapFilename(title = 'heatmap', ext = 'png') {
+    const slug = slugify(title || 'heatmap');
+    return `${slug}-${new Date().toISOString().slice(0, 10)}.${ext}`;
+  }
+
+  function heatmapExportContext(options = {}) {
+    const lines = [
+      options.title || 'Heatmap',
+      ...(options.filters || []),
+      options.metric ? `Metric: ${options.metric}` : '',
+      options.modalityScope ? `Modality scope: ${options.modalityScope}` : '',
+      `Exported: ${timestampLabel()}`
+    ].filter(Boolean);
+    const legend = options.legend || 'Darker cells indicate higher values. Blank cells indicate zero or unavailable values.';
+    return { lines, legend };
+  }
+
+  function cloneHeatmapForExport(container, options = {}) {
+    const source = typeof container === 'string' ? document.querySelector(container) : container;
+    if (!source) throw new Error('Heatmap export source was not found.');
+    const shell = document.createElement('div');
+    const { lines, legend } = heatmapExportContext(options);
+    shell.className = 'heatmap-export-surface';
+    shell.style.position = 'fixed';
+    shell.style.left = '-100000px';
+    shell.style.top = '0';
+    shell.style.zIndex = '-1';
+    shell.style.background = '#fff';
+    shell.style.color = '#172033';
+    shell.style.padding = '24px';
+    shell.style.width = 'max-content';
+    shell.innerHTML = `
+      <div class="heatmap-export-header">
+        <h2>${escapeHtml(options.title || 'Heatmap')}</h2>
+        <p>${lines.slice(1).map(escapeHtml).join(' | ')}</p>
+      </div>`;
+    const clone = source.cloneNode(true);
+    clone.querySelectorAll('.heatmap-export-toolbar,.collapsible-section-header,.collapsible-controls').forEach(node => node.remove());
+    clone.querySelectorAll('.heatmap-wrap').forEach(node => {
+      node.style.overflow = 'visible';
+      node.style.maxWidth = 'none';
+      node.style.width = 'max-content';
+    });
+    clone.querySelectorAll('.heatmap-table,.heatmap').forEach(node => {
+      node.style.width = 'max-content';
+      node.style.minWidth = 'max-content';
+    });
+    shell.appendChild(clone);
+    const footer = document.createElement('div');
+    footer.className = 'heatmap-export-footer';
+    footer.innerHTML = `<p>${escapeHtml(legend)}</p>`;
+    shell.appendChild(footer);
+    document.body.appendChild(shell);
+    return shell;
+  }
+
+  async function heatmapCanvas(container, options = {}) {
+    if (!window.html2canvas) throw new Error('PNG export is unavailable because html2canvas is not loaded.');
+    const surface = cloneHeatmapForExport(container, options);
+    try {
+      const width = Math.ceil(surface.scrollWidth);
+      const height = Math.ceil(surface.scrollHeight);
+      return await window.html2canvas(surface, {
+        backgroundColor: '#ffffff',
+        scale: options.scale || 2,
+        width,
+        height,
+        windowWidth: width,
+        windowHeight: height,
+        scrollX: 0,
+        scrollY: 0
+      });
+    } finally {
+      surface.remove();
+    }
+  }
+
+  async function exportHeatmapAsPng(container, options = {}) {
+    const canvas = await heatmapCanvas(container, options);
+    const link = document.createElement('a');
+    link.download = options.pngFilename || options.filename || heatmapFilename(options.title, 'png');
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    heatmapExportStatus('Heatmap PNG exported.');
+    return canvas;
+  }
+
+  async function copyHeatmapImage(container, options = {}) {
+    const canvas = await heatmapCanvas(container, options);
+    const copySupported = navigator.clipboard && window.ClipboardItem && canvas.toBlob;
+    if (!copySupported) {
+      await exportHeatmapAsPng(container, options);
+      heatmapExportStatus('Clipboard image copy is not supported; downloaded PNG instead.', false);
+      return false;
+    }
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    heatmapExportStatus('Heatmap image copied to clipboard.');
+    return true;
+  }
+
+  async function exportHeatmapAsPdf(container, options = {}) {
+    const jsPDF = window.jspdf?.jsPDF || window.jsPDF || window.jspdf;
+    if (!jsPDF) throw new Error('PDF export is unavailable because jsPDF is not loaded.');
+    const canvas = await heatmapCanvas(container, options);
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const pageWidth = pdf.internal.pageSize.getWidth() - 48;
+    const pageHeight = pdf.internal.pageSize.getHeight() - 48;
+    const scale = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
+    const imageWidth = canvas.width * scale;
+    const imageHeight = canvas.height * scale;
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 24, 24, imageWidth, imageHeight);
+    pdf.save(options.pdfFilename || heatmapFilename(options.title, 'pdf'));
+    heatmapExportStatus('Heatmap PDF exported.');
+    return pdf;
+  }
+
+  function exportHeatmapMatrixCsv(rows = [], options = {}) {
+    const metaRows = [
+      ['Report name', options.title || 'Heatmap'],
+      ['Term/source', options.term || ''],
+      ['Selected filters', (options.filters || []).join('; ')],
+      ['Metric selected', options.metric || ''],
+      ['Modality scope', options.modalityScope || ''],
+      ['Exported', timestampLabel()],
+      []
+    ];
+    const columns = options.columns || ['reportName', 'termSource', 'selectedFilters', 'metric', 'day', 'timeBlock', 'value', 'sections', 'seats', 'enrollment', 'fillRate', 'waitlist', 'modalityScope'];
+    const escapeCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      ...metaRows.map(row => row.map(escapeCell).join(',')),
+      columns.map(escapeCell).join(','),
+      ...(rows || []).map(row => columns.map(column => escapeCell(row[column])).join(','))
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = options.csvFilename || heatmapFilename(options.title, 'csv');
+    link.click();
+    URL.revokeObjectURL(url);
+    heatmapExportStatus('Heatmap CSV exported.');
+    return csv;
+  }
+
+  function renderHeatmapExportToolbar(target, config = {}) {
+    const host = typeof target === 'string' ? document.querySelector(target) : target;
+    if (!host) return null;
+    host.querySelector('.heatmap-export-toolbar')?.remove();
+    const toolbar = document.createElement('div');
+    toolbar.className = 'heatmap-export-toolbar';
+    toolbar.innerHTML = `
+      <button type="button" data-heatmap-export="png">Export Heatmap PNG</button>
+      <button type="button" data-heatmap-export="copy">Copy Heatmap Image</button>
+      <button type="button" data-heatmap-export="pdf">Export Heatmap PDF</button>
+      <button type="button" data-heatmap-export="csv">Export Heatmap CSV</button>
+      <span class="heatmap-export-inline-status" aria-live="polite"></span>`;
+    const source = () => config.container ? (typeof config.container === 'function' ? config.container() : document.querySelector(config.container)) : host;
+    const options = () => typeof config.options === 'function' ? config.options() : (config.options || {});
+    const rows = () => typeof config.rows === 'function' ? config.rows() : (config.rows || []);
+    const setInline = (message, ok = true) => {
+      const status = toolbar.querySelector('.heatmap-export-inline-status');
+      if (status) {
+        status.textContent = message;
+        status.dataset.status = ok ? 'ok' : 'error';
+      }
+    };
+    toolbar.querySelector('[data-heatmap-export="png"]').addEventListener('click', () => exportHeatmapAsPng(source(), options()).then(() => setInline('PNG exported.')).catch(err => setInline(err.message || 'PNG export failed.', false)));
+    toolbar.querySelector('[data-heatmap-export="copy"]').addEventListener('click', () => copyHeatmapImage(source(), options()).then(copied => setInline(copied ? 'Copied.' : 'Downloaded PNG fallback.')).catch(err => setInline(err.message || 'Copy failed.', false)));
+    toolbar.querySelector('[data-heatmap-export="pdf"]').addEventListener('click', () => exportHeatmapAsPdf(source(), options()).then(() => setInline('PDF exported.')).catch(err => setInline(err.message || 'PDF export failed.', false)));
+    toolbar.querySelector('[data-heatmap-export="csv"]').addEventListener('click', () => {
+      try {
+        exportHeatmapMatrixCsv(rows(), options());
+        setInline('CSV exported.');
+      } catch (err) {
+        setInline(err.message || 'CSV export failed.', false);
+      }
+    });
+    host.insertBefore(toolbar, host.firstChild);
+    return toolbar;
+  }
+
   window.COSUtils = {
     backendBaseUrl,
     featureEnabled,
@@ -237,5 +436,11 @@
     setCollapsibleOpen,
     setAllCollapsibleSections,
     createCollapsibleControls
+    , exportHeatmapAsPng,
+    copyHeatmapImage,
+    exportHeatmapAsPdf,
+    exportHeatmapMatrixCsv,
+    renderHeatmapExportToolbar,
+    cloneHeatmapForExport
   };
 })();

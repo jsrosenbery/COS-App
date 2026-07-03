@@ -2870,6 +2870,15 @@
         </table>
       </div>
     `;
+    attachHeatmapExportToolbar('facultyHeatmapContainer', built.rows, {
+      title: 'Faculty Schedule Heatmap',
+      term: document.getElementById('fhTerm')?.value || 'All terms',
+      filters: heatmapScopeFilters('fh'),
+      metric: metricDisplayLabel(metricName),
+      metricKey: metricName,
+      modalityScope: selectedModalityScopeLabel('fhModality'),
+      filename: 'faculty-schedule-heatmap.png'
+    });
     const peakTeaching = peakFacultyHeatmapCell(built.rows, 'sections');
     const peakEnrollment = peakFacultyHeatmapCell(built.rows, 'enrollment');
     const peakLhe = peakFacultyHeatmapCell(built.rows, 'lhe');
@@ -3878,6 +3887,15 @@
       return `<tr><th class="heatmap-day-cell">${built.dayNames[day]}</th>${cells}</tr>`;
     }).join('');
     node.innerHTML = `<section class="presence-curve" data-collapsible-title="Supply vs Demand Heatmap" data-collapsible-id="supply-demand-heatmap-generated"><h3>Supply vs Demand Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    attachHeatmapExportToolbar('supplyDemandHeatmap', built.rows, {
+      title: 'Supply vs Demand Heatmap',
+      term: document.getElementById('sdTerm')?.value || 'All terms',
+      filters: heatmapScopeFilters('sd', [`CAL-GETC: ${selectedFilterLabel('sdCalGetc')}`]),
+      metric: metricDisplayLabel(metricName),
+      metricKey: metricName,
+      modalityScope: selectedModalityScopeLabel('sdModality'),
+      filename: 'supply-vs-demand-heatmap.png'
+    });
     refreshGeneratedCollapsibleSections(node);
   }
 
@@ -4952,6 +4970,15 @@
       return `<tr><th class="heatmap-day-cell">${day}</th>${cells}</tr>`;
     }).join('');
     node.innerHTML = `<section class="presence-curve" data-collapsible-title="Opportunity Heatmap" data-collapsible-id="schedule-opportunity-heatmap-generated"><h3>Opportunity Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    attachHeatmapExportToolbar('studentChoiceHeatmap', rows, {
+      title: 'Schedule Opportunity Analysis Heatmap',
+      term: document.getElementById('studentChoiceTerm')?.value || 'All terms',
+      filters: heatmapScopeFilters('studentChoice', [`CAL-GETC: ${selectedFilterLabel('studentChoiceCalGetc')}`]),
+      metric: metricDisplayLabel(metricName),
+      metricKey: 'metricValue',
+      modalityScope: selectedModalityScopeLabel('studentChoiceModality'),
+      filename: 'schedule-opportunity-heatmap.png'
+    });
     refreshGeneratedCollapsibleSections(node);
   }
 
@@ -7423,6 +7450,65 @@
   function formatHeatmapTimeHeader(hour) {
     const [time, period] = formatPresenceHourLabel(hour).split(' ');
     return `<span class="heatmap-time-label"><span>${escapeAttr(time)}</span><span>${escapeAttr(period || '')}</span></span>`;
+  }
+
+  function heatmapScopeFilters(prefix, extra = []) {
+    const labels = [];
+    const ids = [
+      ['Term/source', `${prefix}Term`],
+      ['Campus', `${prefix}Campus`],
+      ['Division', `${prefix}Division`],
+      ['Department', `${prefix}Department`],
+      ['Course', `${prefix}Course`],
+      ['Faculty type', `${prefix}FacultyType`]
+    ];
+    ids.forEach(([label, id]) => {
+      const value = document.getElementById(id)?.value || '';
+      if (value) labels.push(`${label}: ${value}`);
+    });
+    return [...labels, ...extra].filter(Boolean);
+  }
+
+  function normalizeHeatmapMatrixRows(rows, options = {}) {
+    return (rows || [])
+      .filter(row => row.sections || row.seats || row.enrollment || row.studentPresence || row.waitlist || row.metricValue || row.facultyCount || row.lhe)
+      .map(row => ({
+        reportName: options.title || 'Heatmap',
+        termSource: options.term || '',
+        selectedFilters: (options.filters || []).join('; '),
+        metric: options.metric || '',
+        day: row.dayName || row.day || '',
+        timeBlock: row.time || row.timeBlock || '',
+        value: row.metricValue ?? row[options.metricKey] ?? row.sections ?? '',
+        sections: row.sections ?? row.facultyCount ?? '',
+        seats: row.seats ?? '',
+        enrollment: row.enrollment ?? row.studentPresence ?? '',
+        fillRate: row.fillRate ?? '',
+        waitlist: row.waitlist ?? '',
+        modalityScope: options.modalityScope || '',
+        uniqueCourses: row.uniqueCourses ?? '',
+        choiceDiversityIndex: row.choiceDiversityIndex ?? '',
+        lhe: row.lhe ?? '',
+        facultyCount: row.facultyCount ?? ''
+      }));
+  }
+
+  function attachHeatmapExportToolbar(containerId, rows, options = {}) {
+    const host = document.getElementById(containerId);
+    if (!host || !window.COSUtils?.renderHeatmapExportToolbar) return;
+    window.COSUtils.renderHeatmapExportToolbar(host, {
+      container: () => host,
+      rows: () => normalizeHeatmapMatrixRows(rows, options),
+      options: () => ({
+        title: options.title || 'Heatmap',
+        term: options.term || '',
+        filters: options.filters || [],
+        metric: options.metric || '',
+        modalityScope: options.modalityScope || '',
+        legend: options.legend || 'Darker cells indicate higher values. Blank cells indicate zero or unavailable values.',
+        filename: options.filename
+      })
+    });
   }
 
   function presenceHourKey(hour) {
@@ -11174,12 +11260,12 @@
       .analytics-insights li{margin:4px 0;line-height:1.3}
       .presence-curve{grid-column:1/-1}
       .presence-curve p{margin:0 0 10px;color:#51657c;font-size:13px}
-      .presence-curve .heatmap-wrap{width:100%;max-width:100%;overflow-x:auto;overflow-y:visible}
+      .presence-curve .heatmap-wrap{width:100%;max-width:100%;overflow-x:auto;overflow-y:visible;margin:0;padding:0}
       .presence-curve table.heatmap-table{width:max-content;min-width:100%;table-layout:fixed}
-      .presence-curve .heatmap th,.presence-curve .heatmap td{box-sizing:border-box;padding:clamp(5px,.56vw,8px) clamp(2px,.36vw,6px);font-size:clamp(12px,.78vw,13px);line-height:1.15;text-align:center;white-space:nowrap;overflow-wrap:normal;word-break:normal}
-      .presence-curve .heatmap .heatmap-day-header,.presence-curve .heatmap .heatmap-day-cell{position:sticky;left:0;z-index:3;width:104px;min-width:92px;max-width:110px;white-space:nowrap;overflow-wrap:normal;word-break:normal;text-align:center}
+      .presence-curve .heatmap th,.presence-curve .heatmap td{box-sizing:border-box;padding:4px 2px;font-size:11px;line-height:1.08;text-align:center;white-space:nowrap;overflow-wrap:normal;word-break:normal}
+      .presence-curve .heatmap .heatmap-day-header,.presence-curve .heatmap .heatmap-day-cell{position:sticky;left:0;z-index:3;width:86px;min-width:80px;max-width:90px;white-space:nowrap;overflow-wrap:normal;word-break:normal;text-align:center}
       .presence-curve .heatmap .heatmap-day-header{z-index:4}
-      .presence-curve .heatmap .heatmap-time-header,.presence-curve .heatmap .heatmap-value-cell{width:clamp(42px,4.2vw,58px);min-width:42px;max-width:64px}
+      .presence-curve .heatmap .heatmap-time-header,.presence-curve .heatmap .heatmap-value-cell{width:clamp(40px,3.4vw,42px);min-width:40px;max-width:42px}
       .presence-curve .heatmap .heatmap-time-label{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.05;white-space:nowrap;word-break:keep-all;overflow-wrap:normal}
       .presence-curve td{position:relative;height:34px;vertical-align:middle;overflow:hidden}
       .presence-curve .presence-bar{position:absolute;left:6px;right:auto;top:8px;bottom:8px;border-radius:999px;background:linear-gradient(90deg,#1f5f99,#2aa889);opacity:.26}

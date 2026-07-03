@@ -3119,6 +3119,7 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(css, /\.heatmap-wrap \{\s*width: 100%;\s*max-width: 100%;\s*overflow-x: auto;/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /\.heatmap-time-label/);
+  assert.match(css, /\.heatmap-export-toolbar/);
   assert.doesNotMatch(css, /\.heatmap th,[\s\S]*?overflow-wrap: anywhere;/);
 });
 
@@ -3135,11 +3136,44 @@ test('heatmap table layout keeps day labels readable and time headers two-line',
   assert.match(analytics, /heatmap-time-header/);
   assert.match(analytics, /heatmap-day-cell/);
   assert.match(analytics, /heatmap-value-cell/);
-  assert.match(css, /\.heatmap-day-header,\s*\.heatmap-day-cell \{\s*position: sticky;\s*left: 0;\s*z-index: 3;\s*width: 104px;\s*min-width: 92px;/);
+  assert.match(css, /\.heatmap-day-header,\s*\.heatmap-day-cell \{\s*position: sticky;\s*left: 0;\s*z-index: 3;\s*width: 86px;\s*min-width: 80px;/);
   assert.match(css, /\.heatmap-day-header,[\s\S]*?white-space: nowrap;/);
-  assert.match(css, /\.heatmap-time-header,[\s\S]*?min-width: 42px;/);
+  assert.match(css, /\.heatmap-time-header,[\s\S]*?min-width: 40px;/);
+  assert.match(css, /\.heatmap th,\s*\.heatmap td \{[\s\S]*?font-size: 11px;/);
+  assert.match(css, /@media \(min-width: 1280px\)/);
   assert.match(app, /<span class="heatmap-time-label"><span>\$\{escapeHTML\(time\)\}<\/span><span>\$\{escapeHTML\(period \|\| ''\)\}<\/span><\/span>/);
   assert.match(analytics, /<span class="heatmap-time-label"><span>\$\{escapeAttr\(time\)\}<\/span><span>\$\{escapeAttr\(period \|\| ''\)\}<\/span><\/span>/);
+});
+
+test('heatmap visual exports are wired for full heatmap capture and metadata CSV', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const utils = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
+
+  ['exportHeatmapAsPng', 'copyHeatmapImage', 'exportHeatmapAsPdf', 'exportHeatmapMatrixCsv', 'renderHeatmapExportToolbar'].forEach(name => {
+    assert.match(utils, new RegExp(name));
+  });
+  assert.match(utils, /cloneHeatmapForExport/);
+  assert.match(utils, /left = '-100000px'/);
+  assert.match(utils, /windowWidth: width/);
+  assert.match(utils, /windowHeight: height/);
+  assert.match(utils, /ClipboardItem/);
+  assert.match(utils, /downloaded PNG instead/);
+  assert.match(utils, /Report name/);
+  assert.match(utils, /Selected filters/);
+  assert.match(utils, /Metric selected/);
+  assert.match(utils, /Modality scope/);
+  assert.match(utils, /Exported/);
+  assert.match(utils, /title \|\| 'Heatmap'/);
+  ['Export Heatmap PNG', 'Copy Heatmap Image', 'Export Heatmap PDF', 'Export Heatmap CSV'].forEach(label => {
+    assert.match(utils, new RegExp(label));
+  });
+  assert.match(app, /renderHeatmapExportToolbar\(document\.getElementById\('heatmapContainer'\)/);
+  assert.match(app, /allCells\.map\(cell =>/);
+  assert.match(analytics, /attachHeatmapExportToolbar\('facultyHeatmapContainer'/);
+  assert.match(analytics, /attachHeatmapExportToolbar\('supplyDemandHeatmap'/);
+  assert.match(analytics, /attachHeatmapExportToolbar\('studentChoiceHeatmap'/);
+  assert.match(analytics, /normalizeHeatmapMatrixRows/);
 });
 
 test('collapsible section helper defaults open toggles aria and persists state', () => {
@@ -3198,9 +3232,9 @@ test('development graphics default to container-width responsive layouts', () =>
 
   assert.match(analytics, /\.analytics-insights\{display:grid;grid-template-columns:repeat\(auto-fit,minmax\(min\(100%,260px\),1fr\)\)/);
   assert.match(analytics, /\.analytics-insights section\{min-width:0;/);
-  assert.match(analytics, /\.presence-curve \.heatmap-wrap\{width:100%;max-width:100%;overflow-x:auto;overflow-y:visible\}/);
+  assert.match(analytics, /\.presence-curve \.heatmap-wrap\{width:100%;max-width:100%;overflow-x:auto;overflow-y:visible;margin:0;padding:0\}/);
   assert.match(analytics, /\.presence-curve table\.heatmap-table\{width:max-content;min-width:100%;table-layout:fixed\}/);
-  assert.match(analytics, /\.presence-curve \.heatmap th,\.presence-curve \.heatmap td\{box-sizing:border-box;padding:clamp/);
+  assert.match(analytics, /\.presence-curve \.heatmap th,\.presence-curve \.heatmap td\{box-sizing:border-box;padding:4px 2px;font-size:11px/);
   assert.match(analytics, /\.supply-demand-line svg\{display:block;width:100%;max-width:100%;height:auto;/);
   assert.match(analytics, /\.prime-time-gauge\{width:clamp/);
   assert.match(analytics, /@media \(max-width:760px\)\{/);

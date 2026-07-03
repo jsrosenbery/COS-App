@@ -4827,6 +4827,42 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
     html+='</tbody></table></div>';
     document.getElementById('heatmapContainer').innerHTML = html;
+    if (window.COSUtils?.renderHeatmapExportToolbar) {
+      const filters = [
+        `Campus: ${document.getElementById('heatmap-campus-select')?.value || 'All'}`,
+        `Division: ${document.getElementById('heatmap-division-select')?.value || 'All'}`,
+        `Discipline: ${document.getElementById('heatmap-discipline-select')?.value || 'All'}`,
+        `CAL-GETC: ${document.getElementById('heatmap-calgetc-select')?.value || 'All'}`,
+        document.getElementById('heatmap-prime-only')?.checked ? 'Prime time only' : '',
+        document.getElementById('heatmap-underutilized-only')?.checked ? 'Underutilized only' : ''
+      ].filter(Boolean);
+      window.COSUtils.renderHeatmapExportToolbar(document.getElementById('heatmapContainer'), {
+        container: () => document.getElementById('heatmapContainer'),
+        rows: () => allCells.map(cell => ({
+          reportName: 'Heatmap Analytics',
+          termSource: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
+          selectedFilters: filters.join('; '),
+          metric: heatmapMetricLabel(metric),
+          day: cell.day,
+          timeBlock: formatHourLabel(cell.hour),
+          value: formatHeatmapValue(cell.value, metric),
+          sections: cell.sections,
+          seats: cell.capacity,
+          enrollment: cell.enrollment,
+          fillRate: cell.capacity ? `${((cell.enrollment / cell.capacity) * 100).toFixed(1)}%` : '',
+          waitlist: '',
+          modalityScope: 'Physical start-time rows'
+        })),
+        options: () => ({
+          title: 'Heatmap Analytics',
+          term: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
+          filters,
+          metric: heatmapMetricLabel(metric),
+          modalityScope: 'Physical start-time rows',
+          filename: 'heatmap-analytics.png'
+        })
+      });
+    }
     attachHeatmapCellHandlers();
     setHeatmapCellFilterNote();
   }
