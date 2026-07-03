@@ -1768,6 +1768,14 @@
             <span id="primeTimeStatus" class="analytics-note">No faculty schedule rows loaded.</span>
             <label>Prime start <input id="ptStart" type="time" value="09:00" step="300"></label>
             <label>Prime end <input id="ptEnd" type="time" value="15:00" step="300"></label>
+            <label>Historical Aggregation
+              <select id="ptHistoricalAggregation">
+                <option value="average">Average per Selected Term</option>
+                <option value="total">Total Across Selected Terms</option>
+                <option value="recent">Most Recent Comparable Term</option>
+                <option value="weighted">Weighted Historical Average</option>
+              </select>
+            </label>
             <label class="prime-time-days">Prime days
               <span>
                 <label><input class="ptDay" type="checkbox" value="MO" checked> M</label>
@@ -1893,6 +1901,14 @@
             <label>Saved Faculty Schedule Term <select id="busyTimeFacultyArchiveTerm"></select></label>
             <button id="loadSavedBusyTimeFaculty" type="button">Load Saved Faculty Schedule</button>
             <span id="busyTimeStatus" class="analytics-note">No Busy Time rows loaded.</span>
+            <label>Historical Aggregation
+              <select id="busyTimeHistoricalAggregation">
+                <option value="average">Average per Selected Term</option>
+                <option value="total">Total Across Selected Terms</option>
+                <option value="recent">Most Recent Comparable Term</option>
+                <option value="weighted">Weighted Historical Average</option>
+              </select>
+            </label>
             <label>Term <select id="busyTimeTerm"></select></label>
             <label>Campus <select id="busyTimeCampus"></select></label>
             <label>Division <select id="busyTimeDivision"></select></label>
@@ -1956,6 +1972,14 @@
                 <option value="historical">Historical Evaluation</option>
                 <option value="planning">Planning &amp; Forecast</option>
                 <option value="scenario">Scenario Analysis</option>
+              </select>
+            </label>
+            <label>Historical Aggregation
+              <select id="studentChoiceHistoricalAggregation">
+                <option value="average">Average per Selected Term</option>
+                <option value="total">Total Across Selected Terms</option>
+                <option value="recent">Most Recent Comparable Term</option>
+                <option value="weighted">Weighted Historical Average</option>
               </select>
             </label>
             <label>Historical comparison terms <select id="studentChoiceHistoricalTerms" multiple data-placeholder="Select historical terms"></select></label>
@@ -2065,6 +2089,14 @@
             <label>Discipline <select id="recommendationDiscipline"></select></label>
             <label>Course <select id="recommendationCourse"></select></label>
             <label>Time block <select id="recommendationTimeBlock"></select></label>
+            <label>Historical Aggregation
+              <select id="recommendationHistoricalAggregation">
+                <option value="average">Average per Selected Term</option>
+                <option value="total">Total Across Selected Terms</option>
+                <option value="recent">Most Recent Comparable Term</option>
+                <option value="weighted">Weighted Historical Average</option>
+              </select>
+            </label>
             <label>Earliest recommended start <input id="recommendationStartEarliest" type="time" value="07:00" step="1800"></label>
             <label>Latest recommended start <input id="recommendationStartLatest" type="time" value="19:00" step="1800"></label>
             <label>Modality <select id="recommendationModality" multiple size="3"></select></label>
@@ -3318,23 +3350,147 @@
     setModalitySelectOptions('ptModality', PHYSICAL_MODALITY_LABELS);
   }
 
-  function primeTimeStat(label, rows, predicate, valueKey = 'sections') {
-    const scoped = rows.filter(predicate);
-    const prime = scoped.filter(row => row.isPrimeTime);
-    const total = valueKey === 'sections' ? scoped.length : scoped.reduce((sumValue, row) => sumValue + (row[valueKey] || 0), 0);
-    const primeValue = valueKey === 'sections' ? prime.length : prime.reduce((sumValue, row) => sumValue + (row[valueKey] || 0), 0);
-    const pct = safeDiv(primeValue, total);
+  function historicalAggregationMode(id, fallback = 'average') {
+    const value = document.getElementById(id)?.value || fallback;
+    return ['average', 'total', 'recent', 'weighted'].includes(value) ? value : fallback;
+  }
+
+  function historicalAggregationLabel(mode) {
     return {
-      category: label,
-      primeValue: round1(primeValue),
-      totalValue: round1(total),
-      percentPrime: `${(pct * 100).toFixed(1)}%`,
-      percentNumber: pct
+      average: 'Average per Selected Term',
+      total: 'Total Across Selected Terms',
+      recent: 'Most Recent Comparable Term',
+      weighted: 'Weighted Historical Average'
+    }[mode] || 'Average per Selected Term';
+  }
+
+  function historicalTermRelation(term, focusTerm) {
+    const parts = termParts(term);
+    const focus = termParts(focusTerm);
+    if (!parts.season) return 'unknown';
+    if (parts.season === 'SUMMER') return focus.season === 'SUMMER' ? 'same-season' : 'summer';
+    if (focus.season === 'SUMMER') return 'opposite-primary';
+    if (parts.season === focus.season) return 'same-season';
+    if (['FALL', 'SPRING'].includes(parts.season) && ['FALL', 'SPRING'].includes(focus.season)) return 'opposite-primary';
+    return 'unknown';
+  }
+
+  function historicalTermWeights(terms, focusTerm) {
+    const normalizedTerms = [...new Set((terms || []).map(normalizeTermLabel).filter(Boolean))]
+      .sort((a, b) => termSortValue(a) - termSortValue(b));
+    const focus = termParts(focusTerm || normalizedTerms[normalizedTerms.length - 1] || '');
+    const sameSeasonTerms = normalizedTerms
+      .map(term => termParts(term))
+      .filter(parts => parts.season === focus.season && parts.year);
+    const mostRecentSameSeasonYear = Math.max(0, ...sameSeasonTerms.map(parts => parts.year));
+    return normalizedTerms.map(term => {
+      const parts = termParts(term);
+      const relation = historicalTermRelation(term, `${focus.season || parts.season} ${focus.year || parts.year}`);
+      let weight = 0.35;
+      if (focus.season === 'SUMMER') {
+        if (parts.season === 'SUMMER') {
+          const yearGap = Math.max(0, (mostRecentSameSeasonYear || parts.year) - parts.year);
+          weight = Math.max(0.4, 1 - (yearGap * 0.15));
+        } else if (['FALL', 'SPRING'].includes(parts.season)) {
+          weight = 0.35;
+        }
+      } else if (['FALL', 'SPRING'].includes(focus.season)) {
+        if (parts.season === focus.season) {
+          const yearGap = Math.max(0, (mostRecentSameSeasonYear || parts.year) - parts.year);
+          weight = Math.max(0.4, 1 - (yearGap * 0.15));
+        } else if (parts.season === 'SUMMER') {
+          weight = 0.25;
+        } else if (['FALL', 'SPRING'].includes(parts.season)) {
+          weight = 0.5;
+        }
+      }
+      return {
+        term,
+        season: parts.season || '',
+        year: parts.year || 0,
+        relation,
+        weight: Math.round(weight * 100) / 100
+      };
+    });
+  }
+
+  function aggregateHistoricalValues(values, mode = 'average', weights = []) {
+    const list = (values || []).map(item => ({
+      term: normalizeTermLabel(item.term),
+      value: Number(item.value) || 0
+    })).sort((a, b) => termSortValue(a.term) - termSortValue(b.term));
+    const total = list.reduce((sumValue, row) => sumValue + row.value, 0);
+    const average = safeDiv(total, list.length);
+    const mostRecent = list[list.length - 1]?.value || 0;
+    const weightMap = new Map((weights || []).map(row => [normalizeTermLabel(row.term), Number(row.weight) || 0]));
+    const weightedDenominator = list.reduce((sumValue, row) => sumValue + (weightMap.get(row.term) || 0), 0);
+    const weighted = weightedDenominator
+      ? list.reduce((sumValue, row) => sumValue + row.value * (weightMap.get(row.term) || 0), 0) / weightedDenominator
+      : average;
+    return {
+      selectedValue: mode === 'total' ? total : mode === 'recent' ? mostRecent : mode === 'weighted' ? weighted : average,
+      totalAcrossSelectedTerms: total,
+      averagePerSelectedTerm: average,
+      mostRecentComparableTerm: mostRecent,
+      weightedHistoricalAverage: weighted,
+      selectedTermCount: list.length
     };
   }
 
-  function primeTimeAnalysisRows(rows, modalityLabels = PHYSICAL_MODALITY_LABELS) {
-    const definition = primeTimeDefinition();
+  function facultyMeetingKey(row) {
+    return [facultyTerm(row), row.crn || '', row.facultyId || row.facultyName || '', row.dayPattern || '', row.start || '', row.end || '', row.meetingType || ''].join('|');
+  }
+
+  function primeTimeMetricValues(rows, predicate, valueKey = 'instructionalMeetings') {
+    const scoped = rows.filter(predicate);
+    const primeRows = scoped.filter(row => row.isPrimeTime);
+    const sumValue = source => {
+      if (valueKey === 'scheduledClassOfferings') return new Set(source.map(row => [facultyTerm(row), row.crn].join('|')).filter(Boolean)).size;
+      if (valueKey === 'instructionalMeetings') return new Set(source.map(facultyMeetingKey)).size;
+      return source.reduce((sum, row) => sum + (Number(row[valueKey]) || 0), 0);
+    };
+    const primeValue = sumValue(primeRows);
+    const totalValue = sumValue(scoped);
+    return {
+      primeValue,
+      nonPrimeValue: Math.max(0, totalValue - primeValue),
+      totalValue,
+      percentNumber: safeDiv(primeValue, totalValue)
+    };
+  }
+
+  function primeTimeStat(label, rows, predicate, valueKey = 'instructionalMeetings', options = {}) {
+    const mode = options.aggregationMode || 'average';
+    const focusTerm = options.focusTerm || '';
+    const terms = [...new Set(rows.map(facultyTerm).filter(Boolean))].sort((a, b) => termSortValue(a) - termSortValue(b));
+    const weights = options.weights || historicalTermWeights(terms, focusTerm || terms[terms.length - 1]);
+    const byTerm = terms.map(term => {
+      const values = primeTimeMetricValues(rows.filter(row => facultyTerm(row) === term), predicate, valueKey);
+      return { term, ...values };
+    });
+    const primeAgg = aggregateHistoricalValues(byTerm.map(row => ({ term: row.term, value: row.primeValue })), mode, weights);
+    const nonPrimeAgg = aggregateHistoricalValues(byTerm.map(row => ({ term: row.term, value: row.nonPrimeValue })), mode, weights);
+    const totalAgg = aggregateHistoricalValues(byTerm.map(row => ({ term: row.term, value: row.totalValue })), mode, weights);
+    const pct = safeDiv(primeAgg.selectedValue, totalAgg.selectedValue);
+    return {
+      category: label,
+      aggregationMode: historicalAggregationLabel(mode),
+      focusPlanningTerm: focusTerm,
+      selectedHistoricalTerms: terms.join(', '),
+      historicalTermWeights: weights.map(row => `${row.term}:${row.weight} (${row.relation})`).join('; '),
+      primeValue: round1(primeAgg.selectedValue),
+      nonPrimeValue: round1(nonPrimeAgg.selectedValue),
+      totalValue: round1(totalAgg.selectedValue),
+      percentPrime: `${(pct * 100).toFixed(1)}%`,
+      percentNumber: pct,
+      totalAcrossSelectedTerms: round1(totalAgg.totalAcrossSelectedTerms),
+      averagePerSelectedTerm: round1(totalAgg.averagePerSelectedTerm),
+      weightedHistoricalAverage: round1(totalAgg.weightedHistoricalAverage)
+    };
+  }
+
+  function primeTimeAnalysisRows(rows, modalityLabels = PHYSICAL_MODALITY_LABELS, options = {}) {
+    const definition = options.definition || primeTimeDefinition();
     const analyzed = reportableFacultyRows(rows)
       .filter(row => facultyHasUsablePhysicalInterval(row))
       .filter(row => facultyModalityMatchesLabelList(row, modalityLabels))
@@ -3342,16 +3498,26 @@
       ...row,
       isPrimeTime: rowOverlapsPrimeTime(row, definition),
       enrollment: row.actualEnroll || 0,
-      seats: row.maxEnroll || 0
+      seats: row.maxEnroll || 0,
+      ftes: row.ftes || 0
     }));
+    const terms = [...new Set(analyzed.map(facultyTerm).filter(Boolean))].sort((a, b) => termSortValue(a) - termSortValue(b));
+    const focusTerm = options.focusTerm || document.getElementById('ptTerm')?.value || terms[terms.length - 1] || '';
+    const aggregationMode = options.aggregationMode || historicalAggregationMode('ptHistoricalAggregation');
+    const weights = historicalTermWeights(terms, focusTerm);
+    const statOptions = { aggregationMode, focusTerm, weights };
     return [
-      primeTimeStat('Full-Time Sections', analyzed, row => row.facultyType === 'FULL_TIME'),
-      primeTimeStat('Part-Time Sections', analyzed, row => row.facultyType === 'PART_TIME'),
-      primeTimeStat('Lecture Sections', analyzed, row => row.meetingType === 'Lecture'),
-      primeTimeStat('Lab Sections', analyzed, row => row.meetingType === 'Lab'),
-      primeTimeStat('Activity Sections', analyzed, row => row.meetingType === 'Activity'),
-      primeTimeStat('Student Enrollment', analyzed, () => true, 'enrollment'),
-      primeTimeStat('LHE', analyzed, () => true, 'lhe')
+      primeTimeStat('Scheduled Class Offerings, Unique CRNs', analyzed, () => true, 'scheduledClassOfferings', statOptions),
+      primeTimeStat('Instructional Meetings', analyzed, () => true, 'instructionalMeetings', statOptions),
+      primeTimeStat('Full-Time Faculty Instructional Meetings', analyzed, row => row.facultyType === 'FULL_TIME', 'instructionalMeetings', statOptions),
+      primeTimeStat('Part-Time Faculty Instructional Meetings', analyzed, row => row.facultyType === 'PART_TIME', 'instructionalMeetings', statOptions),
+      primeTimeStat('Lecture', analyzed, row => row.meetingType === 'Lecture', 'instructionalMeetings', statOptions),
+      primeTimeStat('Lab', analyzed, row => row.meetingType === 'Lab', 'instructionalMeetings', statOptions),
+      primeTimeStat('Activity', analyzed, row => row.meetingType === 'Activity', 'instructionalMeetings', statOptions),
+      primeTimeStat('Enrollment', analyzed, () => true, 'enrollment', statOptions),
+      primeTimeStat('Seats', analyzed, () => true, 'seats', statOptions),
+      primeTimeStat('LHE', analyzed, () => true, 'lhe', statOptions),
+      primeTimeStat('FTES', analyzed, () => true, 'ftes', statOptions)
     ];
   }
 
@@ -3391,12 +3557,16 @@
       if (status) status.textContent = 'No faculty schedule rows loaded.';
       document.getElementById('primeTimeGauges').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Prime Time Analysis.</p>';
       metric('primeTimeMetrics', [
-        ['FT prime-time sections', '0%'],
-        ['PT prime-time sections', '0%'],
+        ['Historical Aggregation', historicalAggregationLabel(historicalAggregationMode('ptHistoricalAggregation'))],
+        ['Class offerings prime time', '0%'],
+        ['Instructional meetings prime time', '0%'],
+        ['FT faculty meetings prime time', '0%'],
+        ['PT faculty meetings prime time', '0%'],
         ['Lecture prime time', '0%'],
         ['Lab prime time', '0%'],
         ['Activity prime time', '0%'],
         ['Enrollment prime time', '0%'],
+        ['Seats prime time', '0%'],
         ['LHE prime time', '0%']
       ]);
       document.getElementById('primeTimeTable').innerHTML = '<p class="analytics-empty">No prime-time data loaded.</p>';
@@ -3408,33 +3578,52 @@
       status.textContent = `Loaded ${sourceRows.length} deduped meeting row(s). Terms: ${terms || 'Unspecified'}.`;
     }
     const rows = primeTimeFilterRows();
-    const tableRows = primeTimeAnalysisRows(rows, [...selectedModalityLabels('ptModality', PHYSICAL_MODALITY_LABELS)]);
+    const aggregationMode = historicalAggregationMode('ptHistoricalAggregation');
+    const focusTerm = document.getElementById('ptTerm')?.value || '';
+    const tableRows = primeTimeAnalysisRows(rows, [...selectedModalityLabels('ptModality', PHYSICAL_MODALITY_LABELS)], { aggregationMode, focusTerm });
     state.primeTimeTableRows = tableRows;
     renderPrimeTimeGauges(tableRows);
     const pick = label => tableRows.find(row => row.category === label)?.percentPrime || '0%';
     metric('primeTimeMetrics', [
-      ['FT prime-time sections', pick('Full-Time Sections')],
-      ['PT prime-time sections', pick('Part-Time Sections')],
-      ['Lecture prime time', pick('Lecture Sections')],
-      ['Lab prime time', pick('Lab Sections')],
-      ['Activity prime time', pick('Activity Sections')],
-      ['Enrollment prime time', pick('Student Enrollment')],
+      ['Historical Aggregation', historicalAggregationLabel(aggregationMode)],
+      ['Class offerings prime time', pick('Scheduled Class Offerings, Unique CRNs')],
+      ['Instructional meetings prime time', pick('Instructional Meetings')],
+      ['FT faculty meetings prime time', pick('Full-Time Faculty Instructional Meetings')],
+      ['PT faculty meetings prime time', pick('Part-Time Faculty Instructional Meetings')],
+      ['Lecture prime time', pick('Lecture')],
+      ['Lab prime time', pick('Lab')],
+      ['Activity prime time', pick('Activity')],
+      ['Enrollment prime time', pick('Enrollment')],
+      ['Seats prime time', pick('Seats')],
       ['LHE prime time', pick('LHE')]
     ]);
-    table('primeTimeTable', tableRows, ['category', 'primeValue', 'totalValue', 'percentPrime']);
+    table('primeTimeTable', tableRows, ['category', 'aggregationMode', 'focusPlanningTerm', 'selectedHistoricalTerms', 'historicalTermWeights', 'primeValue', 'nonPrimeValue', 'totalValue', 'percentPrime', 'totalAcrossSelectedTerms', 'averagePerSelectedTerm', 'weightedHistoricalAverage']);
     const definition = primeTimeDefinition();
     const dayNames = [...definition.days].map(day => dayLabels[day] || day).join(', ') || 'No days selected';
     renderMethodologyPanel(document.getElementById('primeTimeLegend'), {
       title: 'Prime Time Analysis Methodology & Data Dictionary',
       purpose: 'Measures how much faculty instruction, enrollment, and LHE are concentrated during the selected campus prime-time window.',
-      metricsUsed: ['Prime-Time Concentration', 'Faculty Count', 'Enrollment Present', 'LHE', 'Sections Active'],
-      calculationRules: `Prime time currently uses ${dayNames}, ${formatPresenceHourLabel(definition.start / 60)}-${formatPresenceHourLabel(definition.end / 60)}. A meeting counts as prime time when any scheduled day and any part of the meeting overlaps the selected window. Percent Prime = prime-time value / total value for the filtered reportable faculty schedule rows.`,
+      metricsUsed: ['Historical Aggregation Mode', 'Prime-Time Concentration', 'Scheduled Class Offerings, Unique CRNs', 'Instructional Meetings', 'Enrollment', 'Seats', 'LHE', 'FTES', 'Full-Time Faculty Instructional Meetings', 'Part-Time Faculty Instructional Meetings', 'Lecture', 'Lab', 'Activity'],
+      calculationRules: `Prime time currently uses ${dayNames}, ${formatPresenceHourLabel(definition.start / 60)}-${formatPresenceHourLabel(definition.end / 60)}. A meeting counts as prime time when any scheduled day and any part of the meeting overlaps the selected window. Percent Prime = prime-time value / total value. Historical Aggregation defaults to Average per Selected Term so multi-term history is compared as a typical term rather than a cumulative total.`,
       assumptions: 'Prime Time Analysis defaults to physical instruction because it evaluates campus time-of-day concentration. Online sections can be included manually.',
       limitations: 'Prime-time concentration describes schedule placement. It does not determine whether a placement is pedagogically, contractually, or operationally appropriate.',
       items: [
+        ['Historical Aggregation Mode', 'Controls how multiple selected historical terms are summarized: Average per Selected Term, Total Across Selected Terms, Most Recent Comparable Term, or Weighted Historical Average.'],
+        ['Average per Selected Term', 'Default planning benchmark. Divides selected historical totals by the number of selected terms so a future term is compared against a typical term.'],
+        ['Total Across Selected Terms', 'Cumulative value across all selected terms. Useful for audit context, but not the default planning comparison.'],
+        ['Most Recent Comparable Term', 'Uses the most recent selected historical term by normalized term order.'],
+        ['Weighted Historical Average', 'Applies season and recency weights. Same-season recent terms receive the highest weight.'],
+        ['Summer Weighting', 'Summer terms are weighted lower when planning Fall or Spring because Summer has different scheduling patterns, compressed calendars, student availability, and section mix. Summer receives full or near-full weight when planning another Summer term.'],
+        ['Scheduled Class Offerings, Unique CRNs', 'Distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN count once. Used for schedule size, section management, and FTES-over-cap planning.'],
+        ['Instructional Meetings', 'Distinct meeting components. The same CRN may count more than once if it has distinct day/time/component records, such as lecture plus lab or activity. Used for time-of-day, room, faculty-load, and prime-time concentration analysis.'],
+        ['Prime', 'Selected metric value inside the configured prime-time window.'],
+        ['Non-Prime', 'Selected metric value outside the configured prime-time window.'],
+        ['Total', 'Prime plus Non-Prime for the selected metric and aggregation mode.'],
         ['Percent Prime', 'Prime-time value divided by total value for the selected metric.'],
-        ['Prime Value', 'Selected metric value occurring inside the configured prime-time window.'],
-        ['Total Value', 'Selected metric value across all included reportable faculty schedule rows.']
+        ['Enrollment', 'ActualEnroll from Faculty Schedule data when available.'],
+        ['Student Presence', 'Enrollment present in overlapping physical time intervals; used by related schedule opportunity reports.'],
+        ['LHE', 'Loaded LHE values from Faculty Schedule data.'],
+        ['FTES', 'Loaded FTES values if available in the source data.']
       ],
       version: 'Methodology v1.0'
     });
@@ -3466,8 +3655,10 @@
     setModalitySelectValues('ptModality', PHYSICAL_MODALITY_LABELS);
     const start = document.getElementById('ptStart');
     const end = document.getElementById('ptEnd');
+    const aggregation = document.getElementById('ptHistoricalAggregation');
     if (start) start.value = '09:00';
     if (end) end.value = '15:00';
+    if (aggregation) aggregation.value = 'average';
     document.querySelectorAll('.ptDay').forEach(node => {
       node.checked = ['MO', 'TU', 'WE', 'TH'].includes(node.value);
     });
@@ -4147,6 +4338,10 @@
   function renderBusyTimeDashboard() {
     const sourceRows = state.busyTimeRows || [];
     const rows = busyTimeFilteredRows();
+    const aggregationMode = historicalAggregationMode('busyTimeHistoricalAggregation');
+    const focusTerm = document.getElementById('busyTimeTerm')?.value || '';
+    const busyTerms = [...new Set(rows.map(row => normalizeTermLabel(row.term)).filter(Boolean))].sort((a, b) => termSortValue(a) - termSortValue(b));
+    const busyWeights = historicalTermWeights(busyTerms, focusTerm || busyTerms[busyTerms.length - 1]);
     const facultyRows = busyTimeFacultyRowsForScope();
     const intervalOptions = { includeOnline: includeOnlineFromSelect('busyTimeModality') };
     const bucketRows = buildBusyTimeBuckets(rows, intervalOptions);
@@ -4178,6 +4373,7 @@
     const demandPressure = safeDiv(enrollment + waitlist, seats);
     const peakChoiceDiversity = Math.max(0, ...bucketRows.map(row => row.choiceDiversityIndex || 0));
     metric('busyTimeMetrics', [
+      ['Historical Aggregation', historicalAggregationLabel(aggregationMode)],
       ['Prime Time Score', `${(primeScore * 100).toFixed(1)}%`],
       ['Faculty Concentration', `${(facultyConcentration * 100).toFixed(1)}%`],
       ['Student Concentration', `${(studentConcentration * 100).toFixed(1)}%`],
@@ -4201,7 +4397,11 @@
       .map(row => ({
         day: row.dayName,
         time: row.time,
-        sections: row.sections,
+        aggregationMode: historicalAggregationLabel(aggregationMode),
+        selectedHistoricalTerms: busyTerms.join(', '),
+        historicalTermWeights: busyWeights.map(weight => `${weight.term}:${weight.weight} (${weight.relation})`).join('; '),
+        scheduledClassOfferings: row.sections,
+        instructionalMeetings: row.sections,
         seats: row.seats,
         enrollment: row.enrollment,
         studentPresence: row.studentPresence,
@@ -4210,16 +4410,24 @@
         waitlist: row.waitlist,
         emptySeats: row.emptySeats
       }));
-    table('busyTimeTable', state.busyTimeTableRows, ['day', 'time', 'sections', 'seats', 'enrollment', 'studentPresence', 'choiceDiversityIndex', 'fillRate', 'waitlist', 'emptySeats']);
+    table('busyTimeTable', state.busyTimeTableRows, ['day', 'time', 'aggregationMode', 'selectedHistoricalTerms', 'historicalTermWeights', 'scheduledClassOfferings', 'instructionalMeetings', 'seats', 'enrollment', 'studentPresence', 'choiceDiversityIndex', 'fillRate', 'waitlist', 'emptySeats']);
     renderMethodologyPanel(document.getElementById('busyTimeLegend'), {
       title: 'Busy Time Dashboard Methodology & Data Dictionary',
       purpose: 'Summarizes busy-time patterns by combining student presence, course duration, faculty concentration, supply/demand, prime time, and room utilization signals.',
-      metricsUsed: ['Student Presence', 'Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Choice Diversity Index', 'Faculty Count', 'Prime-Time Concentration'],
-      calculationRules: 'Student Presence and Supply vs Demand use half-hour buckets from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by half-hour bucket. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Room Utilization is scheduled room time divided by a standard weekday instructional-room availability window.',
+      metricsUsed: ['Historical Aggregation Mode', 'Student Presence', 'Scheduled Class Offerings, Unique CRNs', 'Instructional Meetings', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Choice Diversity Index', 'Faculty Count', 'Prime-Time Concentration'],
+      calculationRules: 'Student Presence and Supply vs Demand use half-hour buckets from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by half-hour bucket. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Historical Aggregation defaults to Average per Selected Term for planning comparisons.',
       assumptions: 'Dashboard observations are descriptive summaries only. They are intended to show alignment or contrast among supply, demand, faculty concentration, student concentration, and room utilization.',
       limitations: 'This dashboard does not make scheduling recommendations and does not include every operational constraint, such as budget, program sequencing, instructor availability, or room setup requirements.',
       items: [
         ['Prime Time Score', 'Share of all included student presence occurring during the standard prime-time window.'],
+        ['Historical Aggregation Mode', 'Controls how multiple selected historical terms are summarized: Average per Selected Term, Total Across Selected Terms, Most Recent Comparable Term, or Weighted Historical Average.'],
+        ['Average per Selected Term', 'Default planning benchmark; compares against a typical selected term.'],
+        ['Total Across Selected Terms', 'Cumulative value across selected terms for audit context.'],
+        ['Most Recent Comparable Term', 'Uses the latest selected historical term by normalized term order.'],
+        ['Weighted Historical Average', 'Uses season and recency weights. Same-season recent terms receive the highest weight.'],
+        ['Summer Weighting', 'Summer terms are weighted lower when planning Fall or Spring because Summer has different scheduling patterns, compressed calendars, student availability, and section mix. Summer receives full or near-full weight when planning another Summer term.'],
+        ['Scheduled Class Offerings, Unique CRNs', 'Distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN count once.'],
+        ['Instructional Meetings', 'Distinct meeting components. Same CRN may count more than once for distinct day/time/component records.'],
         ['Faculty Concentration', 'Share of included faculty bucket activity occurring in the busiest faculty time bucket.'],
         ['Student Concentration', 'Share of included student presence occurring in the busiest student-presence bucket.'],
         ['Seat Supply', 'Total seats offered across included fixed meeting buckets.'],
@@ -4256,10 +4464,12 @@
   }
 
   function clearBusyTimeDashboard() {
-    ['busyTimeTerm', 'busyTimeCampus', 'busyTimeDivision', 'busyTimeDepartment', 'busyTimeCourse'].forEach(id => {
+    ['busyTimeTerm', 'busyTimeCampus', 'busyTimeDivision', 'busyTimeDepartment', 'busyTimeCourse', 'busyTimeHistoricalAggregation'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    const aggregation = document.getElementById('busyTimeHistoricalAggregation');
+    if (aggregation) aggregation.value = 'average';
     setModalitySelectValues('busyTimeModality', PHYSICAL_MODALITY_LABELS);
     if (state.busyTimeRows.length) renderBusyTimeDashboard();
   }
@@ -4399,11 +4609,17 @@
   function scheduleOpportunityHistoricalProjection(currentRows, historicalRows, demandSource = 'average', options = {}) {
     const current = scheduleOpportunitySummary(currentRows, options);
     const summaries = scheduleOpportunityTermSummaries(historicalRows, options);
+    const focusTerm = options.focusTerm || currentRows.map(row => row.term).filter(Boolean).sort((a, b) => termSortValue(a) - termSortValue(b)).pop() || summaries[summaries.length - 1]?.term || '';
+    const aggregationMode = options.aggregationMode || demandSource;
+    const weights = historicalTermWeights(summaries.map(row => row.term), focusTerm);
     const numericFields = ['scheduledClassOfferings', 'seatsOffered', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'campusChoices', 'modalityChoices', 'studentPresence', 'enrollment', 'fillRateNumber', 'waitlist', 'enrollmentPerClassOffering', 'choiceDiversityIndex', 'demandPressureScore'];
-    const projection = { demandSource, termsIncluded: summaries.map(row => row.term), termCount: summaries.length };
+    const projection = { demandSource, aggregationMode: historicalAggregationLabel(aggregationMode), historicalTermWeights: weights, termsIncluded: summaries.map(row => row.term), termCount: summaries.length };
     numericFields.forEach(field => {
       const values = summaries.map(row => ({ term: row.term, value: Number(row[field]) || 0 }));
-      if (demandSource === 'weighted3') projection[field] = weightedAverage(values, 3);
+      if (aggregationMode === 'total') projection[field] = aggregateHistoricalValues(values, 'total', weights).selectedValue;
+      else if (aggregationMode === 'recent') projection[field] = aggregateHistoricalValues(values, 'recent', weights).selectedValue;
+      else if (aggregationMode === 'weighted' || demandSource === 'weighted') projection[field] = aggregateHistoricalValues(values, 'weighted', weights).selectedValue;
+      else if (demandSource === 'weighted3') projection[field] = weightedAverage(values, 3);
       else if (demandSource === 'weighted5') projection[field] = weightedAverage(values, 5);
       else if (demandSource === 'bestMatch') {
         const best = summaries.slice().sort((a, b) => Math.abs((a.scheduledClassOfferings || 0) - current.scheduledClassOfferings) - Math.abs((b.scheduledClassOfferings || 0) - current.scheduledClassOfferings))[0];
@@ -4816,13 +5032,14 @@
     const requestedMode = document.getElementById('studentChoiceMode')?.value || 'auto';
     const mode = scheduleOpportunityModeForRows(rows, requestedMode);
     const demandSource = document.getElementById('studentChoiceDemandSource')?.value || 'average';
+    const aggregationMode = historicalAggregationMode('studentChoiceHistoricalAggregation');
     const metricName = document.getElementById('studentChoiceMetric')?.value || 'uniqueCourses';
     const buckets = buildStudentChoiceBuckets(rows, metricName, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
     state.studentChoiceBucketRows = buckets;
     const nonEmpty = buckets.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
     const summary = scheduleOpportunitySummary(rows, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
-    const projection = scheduleOpportunityHistoricalProjection(rows, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
-    const gapRows = scheduleOpportunityGapRows(rows, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
+    const projection = scheduleOpportunityHistoricalProjection(rows, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality'), aggregationMode });
+    const gapRows = scheduleOpportunityGapRows(rows, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality'), aggregationMode });
     const historicalComparisonRows = scheduleOpportunityTermSummaries(historicalRows, { includeOnline: includeOnlineFromSelect('studentChoiceModality') })
       .map(row => ({
         term: row.term,
@@ -4849,7 +5066,7 @@
       end: document.getElementById('studentChoiceScenarioEnd')?.value || '',
       modality: document.getElementById('studentChoiceScenarioModality')?.value || ''
     };
-    const scenarioRows = scheduleOpportunityScenarioComparison(rows, scenario, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
+    const scenarioRows = scheduleOpportunityScenarioComparison(rows, scenario, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality'), aggregationMode });
     state.studentChoicePlanningGapRows = gapRows;
     state.studentChoiceScenarioRows = scenarioRows;
     const highChoice = nonEmpty.filter(row => row.interpretation.startsWith('High choice')).length;
@@ -4857,6 +5074,7 @@
     const noCurrentEnrollment = mode === 'planning' && !summary.hasCurrentEnrollment;
     metric('studentChoiceMetrics', [
       ['Analysis Mode', mode === 'historical' ? 'Historical Evaluation' : mode === 'scenario' ? 'Scenario Analysis' : 'Planning & Forecast'],
+      ['Historical Aggregation', historicalAggregationLabel(aggregationMode)],
       ['Scheduled Class Offerings', summary.scheduledClassOfferings],
       ['Unique Courses Available', summary.uniqueCourses],
       ['Unique Subjects Available', summary.uniqueSubjects],
@@ -4901,7 +5119,7 @@
     }));
     state.studentChoiceExportRows = [
       ...tableRows,
-      ...historicalComparisonRows.map(row => ({ analysisMode: 'Historical Evaluation', rowType: 'Historical Comparison', ...row })),
+      ...historicalComparisonRows.map(row => ({ analysisMode: 'Historical Evaluation', rowType: 'Historical Comparison', aggregationMode: historicalAggregationLabel(aggregationMode), historicalTermWeights: projection.historicalTermWeights?.map(weight => `${weight.term}:${weight.weight} (${weight.relation})`).join('; ') || '', ...row })),
       ...gapRows.map(row => ({ analysisMode: 'Planning & Forecast', rowType: 'Planning Gap', ...row })),
       ...scenarioRows.map(row => ({ analysisMode: 'Scenario Analysis', rowType: 'Scenario Before/After', ...row }))
     ];
@@ -4929,6 +5147,8 @@
           <ul>
             <li>Historical terms used: ${escapeAttr(projection.termsIncluded?.join(', ') || 'None selected')}</li>
             <li>Demand source: ${escapeAttr(demandSource)}</li>
+            <li>Historical Aggregation: ${escapeAttr(historicalAggregationLabel(aggregationMode))}</li>
+            <li>Historical weights: ${escapeAttr(projection.historicalTermWeights?.map(weight => `${weight.term}:${weight.weight} (${weight.relation})`).join('; ') || 'None')}</li>
             <li>${noCurrentEnrollment ? 'No current enrollment yet; historical demand projections are used instead of treating zero enrollment as low demand.' : 'Current demand uses census enrollment when available and actual/current enrollment as fallback.'}</li>
             ${recommendationRows.slice(0, 4).map(row => `<li>${escapeAttr(row.category)}: ${escapeAttr(row.recommendationTitle)}</li>`).join('')}
           </ul>
@@ -4947,6 +5167,13 @@
         ['Unique Subjects', 'Distinct subject/discipline codes available in a time bucket.'],
         ['Unique CAL-GETC Courses', 'Distinct courses in the bucket that map to configured CAL-GETC areas.'],
         ['Scheduled Class Offerings', 'Distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN are counted once in summary metrics.'],
+        ['Instructional Meetings', 'Distinct meeting components. A CRN may count more than once when it has distinct lecture, lab, activity, day, or time records.'],
+        ['Historical Aggregation Mode', 'Controls how selected historical terms are summarized: Average per Selected Term, Total Across Selected Terms, Most Recent Comparable Term, or Weighted Historical Average.'],
+        ['Average per Selected Term', 'Default planning benchmark. It compares a proposed term against a typical selected historical term, not the cumulative total of all selected terms.'],
+        ['Total Across Selected Terms', 'Cumulative value across selected terms. Useful for audit context and exports.'],
+        ['Most Recent Comparable Term', 'Uses the latest selected historical term by normalized term order.'],
+        ['Weighted Historical Average', 'Uses season and recency weights. Same-season recent terms receive the highest weight.'],
+        ['Summer Weighting', 'Summer terms are weighted lower when planning Fall or Spring because Summer has different scheduling patterns, compressed calendars, student availability, and section mix. Summer receives full or near-full weight when planning another Summer term.'],
         ['Historical Opportunity Gap', 'Current planned schedule metric minus the selected historical average metric.'],
         ['Planning Window', 'Active expansion recommendations use the default recommended start window of 7:00 AM through 7:00 PM. Late-night findings are suppressed from active recommendations and may appear as diagnostics in recommendation tooling.'],
         ['Choice Diversity Index', '0-100 index. Formula blends course breadth, subject breadth, GE breadth, and a concentration penalty based on the largest single-course share of active sections in the bucket.'],
@@ -4983,7 +5210,7 @@
   }
 
   function clearStudentChoiceOpportunity() {
-    ['studentChoiceView', 'studentChoiceMode', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse', 'studentChoiceCalGetc', 'studentChoiceFacultyType', 'studentChoiceScenarioAction', 'studentChoiceScenarioModality'].forEach(id => {
+    ['studentChoiceView', 'studentChoiceMode', 'studentChoiceHistoricalAggregation', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse', 'studentChoiceCalGetc', 'studentChoiceFacultyType', 'studentChoiceScenarioAction', 'studentChoiceScenarioModality'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
@@ -4997,6 +5224,7 @@
     const metricSelect = document.getElementById('studentChoiceMetric');
     const viewSelect = document.getElementById('studentChoiceView');
     const modeSelect = document.getElementById('studentChoiceMode');
+    const aggregationSelect = document.getElementById('studentChoiceHistoricalAggregation');
     const demandSelect = document.getElementById('studentChoiceDemandSource');
     const scenarioAction = document.getElementById('studentChoiceScenarioAction');
     const scenarioModality = document.getElementById('studentChoiceScenarioModality');
@@ -5006,6 +5234,7 @@
     if (metricSelect) metricSelect.value = 'uniqueCourses';
     if (viewSelect) viewSelect.value = 'all';
     if (modeSelect) modeSelect.value = 'auto';
+    if (aggregationSelect) aggregationSelect.value = 'average';
     if (demandSelect) demandSelect.value = 'average';
     if (scenarioAction) scenarioAction.value = 'none';
     if (scenarioModality) scenarioModality.value = 'In-Person';
@@ -5314,17 +5543,26 @@
     const sourceRows = recommendationFilteredSourceRows();
     const outsidePlanningDiagnostics = [];
     const planningWindow = recommendationPlanningWindow();
+    const aggregationMode = historicalAggregationMode('recommendationHistoricalAggregation');
+    const recommendationTerms = [...new Set(sourceRows.map(row => normalizeTermLabel(row.term)).filter(Boolean))].sort((a, b) => termSortValue(a) - termSortValue(b));
+    const recommendationWeights = historicalTermWeights(recommendationTerms, document.getElementById('recommendationTerm')?.value || recommendationTerms[recommendationTerms.length - 1]);
     const allRecommendations = buildSchedulingRecommendations(sourceRows, {
       includeOnline: includeOnlineFromSelect('recommendationModality'),
       planningWindow,
       outsidePlanningDiagnostics
     });
-    const filteredRecommendations = recommendationFilterOutput(allRecommendations);
+    const filteredRecommendations = recommendationFilterOutput(allRecommendations).map(row => ({
+      ...row,
+      aggregationMode: historicalAggregationLabel(aggregationMode),
+      selectedHistoricalTerms: recommendationTerms.join(', '),
+      historicalTermWeights: recommendationWeights.map(weight => `${weight.term}:${weight.weight} (${weight.relation})`).join('; ')
+    }));
     state.recommendationOutputRows = filteredRecommendations;
     state.recommendationOutsidePlanningRows = outsidePlanningDiagnostics;
     const byCategory = category => filteredRecommendations.filter(row => row.category === category).length;
     metric('recommendationMetrics', [
       ['Recommendations', filteredRecommendations.length],
+      ['Historical Aggregation', historicalAggregationLabel(aggregationMode)],
       ['High Confidence', filteredRecommendations.filter(row => row.confidenceLevel === 'High').length],
       ['Hidden Demand', byCategory('Hidden Demand')],
       ['Oversupply', byCategory('Oversupply')],
@@ -5353,17 +5591,25 @@
       <strong>Filterable Priority List</strong>
       <ol>${priorityRows.slice(0, 12).map(row => `<li>${escapeAttr(row.confidenceLevel)} - ${escapeAttr(row.category)} - ${escapeAttr(row.recommendationTitle)}</li>`).join('')}</ol>
     `;
-    table('recommendationTable', filteredRecommendations, ['recommendationTitle', 'category', 'confidenceLevel', 'affectedTermSource', 'campus', 'divisionDepartmentDiscipline', 'courseOrCourseGroup', 'dayTimeBlock', 'evidenceSummary', 'metricsUsed', 'whyThisMatters', 'suggestedAction', 'cautionsLimitations']);
+    table('recommendationTable', filteredRecommendations, ['recommendationTitle', 'category', 'confidenceLevel', 'aggregationMode', 'selectedHistoricalTerms', 'historicalTermWeights', 'affectedTermSource', 'campus', 'divisionDepartmentDiscipline', 'courseOrCourseGroup', 'dayTimeBlock', 'evidenceSummary', 'metricsUsed', 'whyThisMatters', 'suggestedAction', 'cautionsLimitations']);
     const outsideItems = outsidePlanningDiagnostics.slice(0, 8).map(row => `<li>${escapeAttr(row.category)} - ${escapeAttr(row.timeBlock)}: ${escapeAttr(row.reason)}</li>`).join('');
     renderMethodologyPanel(document.getElementById('recommendationLegend'), {
       title: 'Scheduling Recommendation Engine Methodology & Data Dictionary',
       purpose: 'Produces advisory-only, evidence-informed scheduling observations from supply, demand, choice, faculty, modality, prime-time, room, fill-rate, waitlist, and consolidation-style indicators.',
-      metricsUsed: ['Hidden Demand', 'Oversupply', 'Choice Gap', 'Expansion Candidate', 'Consolidation Candidate', 'Student Presence', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Faculty Count', 'Prime-Time Concentration'],
-      calculationRules: `Recommendations distinguish observed enrollment, available supply, student choice opportunity, faculty assignment pattern, room availability, historical/current fill rates, waitlists when available, and consolidation-style low-fill indicators. Time-based expansion, choice-gap, hidden-demand, and room-opportunity recommendations use a planning window of ${formatPresenceHourLabel(planningWindow.earliest / 60)}-${formatPresenceHourLabel(planningWindow.latest / 60)}. Candidates outside that window are suppressed from active recommendations and listed in diagnostics.`,
+      metricsUsed: ['Historical Aggregation Mode', 'Hidden Demand', 'Oversupply', 'Choice Gap', 'Expansion Candidate', 'Consolidation Candidate', 'Scheduled Class Offerings, Unique CRNs', 'Instructional Meetings', 'Student Presence', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Faculty Count', 'Prime-Time Concentration'],
+      calculationRules: `Recommendations distinguish observed enrollment, available supply, student choice opportunity, faculty assignment pattern, room availability, historical/current fill rates, waitlists when available, and consolidation-style low-fill indicators. Historical Aggregation is recorded as ${historicalAggregationLabel(aggregationMode)} for multi-term evidence context. Time-based expansion, choice-gap, hidden-demand, and room-opportunity recommendations use a planning window of ${formatPresenceHourLabel(planningWindow.earliest / 60)}-${formatPresenceHourLabel(planningWindow.latest / 60)}. Candidates outside that window are suppressed from active recommendations and listed in diagnostics.`,
       assumptions: 'Recommendations are evidence-informed, not deterministic. The engine does not prove student preference and does not change schedules automatically.',
       limitations: 'Insufficient evidence is reported when signals are weak or incomplete. Recommendations must still be checked against program, equity, staffing, room, contract, budget, and leadership constraints.',
       items: [
         ['Confidence Level', 'High, Medium, or Low based on strength and consistency of available evidence.'],
+        ['Historical Aggregation Mode', 'Controls how multiple selected historical terms are summarized: Average per Selected Term, Total Across Selected Terms, Most Recent Comparable Term, or Weighted Historical Average.'],
+        ['Average per Selected Term', 'Default planning benchmark; compares recommendations against a typical selected term.'],
+        ['Total Across Selected Terms', 'Cumulative value across selected terms for audit context.'],
+        ['Most Recent Comparable Term', 'Uses the latest selected historical term by normalized term order.'],
+        ['Weighted Historical Average', 'Uses season and recency weights. Same-season recent terms receive the highest weight.'],
+        ['Summer Weighting', 'Summer terms are weighted lower when planning Fall or Spring because Summer has different scheduling patterns, compressed calendars, student availability, and section mix. Summer receives full or near-full weight when planning another Summer term.'],
+        ['Scheduled Class Offerings, Unique CRNs', 'Distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN count once.'],
+        ['Instructional Meetings', 'Distinct meeting components. Same CRN may count more than once for distinct day/time/component records.'],
         ['Metrics Used', 'Plain-language list of the signals contributing to a recommendation row.'],
         ['Outside Planning Window', `Suppressed diagnostic item for time-based candidates outside ${formatPresenceHourLabel(planningWindow.earliest / 60)}-${formatPresenceHourLabel(planningWindow.latest / 60)}.`],
         ['Outside planning window diagnostics', outsidePlanningDiagnostics.length ? outsideItems.replace(/<[^>]+>/g, ' ') : 'No outside planning window diagnostics.']
@@ -5399,12 +5645,14 @@
   }
 
   function clearRecommendationEngine() {
-    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationDivision', 'recommendationDepartment', 'recommendationDiscipline', 'recommendationCourse', 'recommendationTimeBlock', 'recommendationFacultyType'].forEach(id => {
+    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationDivision', 'recommendationDepartment', 'recommendationDiscipline', 'recommendationCourse', 'recommendationTimeBlock', 'recommendationHistoricalAggregation', 'recommendationFacultyType'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
+    const aggregation = document.getElementById('recommendationHistoricalAggregation');
     const earliest = document.getElementById('recommendationStartEarliest');
     const latest = document.getElementById('recommendationStartLatest');
+    if (aggregation) aggregation.value = 'average';
     if (earliest) earliest.value = '07:00';
     if (latest) latest.value = '19:00';
     setModalitySelectValues('recommendationModality', PHYSICAL_MODALITY_LABELS);
@@ -11236,7 +11484,7 @@
     document.getElementById('loadSavedPrimeTimeAnalysis')?.addEventListener('click', () => loadSavedPrimeTimeAnalysis().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('loadPrimeTimeAnalysis')?.addEventListener('click', () => loadPrimeTimeAnalysis().catch(err => alert(err.message || 'Prime Time Analysis load failed.')));
     document.getElementById('primeTimeCsv')?.addEventListener('change', () => loadPrimeTimeAnalysis().catch(err => console.warn(err)));
-    ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd', 'ptModality'].forEach(id => {
+    ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd', 'ptHistoricalAggregation', 'ptModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderPrimeTimeAnalysis);
     });
     ['ptDivision', 'ptDepartment', 'ptCourse'].forEach(id => {
@@ -11269,7 +11517,7 @@
     document.getElementById('loadSavedBusyTimeFaculty')?.addEventListener('click', () => loadSavedBusyTimeFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('busyTimeArchiveTerms')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
     document.getElementById('archiveBusyTimeUploads')?.addEventListener('click', () => archiveUploads('busyTimeCsv').catch(err => alert(err.message || 'Archive failed.')));
-    ['busyTimeTerm', 'busyTimeCampus', 'busyTimeModality'].forEach(id => {
+    ['busyTimeTerm', 'busyTimeCampus', 'busyTimeHistoricalAggregation', 'busyTimeModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.busyTimeRan) renderBusyTimeDashboard(); });
     });
     ['busyTimeDivision', 'busyTimeDepartment', 'busyTimeCourse'].forEach(id => {
@@ -11286,7 +11534,7 @@
     document.getElementById('loadSavedStudentChoiceFaculty')?.addEventListener('click', () => loadSavedStudentChoiceFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('studentChoiceArchiveTerms')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('archiveStudentChoiceUploads')?.addEventListener('click', () => archiveUploads('studentChoiceCsv').catch(err => alert(err.message || 'Archive failed.')));
-    ['studentChoiceView', 'studentChoiceMode', 'studentChoiceHistoricalTerms', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceFacultyType', 'studentChoiceScenarioCrns', 'studentChoiceScenarioAction', 'studentChoiceScenarioDays', 'studentChoiceScenarioStart', 'studentChoiceScenarioEnd', 'studentChoiceScenarioModality', 'studentChoiceExcludeTutoring'].forEach(id => {
+    ['studentChoiceView', 'studentChoiceMode', 'studentChoiceHistoricalAggregation', 'studentChoiceHistoricalTerms', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceFacultyType', 'studentChoiceScenarioCrns', 'studentChoiceScenarioAction', 'studentChoiceScenarioDays', 'studentChoiceScenarioStart', 'studentChoiceScenarioEnd', 'studentChoiceScenarioModality', 'studentChoiceExcludeTutoring'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.studentChoiceRan) renderStudentChoiceOpportunity(); });
     });
     ['studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse'].forEach(id => {
@@ -11303,7 +11551,7 @@
     document.getElementById('loadSavedRecommendationFaculty')?.addEventListener('click', () => loadSavedRecommendationFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('recommendationArchiveTerms')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
     document.getElementById('archiveRecommendationUploads')?.addEventListener('click', () => archiveUploads('recommendationCsv').catch(err => alert(err.message || 'Archive failed.')));
-    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationTimeBlock', 'recommendationStartEarliest', 'recommendationStartLatest', 'recommendationModality', 'recommendationFacultyType', 'recommendationExcludeTutoring'].forEach(id => {
+    ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationTimeBlock', 'recommendationHistoricalAggregation', 'recommendationStartEarliest', 'recommendationStartLatest', 'recommendationModality', 'recommendationFacultyType', 'recommendationExcludeTutoring'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.recommendationRan) renderRecommendationEngine(); });
     });
     ['recommendationDivision', 'recommendationDepartment', 'recommendationDiscipline', 'recommendationCourse'].forEach(id => {
@@ -11397,6 +11645,8 @@
     hasUsablePhysicalInterval,
     physicalIntervalRows,
     buildSupplyDemandBuckets,
+    historicalTermWeights,
+    aggregateHistoricalValues,
     buildStudentChoiceBuckets,
     distinctScheduleSections,
     scheduleOpportunitySummary,

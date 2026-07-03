@@ -2029,20 +2029,66 @@ test('prime time analysis excludes online by default and includes it only when s
     { crn: 'F3', facultyType: 'PART_TIME', insmCode: 'IP', days: [], startTime: '', endTime: '', actualEnroll: 15, maxEnroll: 20, lhe: 1, facultyId: '3', meetingType: 'Lab' }
   ];
   const analysis = COSEnrollmentAnalytics.primeTimeAnalysisRows(rows);
-  const fullTime = analysis.find(row => row.category === 'Full-Time Sections');
-  const partTime = analysis.find(row => row.category === 'Part-Time Sections');
-  const enrollment = analysis.find(row => row.category === 'Student Enrollment');
+  const fullTime = analysis.find(row => row.category === 'Full-Time Faculty Instructional Meetings');
+  const partTime = analysis.find(row => row.category === 'Part-Time Faculty Instructional Meetings');
+  const enrollment = analysis.find(row => row.category === 'Enrollment');
 
   assert.equal(fullTime.totalValue, 1);
   assert.equal(partTime.totalValue, 0);
   assert.equal(enrollment.totalValue, 20);
 
   const withOnline = COSEnrollmentAnalytics.primeTimeAnalysisRows(rows, ['In-Person', 'Hybrid', 'Online']);
-  const onlinePartTime = withOnline.find(row => row.category === 'Part-Time Sections');
-  const onlineEnrollment = withOnline.find(row => row.category === 'Student Enrollment');
+  const onlinePartTime = withOnline.find(row => row.category === 'Part-Time Faculty Instructional Meetings');
+  const onlineEnrollment = withOnline.find(row => row.category === 'Enrollment');
 
   assert.equal(onlinePartTime.totalValue, 1);
   assert.equal(onlineEnrollment.totalValue, 60);
+});
+
+test('historical aggregation modes and summer weighting support planning benchmarks', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const values = [
+    { term: 'FALL 2024', value: 10 },
+    { term: 'SPRING 2025', value: 40 },
+    { term: 'SUMMER 2025', value: 100 },
+    { term: 'FALL 2025', value: 20 }
+  ];
+  const fallWeights = COSEnrollmentAnalytics.historicalTermWeights(values.map(row => row.term), 'FALL 2026');
+  const summerWeights = COSEnrollmentAnalytics.historicalTermWeights(values.map(row => row.term), 'SUMMER 2026');
+  assert.equal(fallWeights.find(row => row.term === 'SUMMER 2025').weight, 0.25);
+  assert.equal(summerWeights.find(row => row.term === 'SUMMER 2025').weight, 1);
+
+  assert.equal(COSEnrollmentAnalytics.aggregateHistoricalValues(values, 'average', fallWeights).selectedValue, 42.5);
+  assert.equal(COSEnrollmentAnalytics.aggregateHistoricalValues(values, 'total', fallWeights).selectedValue, 170);
+  assert.equal(COSEnrollmentAnalytics.aggregateHistoricalValues(values, 'recent', fallWeights).selectedValue, 20);
+  assert.equal(Math.round(COSEnrollmentAnalytics.aggregateHistoricalValues(values, 'weighted', fallWeights).selectedValue), 28);
+});
+
+test('prime time aggregation separates unique CRN offerings from instructional meetings', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    { term: 'FALL 2025', crn: '10001', facultyType: 'FULL_TIME', insmCode: 'IP', days: ['MO'], dayPattern: 'M', startTime: '09:00', endTime: '10:00', actualEnroll: 20, maxEnroll: 30, lhe: 1, facultyId: '1', meetingType: 'Lecture' },
+    { term: 'FALL 2025', crn: '10001', facultyType: 'FULL_TIME', insmCode: 'IP', days: ['MO'], dayPattern: 'M', startTime: '09:00', endTime: '10:00', actualEnroll: 20, maxEnroll: 30, lhe: 1, facultyId: '1', meetingType: 'Lecture' },
+    { term: 'FALL 2025', crn: '10001', facultyType: 'FULL_TIME', insmCode: 'IP', days: ['WE'], dayPattern: 'W', startTime: '13:00', endTime: '15:00', actualEnroll: 20, maxEnroll: 30, lhe: 1, facultyId: '1', meetingType: 'Lab' },
+    { term: 'FALL 2026', crn: '20001', facultyType: 'PART_TIME', insmCode: 'IP', days: ['MO'], dayPattern: 'M', startTime: '11:00', endTime: '12:00', actualEnroll: 10, maxEnroll: 25, lhe: 1, facultyId: '2', meetingType: 'Activity' }
+  ];
+
+  const definition = { start: 9 * 60, end: 15 * 60, days: new Set(['MO', 'TU', 'WE', 'TH']) };
+  const averageRows = COSEnrollmentAnalytics.primeTimeAnalysisRows(rows, ['In-Person', 'Hybrid'], { aggregationMode: 'average', focusTerm: 'FALL 2027', definition });
+  const totalRows = COSEnrollmentAnalytics.primeTimeAnalysisRows(rows, ['In-Person', 'Hybrid'], { aggregationMode: 'total', focusTerm: 'FALL 2027', definition });
+  const offerings = averageRows.find(row => row.category === 'Scheduled Class Offerings, Unique CRNs');
+  const meetings = totalRows.find(row => row.category === 'Instructional Meetings');
+  const lab = totalRows.find(row => row.category === 'Lab');
+
+  assert.equal(offerings.totalValue, 1);
+  assert.equal(offerings.primeValue, 1);
+  assert.equal(offerings.nonPrimeValue, 0);
+  assert.equal(meetings.totalValue, 3);
+  assert.equal(meetings.primeValue, 3);
+  assert.equal(meetings.percentPrime, '100.0%');
+  assert.equal(lab.totalValue, 1);
+  assert.match(meetings.historicalTermWeights, /FALL 2026:1/);
+  assert.equal(meetings.aggregationMode, 'Total Across Selected Terms');
 });
 
 test('instructor availability keeps Monday-only lab separate from MWF lecture', () => {
@@ -2368,6 +2414,11 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /id="ptDepartment"/);
   assert.match(text, /id="ptCourse"/);
   assert.match(text, /id="ptTerm"/);
+  assert.match(text, /id="ptHistoricalAggregation"/);
+  assert.match(text, /Average per Selected Term/);
+  assert.match(text, /Total Across Selected Terms/);
+  assert.match(text, /Most Recent Comparable Term/);
+  assert.match(text, /Weighted Historical Average/);
   assert.match(text, /id="ptModality" multiple size="3"/);
   assert.match(text, /data-modality-quick="ptModality" data-modality-values="In-Person\|Hybrid"/);
   assert.match(text, /data-modality-quick="ptModality" data-modality-values="In-Person\|Hybrid\|Online"/);
@@ -2375,12 +2426,16 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /function primeTimeDefinition/);
   assert.match(text, /function rowOverlapsPrimeTime/);
   assert.match(text, /function primeTimeAnalysisRows/);
-  assert.match(text, /Full-Time Sections/);
-  assert.match(text, /Part-Time Sections/);
-  assert.match(text, /Lecture Sections/);
-  assert.match(text, /Lab Sections/);
-  assert.match(text, /Activity Sections/);
-  assert.match(text, /Student Enrollment/);
+  assert.match(text, /Scheduled Class Offerings, Unique CRNs/);
+  assert.match(text, /Instructional Meetings/);
+  assert.match(text, /Full-Time Faculty Instructional Meetings/);
+  assert.match(text, /Part-Time Faculty Instructional Meetings/);
+  assert.match(text, /Lecture/);
+  assert.match(text, /Lab/);
+  assert.match(text, /Activity/);
+  assert.match(text, /Enrollment/);
+  assert.match(text, /Non-Prime/);
+  assert.match(text, /Summer terms are weighted lower when planning Fall or Spring/);
   assert.match(text, /LHE/);
   assert.match(text, /prime-time-gauge/);
   assert.match(text, /prime-time-analysis\.csv/);
