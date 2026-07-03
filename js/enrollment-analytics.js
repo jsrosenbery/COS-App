@@ -57,7 +57,7 @@
     [REPORTS.consolidation]: 'em',
     [REPORTS.studentPresence]: 'em',
     [REPORTS.facultyModality]: 'development',
-    [REPORTS.instructionalMethodValidation]: 'development',
+    [REPORTS.instructionalMethodValidation]: 'admin',
     [REPORTS.primeTimeAnalysis]: 'development',
     [REPORTS.supplyDemand]: 'development',
     [REPORTS.busyTimeDashboard]: 'development',
@@ -81,7 +81,7 @@
     [REPORTS.consolidation]: 'Section Consolidation Opportunities',
     [REPORTS.studentPresence]: 'Student Presence Analytics',
     [REPORTS.facultyModality]: 'Faculty Modality',
-    [REPORTS.instructionalMethodValidation]: 'Instructional Method Validation',
+    [REPORTS.instructionalMethodValidation]: 'Data Validation & Mapping',
     [REPORTS.primeTimeAnalysis]: 'Prime Time Analysis',
     [REPORTS.supplyDemand]: 'Supply vs Demand',
     [REPORTS.busyTimeDashboard]: 'Busy Time Dashboard',
@@ -105,12 +105,12 @@
     REPORTS.conflictCheck,
     REPORTS.facultyHeatmap,
     REPORTS.facultyModality,
-    REPORTS.instructionalMethodValidation,
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
     REPORTS.studentChoiceOpportunity,
     REPORTS.busyTimeDashboard,
     REPORTS.recommendationEngine,
+    REPORTS.instructionalMethodValidation,
     REPORTS.archiveInspection,
     REPORTS.snapshotManager,
     REPORTS.workExperience
@@ -146,7 +146,6 @@
       reports: [
         REPORTS.facultyHeatmap,
         REPORTS.facultyModality,
-        REPORTS.instructionalMethodValidation,
         REPORTS.primeTimeAnalysis,
         REPORTS.supplyDemand,
         REPORTS.studentChoiceOpportunity,
@@ -158,6 +157,7 @@
       key: 'admin',
       label: 'Admin',
       reports: [
+        REPORTS.instructionalMethodValidation,
         REPORTS.archiveInspection,
         REPORTS.snapshotManager,
         REPORTS.workExperience
@@ -1699,15 +1699,15 @@
         </div>
         <div id="instructionalMethodValidationReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Instructional Method Validation</h2>
-            <p>Shows how raw instructional method codes are mapped into In-Person, Hybrid, Online, Omitted, or Unknown before analytics calculations use them.</p>
+            <h2>Data Validation &amp; Mapping</h2>
+            <p>Admin diagnostic for reviewing instructional method mappings, faculty type mappings, and meeting type mappings before analytics calculations use them. This view is read-only for mappings.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
                   <li>Upload Section Seating or Faculty Schedule CSV files, or select archived terms, then click Run Validation.</li>
                   <li>Review unknown/unmapped codes before relying on modality, time-based, or physical-presence analytics.</li>
-                  <li>Export the table when a code needs to be reviewed or added to the shared modality map.</li>
+                  <li>Export the table when a code needs to be reviewed or added through the existing safe mapping-maintenance tools.</li>
                 </ul>
               </div>
               <div>
@@ -1715,6 +1715,7 @@
                 <ul>
                   <li>Raw codes come from Instructional Method, INSTRUCTIONAL_METHOD_CODE, or INSM_CODE_SSBSECT style fields.</li>
                   <li>The shared modality normalizer maps each code to In-Person, Hybrid, Online, Omitted, or Unknown.</li>
+                  <li>Faculty Schedule mappings are also documented here: FCNT_CODE maps faculty type, and SCHD_CODE_SSRMEET maps meeting type.</li>
                   <li>Unknown and omitted codes are not allowed to silently enter standard analytics.</li>
                 </ul>
               </div>
@@ -3153,7 +3154,7 @@
 
   async function loadInstructionalMethodValidationRows() {
     const uploadedRows = await readCsv(document.getElementById('instructionalMethodValidationCsv'), { sourceType: 'INSTRUCTIONAL_METHOD_VALIDATION_UPLOAD' });
-    const archivedRows = await readArchivedRows('instructionalMethodValidationArchiveTerms', { reportLabel: 'Instructional Method Validation' });
+    const archivedRows = await readArchivedRows('instructionalMethodValidationArchiveTerms', { reportLabel: 'Data Validation & Mapping' });
     state.instructionalMethodValidationRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     return state.instructionalMethodValidationRows;
   }
@@ -3183,15 +3184,17 @@
       'flags'
     ]);
     renderMethodologyPanel(document.getElementById('instructionalMethodValidationLegend'), {
-      title: 'Instructional Method Validation Methodology & Data Dictionary',
-      purpose: 'Shows which raw instructional method codes are mapped into In-Person, Hybrid, Online, Omitted, or Unknown before reports use them.',
-      metricsUsed: ['Raw instructional method code', 'Normalized modality', 'Count of rows', 'Count of CRNs', 'Included by default in physical time-based analysis'],
-      calculationRules: 'Rows are normalized with the shared TIMBER modality normalizer. Codes mapped to In-Person or Hybrid are included by default in physical time-based analysis. Online is excluded from physical time analysis unless selected. Omitted and Unknown are excluded from standard analytics and surfaced here for review.',
+      title: 'Data Validation & Mapping Methodology & Data Dictionary',
+      purpose: 'Admin diagnostic for showing which raw instructional method codes are mapped into In-Person, Hybrid, Online, Omitted, or Unknown before reports use them. It also documents available Faculty Schedule faculty type and meeting type mappings.',
+      metricsUsed: ['Raw instructional method code', 'Normalized modality', 'Count of rows', 'Count of CRNs', 'Faculty type mapping', 'Meeting type mapping', 'Included by default in physical time-based analysis'],
+      calculationRules: 'Rows are normalized with the shared TIMBER modality normalizer. Codes mapped to In-Person or Hybrid are included by default in physical time-based analysis. Online is excluded from physical time analysis unless selected. Omitted and Unknown are excluded from standard analytics and surfaced here for review. Faculty type mapping uses FCNT_CODE; meeting type mapping uses SCHD_CODE_SSRMEET.',
       assumptions: 'Unknown/unmapped codes should be reviewed before relying on modality or physical-time analytics. Online rows with no fixed time or 00:00 placeholder time are treated as Online/TBA placeholders.',
       limitations: 'This report validates code mapping and default inclusion behavior. It does not determine whether a course should be offered in a modality or whether a code is valid in Banner.',
       items: [
         ['Raw instructional method code', 'Original code from Instructional Method, INSTRUCTIONAL_METHOD_CODE, INSM_CODE_SSBSECT, or related source fields.'],
         ['Normalized modality', 'Shared mapped category shown to users: In-Person, Hybrid, Online, Omitted, or Unknown.'],
+        ['Faculty Type Mapping', 'FCNT_CODE mapping: FT and TE are Full-Time, JP is Part-Time, AE and X are omitted, and unrecognized codes are Unknown.'],
+        ['Meeting Type Mapping', 'SCHD_CODE_SSRMEET mapping: 2 is Lecture, 4 is Lab, XX is Activity, and all other codes are Other.'],
         ['Included by default in physical time-based analysis', 'Yes only for In-Person and Hybrid codes. Online, Omitted, and Unknown are excluded unless a report explicitly allows expansion.'],
         ['Online/TBA placeholder detected', 'At least one row for the code uses Online/TBA or a 00:00 placeholder time block.']
       ],
@@ -10845,7 +10848,7 @@
     });
     document.getElementById('clearFacultyModality')?.addEventListener('click', clearFacultyModality);
     document.getElementById('exportFacultyModality')?.addEventListener('click', () => exportRowsWithoutMethodology(state.facultyModalityTableRows, 'faculty-modality.csv'));
-    document.getElementById('runInstructionalMethodValidation')?.addEventListener('click', () => runInstructionalMethodValidation().catch(err => alert(err.message || 'Instructional Method Validation failed.')));
+    document.getElementById('runInstructionalMethodValidation')?.addEventListener('click', () => runInstructionalMethodValidation().catch(err => alert(err.message || 'Data Validation & Mapping failed.')));
     document.getElementById('instructionalMethodValidationCsv')?.addEventListener('change', () => runInstructionalMethodValidation().catch(err => console.warn(err)));
     document.getElementById('instructionalMethodValidationArchiveTerms')?.addEventListener('change', () => runInstructionalMethodValidation().catch(err => console.warn(err)));
     document.getElementById('archiveInstructionalMethodValidationUploads')?.addEventListener('click', () => archiveUploads('instructionalMethodValidationCsv').catch(err => alert(err.message || 'Archive failed.')));

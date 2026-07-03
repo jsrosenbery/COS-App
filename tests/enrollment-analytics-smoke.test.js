@@ -2120,6 +2120,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
     'REPORTS.studentChoiceOpportunity',
     'REPORTS.busyTimeDashboard',
     'REPORTS.recommendationEngine',
+    'REPORTS.instructionalMethodValidation',
     'REPORTS.archiveInspection',
     'REPORTS.snapshotManager',
     'REPORTS.workExperience'
@@ -2179,6 +2180,7 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /\[REPORTS\.archiveInspection\]: 'admin'/);
   assert.match(text, /\[REPORTS\.snapshotManager\]: 'admin'/);
   assert.match(text, /\[REPORTS\.workExperience\]: 'admin'/);
+  assert.match(text, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
   assert.match(text, /function canAccess\(reportName\)/);
   assert.match(text, /Access Level/);
   assert.match(text, /id="currentAccessLevel"/);
@@ -2202,6 +2204,32 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(backend, /DEV_PASSWORD/);
   assert.match(backend, /ADMIN_PASSWORD/);
   assert.match(backend, /app\.post\('\/api\/auth\/role'/);
+});
+
+test('data validation and mapping report is an Admin diagnostic', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const developmentBlock = app.slice(app.indexOf("key: 'development'"), app.indexOf("key: 'admin'"));
+  const adminBlock = app.slice(app.indexOf("key: 'admin'"), app.indexOf('const SNAPSHOT_STORAGE_KEY'));
+
+  assert.match(app, /instructionalMethodValidation: 'instructional-method-validation'/);
+  assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
+  assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'Data Validation & Mapping'/);
+  assert.match(adminBlock, /REPORTS\.instructionalMethodValidation/);
+  assert.doesNotMatch(developmentBlock, /REPORTS\.instructionalMethodValidation/);
+  assert.match(app, /<h2>Data Validation &amp; Mapping<\/h2>/);
+  assert.match(app, /Admin diagnostic for reviewing instructional method mappings, faculty type mappings, and meeting type mappings/);
+  assert.match(app, /This view is read-only for mappings/);
+  assert.match(app, /Faculty Type Mapping/);
+  assert.match(app, /FCNT_CODE mapping: FT and TE are Full-Time, JP is Part-Time, AE and X are omitted/);
+  assert.match(app, /Meeting Type Mapping/);
+  assert.match(app, /SCHD_CODE_SSRMEET mapping: 2 is Lecture, 4 is Lab, XX is Activity/);
+  assert.match(app, /id="instructionalMethodValidationReport"/);
+  assert.match(app, /id="instructionalMethodValidationCsv"/);
+  assert.match(app, /id="instructionalMethodValidationArchiveTerms"/);
+  assert.match(app, /id="runInstructionalMethodValidation"/);
+  assert.match(app, /id="exportInstructionalMethodValidation"/);
+  assert.match(app, /setReportDisplay\(REPORTS\.instructionalMethodValidation, 'instructionalMethodValidationReport'\)/);
+  assert.match(app, /instructional-method-validation\.csv/);
 });
 
 test('backend keeps faculty schedule archives isolated from section schedule storage', () => {
@@ -2744,11 +2772,11 @@ test('modality chart and export data separate class offerings from enrollment', 
   assert.ok(exportRows.some(row => Object.prototype.hasOwnProperty.call(row, 'ClassOfferingShare')));
 });
 
-test('instructional method validation is available in Development reports', () => {
+test('data validation and mapping keeps instructional method diagnostics available under Admin', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   assert.match(app, /instructionalMethodValidation: 'instructional-method-validation'/);
-  assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'development'/);
-  assert.match(app, /Instructional Method Validation/);
+  assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
+  assert.match(app, /Data Validation & Mapping/);
   assert.match(app, /id="instructionalMethodValidationReport"/);
   assert.match(app, /id="instructionalMethodValidationCsv"/);
   assert.match(app, /id="instructionalMethodValidationArchiveTerms"/);
