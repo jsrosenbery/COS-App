@@ -2592,6 +2592,10 @@ test('modality balance uses shared three-category modality normalization and dia
   assert.match(app, /modalityExportExcelBtn\.addEventListener\('click', exportModalityBalanceExcel\)/);
   assert.match(app, /Graph Data/);
   assert.match(app, /Comparison Results/);
+  assert.match(app, /Total Class Offerings Term Comparison/);
+  assert.match(app, /Net Offerings vs/);
+  assert.match(app, /All Modalities/);
+  assert.match(app, /modalityTotalClassOfferingComparisonRows/);
   assert.match(app, /modality-balance-\$\{slug\}\.csv/);
   assert.match(app, /modality-balance-\$\{slug\}\.xls/);
   assert.match(app, /Class Offerings by Modality/);
@@ -2652,6 +2656,18 @@ test('modality comparison rows include class offering counts and shares', () => 
   assert.equal(online.comparisonClassOfferings, 2);
   assert.equal(online.currentEnrollment, 30);
   assert.equal(online.comparisonEnrollment, 60);
+});
+
+test('modality source exposes total class offerings term comparison', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  assert.match(app, /function modalityTotalClassOfferingComparisonRows/);
+  assert.match(app, /currentClassOfferings: focusTotals\.classOfferings/);
+  assert.match(app, /comparisonClassOfferings: comparisonTotals\.classOfferings/);
+  assert.match(app, /classOfferingDiff: focusTotals\.classOfferings - comparisonTotals\.classOfferings/);
+  assert.match(app, /Positive means the focus term scheduled more offerings; negative means fewer/);
+  assert.match(app, /Section: 'Total Class Offerings Term Comparison'/);
+  assert.match(app, /Net total class offerings across all modalities/);
 });
 
 test('modality chart and export data separate class offerings from enrollment', () => {

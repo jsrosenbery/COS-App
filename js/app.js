@@ -896,6 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
       modalityBalanceItemsFromSections,
       calculateModalityBalanceFromItems,
       modalityCombinedComparisonRows,
+      modalityTotalClassOfferingComparisonRows,
       modalityChartData,
       modalityExportRowsForData
     }
@@ -3512,6 +3513,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       `Hybrid Offerings: ${rows.find(row => row.category === 'Hybrid')?.classOfferings || 0}`,
       `Tutoring/Open Lab Rows Excluded: ${tutoringOpenLabRowsExcluded}`
     ];
+    const comparisonTerms = modalitySelectedComparisonTerms();
+    modalityTotalClassOfferingComparisonRows(rows, comparisonTerms).forEach(row => {
+      summaryItems.push(`Net Offerings vs ${row.comparisonTerm}: ${signedNumber(row.classOfferingDiff)} (${row.classOfferingPctChange})`);
+    });
     summaryItems.forEach(text => {
       const pill = document.createElement('div');
       pill.className = 'modality-pill';
@@ -3693,6 +3698,25 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function modalityComparisonExportRows(focusRows, comparisonTerms) {
     const focusLabel = modalityTermLabel();
     const focusMap = new Map(focusRows.map(row => [row.category, row]));
+    const totalRows = modalityTotalClassOfferingComparisonRows(focusRows, comparisonTerms).map(row => ({
+      Section: 'Total Class Offerings Term Comparison',
+      Term: focusLabel,
+      Chart: '',
+      Category: 'All Modalities',
+      Metric: 'Total Class Offerings',
+      CurrentTermClassOfferings: row.currentClassOfferings,
+      ComparisonTermClassOfferings: row.comparisonClassOfferings,
+      Difference: signedNumber(row.classOfferingDiff),
+      PercentIncrease: row.classOfferingPctChange,
+      CurrentTermEnrollment: row.currentEnrollment,
+      ComparisonTermEnrollment: row.comparisonEnrollment,
+      EnrollmentDifference: signedNumber(row.enrollmentDiff),
+      Value: row.currentClassOfferings,
+      ClassOfferings: row.currentClassOfferings,
+      Enrollment: row.currentEnrollment,
+      ComparisonTerm: row.comparisonTerm,
+      Notes: 'Net total class offerings across all modalities. Positive values mean the focus term scheduled more distinct CRNs after filters; negative values mean fewer.'
+    }));
     return comparisonTerms.flatMap(term => {
       const comparisonRows = calculateModalityBalance({ term, sourceRows: getModalityComparisonSourceRows(term) });
       const comparisonMap = new Map(comparisonRows.map(row => [row.category, row]));
@@ -3730,7 +3754,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         ...modalityPieExportRows(comparisonRows, term),
         ...asRows(combinedRows)
       ];
-    });
+    }).concat(totalRows);
   }
 
   function courseModalityKey(item) {
@@ -4070,6 +4094,70 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
   }
 
+  function modalityTotals(rows) {
+    return {
+      classOfferings: rows[0]?.totalClassOfferings ?? rows.reduce((total, row) => total + (row.classOfferings || 0), 0),
+      enrollment: rows[0]?.totalEnrollment ?? rows.reduce((total, row) => total + (row.enrollment || 0), 0)
+    };
+  }
+
+  function modalityTotalClassOfferingComparisonRows(focusRows, comparisonTerms = []) {
+    const focusTotals = modalityTotals(focusRows || []);
+    return (comparisonTerms || []).filter(Boolean).map(term => {
+      const comparisonRows = calculateModalityBalance({ term, sourceRows: getModalityComparisonSourceRows(term) });
+      const comparisonTotals = modalityTotals(comparisonRows || []);
+      return {
+        comparisonTerm: term,
+        currentClassOfferings: focusTotals.classOfferings,
+        comparisonClassOfferings: comparisonTotals.classOfferings,
+        classOfferingDiff: focusTotals.classOfferings - comparisonTotals.classOfferings,
+        classOfferingPctChange: signedPctChange(focusTotals.classOfferings, comparisonTotals.classOfferings),
+        currentEnrollment: focusTotals.enrollment,
+        comparisonEnrollment: comparisonTotals.enrollment,
+        enrollmentDiff: focusTotals.enrollment - comparisonTotals.enrollment
+      };
+    });
+  }
+
+  function modalityTotalComparisonTable(focusLabel, rows) {
+    if (!rows.length) return '';
+    const body = rows.map(row => `
+      <tr>
+        <td>${escapeHTML(focusLabel)}</td>
+        <td>${escapeHTML(row.comparisonTerm)}</td>
+        <td>${row.currentClassOfferings}</td>
+        <td>${row.comparisonClassOfferings}</td>
+        <td>${signedNumber(row.classOfferingDiff)}</td>
+        <td>${row.classOfferingPctChange}</td>
+        <td>${row.currentEnrollment}</td>
+        <td>${row.comparisonEnrollment}</td>
+        <td>${signedNumber(row.enrollmentDiff)}</td>
+      </tr>
+    `).join('');
+    return `
+      <section class="modality-comparison-card modality-total-comparison">
+        <h4>Total Class Offerings Term Comparison</h4>
+        <p>Net total class offerings compares distinct CRNs across all included modalities after filters. Positive means the focus term scheduled more offerings; negative means fewer.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Current Term</th>
+              <th>Comparison Term</th>
+              <th>Current Term Total Class Offerings</th>
+              <th>Comparison Term Total Class Offerings</th>
+              <th>Net Difference</th>
+              <th>% Increase</th>
+              <th>Current Term Enrollment</th>
+              <th>Comparison Term Enrollment</th>
+              <th>Enrollment Difference</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </section>
+    `;
+  }
+
   function modalityComparisonTable(title, focusLabel, compareLabel, rows) {
     const body = rows.map(row => `
       <tr>
@@ -4123,6 +4211,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!selectedTerms.length) return;
     const decisionTerm = modalityDecisionTermSelect?.value || 'Current Loaded Term';
     const decisionMap = new Map(decisionRows.map(row => [row.category, row]));
+    const totalComparisonRows = modalityTotalClassOfferingComparisonRows(decisionRows, selectedTerms);
     const sections = selectedTerms.map(term => {
       const comparisonRows = calculateModalityBalance({ term, sourceRows: getModalityComparisonSourceRows(term) });
       const comparisonMap = new Map(comparisonRows.map(row => [row.category, row]));
@@ -4137,7 +4226,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         </section>
       `;
     }).join('');
-    modalityComparison.innerHTML = sections;
+    modalityComparison.innerHTML = `${modalityTotalComparisonTable(decisionTerm, totalComparisonRows)}${sections}`;
   }
 
   function parseTime(t) {
