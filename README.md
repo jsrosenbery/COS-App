@@ -68,6 +68,10 @@ Important endpoints used by the frontend:
 - `GET /api/analytics-archive`
 - `GET /api/analytics-archive/:term`
 - `POST /api/analytics-archive/:term`
+- `GET /api/faculty-schedules`
+- `GET /api/faculty-schedules/:term`
+- `POST /api/faculty-schedules/:term`
+- `DELETE /api/faculty-schedules/:term`
 - `POST /api/auth/role`
 - `POST /api/auth/enrollment-management`
 
@@ -78,6 +82,8 @@ TIMBER role unlock uses `POST /api/auth/role`. Configure `GENERAL_PASSWORD`, `DE
 ## Data Notes
 
 Schedule uploads are expected to include fields such as term, CRN, subject/course, title, division, campus, building, room, days, meeting time, date range, instructor, modality/instructional method, capacity, enrollment, census, waitlist, FTES/contact-hour fields, and accounting method. The frontend contains normalization helpers for common header variants.
+
+Faculty Schedule Data is a separate optional dataset used only for faculty-pattern and Development reports such as Faculty Schedule Heatmap, Faculty Modality, Prime Time Analysis, Busy Time Dashboard, Student Choice Opportunity, and Scheduling Recommendation Engine. It is not the same as Section Seating / Schedule Data used for Room Availability, and it is stored through separate `/api/faculty-schedules` endpoints and backend storage. Faculty Schedule files must include `FCNT_CODE`, faculty identity, `CRN`, `DAYS`, `STARTTIME`, `ENDTIME`, and `SCHD_CODE_SSRMEET`.
 
 Schema references:
 

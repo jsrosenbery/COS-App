@@ -199,6 +199,9 @@
     studentPresenceChartFilter: null,
     studentPresenceExportRows: [],
     studentPresenceRan: false,
+    facultyScheduleArchiveTerms: [],
+    facultyScheduleRows: [],
+    facultyScheduleMetadata: null,
     facultyHeatmapRows: [],
     facultyHeatmapBucketRows: [],
     facultyHeatmapRan: false,
@@ -1576,12 +1579,12 @@
         <div id="facultyHeatmapReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Faculty Schedule Heatmap</h2>
-            <p>Uses Faculty Schedule CSV uploads to show when faculty instructional activity is concentrated by half-hour interval. This report is isolated in Development while the faculty parser and model are validated.</p>
+            <p>Uses Faculty Schedule Data to show when faculty instructional activity is concentrated by half-hour interval. Faculty Schedule Data is a separate optional dataset from Section Seating / Schedule Data and is used only for faculty-pattern and Development reports.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload one or more Faculty Schedule CSV files, then click Load Faculty Schedule.</li>
+                  <li>Upload one or more Faculty Schedule CSV files, or load a saved Faculty Schedule term from the backend, then click Load Faculty Schedule.</li>
                   <li>Use the metric toggle to switch the heatmap between sections, unique faculty count, enrollment, seats, and LHE.</li>
                   <li>Use faculty type, meeting type, term, campus, division, department, discipline, course, and modality filters to isolate the schedule population.</li>
                 </ul>
@@ -1589,7 +1592,7 @@
               <div>
                 <h3>Methodology</h3>
                 <ul>
-                  <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor.</li>
+                  <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor. Saved Faculty Schedule archives are stored separately from Section Seating / Schedule Data.</li>
                   <li>A meeting contributes to every half-hour interval it overlaps on each scheduled day.</li>
                   <li>Sections counts instructional meeting rows once per day/time bucket. Faculty Count counts distinct faculty in each bucket. Enrollment uses ActualEnroll, Seats uses MaxEnroll, and LHE uses the uploaded LHE value.</li>
                   <li>Faculty Type maps FCNT_CODE values: FT and TE are Full-Time, JP is Part-Time, unknown codes are Unknown, and omitted faculty types are excluded from this report.</li>
@@ -1600,8 +1603,12 @@
           </div>
           <div class="analytics-toolbar">
             <label>Faculty Schedule CSV(s) <input id="facultyScheduleCsv" type="file" accept=".csv" multiple></label>
+            <button id="saveFacultyScheduleArchive" type="button">Save Faculty Schedule to Backend</button>
+            <label>Saved Faculty Schedule Term <select id="facultyScheduleArchiveTerm"></select></label>
+            <button id="loadSavedFacultyScheduleHeatmap" type="button">Load Saved Faculty Schedule</button>
             <button id="loadFacultyScheduleHeatmap" type="button">Load Faculty Schedule</button>
             <span id="facultyScheduleHeatmapStatus" class="analytics-note">No faculty schedule rows loaded.</span>
+            <span id="facultyScheduleArchiveStatus" class="analytics-note">No saved Faculty Schedule metadata loaded.</span>
             <label>Metric
               <select id="fhMetric">
                 <option value="sections">Sections</option>
@@ -1647,12 +1654,12 @@
         <div id="facultyModalityReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Faculty Modality</h2>
-            <p>Uses Faculty Schedule CSV uploads to summarize teaching modality by faculty type. This report uses INSM_CODE_SSBSECT as the modality source and is isolated in Development while the faculty analytics model is validated.</p>
+            <p>Uses Faculty Schedule Data to summarize teaching modality by faculty type. This report uses INSM_CODE_SSBSECT as the modality source and does not read or write Section Seating / Schedule Data.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload one or more Faculty Schedule CSV files, then click Load Faculty Modality.</li>
+                  <li>Upload one or more Faculty Schedule CSV files, or load a saved Faculty Schedule term from the backend, then click Load Faculty Modality.</li>
                   <li>Review Full-Time, Part-Time, and Unknown faculty type rows split into In-Person, Hybrid, and Online modality buckets.</li>
                   <li>Use campus, division, department, course, and term filters to narrow the population before exporting.</li>
                 </ul>
@@ -1670,6 +1677,8 @@
           </div>
           <div class="analytics-toolbar">
             <label>Faculty Schedule CSV(s) <input id="facultyModalityCsv" type="file" accept=".csv" multiple></label>
+            <label>Saved Faculty Schedule Term <select id="facultyModalityArchiveTerm"></select></label>
+            <button id="loadSavedFacultyModality" type="button">Load Saved Faculty Schedule</button>
             <button id="loadFacultyModality" type="button">Load Faculty Modality</button>
             <span id="facultyModalityStatus" class="analytics-note">No faculty schedule rows loaded.</span>
             <label>Term <select id="fmTerm"></select></label>
@@ -1727,13 +1736,13 @@
         <div id="primeTimeAnalysisReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Prime Time Analysis</h2>
-            <p>Uses Faculty Schedule CSV uploads to measure how much faculty teaching, enrollment, and LHE occur during the selected prime-time window. The default prime-time window is Monday through Thursday, 9:00 AM-3:00 PM.</p>
+            <p>Uses Faculty Schedule Data to measure how much faculty teaching, enrollment, and LHE occur during the selected prime-time window. Faculty Schedule Data is separate from Section Seating / Schedule Data. The default prime-time window is Monday through Thursday, 9:00 AM-3:00 PM.</p>
             <p class="analytics-note"><strong>Prime Time Analysis defaults to physical instruction because it is intended to evaluate campus time-of-day concentration. Online sections can be included manually.</strong></p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload one or more Faculty Schedule CSV files, then click Load Prime Time Analysis.</li>
+                  <li>Upload one or more Faculty Schedule CSV files, or load a saved Faculty Schedule term from the backend, then click Load Prime Time Analysis.</li>
                   <li>Use the prime-time day and time controls to test a different local definition.</li>
                   <li>Review the gauges and table to compare Full-Time, Part-Time, meeting type, enrollment, and LHE concentration inside prime time.</li>
                 </ul>
@@ -1752,6 +1761,8 @@
           </div>
           <div class="analytics-toolbar">
             <label>Faculty Schedule CSV(s) <input id="primeTimeCsv" type="file" accept=".csv" multiple></label>
+            <label>Saved Faculty Schedule Term <select id="primeTimeArchiveTerm"></select></label>
+            <button id="loadSavedPrimeTimeAnalysis" type="button">Load Saved Faculty Schedule</button>
             <button id="loadPrimeTimeAnalysis" type="button">Load Prime Time Analysis</button>
             <span id="primeTimeStatus" class="analytics-note">No faculty schedule rows loaded.</span>
             <label>Prime start <input id="ptStart" type="time" value="09:00" step="300"></label>
@@ -1859,7 +1870,7 @@
                 <h3>Inputs</h3>
                 <ul>
                   <li>Use Section Seating CSV files or archived terms for student, section, seat, demand, and room utilization signals.</li>
-                  <li>Use an optional Faculty Schedule CSV to add full-time and part-time faculty concentration signals.</li>
+                  <li>Use an optional Faculty Schedule CSV or saved Faculty Schedule term to add full-time and part-time faculty concentration signals.</li>
                   <li>Existing loaded Faculty Heatmap rows are reused when no Faculty CSV is selected here.</li>
                 </ul>
               </div>
@@ -1878,6 +1889,8 @@
             <button id="archiveBusyTimeUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="busyTimeArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Faculty CSV <input id="busyTimeFacultyCsv" type="file" accept=".csv" multiple></label>
+            <label>Saved Faculty Schedule Term <select id="busyTimeFacultyArchiveTerm"></select></label>
+            <button id="loadSavedBusyTimeFaculty" type="button">Load Saved Faculty Schedule</button>
             <span id="busyTimeStatus" class="analytics-note">No Busy Time rows loaded.</span>
             <label>Term <select id="busyTimeTerm"></select></label>
             <label>Campus <select id="busyTimeCampus"></select></label>
@@ -1925,6 +1938,8 @@
             <button id="archiveStudentChoiceUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="studentChoiceArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Faculty CSV <input id="studentChoiceFacultyCsv" type="file" accept=".csv" multiple></label>
+            <label>Saved Faculty Schedule Term <select id="studentChoiceFacultyArchiveTerm"></select></label>
+            <button id="loadSavedStudentChoiceFaculty" type="button">Load Saved Faculty Schedule</button>
             <span id="studentChoiceStatus" class="analytics-note">No student choice rows loaded.</span>
             <label>View
               <select id="studentChoiceView">
@@ -1995,6 +2010,8 @@
             <button id="archiveRecommendationUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="recommendationArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Faculty CSV <input id="recommendationFacultyCsv" type="file" accept=".csv" multiple></label>
+            <label>Saved Faculty Schedule Term <select id="recommendationFacultyArchiveTerm"></select></label>
+            <button id="loadSavedRecommendationFaculty" type="button">Load Saved Faculty Schedule</button>
             <span id="recommendationStatus" class="analytics-note">No recommendation rows loaded.</span>
             <label>Category <select id="recommendationCategory"></select></label>
             <label>Confidence <select id="recommendationConfidence"></select></label>
@@ -2817,7 +2834,7 @@
       metricsUsed: ['Sections Active', 'Faculty Count', 'Enrollment Present', 'Seats Offered', 'LHE', 'Faculty Type', 'Meeting Type'],
       calculationRules: 'Rows are normalized by the Faculty Schedule parser and deduplicated by CRN, day pattern, start/end time, meeting type, and instructor. Each meeting contributes to every overlapping half-hour bucket on every scheduled day.',
       assumptions: 'Faculty Type maps FCNT_CODE values. Meeting Type maps SCHD_CODE_SSRMEET values. Omitted faculty types are excluded before calculations.',
-      limitations: 'This report reflects only uploaded Faculty Schedule rows. It does not include workload rules, reassigned time, non-instructional duties, or unuploaded assignments.',
+      limitations: 'This report reflects only manual or saved Faculty Schedule Data rows. Faculty Schedule Data is stored separately from Section Seating / Schedule Data and does not affect Room Availability. It does not include workload rules, reassigned time, non-instructional duties, or unuploaded assignments.',
       items: [
         ['Faculty Type', 'FCNT_CODE mapping: FT and TE are Full-Time, JP is Part-Time, unknown codes are Unknown, and AE/X omitted rows are excluded.'],
         ['Meeting Type', 'SCHD_CODE_SSRMEET mapping: 2 is Lecture, 4 is Lab, XX is Activity, and all other codes are Other.']
@@ -2828,7 +2845,17 @@
   }
 
   async function loadFacultyScheduleHeatmap() {
-    const rows = await readFacultyScheduleFiles(document.getElementById('facultyScheduleCsv'));
+    const input = document.getElementById('facultyScheduleCsv');
+    const rows = input?.files?.length
+      ? await readFacultyScheduleFiles(input)
+      : await readSavedFacultyScheduleRows('facultyScheduleArchiveTerm');
+    state.facultyHeatmapRows = rows;
+    updateFacultyHeatmapFilterOptions();
+    renderFacultyScheduleHeatmap();
+  }
+
+  async function loadSavedFacultyScheduleHeatmap() {
+    const rows = await readSavedFacultyScheduleRows('facultyScheduleArchiveTerm');
     state.facultyHeatmapRows = rows;
     updateFacultyHeatmapFilterOptions();
     renderFacultyScheduleHeatmap();
@@ -3030,7 +3057,17 @@
   }
 
   async function loadFacultyModality() {
-    const rows = await readFacultyScheduleFiles(document.getElementById('facultyModalityCsv'));
+    const input = document.getElementById('facultyModalityCsv');
+    const rows = input?.files?.length
+      ? await readFacultyScheduleFiles(input)
+      : await readSavedFacultyScheduleRows('facultyModalityArchiveTerm');
+    state.facultyModalityRows = rows;
+    updateFacultyModalityFilterOptions();
+    renderFacultyModality();
+  }
+
+  async function loadSavedFacultyModality() {
+    const rows = await readSavedFacultyScheduleRows('facultyModalityArchiveTerm');
     state.facultyModalityRows = rows;
     updateFacultyModalityFilterOptions();
     renderFacultyModality();
@@ -3360,7 +3397,17 @@
   }
 
   async function loadPrimeTimeAnalysis() {
-    const rows = await readFacultyScheduleFiles(document.getElementById('primeTimeCsv'));
+    const input = document.getElementById('primeTimeCsv');
+    const rows = input?.files?.length
+      ? await readFacultyScheduleFiles(input)
+      : await readSavedFacultyScheduleRows('primeTimeArchiveTerm');
+    state.primeTimeRows = rows;
+    updatePrimeTimeFilterOptions();
+    renderPrimeTimeAnalysis();
+  }
+
+  async function loadSavedPrimeTimeAnalysis() {
+    const rows = await readSavedFacultyScheduleRows('primeTimeArchiveTerm');
     state.primeTimeRows = rows;
     updatePrimeTimeFilterOptions();
     renderPrimeTimeAnalysis();
@@ -4146,8 +4193,16 @@
     const archivedRows = await readArchivedRows('busyTimeArchiveTerms', { reportLabel: 'Busy Time Dashboard' });
     state.busyTimeRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     const facultyInput = document.getElementById('busyTimeFacultyCsv');
-    state.busyTimeFacultyRows = facultyInput?.files?.length ? await readFacultyScheduleFiles(facultyInput) : [];
+    state.busyTimeFacultyRows = facultyInput?.files?.length
+      ? await readFacultyScheduleFiles(facultyInput)
+      : await readSavedFacultyScheduleRows('busyTimeFacultyArchiveTerm');
     updateBusyTimeFilterOptions();
+  }
+
+  async function loadSavedBusyTimeFacultySchedule() {
+    state.busyTimeFacultyRows = await readSavedFacultyScheduleRows('busyTimeFacultyArchiveTerm');
+    updateBusyTimeFilterOptions();
+    if (state.busyTimeRan) renderBusyTimeDashboard();
   }
 
   async function runBusyTimeDashboard() {
@@ -4550,8 +4605,16 @@
     const archivedRows = await readArchivedRows('studentChoiceArchiveTerms', { reportLabel: 'Student Choice Opportunity' });
     state.studentChoiceRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     const facultyInput = document.getElementById('studentChoiceFacultyCsv');
-    state.studentChoiceFacultyRows = facultyInput?.files?.length ? await readFacultyScheduleFiles(facultyInput) : [];
+    state.studentChoiceFacultyRows = facultyInput?.files?.length
+      ? await readFacultyScheduleFiles(facultyInput)
+      : await readSavedFacultyScheduleRows('studentChoiceFacultyArchiveTerm');
     updateStudentChoiceFilterOptions();
+  }
+
+  async function loadSavedStudentChoiceFacultySchedule() {
+    state.studentChoiceFacultyRows = await readSavedFacultyScheduleRows('studentChoiceFacultyArchiveTerm');
+    updateStudentChoiceFilterOptions();
+    if (state.studentChoiceRan) renderStudentChoiceOpportunity();
   }
 
   async function runStudentChoiceOpportunity() {
@@ -4940,8 +5003,16 @@
     const archivedRows = await readArchivedRows('recommendationArchiveTerms', { reportLabel: 'Scheduling Recommendation Engine' });
     state.recommendationRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     const facultyInput = document.getElementById('recommendationFacultyCsv');
-    state.recommendationFacultyRows = facultyInput?.files?.length ? await readFacultyScheduleFiles(facultyInput) : [];
+    state.recommendationFacultyRows = facultyInput?.files?.length
+      ? await readFacultyScheduleFiles(facultyInput)
+      : await readSavedFacultyScheduleRows('recommendationFacultyArchiveTerm');
     updateRecommendationFilterOptions();
+  }
+
+  async function loadSavedRecommendationFacultySchedule() {
+    state.recommendationFacultyRows = await readSavedFacultyScheduleRows('recommendationFacultyArchiveTerm');
+    updateRecommendationFilterOptions();
+    if (state.recommendationRan) renderRecommendationEngine();
   }
 
   async function runRecommendationEngine() {
@@ -5025,6 +5096,146 @@
     const reportLabel = options.reportLabel || 'analytics archive';
     const batches = await Promise.all(terms.map(term => fetchArchivedTermRows(term, reportLabel)));
     return batches.flat();
+  }
+
+  function facultyRawField(row, names) {
+    if (!row || typeof row !== 'object') return '';
+    const entries = Object.entries(row);
+    for (const name of names) {
+      if (row[name] != null && String(row[name]).trim()) return String(row[name]).trim();
+      const normalizedName = String(name).replace(/[^a-z0-9]/gi, '').toLowerCase();
+      const found = entries.find(([key, value]) =>
+        String(key).replace(/[^a-z0-9]/gi, '').toLowerCase() === normalizedName &&
+        value != null &&
+        String(value).trim()
+      );
+      if (found) return String(found[1]).trim();
+    }
+    return '';
+  }
+
+  function validateFacultyScheduleRawRows(rows) {
+    const message = 'This does not appear to be a Faculty Schedule file. Faculty schedules must include FCNT_CODE, faculty identity, CRN, days, times, and SCHD_CODE_SSRMEET.';
+    if (!Array.isArray(rows) || !rows.length) return { valid: false, message };
+    const has = predicate => rows.some(predicate);
+    const valid = has(row => facultyRawField(row, ['FCNT_CODE', 'fcntCode'])) &&
+      has(row => facultyRawField(row, ['FACULTYID', 'Faculty ID', 'facultyId']) || facultyRawField(row, ['FacultyName', 'Faculty Name', 'facultyName'])) &&
+      has(row => facultyRawField(row, ['CRN', 'crn'])) &&
+      has(row => facultyRawField(row, ['DAYS', 'Days', 'days'])) &&
+      has(row => facultyRawField(row, ['STARTTIME', 'Start Time', 'startTime'])) &&
+      has(row => facultyRawField(row, ['ENDTIME', 'End Time', 'endTime'])) &&
+      has(row => facultyRawField(row, ['SCHD_CODE_SSRMEET', 'SCHD CODE SSRMEET', 'schdCode']));
+    return valid ? { valid: true, message: '' } : { valid: false, message };
+  }
+
+  function facultyScheduleArchiveSelectIds() {
+    return [
+      'facultyScheduleArchiveTerm',
+      'facultyModalityArchiveTerm',
+      'primeTimeArchiveTerm',
+      'busyTimeFacultyArchiveTerm',
+      'studentChoiceFacultyArchiveTerm',
+      'recommendationFacultyArchiveTerm'
+    ];
+  }
+
+  function updateFacultyScheduleArchiveSelectors() {
+    const terms = state.facultyScheduleArchiveTerms || [];
+    facultyScheduleArchiveSelectIds().forEach(id => {
+      const select = document.getElementById(id);
+      if (!select) return;
+      const previous = select.value;
+      select.replaceChildren(new Option('Saved Faculty Schedule terms', ''));
+      terms.forEach(item => select.appendChild(new Option(item.term || '', item.term || '')));
+      if (terms.some(item => item.term === previous)) select.value = previous;
+    });
+  }
+
+  function facultyScheduleMetadataText(metadata) {
+    if (!metadata) return 'No saved Faculty Schedule metadata loaded.';
+    return [
+      `Saved Faculty Schedule ${metadata.term || ''}`,
+      `${metadata.normalizedMeetingCount ?? 0} deduped meeting(s)`,
+      `${metadata.rawRowCount ?? 0} raw row(s)`,
+      `${metadata.omittedRowCount ?? 0} AE/X omitted row(s)`,
+      `${metadata.distinctFacultyCount ?? 0} faculty`,
+      `${metadata.distinctCrnCount ?? 0} CRNs`
+    ].join('; ');
+  }
+
+  async function refreshFacultyScheduleArchives() {
+    if (!window.BACKEND_BASE_URL) {
+      state.facultyScheduleArchiveTerms = [];
+      updateFacultyScheduleArchiveSelectors();
+      return [];
+    }
+    try {
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-schedules`);
+      const payload = response.ok ? await response.json() : { data: [] };
+      state.facultyScheduleArchiveTerms = Array.isArray(payload.data) ? payload.data : [];
+      updateFacultyScheduleArchiveSelectors();
+      return state.facultyScheduleArchiveTerms;
+    } catch (err) {
+      console.warn('Faculty Schedule archive list skipped:', err);
+      return [];
+    }
+  }
+
+  async function saveFacultyScheduleArchive() {
+    if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so Faculty Schedule data cannot be saved.');
+    const token = enrollmentManagementToken();
+    if (!token) {
+      requestReportAccess(REPORTS.facultyHeatmap, 'development');
+      throw new Error('Unlock a report role before saving Faculty Schedule data.');
+    }
+    const input = document.getElementById('facultyScheduleCsv');
+    const files = Array.from(input?.files || []);
+    if (!files.length) throw new Error('Choose one or more Faculty Schedule CSV files before saving.');
+    if (!window.COSFacultyParser?.parseFacultyScheduleCsvRows) throw new Error('Faculty Schedule parser is not loaded.');
+    const savedTerms = [];
+    for (const file of files) {
+      const text = await readTextFile(file);
+      const rawRows = window.COSFacultyParser.parseFacultyScheduleCsvRows(text);
+      const validation = validateFacultyScheduleRawRows(rawRows);
+      if (!validation.valid) throw new Error(validation.message);
+      const term = normalizeTermLabel(termFromFilename(file.name) || facultyRawField(rawRows[0], ['TERM', 'Term', 'term']) || file.name.replace(/\.csv$/i, ''));
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-schedules/${encodeURIComponent(term)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ rows: rawRows, sourceFileName: file.name })
+      });
+      if (!response.ok) throw new Error(await response.text() || `Faculty Schedule save failed for ${term}.`);
+      const payload = await response.json();
+      savedTerms.push(payload.term || term);
+      state.facultyScheduleMetadata = payload.metadata || null;
+    }
+    await refreshFacultyScheduleArchives();
+    const status = document.getElementById('facultyScheduleArchiveStatus');
+    if (status) status.textContent = savedTerms.length ? `Saved Faculty Schedule term(s): ${savedTerms.join(', ')}` : 'No Faculty Schedule files saved.';
+    alert(`Saved Faculty Schedule term(s): ${savedTerms.join(', ')}`);
+  }
+
+  async function readSavedFacultyScheduleRows(selectId) {
+    const term = document.getElementById(selectId)?.value || '';
+    if (!term) return [];
+    if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so saved Faculty Schedule data cannot be loaded.');
+    const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-schedules/${encodeURIComponent(term)}`);
+    if (!response.ok) throw new Error(await response.text() || `Saved Faculty Schedule load failed for ${term}.`);
+    const payload = await response.json();
+    const rows = Array.isArray(payload.data) ? payload.data : [];
+    const validation = validateFacultyScheduleRawRows(rows);
+    if (!validation.valid) throw new Error(validation.message);
+    const normalized = window.COSFacultyModel?.facultyMeetingsForReporting
+      ? window.COSFacultyModel.facultyMeetingsForReporting(rows.map(row => ({ ...row, __sourceTerm: term })), { term })
+      : window.COSFacultyParser.parseFacultyScheduleCsv('', { term }).meetings;
+    state.facultyScheduleRows = normalized;
+    state.facultyScheduleMetadata = payload.metadata || null;
+    const status = document.getElementById('facultyScheduleArchiveStatus');
+    if (status) status.textContent = facultyScheduleMetadataText(state.facultyScheduleMetadata);
+    return normalized;
   }
 
   async function readArchivedRowsWithDiagnostics(selectId, options = {}) {
@@ -10620,6 +10831,7 @@
     });
     document.getElementById('runInstructorAvailability')?.addEventListener('click', runInstructorAvailability);
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
+    document.getElementById('loadSavedFacultyModality')?.addEventListener('click', () => loadSavedFacultyModality().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('loadFacultyModality')?.addEventListener('click', () => loadFacultyModality().catch(err => alert(err.message || 'Faculty Modality load failed.')));
     document.getElementById('facultyModalityCsv')?.addEventListener('change', () => loadFacultyModality().catch(err => console.warn(err)));
     ['fmTerm', 'fmCampus', 'fmModality'].forEach(id => {
@@ -10639,6 +10851,7 @@
     document.getElementById('archiveInstructionalMethodValidationUploads')?.addEventListener('click', () => archiveUploads('instructionalMethodValidationCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearInstructionalMethodValidation')?.addEventListener('click', clearInstructionalMethodValidation);
     document.getElementById('exportInstructionalMethodValidation')?.addEventListener('click', () => exportRowsWithoutMethodology(state.instructionalMethodValidationTableRows, 'instructional-method-validation.csv'));
+    document.getElementById('loadSavedPrimeTimeAnalysis')?.addEventListener('click', () => loadSavedPrimeTimeAnalysis().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('loadPrimeTimeAnalysis')?.addEventListener('click', () => loadPrimeTimeAnalysis().catch(err => alert(err.message || 'Prime Time Analysis load failed.')));
     document.getElementById('primeTimeCsv')?.addEventListener('change', () => loadPrimeTimeAnalysis().catch(err => console.warn(err)));
     ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd', 'ptModality'].forEach(id => {
@@ -10671,6 +10884,7 @@
     document.getElementById('runBusyTimeDashboard')?.addEventListener('click', () => runBusyTimeDashboard().catch(err => alert(err.message || 'Busy Time Dashboard failed.')));
     document.getElementById('busyTimeCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
     document.getElementById('busyTimeFacultyCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
+    document.getElementById('loadSavedBusyTimeFaculty')?.addEventListener('click', () => loadSavedBusyTimeFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('busyTimeArchiveTerms')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
     document.getElementById('archiveBusyTimeUploads')?.addEventListener('click', () => archiveUploads('busyTimeCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['busyTimeTerm', 'busyTimeCampus', 'busyTimeModality'].forEach(id => {
@@ -10687,6 +10901,7 @@
     document.getElementById('runStudentChoiceOpportunity')?.addEventListener('click', () => runStudentChoiceOpportunity().catch(err => alert(err.message || 'Student Choice Opportunity failed.')));
     document.getElementById('studentChoiceCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('studentChoiceFacultyCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
+    document.getElementById('loadSavedStudentChoiceFaculty')?.addEventListener('click', () => loadSavedStudentChoiceFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('studentChoiceArchiveTerms')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('archiveStudentChoiceUploads')?.addEventListener('click', () => archiveUploads('studentChoiceCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['studentChoiceView', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceFacultyType', 'studentChoiceExcludeTutoring'].forEach(id => {
@@ -10703,6 +10918,7 @@
     document.getElementById('runRecommendationEngine')?.addEventListener('click', () => runRecommendationEngine().catch(err => alert(err.message || 'Recommendation Engine failed.')));
     document.getElementById('recommendationCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
     document.getElementById('recommendationFacultyCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
+    document.getElementById('loadSavedRecommendationFaculty')?.addEventListener('click', () => loadSavedRecommendationFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('recommendationArchiveTerms')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
     document.getElementById('archiveRecommendationUploads')?.addEventListener('click', () => archiveUploads('recommendationCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationTimeBlock', 'recommendationStartEarliest', 'recommendationStartLatest', 'recommendationModality', 'recommendationFacultyType', 'recommendationExcludeTutoring'].forEach(id => {
@@ -10717,6 +10933,8 @@
     document.getElementById('clearRecommendationEngine')?.addEventListener('click', clearRecommendationEngine);
     document.getElementById('exportRecommendationCsv')?.addEventListener('click', () => exportRowsWithoutMethodology(state.recommendationOutputRows, 'scheduling-recommendations.csv'));
     document.getElementById('exportRecommendationPdf')?.addEventListener('click', () => exportRecommendationPdf().catch(err => alert(err.message || 'PDF export failed.')));
+    document.getElementById('saveFacultyScheduleArchive')?.addEventListener('click', () => saveFacultyScheduleArchive().catch(err => alert(err.message || 'Faculty Schedule save failed.')));
+    document.getElementById('loadSavedFacultyScheduleHeatmap')?.addEventListener('click', () => loadSavedFacultyScheduleHeatmap().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
     document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
     ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {
@@ -10773,6 +10991,7 @@
     registerEnrollmentCollapsibleSections();
     wire();
     refreshAnalyticsArchiveOptions();
+    refreshFacultyScheduleArchives();
     loadEnrollmentSnapshots().catch(err => console.warn('Enrollment snapshot preload skipped:', err));
     updateVisibility();
   }

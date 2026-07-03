@@ -2204,6 +2204,34 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(backend, /app\.post\('\/api\/auth\/role'/);
 });
 
+test('backend keeps faculty schedule archives isolated from section schedule storage', () => {
+  const backend = fs.readFileSync(path.join(__dirname, '..', '..', 'App-Backend', 'server.js'), 'utf8');
+
+  assert.match(backend, /FACULTY_SCHEDULES_DIR = path\.join\(DATA_DIR, 'faculty-schedules'\)/);
+  assert.match(backend, /function getFacultySchedulePath\(term\)/);
+  assert.match(backend, /app\.get\('\/api\/faculty-schedules'/);
+  assert.match(backend, /app\.get\('\/api\/faculty-schedules\/:term'/);
+  assert.match(backend, /app\.post\('\/api\/faculty-schedules\/:term'/);
+  assert.match(backend, /app\.delete\('\/api\/faculty-schedules\/:term'/);
+  assert.match(backend, /validateFacultyScheduleRows/);
+  assert.match(backend, /FCNT_CODE/);
+  assert.match(backend, /FACULTYID/);
+  assert.match(backend, /SCHD_CODE_SSRMEET/);
+  assert.match(backend, /facultyScheduleMetadata/);
+  assert.match(backend, /rawRowCount/);
+  assert.match(backend, /normalizedMeetingCount/);
+  assert.match(backend, /omittedRowCount/);
+  assert.match(backend, /distinctFacultyCount/);
+  assert.match(backend, /distinctCrnCount/);
+  assert.match(backend, /facultyTypeCounts/);
+  assert.match(backend, /meetingTypeCounts/);
+  assert.match(backend, /isEnrollmentSessionAuthorized\(req\) && !isAuthorized\(password\)/);
+  const pathHelper = backend.slice(backend.indexOf('function getFacultySchedulePath'), backend.indexOf('function passwordMatches'));
+  assert.match(pathHelper, /FACULTY_SCHEDULES_DIR/);
+  assert.doesNotMatch(pathHelper, /ANALYTICS_ARCHIVE_DIR/);
+  assert.doesNotMatch(pathHelper, /getSchedulePath/);
+});
+
 test('faculty schedule heatmap is a standalone Development report', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
@@ -2212,6 +2240,10 @@ test('faculty schedule heatmap is a standalone Development report', () => {
   assert.match(text, /Faculty Schedule Heatmap/);
   assert.match(text, /id="facultyHeatmapReport"/);
   assert.match(text, /id="facultyScheduleCsv"/);
+  assert.match(text, /id="saveFacultyScheduleArchive"/);
+  assert.match(text, /id="facultyScheduleArchiveTerm"/);
+  assert.match(text, /id="loadSavedFacultyScheduleHeatmap"/);
+  assert.match(text, /id="facultyScheduleArchiveStatus"/);
   assert.match(text, /id="fhMetric"/);
   assert.match(text, /<option value="sections">Sections<\/option>/);
   assert.match(text, /<option value="facultyCount">Faculty Count<\/option>/);
@@ -2234,6 +2266,15 @@ test('faculty schedule heatmap is a standalone Development report', () => {
   assert.match(text, /id="fhModality"/);
   assert.match(text, /function readFacultyScheduleFiles/);
   assert.match(text, /COSFacultyParser\.parseFacultyScheduleCsv/);
+  assert.match(text, /function saveFacultyScheduleArchive/);
+  assert.match(text, /function refreshFacultyScheduleArchives/);
+  assert.match(text, /function readSavedFacultyScheduleRows/);
+  assert.match(text, /state\.facultyScheduleArchiveTerms/);
+  assert.match(text, /state\.facultyScheduleRows/);
+  assert.match(text, /state\.facultyScheduleMetadata/);
+  assert.match(text, /api\/faculty-schedules/);
+  assert.match(text, /This does not appear to be a Faculty Schedule file/);
+  assert.match(text, /Faculty Schedule Data is a separate optional dataset/);
   assert.match(text, /function renderFacultyScheduleHeatmap/);
   assert.match(text, /heatmap-cell heatmap-value-cell heatmap-\$\{level\}/);
   assert.match(text, /Peak teaching time/);
@@ -2253,6 +2294,9 @@ test('faculty modality is a standalone Development report using INSM codes', () 
   assert.match(text, /Faculty Modality/);
   assert.match(text, /id="facultyModalityReport"/);
   assert.match(text, /id="facultyModalityCsv"/);
+  assert.match(text, /id="facultyModalityArchiveTerm"/);
+  assert.match(text, /id="loadSavedFacultyModality"/);
+  assert.match(text, /function loadSavedFacultyModality/);
   assert.match(text, /id="fmCampus"/);
   assert.match(text, /id="fmDivision"/);
   assert.match(text, /id="fmDepartment"/);
@@ -2284,6 +2328,9 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /Prime Time Analysis defaults to physical instruction because it is intended to evaluate campus time-of-day concentration\. Online sections can be included manually\./);
   assert.match(text, /id="primeTimeAnalysisReport"/);
   assert.match(text, /id="primeTimeCsv"/);
+  assert.match(text, /id="primeTimeArchiveTerm"/);
+  assert.match(text, /id="loadSavedPrimeTimeAnalysis"/);
+  assert.match(text, /function loadSavedPrimeTimeAnalysis/);
   assert.match(text, /id="ptStart" type="time" value="09:00"/);
   assert.match(text, /id="ptEnd" type="time" value="15:00"/);
   assert.match(text, /class="ptDay" type="checkbox" value="MO" checked/);
@@ -2357,6 +2404,9 @@ test('busy time dashboard is a standalone Development report summarizing core bu
   assert.match(text, /id="busyTimeCsv"/);
   assert.match(text, /id="busyTimeArchiveTerms"/);
   assert.match(text, /id="busyTimeFacultyCsv"/);
+  assert.match(text, /id="busyTimeFacultyArchiveTerm"/);
+  assert.match(text, /id="loadSavedBusyTimeFaculty"/);
+  assert.match(text, /function loadSavedBusyTimeFacultySchedule/);
   assert.match(text, /Prime Time Score/);
   assert.match(text, /Faculty Concentration/);
   assert.match(text, /Student Concentration/);
@@ -2386,6 +2436,9 @@ test('student choice opportunity is a standalone Development report with choice 
   assert.match(text, /id="studentChoiceCsv"/);
   assert.match(text, /id="studentChoiceArchiveTerms"/);
   assert.match(text, /id="studentChoiceFacultyCsv"/);
+  assert.match(text, /id="studentChoiceFacultyArchiveTerm"/);
+  assert.match(text, /id="loadSavedStudentChoiceFaculty"/);
+  assert.match(text, /function loadSavedStudentChoiceFacultySchedule/);
   assert.match(text, /Unique courses/);
   assert.match(text, /Unique CAL-GETC courses/);
   assert.match(text, /Seats offered/);
@@ -2450,6 +2503,9 @@ test('scheduling recommendation engine is advisory and covers recommendation cat
   assert.match(text, /id="recommendationCsv"/);
   assert.match(text, /id="recommendationArchiveTerms"/);
   assert.match(text, /id="recommendationFacultyCsv"/);
+  assert.match(text, /id="recommendationFacultyArchiveTerm"/);
+  assert.match(text, /id="loadSavedRecommendationFaculty"/);
+  assert.match(text, /function loadSavedRecommendationFacultySchedule/);
   assert.match(text, /id="recommendationStartEarliest" type="time" value="07:00"/);
   assert.match(text, /id="recommendationStartLatest" type="time" value="19:00"/);
   assert.match(text, /advisory-only/);
