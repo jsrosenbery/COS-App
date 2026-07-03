@@ -441,7 +441,7 @@
     const ftesUnavailable = isWorkExperienceSource && ftesValue === '' && !hasFtesEstimationInputs;
     const normalized = {
       raw: row,
-      term: canon(canonical?.term || val(row, fields.term) || row.__sourceTerm || currentTerm()),
+      term: normalizeTermLabel(canonical?.term || val(row, fields.term) || row.__sourceTerm || currentTerm()),
       crn: canon(canonical?.crn || val(row, fields.crn)),
       subject,
       course,
@@ -1005,8 +1005,21 @@
     return '';
   }
 
+  function normalizeTermLabel(term) {
+    const text = canon(term).replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    const bannerTerm = termFromFilename(text);
+    if (bannerTerm) return bannerTerm;
+    const year = (text.match(/\b(20\d{2})\b/) || [])[1];
+    const season = (text.match(/\b(FALL|SPRING|SUMMER|WINTER)\b/) || [])[1];
+    if (year && season) return `${season} ${year}`;
+    const ay = text.match(/\b(?:FY\/AY|AY|FY)\s*(20\d{2})\b/);
+    if (ay) return academicYearLabel(Number(ay[1]));
+    return text;
+  }
+
   function termSortValue(term) {
-    const text = canon(term);
+    const text = normalizeTermLabel(term);
     const year = Number((text.match(/\b(20\d{2})\b/) || [])[1] || 0);
     const season = (text.match(/FALL|SPRING|SUMMER|WINTER/) || [''])[0];
     const seasonOrder = { WINTER: 1, SPRING: 2, SUMMER: 3, FALL: 4 };
@@ -1014,7 +1027,7 @@
   }
 
   function termParts(term) {
-    const text = canon(term);
+    const text = normalizeTermLabel(term);
     return {
       season: (text.match(/FALL|SPRING|SUMMER|WINTER/) || [''])[0],
       year: Number((text.match(/\b(20\d{2})\b/) || [])[1] || 0)
@@ -2184,6 +2197,7 @@
             <button id="exportDemandExcel" type="button">Export Excel</button>
           </div>
           <div id="demandMetrics" class="analytics-metrics"></div>
+          <div id="demandDiagnostics" class="dashboard-scope-panel"></div>
           <div id="demandInsights" class="analytics-insights"></div>
           <div id="demandTable" class="analytics-table"></div>
           <div id="demandLegend" class="analytics-legend"></div>
@@ -5005,11 +5019,43 @@
     return batches.flat();
   }
 
+  async function readArchivedRowsWithDiagnostics(selectId, options = {}) {
+    const selectedTerms = getSelectedValues(selectId).map(normalizeTermLabel).filter(Boolean);
+    const reportLabel = options.reportLabel || 'analytics archive';
+    if (!selectedTerms.length) return { selectedTerms, results: [], rows: [] };
+    if (!window.BACKEND_BASE_URL) {
+      return {
+        selectedTerms,
+        results: selectedTerms.map(term => ({
+          term,
+          rows: [],
+          failed: true,
+          error: `Cannot load archived term ${term} for ${reportLabel}: backend URL is not configured.`
+        })),
+        rows: []
+      };
+    }
+    const results = await Promise.all(selectedTerms.map(async term => {
+      try {
+        const rows = await fetchArchivedTermRows(term, reportLabel);
+        return { term, rows, failed: false, error: '' };
+      } catch (err) {
+        return { term, rows: [], failed: true, error: err?.message || String(err) };
+      }
+    }));
+    return {
+      selectedTerms,
+      results,
+      rows: results.flatMap(result => result.rows)
+    };
+  }
+
   async function fetchArchivedTermRows(term, reportLabel = 'analytics archive') {
-    if (!term) return [];
-    if (!window.BACKEND_BASE_URL) throw new Error(`Cannot load archived term ${term} for ${reportLabel}: backend URL is not configured.`);
+    const requestedTerm = normalizeTermLabel(term);
+    if (!requestedTerm) return [];
+    if (!window.BACKEND_BASE_URL) throw new Error(`Cannot load archived term ${requestedTerm} for ${reportLabel}: backend URL is not configured.`);
     try {
-      const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`);
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`);
       let payload = {};
       try {
         payload = await response.json();
@@ -5018,16 +5064,16 @@
       }
       if (!response.ok) {
         const detail = payload.error || payload.message || `${response.status} ${response.statusText}`.trim();
-        throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${detail}`);
+        throw new Error(`Could not load archived term ${requestedTerm} for ${reportLabel}: ${detail}`);
       }
       if (!Array.isArray(payload.data)) {
         const detail = payload.error || payload.message || 'archive response did not include a data array';
-        throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${detail}`);
+        throw new Error(`Could not load archived term ${requestedTerm} for ${reportLabel}: ${detail}`);
       }
-      return payload.data.map(row => ({ ...row, __sourceTerm: payload.term || term }));
+      return payload.data.map(row => ({ ...row, __sourceTerm: normalizeTermLabel(payload.term || requestedTerm) }));
     } catch (err) {
       if (/Could not load archived term|Cannot load archived term/.test(err?.message || '')) throw err;
-      throw new Error(`Could not load archived term ${term} for ${reportLabel}: ${err?.message || err}`);
+      throw new Error(`Could not load archived term ${requestedTerm} for ${reportLabel}: ${err?.message || err}`);
     }
   }
 
@@ -8034,14 +8080,83 @@
       </dl>`;
   }
 
+  function demandTermDiagnostics({ selectedArchivedTerms = [], archiveResults = [], usableRows = [], usableArchiveRows = null, filteredRows = [], comparableRows = [], forecastRows = [] } = {}) {
+    const selected = [...new Set((selectedArchivedTerms || []).map(normalizeTermLabel).filter(Boolean))]
+      .sort((a, b) => termSortValue(a) - termSortValue(b) || a.localeCompare(b, undefined, { numeric: true }));
+    const failed = archiveResults
+      .filter(result => result.failed)
+      .map(result => ({ term: normalizeTermLabel(result.term), error: result.error || 'Load failed' }))
+      .filter(result => result.term);
+    const successfulTerms = archiveResults
+      .filter(result => !result.failed)
+      .map(result => normalizeTermLabel(result.term))
+      .filter(Boolean);
+    const usableTerms = collectRowTerms(usableRows);
+    const archiveUsableTerms = collectRowTerms(usableArchiveRows || usableRows);
+    const filteredTerms = collectRowTerms(filteredRows);
+    const comparableTerms = collectDemandSourceTerms(comparableRows);
+    const forecastTerms = collectDemandSourceTerms(forecastRows);
+    const zeroUsable = successfulTerms.filter(term => !archiveUsableTerms.includes(term));
+    const excludedByFilters = usableTerms.filter(term => !filteredTerms.includes(term));
+    const excludedByForecastTarget = filteredTerms.filter(term => !comparableTerms.includes(term));
+    const excludedByAnalysisWindow = comparableTerms.filter(term => !forecastTerms.includes(term));
+    return {
+      selectedArchivedTerms: selected,
+      loadedTerms: successfulTerms.filter(term => !zeroUsable.includes(term)),
+      termsIncludedAfterFilters: filteredTerms,
+      termsUsedInForecast: forecastTerms,
+      termsExcludedByFilters: excludedByFilters,
+      termsExcludedByForecastTarget: excludedByForecastTarget,
+      termsExcludedByAnalysisWindow: excludedByAnalysisWindow,
+      termsWithZeroUsableRows: zeroUsable,
+      termsFailedToLoad: failed
+    };
+  }
+
+  function collectDemandSourceTerms(rows) {
+    const terms = new Set();
+    (rows || []).forEach(row => {
+      const term = normalizeTermLabel(row?.sourceTerm || row?.term);
+      if (term) terms.add(term);
+    });
+    return [...terms].sort((a, b) => termSortValue(a) - termSortValue(b) || a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  function termListLabel(terms) {
+    return (terms || []).length ? terms.join(', ') : 'None';
+  }
+
+  function renderDemandDiagnosticsPanel(diagnostics = {}) {
+    const node = document.getElementById('demandDiagnostics');
+    if (!node) return;
+    const failed = (diagnostics.termsFailedToLoad || [])
+      .map(item => `${item.term}${item.error ? ` (${item.error})` : ''}`);
+    node.innerHTML = `
+      <h3>Data Scope & Term Diagnostics</h3>
+      <dl>
+        <div><dt>Selected archived terms</dt><dd>${escapeAttr(termListLabel(diagnostics.selectedArchivedTerms))}</dd></div>
+        <div><dt>Loaded terms</dt><dd>${escapeAttr(termListLabel(diagnostics.loadedTerms))}</dd></div>
+        <div><dt>Terms included after filters</dt><dd>${escapeAttr(termListLabel(diagnostics.termsIncludedAfterFilters))}</dd></div>
+        <div><dt>Terms used in forecast calculations</dt><dd>${escapeAttr(termListLabel(diagnostics.termsUsedInForecast))}</dd></div>
+        <div><dt>Terms excluded by filters</dt><dd>${escapeAttr(termListLabel(diagnostics.termsExcludedByFilters))}</dd></div>
+        <div><dt>Terms excluded by forecast target/window</dt><dd>${escapeAttr(termListLabel([...(diagnostics.termsExcludedByForecastTarget || []), ...(diagnostics.termsExcludedByAnalysisWindow || [])]))}</dd></div>
+        <div><dt>Terms with zero usable rows</dt><dd>${escapeAttr(termListLabel(diagnostics.termsWithZeroUsableRows))}</dd></div>
+        <div><dt>Terms failed to load</dt><dd>${escapeAttr(termListLabel(failed))}</dd></div>
+      </dl>`;
+  }
+
   async function loadDemandRows() {
     const saved = captureFilterState('dem');
     const uploadedRows = await readCsv(document.getElementById('demandCsv'));
-    const archivedRows = await readArchivedRows('demArchiveTerms', { reportLabel: 'Demand Forecast' });
+    const archiveLoad = await readArchivedRowsWithDiagnostics('demArchiveTerms', { reportLabel: 'Demand Forecast' });
     await loadWorkExperienceRows();
-    const uploaded = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize))
+    const archiveUsableRows = dedupeEnrollmentRows(archiveLoad.rows.map(normalize))
+      .filter(row => !isOmittedInstructionalMethod(row));
+    const uploaded = dedupeEnrollmentRows([...uploadedRows, ...archiveLoad.rows].map(normalize))
       .filter(row => !isOmittedInstructionalMethod(row));
     state.demandInput = uploaded;
+    state.demandArchiveLoad = archiveLoad;
+    state.demandArchiveUsableRows = archiveUsableRows;
     const rows = rowsWithWorkExperience(uploaded, 'dem');
     state.demandTerms = collectRowTerms(rows);
     updateDemandTermOptions(state.demandTerms);
@@ -8055,23 +8170,31 @@
     try {
       const allRows = await loadDemandRows();
       const diagnostics = standardExclusionDiagnostics(allRows, 'dem');
+      const baseTermDiagnostics = {
+        selectedArchivedTerms: state.demandArchiveLoad?.selectedTerms || [],
+        archiveResults: state.demandArchiveLoad?.results || [],
+        usableRows: allRows,
+        usableArchiveRows: state.demandArchiveUsableRows || []
+      };
       if (!allRows.length) {
         state.demandRows = [];
-        renderEmptyDemand('No enrollment rows were loaded. Select archived terms or upload CSV files, then click Run.');
+        renderEmptyDemand('No enrollment rows were loaded. Select archived terms or upload CSV files, then click Run.', demandTermDiagnostics(baseTermDiagnostics));
         return;
       }
       const filtered = applyFilters(allRows, 'dem');
+      const filteredTermDiagnostics = demandTermDiagnostics({ ...baseTermDiagnostics, filteredRows: filtered });
       if (!filtered.length) {
         state.demandRows = [];
-        renderEmptyDemand('Rows loaded, but none match the current filters. Clear filters or select different archived terms.');
+        renderEmptyDemand('Rows loaded, but none match the current filters. Clear filters or select different archived terms.', filteredTermDiagnostics);
         return;
       }
       const windowSize = Number(document.getElementById('demWindow')?.value || 5);
       const target = demandForecastTarget();
       const finalizedHistorical = filtered.filter(row => isComparableDemandTerm(row, target));
+      const comparableTermDiagnostics = demandTermDiagnostics({ ...baseTermDiagnostics, filteredRows: filtered, comparableRows: finalizedHistorical });
       if (!finalizedHistorical.length) {
         state.demandRows = [];
-        renderEmptyDemand(`No comparable finalized historical rows are available before ${target.label}. Select archived completed ${target.scope === 'year' ? 'academic-year' : target.season} terms earlier than the forecast target.`);
+        renderEmptyDemand(`No comparable finalized historical rows are available before ${target.label}. Select archived completed ${target.scope === 'year' ? 'academic-year' : target.season} terms earlier than the forecast target.`, comparableTermDiagnostics);
         return;
       }
       const analysisRows = normalizeDemandAnalysisTerms(finalizedHistorical, target);
@@ -8080,9 +8203,10 @@
         .sort((a, b) => termSortValue(a) - termSortValue(b))
         .slice(Math.max(0, filteredTerms.length - windowSize));
       const rows = analysisRows.filter(row => selectedTerms.includes(row.term));
+      const termDiagnostics = demandTermDiagnostics({ ...baseTermDiagnostics, filteredRows: filtered, comparableRows: analysisRows, forecastRows: rows });
       if (!rows.length) {
         state.demandRows = [];
-        renderEmptyDemand('No rows remain after applying the analysis window. Increase the analysis window or choose more terms.');
+        renderEmptyDemand('No rows remain after applying the analysis window. Increase the analysis window or choose more terms.', termDiagnostics);
         return;
       }
       const growthModifier = Number(document.getElementById('demGrowthModifier')?.value || 0) / 100;
@@ -8101,7 +8225,7 @@
       metric('demandMetrics', [
         ['Forecast Target', target.label],
         ['Forecast Scope', target.scope === 'year' ? 'Academic year' : 'Single term'],
-        ['Terms Included', selectedTerms.length],
+        ['Terms Included', termDiagnostics.termsUsedInForecast.length],
         ['Courses Reviewed', state.demandRows.filter(row => row.forecastLevel === 'Course').length],
         ['College Growth', pct(context.collegeGrowth)],
         ['Modifier Applied', pct(growthModifier)],
@@ -8118,13 +8242,19 @@
         ['Softening Demand', softening.length],
         ['Avg Forecast Growth', pct(safeDiv(sum(state.demandRows, 'adjustedForecastGrowth'), state.demandRows.length))]
       ]);
-      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), demandTrendSeries(rows), yearSeasonForecast);
+      renderDemandDiagnosticsPanel(termDiagnostics);
+      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), demandTrendSeries(rows), yearSeasonForecast, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes });
       table('demandTable', state.demandRows, demandColumns());
       renderDemandLegend();
     } catch (err) {
       console.error('Demand forecast failed:', err);
       state.demandRows = [];
-      renderEmptyDemand(`Demand forecast failed: ${err.message || err}`);
+      renderEmptyDemand(`Demand forecast failed: ${err.message || err}`, demandTermDiagnostics({
+        selectedArchivedTerms: state.demandArchiveLoad?.selectedTerms || [],
+        archiveResults: state.demandArchiveLoad?.results || [],
+        usableRows: state.demandInput || [],
+        usableArchiveRows: state.demandArchiveUsableRows || []
+      }));
     }
   }
 
@@ -8133,7 +8263,7 @@
     if (tableNode) tableNode.innerHTML = `<p class="analytics-empty">${escapeAttr(message)}</p>`;
   }
 
-  function renderEmptyDemand(message) {
+  function renderEmptyDemand(message, termDiagnostics = null) {
     metric('demandMetrics', [
       ['Terms Included', 0],
       ['Courses Reviewed', 0],
@@ -8143,6 +8273,12 @@
       ['Annual FTES Projection', 0],
       ['FTES Cap Position', 'No cap entered']
     ]);
+    renderDemandDiagnosticsPanel(termDiagnostics || demandTermDiagnostics({
+      selectedArchivedTerms: state.demandArchiveLoad?.selectedTerms || [],
+      archiveResults: state.demandArchiveLoad?.results || [],
+      usableRows: state.demandInput || [],
+      usableArchiveRows: state.demandArchiveUsableRows || []
+    }));
     const insights = document.getElementById('demandInsights');
     if (insights) insights.innerHTML = '';
     setDemandMessage(message);
@@ -8437,52 +8573,216 @@
     };
   }
 
-  function renderDemandInsights(rows, patterns, trends, yearSeasonForecast = null) {
+  function renderDemandInsights(rows, patterns, trends, yearSeasonForecast = null, forecastContext = {}) {
     const wrap = document.getElementById('demandInsights');
     if (!wrap) return;
-    const growth = rows.filter(row => /expanding|growth/i.test(row.capacityGuidance)).slice(0, 5);
-    const softening = rows.filter(row => /softening/i.test(row.capacityGuidance)).slice(0, 5);
     const highPatterns = patterns.slice(0, 5);
     const lowPatterns = patterns.slice(-5).reverse();
+    const targetLabel = forecastContext.target?.label || 'Forecast';
+    const enrollmentData = buildEnrollmentTrendChartData(trends, forecastContext.forecastFtes == null ? null : rows.find(row => row.forecastLevel === 'College')?.expectedEnrollmentNextTerm, targetLabel);
+    const ftesData = buildFtesTrendChartData(trends, forecastContext.forecastFtes || 0, forecastContext.ftesCap || 0, targetLabel);
+    const fillWaitlistData = buildFillWaitlistPressureChartData(trends);
+    const distributionData = buildCourseDemandDistributionChartData(rows);
+    const backtestData = buildForecastBacktestChartData(trends);
     wrap.innerHTML = `
-      ${trendPanel('Demand Trend Line', trends, 'census', value => value)}
-      ${trendPanel('FTES Trend', trends, 'ftes', value => round1(value))}
-      ${trendPanel('Fill Rate Trend', trends, 'fillRate', value => pct(value))}
-      ${trendPanel('Waitlist Trend', trends, 'waitlist', value => value)}
-      ${forecastPanel(trends)}
+      ${lineChartPanel('Enrollment Trend Chart', enrollmentData, { valueFormatter: value => Math.round(value), yLabel: 'Enrollment' })}
+      ${lineChartPanel('FTES Trend Chart', ftesData, { valueFormatter: value => round1(value), yLabel: 'FTES', warning: ftesData.exceedsCap ? 'Forecast exceeds the entered FTES cap.' : '' })}
+      ${fillWaitlistPanel(fillWaitlistData)}
+      ${courseDemandDistributionPanel(distributionData)}
+      ${forecastBacktestPanel(backtestData)}
       ${insightPanel('Semester FTES Totals', trends.map(row => `${row.term}: ${round1(row.ftes)} FTES; ${row.census} census enrollment`))}
       ${yearSeasonForecast ? insightPanel('Forecast Term FTES Split', yearSeasonForecast.seasons.map(row => `${row.termLabel}: ${round1(row.forecastFtes)} FTES (${pct(row.share)} of annual forecast, based on ${yearSeasonForecast.basis})`)) : ''}
-      ${insightPanel('Top Expanding Demand Forecasts', growth.map(row => `${row.forecastLevel} - ${row.groupName}: ${pct(row.adjustedForecastGrowth)} forecast growth; ${row.capacityGuidance}`))}
-      ${insightPanel('Top Softening Demand Forecasts', softening.map(row => `${row.forecastLevel} - ${row.groupName}: ${pct(row.adjustedForecastGrowth)} forecast growth; ${row.capacityGuidance}`))}
       ${insightPanel('Highest Demand Day/Time Patterns', highPatterns.map(row => `${row.pattern}: ${pct(row.fillRate)} fill, ${row.waitlist} waitlist`))}
       ${insightPanel('Lowest Demand Day/Time Patterns', lowPatterns.map(row => `${row.pattern}: ${pct(row.fillRate)} fill, ${row.waitlist} waitlist`))}`;
   }
 
-  function trendPanel(title, rows, key, formatter) {
-    const values = rows.map(row => Number(row[key]) || 0);
-    const points = sparklinePoints(values);
-    const latest = rows.length ? formatter(rows[rows.length - 1][key]) : 'N/A';
-    return `<section><h3>${title}</h3><svg class="analytics-sparkline" viewBox="0 0 220 70" preserveAspectRatio="none"><polyline points="${points}" /></svg><p class="analytics-chart-note">Latest: ${latest}</p></section>`;
+  function buildEnrollmentTrendChartData(trends, forecastEnrollment = null, targetLabel = 'Forecast') {
+    const categories = trends.map(row => row.term);
+    const census = trends.map(row => row.census || 0);
+    const final = trends.map(row => row.final || 0);
+    const forecast = trends.map(row => row.forecast || 0);
+    if (forecastEnrollment != null && Number.isFinite(Number(forecastEnrollment))) {
+      categories.push(targetLabel);
+      census.push(null);
+      final.push(null);
+      forecast.push(Number(forecastEnrollment));
+    }
+    return {
+      categories,
+      series: [
+        { name: 'Census enrollment', values: census },
+        { name: 'Final/current enrollment', values: final },
+        { name: 'Forecast enrollment', values: forecast }
+      ],
+      tooltips: categories.map((term, index) => {
+        const row = trends[index] || {};
+        return analyticsTooltip([
+          ['Term', term],
+          ['Census enrollment', census[index] ?? 'N/A'],
+          ['Final/current enrollment', final[index] ?? 'N/A'],
+          ['Forecast enrollment', forecast[index] ?? 'N/A'],
+          ['Fill rate', row.fillRate == null ? 'N/A' : pct(row.fillRate)],
+          ['Waitlist', row.waitlist ?? 'N/A'],
+          ['FTES', row.ftes == null ? 'N/A' : round1(row.ftes)]
+        ]);
+      })
+    };
   }
 
-  function forecastPanel(rows) {
-    const values = rows.map(row => Math.abs((row.forecast || 0) - (row.census || 0)));
-    const avgError = Math.round(average(values));
-    return `<section><h3>Forecast vs Actual Comparison</h3><p class="analytics-chart-note">Average historical forecast gap: ${avgError} students.</p><p class="analytics-chart-note">Uses final/census midpoint as a simple back-test proxy when no separate forecast file is available.</p></section>`;
+  function buildFtesTrendChartData(trends, forecastFtes = 0, ftesCap = 0, targetLabel = 'Forecast') {
+    const categories = [...trends.map(row => row.term), targetLabel];
+    const historical = [...trends.map(row => row.ftes || 0), null];
+    const forecast = [...trends.map(() => null), Number(forecastFtes) || 0];
+    const cap = Number(ftesCap) > 0 ? categories.map(() => Number(ftesCap)) : [];
+    return {
+      categories,
+      exceedsCap: Number(ftesCap) > 0 && (Number(forecastFtes) || 0) > Number(ftesCap),
+      series: [
+        { name: 'Historical FTES', values: historical },
+        { name: 'Forecast FTES', values: forecast },
+        ...(cap.length ? [{ name: 'FTES cap', values: cap }] : [])
+      ]
+    };
   }
 
-  function sparklinePoints(values) {
-    if (!values.length) return '';
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const width = 220;
-    const height = 60;
-    const spread = max - min || 1;
-    return values.map((value, index) => {
-      const x = values.length === 1 ? width : (index / (values.length - 1)) * width;
-      const y = height - ((value - min) / spread) * height + 5;
-      return `${Math.round(x)},${Math.round(y)}`;
-    }).join(' ');
+  function buildFillWaitlistPressureChartData(trends) {
+    return {
+      categories: trends.map(row => row.term),
+      fillRate: trends.map(row => row.fillRate || 0),
+      waitlist: trends.map(row => row.waitlist || 0),
+      tooltips: trends.map(row => analyticsTooltip([
+        ['Term', row.term],
+        ['Fill rate', pct(row.fillRate || 0)],
+        ['Waitlist', row.waitlist || 0],
+        ['Census enrollment', row.census || 0],
+        ['FTES', round1(row.ftes || 0)]
+      ]))
+    };
+  }
+
+  function buildCourseDemandDistributionChartData(rows) {
+    const courseRows = (rows || []).filter(row => row.forecastLevel === 'Course');
+    const expanding = courseRows
+      .filter(row => Number(row.adjustedForecastGrowth) > 0)
+      .sort((a, b) => Number(b.adjustedForecastGrowth) - Number(a.adjustedForecastGrowth))
+      .slice(0, 5);
+    const softening = courseRows
+      .filter(row => Number(row.adjustedForecastGrowth) < 0)
+      .sort((a, b) => Number(a.adjustedForecastGrowth) - Number(b.adjustedForecastGrowth))
+      .slice(0, 5);
+    return [...expanding, ...softening].map(row => ({
+      course: row.course || row.groupName,
+      currentEnrollment: row.expectedEnrollmentNextTerm || 0,
+      historicalAverage: row.avgCensusEnrollment || 0,
+      forecastGrowth: row.adjustedForecastGrowth || 0,
+      confidence: row.forecastConfidence || 'N/A',
+      direction: Number(row.adjustedForecastGrowth) >= 0 ? 'Expanding' : 'Softening'
+    }));
+  }
+
+  function buildForecastBacktestChartData(trends) {
+    const rows = (trends || []).map(row => {
+      const gap = (row.forecast || 0) - (row.census || 0);
+      return {
+        term: row.term,
+        actual: row.census || 0,
+        proxyForecast: row.forecast || 0,
+        gap
+      };
+    });
+    return {
+      rows,
+      averageGap: average(rows.map(row => Math.abs(row.gap)))
+    };
+  }
+
+  function lineChartPanel(title, data, options = {}) {
+    const categories = data.categories || [];
+    const series = data.series || [];
+    const values = series.flatMap(item => item.values || []).filter(value => value != null && Number.isFinite(Number(value))).map(Number);
+    const max = Math.max(1, ...values);
+    const min = Math.min(0, ...values);
+    const width = 640;
+    const height = 260;
+    const left = 56;
+    const right = 18;
+    const top = 18;
+    const bottom = 54;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const scaleX = index => left + (categories.length <= 1 ? plotWidth / 2 : (index / (categories.length - 1)) * plotWidth);
+    const scaleY = value => top + (max - Number(value)) / (max - min || 1) * plotHeight;
+    const colors = ['#1f7aa8', '#6f6a5f', '#2f8f57', '#b35f00'];
+    const grid = [0, 0.25, 0.5, 0.75, 1].map(t => {
+      const y = top + plotHeight * t;
+      const value = max - (max - min) * t;
+      return `<line x1="${left}" y1="${round1(y)}" x2="${width - right}" y2="${round1(y)}" class="analytics-chart-grid"></line><text x="8" y="${round1(y + 4)}" class="analytics-chart-axis-label">${escapeAttr(options.valueFormatter ? options.valueFormatter(value) : round1(value))}</text>`;
+    }).join('');
+    const lines = series.map((item, seriesIndex) => {
+      const points = (item.values || [])
+        .map((value, index) => value == null ? null : `${round1(scaleX(index))},${round1(scaleY(value))}`)
+        .filter(Boolean)
+        .join(' ');
+      const circles = (item.values || []).map((value, index) => {
+        if (value == null) return '';
+        const tooltip = data.tooltips?.[index] || `${item.name}: ${value}`;
+        return `<circle cx="${round1(scaleX(index))}" cy="${round1(scaleY(value))}" r="4" fill="${colors[seriesIndex % colors.length]}"><title>${escapeAttr(tooltip)}</title></circle>`;
+      }).join('');
+      return `<polyline points="${points}" fill="none" stroke="${colors[seriesIndex % colors.length]}" stroke-width="3"></polyline>${circles}`;
+    }).join('');
+    const labels = categories.map((category, index) => `<text x="${round1(scaleX(index))}" y="${height - 18}" text-anchor="middle" class="analytics-chart-axis-label">${escapeAttr(shortTermLabel(category))}</text>`).join('');
+    const legend = series.map((item, index) => `<span><i style="background:${colors[index % colors.length]}"></i>${escapeAttr(item.name)}</span>`).join('');
+    return `<section class="analytics-chart-panel"><h3>${escapeAttr(title)}</h3><div class="analytics-chart-legend">${legend}</div><svg class="analytics-line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttr(title)}">${grid}<line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" class="analytics-chart-axis"></line><line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" class="analytics-chart-axis"></line>${lines}${labels}</svg>${options.warning ? `<p class="analytics-chart-warning">${escapeAttr(options.warning)}</p>` : ''}</section>`;
+  }
+
+  function fillWaitlistPanel(data) {
+    const fillData = {
+      categories: data.categories,
+      series: [{ name: 'Fill rate', values: data.fillRate.map(value => value * 100) }],
+      tooltips: data.tooltips
+    };
+    const waitlistData = {
+      categories: data.categories,
+      series: [{ name: 'Waitlist count', values: data.waitlist }],
+      tooltips: data.tooltips
+    };
+    return `<section class="analytics-chart-panel analytics-stacked-chart"><h3>Fill Rate and Waitlist Pressure Chart</h3>${lineChartPanel('Fill Rate', fillData, { valueFormatter: value => `${Math.round(value)}%` })}${lineChartPanel('Waitlist Pressure', waitlistData, { valueFormatter: value => Math.round(value) })}</section>`;
+  }
+
+  function courseDemandDistributionPanel(rows) {
+    const max = Math.max(1, ...rows.map(row => Math.abs(row.forecastGrowth || 0)));
+    const bars = rows.map(row => {
+      const width = Math.max(3, Math.abs(row.forecastGrowth || 0) / max * 100);
+      const tooltip = analyticsTooltip([
+        ['Course', row.course],
+        ['Current enrollment', row.currentEnrollment],
+        ['Historical average', row.historicalAverage],
+        ['Forecast growth', pct(row.forecastGrowth)],
+        ['Confidence', row.confidence]
+      ]);
+      return `<div class="analytics-demand-bar ${row.direction === 'Softening' ? 'softening' : 'expanding'}" title="${escapeAttr(tooltip)}"><span>${escapeAttr(row.course)}</span><div><i style="width:${round1(width)}%"></i></div><strong>${escapeAttr(pct(row.forecastGrowth))}</strong><em>${escapeAttr(row.confidence)}</em></div>`;
+    }).join('') || '<p class="analytics-empty">No course-level expanding or softening demand rows.</p>';
+    return `<section class="analytics-chart-panel"><h3>Course Demand Distribution Chart</h3>${bars}</section>`;
+  }
+
+  function forecastBacktestPanel(data) {
+    const max = Math.max(1, ...data.rows.map(row => Math.abs(row.gap || 0)));
+    const bars = data.rows.map(row => {
+      const width = Math.max(3, Math.abs(row.gap || 0) / max * 100);
+      const tooltip = analyticsTooltip([
+        ['Term', row.term],
+        ['Proxy forecast', row.proxyForecast],
+        ['Actual census', row.actual],
+        ['Gap', row.gap]
+      ]);
+      return `<div class="analytics-demand-bar ${row.gap < 0 ? 'softening' : 'expanding'}" title="${escapeAttr(tooltip)}"><span>${escapeAttr(row.term)}</span><div><i style="width:${round1(width)}%"></i></div><strong>${escapeAttr(String(Math.round(row.gap || 0)))}</strong></div>`;
+    }).join('') || '<p class="analytics-empty">No historical rows available for back-test comparison.</p>';
+    return `<section class="analytics-chart-panel"><h3>Forecast Accuracy / Back-test Chart</h3><p class="analytics-chart-note">Average historical forecast gap: ${Math.round(data.averageGap || 0)} students. Uses final/census midpoint as a simple proxy when no separate prior forecast file is available.</p>${bars}</section>`;
+  }
+
+  function shortTermLabel(term) {
+    const normalized = normalizeTermLabel(term);
+    return normalized.replace(/^FY\/AY\s+/, 'AY ');
   }
 
   function insightPanel(title, items) {
@@ -9987,8 +10287,24 @@
       .dashboard-panel td{border-top:1px solid #e6edf5;padding:7px;font-size:12px;vertical-align:top;word-break:normal;overflow-wrap:normal}
       .dashboard-panel td.dashboard-cell-text{white-space:normal;overflow-wrap:break-word;min-width:120px}
       .dashboard-note{margin:0 0 8px;color:#334862;font-size:13px;line-height:1.35}
-      .analytics-sparkline{display:block;width:100%;height:74px;margin:6px 0}
-      .analytics-sparkline polyline{fill:none;stroke:#1f7aa8;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+      .analytics-chart-panel{grid-column:1/-1;background:#fff}
+      .analytics-line-chart{display:block;width:100%;height:auto;min-height:240px;background:#fff;border:1px solid #e2eaf3;border-radius:8px}
+      .analytics-chart-grid{stroke:#e6edf5;stroke-width:1}
+      .analytics-chart-axis{stroke:#8ba6c2;stroke-width:1.4}
+      .analytics-chart-axis-label{font-size:11px;fill:#51657c}
+      .analytics-chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 8px;color:#334862;font-size:12px}
+      .analytics-chart-legend span{display:inline-flex;align-items:center;gap:5px}
+      .analytics-chart-legend i{display:inline-block;width:11px;height:11px;border-radius:50%}
+      .analytics-chart-warning{margin:8px 0 0;padding:8px 10px;border:1px solid #f0c36d;border-radius:8px;background:#fff7dc;color:#6d4c00;font-weight:800}
+      .analytics-stacked-chart{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:10px}
+      .analytics-stacked-chart>h3{grid-column:1/-1}
+      .analytics-stacked-chart .analytics-chart-panel{grid-column:auto;border:1px solid #e2eaf3;background:#f8fbff}
+      .analytics-demand-bar{display:grid;grid-template-columns:minmax(90px,1fr) minmax(120px,2fr) minmax(56px,auto) minmax(54px,auto);gap:8px;align-items:center;margin:8px 0;color:#334862;font-size:12px}
+      .analytics-demand-bar div{height:14px;background:#e6edf5;border-radius:999px;overflow:hidden}
+      .analytics-demand-bar i{display:block;height:100%;border-radius:999px;background:#2f8f57}
+      .analytics-demand-bar.softening i{background:#b35f00}
+      .analytics-demand-bar strong{color:#123367;text-align:right}
+      .analytics-demand-bar em{color:#51657c;font-style:normal;text-align:right}
       .analytics-chart-note{margin:4px 0 0;color:#51657c;font-size:12px;line-height:1.3}
       .analytics-table{overflow:auto;max-height:620px;border:1px solid #d8e1ec;border-radius:8px}
       .analytics-table table{width:100%;border-collapse:collapse;background:#fff}
@@ -10388,6 +10704,7 @@
     canAccessRole,
     canAccess,
     normalizeRow: normalize,
+    normalizeTermLabel,
     modalityNormalizer: window.COSModalityNormalizer,
     displayModalityLabel,
     modalityMatchesLabelList,
@@ -10421,6 +10738,12 @@
     emptyAttritionRecord,
     addAttritionLifecycle,
     lifecycleMetricLabel,
+    demandTermDiagnostics,
+    buildEnrollmentTrendChartData,
+    buildFtesTrendChartData,
+    buildFillWaitlistPressureChartData,
+    buildCourseDemandDistributionChartData,
+    buildForecastBacktestChartData,
     conflictRows,
     fixedMeetingRecords,
     applyCurriculumCrosswalkToRows

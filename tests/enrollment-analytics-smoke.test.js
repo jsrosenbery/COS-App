@@ -1436,7 +1436,7 @@ test('demand forecast is scoped to selected demand uploads and archives', () => 
   const defaultsBlock = text.slice(defaultsStart, defaultsEnd);
   const archiveBlock = text.slice(archiveStart, archiveEnd);
 
-  assert.match(loadBlock, /readArchivedRows\('demArchiveTerms', \{ reportLabel: 'Demand Forecast' \}\)/);
+  assert.match(loadBlock, /readArchivedRowsWithDiagnostics\('demArchiveTerms', \{ reportLabel: 'Demand Forecast' \}\)/);
   assert.match(loadBlock, /const rows = rowsWithWorkExperience\(uploaded, 'dem'\)/);
   assert.doesNotMatch(loadBlock, /currentRows\(\)/);
   assert.match(archiveBlock, /Could not load archived term/);
@@ -1444,6 +1444,134 @@ test('demand forecast is scoped to selected demand uploads and archives', () => 
   assert.match(defaultsBlock, /academicYearTrailingYear/);
   assert.match(defaultsBlock, /dataset\.autoDefault/);
   assert.match(text, /Demand source load failed:/);
+});
+
+test('demand term diagnostics count selected loaded filtered empty and failed terms', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const diagnostics = COSEnrollmentAnalytics.demandTermDiagnostics({
+    selectedArchivedTerms: ['Fall 2025', '2024 Fall', 'SPRING 2025', 'SUMMER 2025'],
+    archiveResults: [
+      { term: 'FALL 2025', rows: [{}], failed: false },
+      { term: 'FALL 2024', rows: [{}], failed: false },
+      { term: 'SPRING 2025', rows: [], failed: false },
+      { term: 'SUMMER 2025', rows: [], failed: true, error: '404 Not Found' }
+    ],
+    usableArchiveRows: [
+      section({ term: 'FALL 2025' }),
+      section({ term: 'FALL 2024' })
+    ],
+    usableRows: [
+      section({ term: 'FALL 2025' }),
+      section({ term: 'FALL 2024' })
+    ],
+    filteredRows: [
+      section({ term: 'FALL 2025' })
+    ],
+    comparableRows: [
+      section({ term: 'FALL 2025' })
+    ],
+    forecastRows: [
+      section({ term: 'FALL 2025' })
+    ]
+  });
+
+  assert.deepEqual([...diagnostics.selectedArchivedTerms], ['FALL 2024', 'SPRING 2025', 'SUMMER 2025', 'FALL 2025']);
+  assert.deepEqual([...diagnostics.loadedTerms], ['FALL 2025', 'FALL 2024']);
+  assert.deepEqual([...diagnostics.termsIncludedAfterFilters], ['FALL 2025']);
+  assert.deepEqual([...diagnostics.termsUsedInForecast], ['FALL 2025']);
+  assert.deepEqual([...diagnostics.termsExcludedByFilters], ['FALL 2024']);
+  assert.deepEqual([...diagnostics.termsWithZeroUsableRows], ['SPRING 2025']);
+  assert.equal(diagnostics.termsFailedToLoad.length, 1);
+  assert.equal(diagnostics.termsFailedToLoad[0].term, 'SUMMER 2025');
+});
+
+test('demand term normalization is consistent across common labels', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+
+  assert.equal(COSEnrollmentAnalytics.normalizeTermLabel('Fall 2025'), 'FALL 2025');
+  assert.equal(COSEnrollmentAnalytics.normalizeTermLabel('FALL 2025'), 'FALL 2025');
+  assert.equal(COSEnrollmentAnalytics.normalizeTermLabel('2025 Fall'), 'FALL 2025');
+  assert.equal(COSEnrollmentAnalytics.normalizeTermLabel('202610.csv'), 'FALL 2025');
+});
+
+test('demand diagnostics count source terms used inside academic-year buckets', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const diagnostics = COSEnrollmentAnalytics.demandTermDiagnostics({
+    selectedArchivedTerms: ['SUMMER 2024', 'FALL 2024', 'SPRING 2025'],
+    archiveResults: [
+      { term: 'SUMMER 2024', rows: [{}], failed: false },
+      { term: 'FALL 2024', rows: [{}], failed: false },
+      { term: 'SPRING 2025', rows: [{}], failed: false }
+    ],
+    usableArchiveRows: [
+      section({ term: 'SUMMER 2024' }),
+      section({ term: 'FALL 2024' }),
+      section({ term: 'SPRING 2025' })
+    ],
+    usableRows: [
+      section({ term: 'SUMMER 2024' }),
+      section({ term: 'FALL 2024' }),
+      section({ term: 'SPRING 2025' })
+    ],
+    filteredRows: [
+      section({ term: 'SUMMER 2024' }),
+      section({ term: 'FALL 2024' }),
+      section({ term: 'SPRING 2025' })
+    ],
+    comparableRows: [
+      section({ term: 'FY/AY 2025', sourceTerm: 'SUMMER 2024' }),
+      section({ term: 'FY/AY 2025', sourceTerm: 'FALL 2024' }),
+      section({ term: 'FY/AY 2025', sourceTerm: 'SPRING 2025' })
+    ],
+    forecastRows: [
+      section({ term: 'FY/AY 2025', sourceTerm: 'SUMMER 2024' }),
+      section({ term: 'FY/AY 2025', sourceTerm: 'FALL 2024' }),
+      section({ term: 'FY/AY 2025', sourceTerm: 'SPRING 2025' })
+    ]
+  });
+
+  assert.deepEqual([...diagnostics.termsUsedInForecast], ['SUMMER 2024', 'FALL 2024', 'SPRING 2025']);
+});
+
+test('demand trend chart data includes enrollment series and forecast point', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const data = COSEnrollmentAnalytics.buildEnrollmentTrendChartData([
+    { term: 'FALL 2023', census: 100, final: 96, forecast: 98, fillRate: 0.8, waitlist: 4, ftes: 30 },
+    { term: 'FALL 2024', census: 120, final: 115, forecast: 118, fillRate: 0.9, waitlist: 7, ftes: 36 }
+  ], 132, 'FALL 2025');
+
+  assert.deepEqual([...data.categories], ['FALL 2023', 'FALL 2024', 'FALL 2025']);
+  assert.equal(data.series.length, 3);
+  assert.deepEqual([...data.series.map(series => series.name)], ['Census enrollment', 'Final/current enrollment', 'Forecast enrollment']);
+  assert.equal(data.series[2].values[2], 132);
+  assert.match(data.tooltips[0], /Fill rate/);
+});
+
+test('demand FTES chart data includes cap and exceed flag', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const data = COSEnrollmentAnalytics.buildFtesTrendChartData([
+    { term: 'FALL 2023', ftes: 30 },
+    { term: 'FALL 2024', ftes: 36 }
+  ], 42, 40, 'FALL 2025');
+
+  assert.equal(data.exceedsCap, true);
+  assert.deepEqual([...data.categories], ['FALL 2023', 'FALL 2024', 'FALL 2025']);
+  assert.deepEqual([...data.series.map(series => series.name)], ['Historical FTES', 'Forecast FTES', 'FTES cap']);
+  assert.equal(data.series[2].values[2], 40);
+});
+
+test('demand course distribution chart data separates expanding and softening courses', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const data = COSEnrollmentAnalytics.buildCourseDemandDistributionChartData([
+    { forecastLevel: 'Course', course: 'ART 101', avgCensusEnrollment: 20, expectedEnrollmentNextTerm: 28, adjustedForecastGrowth: 0.2, forecastConfidence: 'High' },
+    { forecastLevel: 'Course', course: 'BUS 101', avgCensusEnrollment: 30, expectedEnrollmentNextTerm: 24, adjustedForecastGrowth: -0.15, forecastConfidence: 'Medium' },
+    { forecastLevel: 'Division', course: 'All courses', adjustedForecastGrowth: 0.5 }
+  ]);
+
+  assert.equal(data.length, 2);
+  assert.deepEqual([...data.map(row => row.course)], ['ART 101', 'BUS 101']);
+  assert.deepEqual([...data.map(row => row.direction)], ['Expanding', 'Softening']);
+  assert.equal(data[0].confidence, 'High');
 });
 
 test('archive inspection exposes parsed archived schedule validation', () => {
