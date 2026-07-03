@@ -59,45 +59,47 @@
 
   <div id="availability-ui" class="availability-ui">
     <h3>Check Room Availability</h3>
-    <div class="days">
-      <label><input type="checkbox" value="Sunday"> Sun</label>
-      <label><input type="checkbox" value="Monday"> Mon</label>
-      <label><input type="checkbox" value="Tuesday"> Tue</label>
-      <label><input type="checkbox" value="Wednesday"> Wed</label>
-      <label><input type="checkbox" value="Thursday"> Thu</label>
-      <label><input type="checkbox" value="Friday"> Fri</label>
-      <label><input type="checkbox" value="Saturday"> Sat</label>
-    </div>
-    <div class="times">
-      <label>Start: <input type="time" id="avail-start" step="300"></label>
-      <label>End:   <input type="time" id="avail-end"   step="300"></label>
-      <button id="avail-check-btn">Check</button>
-      <button id="avail-clear-btn">Clear</button>
-    </div>
-    <div class="availability-dates">
-      <label>Term:
-        <select id="avail-term-mode">
-          <option value="full" selected>Full-Term</option>
-          <option value="short">Short-Term</option>
-        </select>
-      </label>
-      <label>Start Date:
-        <input type="date" id="avail-date-start" disabled>
-      </label>
-      <label>End Date:
-        <input type="date" id="avail-date-end" disabled>
-      </label>
-    </div>
-    <div class="room-attributes">
-      <label>Campus:
-        <select id="avail-campus-select"></select>
-      </label>
-      <label>Room Type:
-        <select id="avail-type-select"></select>
-      </label>
-      <label>Min Capacity:
-        <input type="number" id="avail-capacity-input" min="0" step="1" placeholder="Any">
-      </label>
+    <div id="avail-search-panel">
+      <div class="days">
+        <label><input type="checkbox" value="Sunday"> Sun</label>
+        <label><input type="checkbox" value="Monday"> Mon</label>
+        <label><input type="checkbox" value="Tuesday"> Tue</label>
+        <label><input type="checkbox" value="Wednesday"> Wed</label>
+        <label><input type="checkbox" value="Thursday"> Thu</label>
+        <label><input type="checkbox" value="Friday"> Fri</label>
+        <label><input type="checkbox" value="Saturday"> Sat</label>
+      </div>
+      <div class="times">
+        <label>Start: <input type="time" id="avail-start" step="300"></label>
+        <label>End:   <input type="time" id="avail-end"   step="300"></label>
+        <button id="avail-check-btn">Check</button>
+        <button id="avail-clear-btn">Clear</button>
+      </div>
+      <div class="availability-dates">
+        <label>Term:
+          <select id="avail-term-mode">
+            <option value="full" selected>Full-Term</option>
+            <option value="short">Short-Term</option>
+          </select>
+        </label>
+        <label>Start Date:
+          <input type="date" id="avail-date-start" disabled>
+        </label>
+        <label>End Date:
+          <input type="date" id="avail-date-end" disabled>
+        </label>
+      </div>
+      <div class="room-attributes">
+        <label>Campus:
+          <select id="avail-campus-select"></select>
+        </label>
+        <label>Room Type:
+          <select id="avail-type-select"></select>
+        </label>
+        <label>Min Capacity:
+          <input type="number" id="avail-capacity-input" min="0" step="1" placeholder="Any">
+        </label>
+      </div>
     </div>
     <div id="avail-results" class="avail-results"></div>
   </div>

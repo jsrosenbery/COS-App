@@ -196,6 +196,124 @@ button:hover,
   box-shadow: 0 14px 26px rgba(0, 119, 168, 0.22);
 }
 
+.collapsible-section {
+  box-sizing: border-box;
+  margin: 0 0 1rem;
+  border: 1px solid rgba(32, 66, 96, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+}
+
+.collapsible-section.is-collapsed {
+  background: rgba(248, 251, 255, 0.88);
+  border-style: dashed;
+}
+
+.collapsible-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  border-bottom: 1px solid rgba(32, 66, 96, 0.12);
+  background: linear-gradient(180deg, #f8fbff, #edf5f9);
+}
+
+.collapsible-section.is-collapsed .collapsible-section-header {
+  border-bottom-color: transparent;
+}
+
+.collapsible-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 42px;
+  padding: 0.65rem 0.85rem;
+  border: 0;
+  border-radius: 0;
+  color: #123367;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.98rem;
+  font-weight: 900;
+}
+
+.collapsible-section-toggle:hover {
+  transform: none;
+  filter: none;
+  box-shadow: none;
+  background: rgba(205, 239, 252, 0.35);
+}
+
+.collapsible-section-toggle:focus-visible {
+  outline: 3px solid rgba(0, 119, 168, 0.38);
+  outline-offset: -3px;
+}
+
+.collapsible-section-chevron {
+  width: 0;
+  height: 0;
+  border-left: 0.34rem solid transparent;
+  border-right: 0.34rem solid transparent;
+  border-top: 0.5rem solid #1f7aa8;
+  transition: transform 0.16s ease;
+}
+
+.collapsible-section.is-collapsed .collapsible-section-chevron {
+  transform: rotate(-90deg);
+}
+
+.collapsible-section-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collapsible-section-state {
+  flex: 0 0 auto;
+  color: #51657c;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.collapsible-section-body {
+  padding: 0.9rem;
+}
+
+.collapsible-section-body > :last-child {
+  margin-bottom: 0;
+}
+
+.collapsible-section-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.collapsible-section-controls button {
+  min-height: 2rem;
+  padding: 0.36rem 0.8rem;
+  border: 1px solid rgba(32, 66, 96, 0.16);
+  border-radius: 8px;
+  color: #123367;
+  background: #fff;
+  box-shadow: none;
+  font-size: 0.86rem;
+}
+
+.collapsible-section-controls button:hover {
+  transform: none;
+  background: #f8fbff;
+  box-shadow: none;
+}
+
 .export-actions {
   margin: 1rem auto;
   text-align: center;

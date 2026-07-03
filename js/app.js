@@ -728,8 +728,49 @@ function renderSchedulingAnalysisMethodologyPanels() {
   });
 }
 
+function registerSchedulingCollapsibleSections() {
+  const applySections = window.COSUtils?.applyCollapsibleSections;
+  if (!applySections) return;
+  applySections(document, [
+    { selector: '#room-filter', id: 'room-availability-room-filters', title: 'Room Filters' },
+    { selector: '#avail-search-panel', id: 'room-availability-search-panel', title: 'Room Availability Search' },
+    { selector: '#avail-results', id: 'room-availability-results', title: 'Available Rooms Results' },
+    { selector: '#heatmap-tool .analysis-explainer', id: 'heatmap-help', title: 'Heatmap Help and Definitions' },
+    { selector: '#heatmap-standard-methodology', id: 'heatmap-methodology', title: 'Heatmap Methodology' },
+    { selector: '#controls', id: 'heatmap-controls', title: 'Heatmap Filters' },
+    { selector: '#heatmap-summary-cards', id: 'heatmap-summary-cards', title: 'Heatmap Summary Cards' },
+    { selector: '#heatmapContainer', id: 'heatmap-chart', title: 'Heatmap' },
+    { selector: '#dataTable', id: 'heatmap-detail-table', title: 'Heatmap Detail Table' },
+    { selector: '#utilization-controls', id: 'utilization-controls', title: 'Room Utilization Filters' },
+    { selector: '#utilization-tool .utilization-explainer', id: 'utilization-definitions', title: 'Room Utilization Definitions' },
+    { selector: '#utilization-standard-methodology', id: 'utilization-methodology', title: 'Room Utilization Methodology' },
+    { selector: '#utilization-summary', id: 'utilization-summary', title: 'Room Utilization Summary Cards' },
+    { selector: '#utilization-map', id: 'utilization-map', title: 'Room Utilization Map' },
+    { selector: '.room-fit-section', id: 'room-fit-section', title: 'Room Capacity Fit Flags' },
+    { selector: '#modality-controls', id: 'modality-controls', title: 'Modality Balance Filters' },
+    { selector: '#modality-standard-methodology', id: 'modality-methodology', title: 'Modality Balance Methodology' },
+    { selector: '#modality-summary', id: 'modality-summary-cards', title: 'Modality Balance Summary Cards' },
+    { selector: '#modality-chart', id: 'modality-charts', title: 'Modality Balance Charts' },
+    { selector: '#modality-comparison', id: 'modality-comparison-tables', title: 'Modality Balance Comparison Tables' },
+    { selector: '#modality-table', id: 'modality-current-table', title: 'Current Term Modality Table' },
+    { selector: '.modality-course-comparison', id: 'modality-course-comparison', title: 'Course-Level Term Differences' },
+    { selector: '.modality-definitions', id: 'modality-instructional-method-details', title: 'Instructional Method Details' },
+    { selector: '#linechart-tool .analysis-explainer', id: 'duration-help', title: 'Duration Graph Help and Definitions' },
+    { selector: '#linechart-standard-methodology', id: 'duration-methodology', title: 'Duration Graph Methodology' },
+    { selector: '#linechart-controls', id: 'duration-controls', title: 'Duration Graph Filters' },
+    { selector: '#chart-container', id: 'duration-chart', title: 'Course Duration Graph' }
+  ]);
+  ['#heatmap-tool', '#utilization-tool', '#modality-tool', '#linechart-tool', '#availability-ui'].forEach(selector => {
+    const root = document.querySelector(selector);
+    if (root && !root.querySelector('.collapsible-section-controls')) {
+      window.COSUtils?.createCollapsibleControls?.(root);
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   renderSchedulingAnalysisMethodologyPanels();
+  registerSchedulingCollapsibleSections();
   const terms = [
     'Summer 2026','Fall 2026','Spring 2027',
     'Summer 2027','Fall 2027','Spring 2028',

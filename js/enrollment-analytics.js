@@ -3594,7 +3594,8 @@
       }).join('');
       return `<tr><th class="heatmap-day-cell">${built.dayNames[day]}</th>${cells}</tr>`;
     }).join('');
-    node.innerHTML = `<section class="presence-curve"><h3>Supply vs Demand Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    node.innerHTML = `<section class="presence-curve" data-collapsible-title="Supply vs Demand Heatmap" data-collapsible-id="supply-demand-heatmap-generated"><h3>Supply vs Demand Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    refreshGeneratedCollapsibleSections(node);
   }
 
   function renderSupplyDemandLineGraph(built, metricName) {
@@ -3647,7 +3648,7 @@
     }).join('');
     const legend = dayNames.map((day, index) => `<span><i style="background:${colors[index]}"></i>${escapeAttr(day)}</span>`).join('');
     node.innerHTML = `
-      <section class="presence-curve supply-demand-line">
+      <section class="presence-curve supply-demand-line" data-collapsible-title="Supply vs Demand Line Graph" data-collapsible-id="supply-demand-line-generated">
         <h3>Supply vs Demand Line Graph</h3>
         <p>One line per day using the selected metric across half-hour intervals.</p>
         <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Supply vs Demand ${escapeAttr(metricName)} line graph">
@@ -3660,6 +3661,7 @@
         </svg>
         <div class="supply-demand-line-legend">${legend}</div>
       </section>`;
+    refreshGeneratedCollapsibleSections(node);
   }
 
   function renderSupplyDemandMetrics(rows, built) {
@@ -4043,10 +4045,11 @@
       return `<div class="busy-time-bar-row" title="${escapeAttr(tooltip)}"><span>${escapeAttr(`${row.day} ${formatPresenceHourLabel(row.minutes / 60)}`)}</span><div><i style="width:${((row.total || 0) / maxFaculty * 100).toFixed(1)}%"></i></div><strong>${row.total}</strong></div>`;
     }).join('');
     node.innerHTML = `
-      <section><h3>Student Presence Peaks</h3>${presenceBars || '<p class="analytics-empty">No student presence buckets.</p>'}</section>
-      <section><h3>Course Duration Mix</h3>${durationBars || '<p class="analytics-empty">No fixed-duration courses.</p>'}</section>
-      <section><h3>Faculty Concentration Peaks</h3>${facultyBars || '<p class="analytics-empty">No faculty rows loaded.</p>'}</section>
+      <section data-collapsible-title="Student Presence Peaks" data-collapsible-id="busy-time-student-presence-peaks"><h3>Student Presence Peaks</h3>${presenceBars || '<p class="analytics-empty">No student presence buckets.</p>'}</section>
+      <section data-collapsible-title="Course Duration Mix" data-collapsible-id="busy-time-course-duration-mix"><h3>Course Duration Mix</h3>${durationBars || '<p class="analytics-empty">No fixed-duration courses.</p>'}</section>
+      <section data-collapsible-title="Faculty Concentration Peaks" data-collapsible-id="busy-time-faculty-concentration-peaks"><h3>Faculty Concentration Peaks</h3>${facultyBars || '<p class="analytics-empty">No faculty rows loaded.</p>'}</section>
     `;
+    refreshGeneratedCollapsibleSections(node);
   }
 
   function renderBusyTimeDashboard() {
@@ -4100,6 +4103,7 @@
       <ul>${busyTimeObservationRows(metrics).map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul>
       <p>These are descriptive summaries only. They do not recommend adding, moving, or canceling sections.</p>
     `;
+    refreshGeneratedCollapsibleSections(document.getElementById('busyTimeDashboardReport'));
     state.busyTimeTableRows = bucketRows
       .filter(row => row.sections || row.studentPresence || row.seats || row.waitlist)
       .map(row => ({
@@ -4403,7 +4407,8 @@
       }).join('');
       return `<tr><th class="heatmap-day-cell">${day}</th>${cells}</tr>`;
     }).join('');
-    node.innerHTML = `<section class="presence-curve"><h3>Student Choice Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    node.innerHTML = `<section class="presence-curve" data-collapsible-title="Student Choice Heatmap" data-collapsible-id="student-choice-heatmap-generated"><h3>Student Choice Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    refreshGeneratedCollapsibleSections(node);
   }
 
   function renderStudentChoiceLineGraph(rows, metricName) {
@@ -4460,7 +4465,7 @@
     }).join('');
     const legend = dayNames.map((day, index) => `<span><i style="background:${colors[index]}"></i>${escapeAttr(day)}</span>`).join('');
     node.innerHTML = `
-      <section class="presence-curve supply-demand-line">
+      <section class="presence-curve supply-demand-line" data-collapsible-title="Student Choice Line Graph" data-collapsible-id="student-choice-line-generated">
         <h3>Student Choice Line Graph</h3>
         <p>One line per day using the selected student choice metric.</p>
         <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Student Choice ${escapeAttr(metricName)} line graph">
@@ -4473,6 +4478,7 @@
         </svg>
         <div class="supply-demand-line-legend">${legend}</div>
       </section>`;
+    refreshGeneratedCollapsibleSections(node);
   }
 
   function renderStudentChoiceOpportunity() {
@@ -4888,7 +4894,7 @@
       ['Insufficient Evidence', byCategory('Insufficient evidence')]
     ]);
     document.getElementById('recommendationCards').innerHTML = filteredRecommendations.slice(0, 6).map(row => `
-      <section>
+      <section data-collapsible-title="${escapeAttr(row.recommendationTitle)}" data-collapsible-id="recommendation-card-${escapeAttr(slugify(row.recommendationTitle || row.category || 'card'))}">
         <h3>${escapeAttr(row.recommendationTitle)}</h3>
         <ul>
           <li><strong>Category:</strong> ${escapeAttr(row.category)}</li>
@@ -4898,7 +4904,8 @@
           <li><strong>Action:</strong> ${escapeAttr(row.suggestedAction)}</li>
         </ul>
       </section>
-    `).join('') || '<section><p class="analytics-empty">No recommendation cards match the selected filters.</p></section>';
+    `).join('') || '<section data-collapsible-title="Recommendation Cards" data-collapsible-id="recommendation-cards-empty"><p class="analytics-empty">No recommendation cards match the selected filters.</p></section>';
+    refreshGeneratedCollapsibleSections(document.getElementById('recommendationCards'));
     const priority = { High: 0, Medium: 1, Low: 2 };
     const priorityRows = filteredRecommendations.slice().sort((a, b) => (priority[a.confidenceLevel] ?? 9) - (priority[b.confidenceLevel] ?? 9));
     document.getElementById('recommendationPriorityList').innerHTML = `
@@ -4924,6 +4931,7 @@
     });
     const status = document.getElementById('recommendationStatus');
     if (status) status.textContent = `Loaded ${state.recommendationRows.length} row(s); ${sourceRows.length} row(s) match source filters; ${filteredRecommendations.length} recommendation row(s); ${outsidePlanningDiagnostics.length} outside planning window diagnostic(s).`;
+    refreshGeneratedCollapsibleSections(document.getElementById('recommendationEngineReport'));
     state.recommendationRan = true;
   }
 
@@ -5685,6 +5693,7 @@
       dashboardPanel('Student Presence Analytics', `${presenceExtremes(presence)}${miniTable(presence.rows || [], ['campus', 'day', 'hour', 'studentsPresent', 'sectionsActive', 'availableRoomCapacity'], 'presence')}<button type="button" data-report-target="${REPORTS.studentPresence}">Open Student Presence Report</button>`),
       dashboardPanel('Schedule Structure', `${structureSummary(structure)}${miniTable(structure.modality || [], ['modality', 'sections', 'enrollment'], 'structure')}`)
     ].join('');
+    refreshGeneratedCollapsibleSections(document.getElementById('dashboardInsights'));
 
     table('dashboardRotationTable', state.rotationRows, [
       'course',
@@ -5703,7 +5712,7 @@
   }
 
   function dashboardPanel(title, body) {
-    return `<section class="dashboard-panel"><h3>${escapeAttr(title)}</h3>${body}</section>`;
+    return `<section class="dashboard-panel" data-collapsible-title="${escapeAttr(title)}" data-collapsible-id="dashboard-${escapeAttr(slugify(title))}"><h3>${escapeAttr(title)}</h3>${body}</section>`;
   }
 
   async function saveSnapshotBatch() {
@@ -9148,6 +9157,14 @@
       .replace(/>/g, '&gt;');
   }
 
+  function slugify(value) {
+    return String(value || 'section')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'section';
+  }
+
   function sortValue(value, column = '') {
     if (typeof value === 'number') return String(value);
     if (/(rate|fill|growth)$/i.test(column)) return String(num(value) / 100);
@@ -9472,7 +9489,7 @@
     ];
     const definitions = methodologyDefinitions(config.items);
     node.innerHTML = `
-      <details class="methodology-panel">
+      <details class="methodology-panel" open>
         <summary>Methodology & Data Dictionary</summary>
         <div class="methodology-panel-body">
           <h3>${escapeAttr(config.title)}</h3>
@@ -9506,6 +9523,68 @@
           </section>
         </div>
       </details>`;
+  }
+
+  function refreshGeneratedCollapsibleSections(root = document) {
+    window.COSUtils?.applyCollapsibleSections?.(root);
+  }
+
+  function registerEnrollmentCollapsibleSections() {
+    const applySections = window.COSUtils?.applyCollapsibleSections;
+    if (!applySections) return;
+    applySections(document, [
+      { selector: '#dashboardScopePanel', id: 'dashboard-scope-diagnostics', title: 'Data Scope & Diagnostics' },
+      { selector: '#dashboardMetrics', id: 'dashboard-summary-cards', title: 'Enrollment Dashboard Summary Cards' },
+      { selector: '#dashboardInsights', id: 'dashboard-blocks', title: 'Dashboard Detail Blocks' },
+      { selector: '#dashboardLegend', id: 'dashboard-methodology', title: 'Dashboard Methodology & Definitions' },
+      { selector: '#supplyDemandMetrics', id: 'supply-demand-summary-cards', title: 'Supply vs Demand Summary Cards' },
+      { selector: '#supplyDemandHeatmap', id: 'supply-demand-heatmap', title: 'Supply vs Demand Heatmap' },
+      { selector: '#supplyDemandLineGraph', id: 'supply-demand-line-graph', title: 'Supply vs Demand Line Graph' },
+      { selector: '#supplyDemandTable', id: 'supply-demand-summary-table', title: 'Supply vs Demand Summary Table' },
+      { selector: '#supplyDemandLegend', id: 'supply-demand-methodology', title: 'Supply vs Demand Definitions and Methodology' },
+      { selector: '#busyTimeMetrics', id: 'busy-time-summary-cards', title: 'Busy Time Dashboard Summary Cards' },
+      { selector: '#busyTimeCharts', id: 'busy-time-dashboard-blocks', title: 'Busy Time Dashboard Blocks' },
+      { selector: '#busyTimeObservations', id: 'busy-time-observations', title: 'Busy Time Observations' },
+      { selector: '#busyTimeTable', id: 'busy-time-summary-table', title: 'Busy Time Summary Table' },
+      { selector: '#busyTimeLegend', id: 'busy-time-methodology', title: 'Busy Time Definitions and Methodology' },
+      { selector: '#studentChoiceMetrics', id: 'student-choice-summary-cards', title: 'Student Choice Summary Cards' },
+      { selector: '#studentChoiceHeatmap', id: 'student-choice-heatmap', title: 'Student Choice Heatmap' },
+      { selector: '#studentChoiceLineGraph', id: 'student-choice-line-graph', title: 'Student Choice Line Graph' },
+      { selector: '#studentChoiceTable', id: 'student-choice-summary-table', title: 'Student Choice Summary Table' },
+      { selector: '#studentChoiceLegend', id: 'student-choice-methodology', title: 'Student Choice Recommendations and Methodology' },
+      { selector: '#recommendationMetrics', id: 'recommendation-summary-cards', title: 'Recommendation Summary Cards' },
+      { selector: '#recommendationCards', id: 'recommendation-cards', title: 'Recommendation Cards' },
+      { selector: '#recommendationPriorityList', id: 'recommendation-priority-list', title: 'Filterable Priority List' },
+      { selector: '#recommendationTable', id: 'recommendation-detail-table', title: 'Recommendation Detail Table' },
+      { selector: '#recommendationLegend', id: 'recommendation-diagnostics-methodology', title: 'Recommendation Diagnostics and Methodology' },
+      { selector: '#attritionMetrics', id: 'attrition-summary-cards', title: 'Attrition Summary Cards' },
+      { selector: '#attritionCharts', id: 'attrition-charts', title: 'Attrition Charts' },
+      { selector: '#attritionDiagnostics', id: 'attrition-diagnostics', title: 'Attrition Diagnostics' },
+      { selector: '#attritionTable', id: 'attrition-detail-table', title: 'Attrition Detail Table' },
+      { selector: '#attritionLegend', id: 'attrition-methodology', title: 'Attrition Methodology and Definitions' },
+      { selector: '#demandSummary', id: 'demand-summary-cards', title: 'Demand Forecast Summary Cards' },
+      { selector: '#demandDiagnostics', id: 'demand-term-diagnostics', title: 'Data Scope & Term Diagnostics' },
+      { selector: '#demandCharts', id: 'demand-forecast-charts', title: 'Demand Forecast Charts' },
+      { selector: '#demandTable', id: 'demand-detail-table', title: 'Demand Forecast Detail Table' },
+      { selector: '#demandLegend', id: 'demand-methodology', title: 'Demand Forecast Methodology and Definitions' },
+      { selector: '#facultyHeatmapMetrics', id: 'faculty-heatmap-summary-cards', title: 'Faculty Schedule Heatmap Summary Cards' },
+      { selector: '#facultyHeatmapContainer', id: 'faculty-heatmap', title: 'Faculty Schedule Heatmap' },
+      { selector: '#facultyHeatmapTable', id: 'faculty-heatmap-table', title: 'Faculty Schedule Detail Table' },
+      { selector: '#facultyHeatmapLegend', id: 'faculty-heatmap-methodology', title: 'Faculty Heatmap Methodology' },
+      { selector: '#facultyModalityChart', id: 'faculty-modality-chart', title: 'Faculty Modality Chart' },
+      { selector: '#facultyModalityTable', id: 'faculty-modality-table', title: 'Faculty Modality Detail Table' },
+      { selector: '#facultyModalityLegend', id: 'faculty-modality-methodology', title: 'Faculty Modality Methodology' },
+      { selector: '#primeTimeGauges', id: 'prime-time-gauges', title: 'Prime Time Gauges' },
+      { selector: '#primeTimeMetrics', id: 'prime-time-summary-cards', title: 'Prime Time Summary Cards' },
+      { selector: '#primeTimeTable', id: 'prime-time-table', title: 'Prime Time Detail Table' },
+      { selector: '#primeTimeLegend', id: 'prime-time-methodology', title: 'Prime Time Methodology' }
+    ]);
+    document.querySelectorAll?.('.analytics-view').forEach(view => {
+      if (!view.querySelector('.collapsible-section-controls')) {
+        window.COSUtils?.createCollapsibleControls?.(view);
+      }
+    });
+    refreshGeneratedCollapsibleSections(document);
   }
 
   function label(text) {
@@ -10691,6 +10770,7 @@
     buildUi();
     initializeDevelopmentModalityFilters();
     injectStyle();
+    registerEnrollmentCollapsibleSections();
     wire();
     refreshAnalyticsArchiveOptions();
     loadEnrollmentSnapshots().catch(err => console.warn('Enrollment snapshot preload skipped:', err));

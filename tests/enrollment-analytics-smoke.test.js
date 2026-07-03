@@ -47,6 +47,171 @@ function loadCoreModules() {
   };
 }
 
+function loadCollapsibleUtilsRuntime() {
+  class ClassList {
+    constructor(owner) {
+      this.owner = owner;
+      this.values = new Set();
+    }
+    add(...values) {
+      values.forEach(value => {
+        if (value) this.values.add(value);
+      });
+      this.owner.className = [...this.values].join(' ');
+    }
+    remove(...values) {
+      values.forEach(value => this.values.delete(value));
+      this.owner.className = [...this.values].join(' ');
+    }
+    toggle(value, force) {
+      const shouldAdd = force === undefined ? !this.values.has(value) : Boolean(force);
+      if (shouldAdd) this.add(value);
+      else this.remove(value);
+      return shouldAdd;
+    }
+    contains(value) {
+      return this.values.has(value);
+    }
+    setFromString(value) {
+      this.values = new Set(String(value || '').split(/\s+/).filter(Boolean));
+    }
+  }
+  class Element {
+    constructor(tagName, ownerDocument) {
+      this.tagName = tagName.toUpperCase();
+      this.ownerDocument = ownerDocument;
+      this.children = [];
+      this.parentNode = null;
+      this.dataset = {};
+      this.attributes = {};
+      this.style = {};
+      this.eventHandlers = {};
+      this.hidden = false;
+      this.textContent = '';
+      this._className = '';
+      this.classList = new ClassList(this);
+    }
+    set className(value) {
+      this._className = String(value || '');
+      this.classList?.setFromString(this._className);
+    }
+    get className() {
+      return this._className;
+    }
+    get firstChild() {
+      return this.children[0] || null;
+    }
+    set id(value) {
+      this.attributes.id = String(value || '');
+      if (this.ownerDocument) this.ownerDocument.elementsById.set(this.attributes.id, this);
+    }
+    get id() {
+      return this.attributes.id || '';
+    }
+    appendChild(child) {
+      child.parentNode = this;
+      this.children.push(child);
+      return child;
+    }
+    append(...children) {
+      children.forEach(child => this.appendChild(child));
+    }
+    insertBefore(child, before) {
+      child.parentNode = this;
+      const index = this.children.indexOf(before);
+      if (index >= 0) this.children.splice(index, 0, child);
+      else this.children.push(child);
+      return child;
+    }
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+      if (name === 'id') this.id = value;
+    }
+    getAttribute(name) {
+      return this.attributes[name] ?? null;
+    }
+    addEventListener(event, handler) {
+      this.eventHandlers[event] = handler;
+    }
+    click() {
+      this.eventHandlers.click?.({ target: this });
+    }
+    matches(selector) {
+      if (selector.startsWith('.')) return this.classList.contains(selector.slice(1));
+      if (selector.startsWith('#')) return this.id === selector.slice(1);
+      if (selector.includes(':not')) {
+        const [base, notPart] = selector.split(':not');
+        const notSelector = notPart.replace(/[()]/g, '');
+        return this.matches(base) && !this.matches(notSelector);
+      }
+      if (selector.startsWith('[')) {
+        const attr = selector.slice(1, -1).split('=')[0].replace(/^data-/, '');
+        const key = attr.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+        return this.dataset[key] !== undefined;
+      }
+      return this.tagName.toLowerCase() === selector.toLowerCase();
+    }
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] || null;
+    }
+    querySelectorAll(selector) {
+      const selectors = selector.split(',').map(item => item.trim()).filter(Boolean);
+      const out = [];
+      const visit = node => {
+        node.children.forEach(child => {
+          if (selectors.some(item => child.matches(item))) out.push(child);
+          visit(child);
+        });
+      };
+      visit(this);
+      return out;
+    }
+    closest(selector) {
+      let node = this;
+      while (node) {
+        if (node.matches(selector)) return node;
+        node = node.parentNode;
+      }
+      return null;
+    }
+  }
+  const document = {
+    elementsById: new Map(),
+    body: null,
+    createElement(tag) {
+      return new Element(tag, document);
+    },
+    getElementById(id) {
+      return document.elementsById.get(id) || null;
+    },
+    querySelector(selector) {
+      return document.body.querySelector(selector);
+    },
+    querySelectorAll(selector) {
+      return document.body.querySelectorAll(selector);
+    }
+  };
+  document.body = document.createElement('body');
+  const storage = new Map();
+  const context = {
+    window: {
+      document,
+      localStorage: {
+        getItem: key => (storage.has(key) ? storage.get(key) : null),
+        setItem: (key, value) => storage.set(key, String(value)),
+        removeItem: key => storage.delete(key)
+      }
+    },
+    document,
+    console
+  };
+  context.window.window = context.window;
+  vm.createContext(context);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
+  vm.runInContext(source, context, { filename: 'js/shared/utils.js' });
+  return { utils: context.window.COSUtils, document, storage };
+}
+
 function loadScheduleAppRuntime() {
   const elements = new Map();
   function element(id = '') {
@@ -2740,6 +2905,57 @@ test('heatmap table layout keeps day labels readable and time headers two-line',
   assert.match(css, /\.heatmap-time-header,[\s\S]*?min-width: 42px;/);
   assert.match(app, /<span class="heatmap-time-label"><span>\$\{escapeHTML\(time\)\}<\/span><span>\$\{escapeHTML\(period \|\| ''\)\}<\/span><\/span>/);
   assert.match(analytics, /<span class="heatmap-time-label"><span>\$\{escapeAttr\(time\)\}<\/span><span>\$\{escapeAttr\(period \|\| ''\)\}<\/span><\/span>/);
+});
+
+test('collapsible section helper defaults open toggles aria and persists state', () => {
+  const { utils, document, storage } = loadCollapsibleUtilsRuntime();
+  const target = document.createElement('div');
+  target.id = 'sample-section';
+  target.textContent = 'Body';
+  document.body.appendChild(target);
+
+  const section = utils.applyCollapsibleSection(target, { title: 'Sample Section' });
+  const button = section.querySelector('.collapsible-section-toggle');
+  const body = section.querySelector('.collapsible-section-body');
+
+  assert.equal(button.getAttribute('aria-expanded'), 'true');
+  assert.equal(body.hidden, false);
+  button.click();
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  assert.equal(body.hidden, true);
+  assert.equal(storage.get('cos-collapsible-section:sample-section'), 'collapsed');
+
+  const persistedTarget = document.createElement('div');
+  persistedTarget.id = 'sample-section';
+  document.body.appendChild(persistedTarget);
+  const persistedSection = utils.applyCollapsibleSection(persistedTarget, { title: 'Sample Section' });
+  assert.equal(persistedSection.querySelector('.collapsible-section-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(persistedSection.querySelector('.collapsible-section-body').hidden, true);
+});
+
+test('collapsible sections are wired across reports without changing Room Availability ids', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+  const utils = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(utils, /function createCollapsibleSection/);
+  assert.match(utils, /function applyCollapsibleSections/);
+  ['collapsible-section', 'collapsible-section-header', 'collapsible-section-body'].forEach(className => {
+    assert.match(css, new RegExp(`\\.${className}`));
+  });
+  ['room-filter', 'avail-search-panel', 'avail-results', 'avail-check-btn', 'avail-clear-btn'].forEach(id => {
+    assert.match(index, new RegExp(`id="${id}"`));
+  });
+  assert.match(app, /registerSchedulingCollapsibleSections/);
+  assert.match(app, /room-availability-results/);
+  assert.match(app, /modality-instructional-method-details/);
+  assert.match(analytics, /registerEnrollmentCollapsibleSections/);
+  assert.match(analytics, /supply-demand-heatmap/);
+  assert.match(analytics, /student-choice-line-graph/);
+  assert.match(analytics, /recommendation-priority-list/);
+  assert.match(analytics, /<details class="methodology-panel" open>/);
 });
 
 test('development graphics default to container-width responsive layouts', () => {

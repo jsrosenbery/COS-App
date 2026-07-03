@@ -57,6 +57,144 @@
       .replace(/"/g, '&quot;');
   }
 
+  const COLLAPSIBLE_STORAGE_PREFIX = 'cos-collapsible-section:';
+
+  function slugify(value) {
+    return String(value || 'section')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'section';
+  }
+
+  function readStoredOpenState(id) {
+    if (!id) return null;
+    try {
+      const value = window.localStorage?.getItem(`${COLLAPSIBLE_STORAGE_PREFIX}${id}`);
+      return value === null || value === undefined ? null : value !== 'collapsed';
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function writeStoredOpenState(id, isOpen) {
+    if (!id) return;
+    try {
+      window.localStorage?.setItem(`${COLLAPSIBLE_STORAGE_PREFIX}${id}`, isOpen ? 'open' : 'collapsed');
+    } catch (err) {
+      // localStorage can be unavailable in private or embedded contexts.
+    }
+  }
+
+  function setCollapsibleOpen(section, isOpen, options = {}) {
+    if (!section) return;
+    const button = section.querySelector?.('.collapsible-section-toggle');
+    const body = section.querySelector?.('.collapsible-section-body');
+    const normalizedOpen = Boolean(isOpen);
+    section.classList.toggle('is-collapsed', !normalizedOpen);
+    section.dataset.collapsibleOpen = normalizedOpen ? 'true' : 'false';
+    if (button) {
+      button.setAttribute('aria-expanded', normalizedOpen ? 'true' : 'false');
+      const state = button.querySelector?.('.collapsible-section-state');
+      if (state) state.textContent = normalizedOpen ? 'Collapse' : 'Expand';
+    }
+    if (body) body.hidden = !normalizedOpen;
+    if (options.persist !== false) writeStoredOpenState(section.dataset.collapsibleId, normalizedOpen);
+  }
+
+  function createCollapsibleSection(options = {}) {
+    const id = slugify(options.id || options.title || `section-${Date.now()}`);
+    const title = options.title || 'Section';
+    const section = document.createElement('section');
+    section.className = ['collapsible-section', options.className || ''].filter(Boolean).join(' ');
+    section.dataset.collapsibleId = id;
+    const bodyId = `${id}-body`;
+    const header = document.createElement('div');
+    header.className = 'collapsible-section-header';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'collapsible-section-toggle';
+    button.setAttribute('aria-controls', bodyId);
+    button.innerHTML = `<span class="collapsible-section-chevron" aria-hidden="true"></span><span class="collapsible-section-title">${escapeHtml(title)}</span><span class="collapsible-section-state"></span>`;
+    header.appendChild(button);
+    const body = document.createElement('div');
+    body.className = 'collapsible-section-body';
+    body.id = bodyId;
+    if (typeof Node !== 'undefined' && options.body instanceof Node) body.appendChild(options.body);
+    else if (options.html !== undefined) body.innerHTML = String(options.html);
+    section.append(header, body);
+    button.addEventListener('click', () => {
+      setCollapsibleOpen(section, button.getAttribute('aria-expanded') !== 'true', { persist: options.persist });
+    });
+    const stored = options.persist === false ? null : readStoredOpenState(id);
+    setCollapsibleOpen(section, stored ?? options.defaultOpen !== false, { persist: false });
+    return section;
+  }
+
+  function applyCollapsibleSection(target, options = {}) {
+    if (!target || target.dataset?.collapsibleBound === 'true') return target?.closest?.('.collapsible-section') || null;
+    if (target.classList?.contains('collapsible-section')) return target;
+    const id = slugify(options.id || target.id || target.dataset?.collapsibleId || target.dataset?.collapsibleTitle || options.title);
+    const title = options.title || target.dataset?.collapsibleTitle || target.getAttribute?.('aria-label') || target.querySelector?.('h2,h3,summary')?.textContent || 'Section';
+    const section = createCollapsibleSection({
+      id,
+      title,
+      className: options.className || target.dataset?.collapsibleClass || '',
+      persist: options.persist,
+      defaultOpen: options.defaultOpen
+    });
+    const body = section.querySelector('.collapsible-section-body');
+    const parent = target.parentNode;
+    if (!parent || !body) return null;
+    parent.insertBefore(section, target);
+    body.appendChild(target);
+    target.dataset.collapsibleBound = 'true';
+    return section;
+  }
+
+  function applyCollapsibleSections(root = document, definitions = []) {
+    const sections = [];
+    (definitions || []).forEach(definition => {
+      const target = typeof definition.selector === 'string'
+        ? root.querySelector?.(definition.selector) || document.querySelector?.(definition.selector)
+        : definition.target;
+      const section = applyCollapsibleSection(target, definition);
+      if (section) sections.push(section);
+    });
+    root.querySelectorAll?.('[data-collapsible-title]:not([data-collapsible-bound])').forEach(target => {
+      const section = applyCollapsibleSection(target, {
+        title: target.dataset.collapsibleTitle,
+        id: target.dataset.collapsibleId || target.id || target.dataset.collapsibleTitle,
+        className: target.dataset.collapsibleClass || ''
+      });
+      if (section) sections.push(section);
+    });
+    return sections;
+  }
+
+  function setAllCollapsibleSections(root = document, isOpen = true) {
+    root.querySelectorAll?.('.collapsible-section').forEach(section => {
+      setCollapsibleOpen(section, isOpen);
+    });
+  }
+
+  function createCollapsibleControls(target, options = {}) {
+    if (!target) return null;
+    const controls = document.createElement('div');
+    controls.className = 'collapsible-section-controls';
+    const expand = document.createElement('button');
+    expand.type = 'button';
+    expand.textContent = 'Expand all';
+    const collapse = document.createElement('button');
+    collapse.type = 'button';
+    collapse.textContent = 'Collapse all';
+    expand.addEventListener('click', () => setAllCollapsibleSections(target, true));
+    collapse.addEventListener('click', () => setAllCollapsibleSections(target, false));
+    controls.append(expand, collapse);
+    target.insertBefore(controls, target.firstChild);
+    return controls;
+  }
+
   function renderStandardMethodologyPanel(node, config = {}) {
     if (!node) return;
     const definitions = new Map();
@@ -92,6 +230,12 @@
     jsonHeaders,
     commonAnalyticsDefinitions,
     standardAnalyticsAssumptions,
-    renderStandardMethodologyPanel
+    renderStandardMethodologyPanel,
+    createCollapsibleSection,
+    applyCollapsibleSection,
+    applyCollapsibleSections,
+    setCollapsibleOpen,
+    setAllCollapsibleSections,
+    createCollapsibleControls
   };
 })();
