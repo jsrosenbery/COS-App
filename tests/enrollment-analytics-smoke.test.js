@@ -1968,7 +1968,7 @@ test('faculty schedule heatmap is a standalone Development report', () => {
   assert.match(text, /function readFacultyScheduleFiles/);
   assert.match(text, /COSFacultyParser\.parseFacultyScheduleCsv/);
   assert.match(text, /function renderFacultyScheduleHeatmap/);
-  assert.match(text, /heatmap-cell heatmap-\$\{level\}/);
+  assert.match(text, /heatmap-cell heatmap-value-cell heatmap-\$\{level\}/);
   assert.match(text, /Peak teaching time/);
   assert.match(text, /Peak FT teaching/);
   assert.match(text, /Peak PT teaching/);
@@ -2540,13 +2540,32 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(app, /function isOnlineTbaHeatmapRow/);
   assert.match(app, /cells\[d\]\[startIndex\]\.crns\.has\(bucketKey\)/);
   assert.match(css, /\.analysis-summary-cards/);
-  assert.match(css, /#heatmapContainer \{\s*min-height: 600px;\s*overflow-x: hidden;/);
-  assert.match(css, /\.heatmap \{\s*width: 100%;\s*min-width: 0;\s*table-layout: fixed;/);
-  assert.match(css, /\.heatmap-wrap \{\s*width: 100%;\s*max-width: 100%;\s*overflow-x: hidden;/);
+  assert.match(css, /#heatmapContainer \{\s*min-height: 600px;\s*overflow-x: auto;/);
+  assert.match(css, /\.heatmap \{\s*width: max-content;\s*min-width: 100%;\s*table-layout: fixed;/);
+  assert.match(css, /\.heatmap-wrap \{\s*width: 100%;\s*max-width: 100%;\s*overflow-x: auto;/);
   assert.match(css, /@media \(max-width: 760px\)/);
-  assert.match(css, /\.heatmap \{\s*min-width: 720px;/);
   assert.match(css, /\.heatmap-time-label/);
   assert.doesNotMatch(css, /\.heatmap th,[\s\S]*?overflow-wrap: anywhere;/);
+});
+
+test('heatmap table layout keeps day labels readable and time headers two-line', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+
+  assert.match(app, /<th class="heatmap-day-header">Day<\/th>/);
+  assert.doesNotMatch(app, /Day\/Start Time/);
+  assert.match(app, /<th class="heatmap-time-header">\$\{formatHeatmapTimeHeader\(h\)\}<\/th>/);
+  assert.match(app, /heatmap-cell heatmap-value-cell/);
+  assert.match(analytics, /<th class="heatmap-day-header">Day<\/th>/);
+  assert.match(analytics, /heatmap-time-header/);
+  assert.match(analytics, /heatmap-day-cell/);
+  assert.match(analytics, /heatmap-value-cell/);
+  assert.match(css, /\.heatmap-day-header,\s*\.heatmap-day-cell \{\s*position: sticky;\s*left: 0;\s*z-index: 3;\s*width: 104px;\s*min-width: 92px;/);
+  assert.match(css, /\.heatmap-day-header,[\s\S]*?white-space: nowrap;/);
+  assert.match(css, /\.heatmap-time-header,[\s\S]*?min-width: 42px;/);
+  assert.match(app, /<span class="heatmap-time-label"><span>\$\{escapeHTML\(time\)\}<\/span><span>\$\{escapeHTML\(period \|\| ''\)\}<\/span><\/span>/);
+  assert.match(analytics, /<span class="heatmap-time-label"><span>\$\{escapeAttr\(time\)\}<\/span><span>\$\{escapeAttr\(period \|\| ''\)\}<\/span><\/span>/);
 });
 
 test('development graphics default to container-width responsive layouts', () => {
@@ -2554,9 +2573,9 @@ test('development graphics default to container-width responsive layouts', () =>
 
   assert.match(analytics, /\.analytics-insights\{display:grid;grid-template-columns:repeat\(auto-fit,minmax\(min\(100%,260px\),1fr\)\)/);
   assert.match(analytics, /\.analytics-insights section\{min-width:0;/);
-  assert.match(analytics, /\.presence-curve \.heatmap-wrap\{width:100%;max-width:100%;overflow-x:hidden\}/);
-  assert.match(analytics, /\.presence-curve table\{width:100%;min-width:0;table-layout:fixed\}/);
-  assert.match(analytics, /\.presence-curve \.heatmap th,\.presence-curve \.heatmap td\{padding:clamp/);
+  assert.match(analytics, /\.presence-curve \.heatmap-wrap\{width:100%;max-width:100%;overflow-x:auto;overflow-y:visible\}/);
+  assert.match(analytics, /\.presence-curve table\.heatmap-table\{width:max-content;min-width:100%;table-layout:fixed\}/);
+  assert.match(analytics, /\.presence-curve \.heatmap th,\.presence-curve \.heatmap td\{box-sizing:border-box;padding:clamp/);
   assert.match(analytics, /\.supply-demand-line svg\{display:block;width:100%;max-width:100%;height:auto;/);
   assert.match(analytics, /\.prime-time-gauge\{width:clamp/);
   assert.match(analytics, /@media \(max-width:760px\)\{/);

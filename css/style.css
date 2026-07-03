@@ -529,7 +529,7 @@ button:hover,
 
 #heatmapContainer {
   min-height: 600px;
-  overflow-x: hidden;
+  overflow-x: auto;
   padding: 0.75rem 0;
 }
 
@@ -663,8 +663,8 @@ button:hover,
 }
 
 .heatmap {
-  width: 100%;
-  min-width: 0;
+  width: max-content;
+  min-width: 100%;
   table-layout: fixed;
   margin-top: 1rem;
   border-collapse: separate;
@@ -678,6 +678,7 @@ button:hover,
 
 .heatmap th,
 .heatmap td {
+  box-sizing: border-box;
   padding: clamp(0.32rem, 0.56vw, 0.58rem) clamp(0.12rem, 0.38vw, 0.42rem);
   border-right: 1px solid rgba(32, 66, 96, 0.12);
   border-bottom: 1px solid rgba(32, 66, 96, 0.12);
@@ -695,6 +696,41 @@ button:hover,
   white-space: nowrap;
 }
 
+.heatmap-table {
+  min-width: max-content;
+}
+
+.heatmap-day-header,
+.heatmap-day-cell {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: 104px;
+  min-width: 92px;
+  max-width: 110px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+  text-align: center;
+}
+
+.heatmap-day-header {
+  z-index: 4;
+}
+
+.heatmap-time-header,
+.heatmap-value-cell {
+  width: clamp(42px, 4.2vw, 58px);
+  min-width: 42px;
+  max-width: 64px;
+}
+
+.heatmap-time-header {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 .heatmap-time-label {
   display: inline-flex;
   flex-direction: column;
@@ -703,12 +739,16 @@ button:hover,
   gap: 1px;
   line-height: 1.05;
   white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
 }
 
 .heatmap tbody th {
   position: sticky;
   left: 0;
-  width: clamp(6.25rem, 8.5vw, 8rem);
+  width: 104px;
+  min-width: 92px;
+  max-width: 110px;
   z-index: 1;
   color: var(--brand);
   background: #f8fbff;
@@ -823,7 +863,8 @@ button:hover,
 .heatmap-wrap {
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .utilization-pill-filter {

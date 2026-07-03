@@ -2744,7 +2744,7 @@
     state.facultyHeatmapBucketRows = built.rows;
     const maxValue = Math.max(0, ...built.rows.map(row => row.metricValue || 0));
     const cellByKey = new Map(built.rows.map(row => [row.key, row]));
-    const headers = built.slots.map(minutes => `<th>${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
+    const headers = built.slots.map(minutes => `<th class="heatmap-time-header">${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
     const body = built.dayKeys.map(day => {
       const cells = built.slots.map(minutes => {
         const cell = cellByKey.get(`${day}|${minutes}`);
@@ -2766,14 +2766,14 @@
           ['Faculty type', selectedFilterLabel('fhFacultyType')],
           ['Meeting type', selectedFilterLabel('fhMeetingType')]
         ]);
-        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
+        return `<td class="heatmap-cell heatmap-value-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
       }).join('');
-      return `<tr><th>${built.dayNames[day]}</th>${cells}</tr>`;
+      return `<tr><th class="heatmap-day-cell">${built.dayNames[day]}</th>${cells}</tr>`;
     }).join('');
     document.getElementById('facultyHeatmapContainer').innerHTML = `
       <div class="heatmap-wrap">
-        <table class="heatmap">
-          <thead><tr><th>Day / Time</th>${headers}</tr></thead>
+        <table class="heatmap heatmap-table">
+          <thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead>
           <tbody>${body}</tbody>
         </table>
       </div>
@@ -3568,7 +3568,7 @@
     if (!node) return;
     node.style.display = view === 'all' || view === 'heatmap' ? '' : 'none';
     const maxValue = Math.max(0, ...built.rows.map(row => row.metricValue || 0));
-    const headers = built.slots.map(minutes => `<th>${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
+    const headers = built.slots.map(minutes => `<th class="heatmap-time-header">${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
     const body = built.dayKeys.map(day => {
       const cells = built.slots.map(minutes => {
         const row = built.rows.find(item => item.day === built.dayNames[day] && item.time === formatPresenceHourLabel(minutes / 60));
@@ -3590,11 +3590,11 @@
           ['Modality scope', selectedModalityScopeLabel('sdModality')],
           ['Campus', selectedFilterLabel('sdCampus')]
         ]);
-        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
+        return `<td class="heatmap-cell heatmap-value-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
       }).join('');
-      return `<tr><th>${built.dayNames[day]}</th>${cells}</tr>`;
+      return `<tr><th class="heatmap-day-cell">${built.dayNames[day]}</th>${cells}</tr>`;
     }).join('');
-    node.innerHTML = `<section class="presence-curve"><h3>Supply vs Demand Heatmap</h3><div class="heatmap-wrap"><table class="heatmap"><thead><tr><th>Day / Time</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    node.innerHTML = `<section class="presence-curve"><h3>Supply vs Demand Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
   }
 
   function renderSupplyDemandLineGraph(built, metricName) {
@@ -4373,7 +4373,7 @@
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const slots = [...new Set(rows.map(row => row.minutes))].sort((a, b) => a - b);
     const maxValue = Math.max(0, ...rows.map(row => row.metricValue || 0));
-    const headers = slots.map(minutes => `<th>${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
+    const headers = slots.map(minutes => `<th class="heatmap-time-header">${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
     const body = dayNames.map(day => {
       const cells = slots.map(minutes => {
         const row = rows.find(item => item.day === day && item.minutes === minutes);
@@ -4399,11 +4399,11 @@
           ['Campus', selectedFilterLabel('studentChoiceCampus')],
           ['Faculty type', selectedFilterLabel('studentChoiceFacultyType')]
         ]);
-        return `<td class="heatmap-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
+        return `<td class="heatmap-cell heatmap-value-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
       }).join('');
-      return `<tr><th>${day}</th>${cells}</tr>`;
+      return `<tr><th class="heatmap-day-cell">${day}</th>${cells}</tr>`;
     }).join('');
-    node.innerHTML = `<section class="presence-curve"><h3>Student Choice Heatmap</h3><div class="heatmap-wrap"><table class="heatmap"><thead><tr><th>Day / Time</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    node.innerHTML = `<section class="presence-curve"><h3>Student Choice Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
   }
 
   function renderStudentChoiceLineGraph(rows, metricName) {
@@ -10254,11 +10254,13 @@
       .analytics-insights li{margin:4px 0;line-height:1.3}
       .presence-curve{grid-column:1/-1}
       .presence-curve p{margin:0 0 10px;color:#51657c;font-size:13px}
-      .presence-curve .heatmap-wrap{width:100%;max-width:100%;overflow-x:hidden}
-      .presence-curve table{width:100%;min-width:0;table-layout:fixed}
-      .presence-curve .heatmap th,.presence-curve .heatmap td{padding:clamp(5px,.56vw,8px) clamp(2px,.36vw,6px);font-size:clamp(12px,.78vw,13px);line-height:1.15;text-align:center;white-space:nowrap;overflow-wrap:normal;word-break:normal}
-      .presence-curve .heatmap .heatmap-time-label{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.05;white-space:nowrap}
-      .presence-curve .heatmap tbody th{width:clamp(96px,8.5vw,128px)}
+      .presence-curve .heatmap-wrap{width:100%;max-width:100%;overflow-x:auto;overflow-y:visible}
+      .presence-curve table.heatmap-table{width:max-content;min-width:100%;table-layout:fixed}
+      .presence-curve .heatmap th,.presence-curve .heatmap td{box-sizing:border-box;padding:clamp(5px,.56vw,8px) clamp(2px,.36vw,6px);font-size:clamp(12px,.78vw,13px);line-height:1.15;text-align:center;white-space:nowrap;overflow-wrap:normal;word-break:normal}
+      .presence-curve .heatmap .heatmap-day-header,.presence-curve .heatmap .heatmap-day-cell{position:sticky;left:0;z-index:3;width:104px;min-width:92px;max-width:110px;white-space:nowrap;overflow-wrap:normal;word-break:normal;text-align:center}
+      .presence-curve .heatmap .heatmap-day-header{z-index:4}
+      .presence-curve .heatmap .heatmap-time-header,.presence-curve .heatmap .heatmap-value-cell{width:clamp(42px,4.2vw,58px);min-width:42px;max-width:64px}
+      .presence-curve .heatmap .heatmap-time-label{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.05;white-space:nowrap;word-break:keep-all;overflow-wrap:normal}
       .presence-curve td{position:relative;height:34px;vertical-align:middle;overflow:hidden}
       .presence-curve .presence-bar{position:absolute;left:6px;right:auto;top:8px;bottom:8px;border-radius:999px;background:linear-gradient(90deg,#1f5f99,#2aa889);opacity:.26}
       .presence-curve td strong{position:relative;z-index:1;color:#123367}

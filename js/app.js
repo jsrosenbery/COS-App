@@ -4544,14 +4544,14 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const nonEmptyCells = allCells.filter(cell => cell.sections > 0);
     const maxC = Math.max(0, ...nonEmptyCells.map(cell => cell.value));
     renderHeatmapSummaryCards(nonEmptyCells);
-    let html = '<table class="heatmap">';
-    html += `<thead><tr><th>Day/Start Time<br><span>${escapeHTML(heatmapMetricLabel(metric))}</span></th>`;
+    let html = '<div class="heatmap-wrap"><table class="heatmap heatmap-table">';
+    html += '<thead><tr><th class="heatmap-day-header">Day</th>';
     hours.forEach(h=>{
-      html+=`<th>${formatHeatmapTimeHeader(h)}</th>`;
+      html+=`<th class="heatmap-time-header">${formatHeatmapTimeHeader(h)}</th>`;
     });
     html+='</tr></thead><tbody>';
     hmDays.forEach(d=>{
-      html+=`<tr><th>${d}</th>`;
+      html+=`<tr><th class="heatmap-day-cell">${d}</th>`;
       cells[d].forEach((cell, i)=>{
         const h = hours[i];
         const value = cellValue(cell);
@@ -4559,11 +4559,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const level = op >= 0.8 ? 'high' : op >= 0.45 ? 'medium' : op > 0 ? 'low' : 'empty';
         const selected = heatmapCellFilter && heatmapCellFilter.day === d && heatmapCellFilter.hour === h ? ' is-selected' : '';
         const title = `${d} ${formatHourLabel(h)}: ${formatHeatmapValue(value, metric) || 0} ${heatmapMetricLabel(metric)}${metric === 'sections' && value === 1 ? '' : 's'}; ${cell.sections} section${cell.sections === 1 ? '' : 's'}, ${cell.enrollment} enrolled, ${cell.capacity} seats`;
-        html+=`<td class="heatmap-cell heatmap-${level}${selected}" data-day="${escapeHTML(d)}" data-hour="${h}" title="${escapeHTML(title)}" style="--heat:${op.toFixed(3)}">${formatHeatmapValue(value, metric)}</td>`;
+        html+=`<td class="heatmap-cell heatmap-value-cell heatmap-${level}${selected}" data-day="${escapeHTML(d)}" data-hour="${h}" title="${escapeHTML(title)}" style="--heat:${op.toFixed(3)}">${formatHeatmapValue(value, metric)}</td>`;
       });
       html+='</tr>';
     });
-    html+='</tbody></table>';
+    html+='</tbody></table></div>';
     document.getElementById('heatmapContainer').innerHTML = html;
     attachHeatmapCellHandlers();
     setHeatmapCellFilterNote();
