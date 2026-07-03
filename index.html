@@ -423,9 +423,10 @@
       <label><input id="modality-exclude-tutoring-openlab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections</label>
       <button id="modality-clear-btn" type="button">Clear</button>
       <button id="modality-export-btn" type="button">Export CSV</button>
+      <button id="modality-export-excel-btn" type="button">Export Excel</button>
     </div>
     <div class="modality-note">
-      This view uses the Instructional Method column from the uploaded CSV and counts unique CRNs when available, so multi-meeting sections are not counted more than once. Class counts and enrollment are shown as separate comparison views because a modality can have a similar number of sections but materially different student enrollment. Dual Enrollment is excluded by default because it can materially change modality balance; use the checkbox to include it intentionally.
+      This view uses the Instructional Method column from the uploaded CSV and counts Total Class Offerings as distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN are counted once unless the report is explicitly analyzing meeting components. Total Class Offerings and enrollment are shown as separate comparison views because a modality can have a similar number of offerings but materially different student enrollment. Dual Enrollment is excluded by default because it can materially change modality balance; use the checkbox to include it intentionally.
     </div>
     <div id="modality-standard-methodology" class="analysis-explainer"></div>
     <div id="modality-summary" class="modality-summary"></div>
@@ -434,12 +435,12 @@
     <table id="modality-table" class="modality-table">
       <thead>
         <tr>
-          <th>Category</th>
-          <th>Sections</th>
+          <th>Modality</th>
+          <th>Total Class Offerings</th>
           <th>Enrollment</th>
-          <th>% of Sections</th>
+          <th>% of Class Offerings</th>
           <th>% of Enrollment</th>
-          <th>Visual Share</th>
+          <th>Class Offerings Visual Share</th>
           <th>Instructional Method Details</th>
         </tr>
       </thead>
@@ -457,12 +458,12 @@
             <th>Discipline</th>
             <th>Modality</th>
             <th>Focus Term</th>
-            <th>Focus Sections</th>
+            <th>Focus Class Offerings</th>
             <th>Focus Enrollment</th>
             <th>Comparison Term</th>
-            <th>Comparison Sections</th>
+            <th>Comparison Class Offerings</th>
             <th>Comparison Enrollment</th>
-            <th>Section Diff</th>
+            <th>Class Offering Diff</th>
             <th>Enrollment Diff</th>
             <th>Section % Change</th>
             <th>Enrollment % Change</th>

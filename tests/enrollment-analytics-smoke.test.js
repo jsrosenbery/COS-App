@@ -47,6 +47,108 @@ function loadCoreModules() {
   };
 }
 
+function loadScheduleAppRuntime() {
+  const elements = new Map();
+  function element(id = '') {
+    if (elements.has(id)) return elements.get(id);
+    const el = {
+      id,
+      value: '',
+      checked: false,
+      multiple: false,
+      selectedOptions: [],
+      options: [],
+      style: {},
+      dataset: {},
+      classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+      appendChild(child) { this.children = this.children || []; this.children.push(child); return child; },
+      append(...children) { this.children = [...(this.children || []), ...children]; },
+      replaceChildren(...children) { this.children = children; },
+      insertRow() { const row = element(`${id}:row:${Math.random()}`); row.insertCell = () => element(`${id}:cell:${Math.random()}`); return row; },
+      insertCell() { return element(`${id}:cell:${Math.random()}`); },
+      addEventListener() {},
+      removeEventListener() {},
+      remove() {},
+      querySelector() { return element(`${id}:query`); },
+      querySelectorAll() { return []; },
+      setAttribute(name, value) { this[name] = value; },
+      getAttribute(name) { return this[name]; },
+      getBoundingClientRect() { return { width: 800, height: 400, top: 0, right: 800, bottom: 400, left: 0 }; },
+      getContext() { return {}; },
+      textContent: '',
+      innerHTML: ''
+    };
+    elements.set(id, el);
+    return el;
+  }
+  const context = {
+    window: {
+      COS_APP_CONFIG: { backendBaseUrl: '' },
+      ROOM_CATALOG: [],
+      CAL_GETC_MAPPING: [],
+      CURRICULUM_CROSSWALK: []
+    },
+    document: {
+      getElementById: id => element(id),
+      querySelector: selector => element(selector),
+      querySelectorAll: () => [],
+      createElement: tag => element(`created:${tag}:${Math.random()}`),
+      addEventListener(event, handler) {
+        if (event === 'DOMContentLoaded') handler();
+      }
+    },
+    Option: function Option(label, value, defaultSelected, selected) {
+      return { label, textContent: label, value, defaultSelected: Boolean(defaultSelected), selected: Boolean(selected) };
+    },
+    localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+    fetch: () => Promise.resolve({ ok: false, json: async () => ({ data: [] }), text: async () => '' }),
+    alert() {},
+    confirm() { return false; },
+    console,
+    Papa: { parse() { return { data: [] }; }, unparse(rows) { return JSON.stringify(rows); } },
+    Choices: function Choices() {
+      return { setChoices() {}, destroy() {}, removeActiveItems() {}, clearStore() {}, getValue() { return []; } };
+    },
+    $: function $() {
+      const tableApi = {
+        destroy() {},
+        on() { return tableApi; },
+        search() { return tableApi; },
+        draw() { return tableApi; },
+        clear() { return tableApi; },
+        rows() {
+          return {
+            add() { return tableApi; },
+            data() { return { toArray() { return []; } }; }
+          };
+        }
+      };
+      tableApi.rows.add = () => tableApi;
+      return { DataTable() { return tableApi; } };
+    },
+    Blob: function Blob() {},
+    Chart: function Chart() { return { destroy() {}, update() {} }; },
+    URL: { createObjectURL() { return ''; }, revokeObjectURL() {} },
+    setTimeout,
+    clearTimeout
+  };
+  context.window.window = context.window;
+  context.window.document = context.document;
+  context.window.localStorage = context.localStorage;
+  context.window.fetch = context.fetch;
+  context.window.Papa = context.Papa;
+  context.$.fn = { dataTable: { render: { text: () => value => value }, ext: { search: [] } } };
+  context.window.$ = context.$;
+  context.window.jQuery = context.$;
+  context.window.COSUtils = { renderStandardMethodologyPanel() {} };
+  vm.createContext(context);
+  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/app.js'].forEach(file => {
+    const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    vm.runInContext(source, context, { filename: file });
+  });
+  return context.window.COSScheduleApp.modalityBalanceTestHooks;
+}
+
 function loadConfigModule() {
   const context = {
     window: {},
@@ -2279,11 +2381,12 @@ test('modality balance uses shared three-category modality normalization and dia
   ['modality-campus-select', 'modality-division-select', 'modality-discipline-select', 'modality-department-select', 'modality-course-select', 'modality-modality-select'].forEach(id => {
     assert.match(index, new RegExp(`id="${id}"[^>]*multiple`));
   });
-  assert.match(index, /% of Sections/);
+  assert.match(index, /% of Class Offerings/);
   assert.match(index, /% of Enrollment/);
-  assert.match(index, /Class counts and enrollment are shown as separate comparison views/);
+  assert.match(index, /Total Class Offerings and enrollment are shown as separate comparison views/);
   assert.match(index, /modality-source-status/);
   assert.match(index, /modality-export-btn/);
+  assert.match(index, /modality-export-excel-btn/);
   assert.match(index, /modality-course-comparison-table/);
   assert.match(index, /Course-Level Term Differences/);
   assert.match(app, /includeDualEnrollment/);
@@ -2312,25 +2415,96 @@ test('modality balance uses shared three-category modality normalization and dia
   assert.match(app, /function modalityCourseComparisonRows/);
   assert.match(app, /function renderModalityCourseComparisonTable/);
   assert.match(app, /function modalityCourseComparisonExportRows/);
-  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Class Count Mix`/);
-  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Enrollment Mix`/);
+  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Class Offerings by Modality`/);
+  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Enrollment by Modality`/);
   assert.match(app, /function modalityMixGraphData/);
+  assert.match(app, /function modalityChartData/);
   assert.match(app, /className = 'modality-mix-bars'/);
   assert.doesNotMatch(app, /sections, \$\{Math\.round\(row\.share \* 100\)\}%; \$\{row\.enrollment\} enrollment/);
   assert.match(app, /function exportModalityBalance/);
+  assert.match(app, /function exportModalityBalanceExcel/);
   assert.match(app, /modalityExportBtn\.addEventListener\('click', exportModalityBalance\)/);
+  assert.match(app, /modalityExportExcelBtn\.addEventListener\('click', exportModalityBalanceExcel\)/);
   assert.match(app, /Graph Data/);
   assert.match(app, /Comparison Results/);
   assert.match(app, /modality-balance-\$\{slug\}\.csv/);
-  assert.match(app, /Class Count by Modality/);
+  assert.match(app, /modality-balance-\$\{slug\}\.xls/);
+  assert.match(app, /Class Offerings by Modality/);
   assert.match(app, /Enrollment by Modality/);
   assert.match(app, /Course-Level Term Differences/);
-  assert.match(app, /Focus term minus comparison term by unique CRN course\/modality grouping/);
+  assert.match(app, /Focus term minus comparison term by Total Class Offerings \(unique CRN course\/modality grouping\)/);
   assert.match(app, /signedPctChange/);
   assert.match(app, /Current Loaded Term/);
   assert.match(app, /modalityBalanceTestHooks/);
   assert.match(app, /normalizeTermLabel\(canonical\.term\)/);
   assert.match(app, /CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL/);
+});
+
+test('modality balance counts unduplicated CRN offerings and census-first enrollment', () => {
+  const hooks = loadScheduleAppRuntime();
+  const rows = [
+    { Term: 'FALL 2026', CRN: '10001', Subject: 'ART', Course: '101', 'Instructional Method': 'IP', CENSUS_ENROLL: '20', ACTUAL_ENROLL: '18' },
+    { Term: 'FALL 2026', CRN: '10001', Subject: 'ART', Course: '101', 'Instructional Method': 'IP', CENSUS_ENROLL: '20', ACTUAL_ENROLL: '18', Days: 'W' },
+    { Term: 'FALL 2026', CRN: '10002', Subject: 'MATH', Course: '100', 'Instructional Method': 'ONL', CENSUS_ENROLL: '', ACTUAL_ENROLL: '15' },
+    { Term: 'FALL 2026', CRN: '10003', Subject: 'HIST', Course: '110', 'Instructional Method': 'HYB', CENSUS_ENROLL: '12', ACTUAL_ENROLL: '9' }
+  ];
+  const items = hooks.modalityBalanceItemsFromSections(rows);
+  const summary = hooks.calculateModalityBalanceFromItems(items);
+  const byModality = new Map(summary.map(row => [row.category, row]));
+
+  assert.equal(byModality.get('In-Person').classOfferings, 1);
+  assert.equal(byModality.get('In-Person').enrollment, 20);
+  assert.equal(byModality.get('Online').classOfferings, 1);
+  assert.equal(byModality.get('Online').enrollment, 15);
+  assert.equal(byModality.get('Hybrid').classOfferings, 1);
+  assert.equal(summary[0].totalClassOfferings, 3);
+});
+
+test('modality comparison rows include class offering counts and shares', () => {
+  const hooks = loadScheduleAppRuntime();
+  const current = hooks.calculateModalityBalanceFromItems([
+    { category: 'In-Person', rawMethod: 'IP', enrollment: 20 },
+    { category: 'In-Person', rawMethod: 'IP', enrollment: 15 },
+    { category: 'Online', rawMethod: 'ONL', enrollment: 30 }
+  ]);
+  const comparison = hooks.calculateModalityBalanceFromItems([
+    { category: 'In-Person', rawMethod: 'IP', enrollment: 10 },
+    { category: 'Online', rawMethod: 'ONL', enrollment: 40 },
+    { category: 'Online', rawMethod: 'ONL', enrollment: 20 }
+  ]);
+  const rows = hooks.modalityCombinedComparisonRows(
+    new Map(current.map(row => [row.category, row])),
+    new Map(comparison.map(row => [row.category, row]))
+  );
+  const inPerson = rows.find(row => row.category === 'In-Person');
+  const online = rows.find(row => row.category === 'Online');
+
+  assert.equal(inPerson.currentClassOfferings, 2);
+  assert.equal(inPerson.comparisonClassOfferings, 1);
+  assert.equal(inPerson.classOfferingDiff, 1);
+  assert.equal(inPerson.currentClassOfferingShare, 2 / 3);
+  assert.equal(online.currentClassOfferings, 1);
+  assert.equal(online.comparisonClassOfferings, 2);
+  assert.equal(online.currentEnrollment, 30);
+  assert.equal(online.comparisonEnrollment, 60);
+});
+
+test('modality chart and export data separate class offerings from enrollment', () => {
+  const hooks = loadScheduleAppRuntime();
+  const summary = hooks.calculateModalityBalanceFromItems([
+    { category: 'In-Person', rawMethod: 'IP', enrollment: 20 },
+    { category: 'In-Person', rawMethod: 'IP', enrollment: 10 },
+    { category: 'Online', rawMethod: 'ONL', enrollment: 70 }
+  ]);
+  const chartData = hooks.modalityChartData(summary);
+  const exportRows = hooks.modalityExportRowsForData(summary, []);
+
+  assert.deepEqual([...chartData.classOfferings.map(row => row.category)], ['In-Person', 'Online']);
+  assert.deepEqual([...chartData.enrollment.map(row => row.category)], ['In-Person', 'Online']);
+  assert.equal(chartData.classOfferings.find(row => row.category === 'In-Person').value, 2);
+  assert.equal(chartData.enrollment.find(row => row.category === 'In-Person').value, 30);
+  assert.ok(exportRows.some(row => row.ClassOfferings === 2 && /Class Offering/.test(row.Metric + row.Chart)));
+  assert.ok(exportRows.some(row => Object.prototype.hasOwnProperty.call(row, 'ClassOfferingShare')));
 });
 
 test('instructional method validation is available in Development reports', () => {
