@@ -85,7 +85,7 @@
     [REPORTS.primeTimeAnalysis]: 'Prime Time Analysis',
     [REPORTS.supplyDemand]: 'Supply vs Demand',
     [REPORTS.busyTimeDashboard]: 'Busy Time Dashboard',
-    [REPORTS.studentChoiceOpportunity]: 'Student Choice Opportunity',
+    [REPORTS.studentChoiceOpportunity]: 'Schedule Opportunity Analysis',
     [REPORTS.recommendationEngine]: 'Scheduling Recommendation Engine',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
@@ -1913,23 +1913,23 @@
         </div>
         <div id="studentChoiceOpportunityReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Student Choice Opportunity</h2>
-            <p>Measures how much schedule choice students have by day and time, not just how many students enrolled.</p>
+            <h2>Schedule Opportunity Analysis</h2>
+            <p>Evaluates whether the schedule provides meaningful student opportunity by comparing planned offerings, historical demand, student choice, enrollment pressure, and schedule distribution.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Read This Report</h3>
                 <ul>
-                  <li>Use the heatmap to find day/time blocks with broad or narrow course choice.</li>
-                  <li>Use the line graph to compare choice and demand patterns across days.</li>
-                  <li>Use the table to audit course breadth, seats, enrollment, fill, empty seats, and waitlist by half-hour block.</li>
+                  <li>Historical Evaluation asks how the schedule performed when enrollment data is meaningful.</li>
+                  <li>Planning &amp; Forecast asks whether a future schedule is likely to succeed against historical demand.</li>
+                  <li>Scenario Analysis tests simple what-if changes without altering source data.</li>
                 </ul>
               </div>
               <div>
                 <h3>Methodology</h3>
                 <ul>
-                  <li>This report measures student schedule opportunity. Enrollment alone does not show whether students had meaningful choices.</li>
-                  <li>A time block may fill well because students prefer that time, or because very few alternatives exist.</li>
-                  <li>This report compares course variety, seat availability, and enrollment pressure across the day.</li>
+                  <li>This report measures schedule opportunity, not pure student preference. Students can only enroll in sections that exist.</li>
+                  <li>Future terms without enrollment are evaluated against historical demand projections instead of being labeled low demand.</li>
+                  <li>Census enrollment is preferred; actual/current enrollment is the fallback.</li>
                 </ul>
               </div>
             </div>
@@ -1941,13 +1941,31 @@
             <label>Faculty CSV <input id="studentChoiceFacultyCsv" type="file" accept=".csv" multiple></label>
             <label>Saved Faculty Schedule Term <select id="studentChoiceFacultyArchiveTerm"></select></label>
             <button id="loadSavedStudentChoiceFaculty" type="button">Load Saved Faculty Schedule</button>
-            <span id="studentChoiceStatus" class="analytics-note">No student choice rows loaded.</span>
+            <span id="studentChoiceStatus" class="analytics-note">No schedule opportunity rows loaded.</span>
             <label>View
               <select id="studentChoiceView">
                 <option value="all">All views</option>
                 <option value="heatmap">Heatmap</option>
                 <option value="line">Line Graph</option>
                 <option value="table">Summary Table</option>
+              </select>
+            </label>
+            <label>Analysis mode
+              <select id="studentChoiceMode">
+                <option value="auto">Auto mode</option>
+                <option value="historical">Historical Evaluation</option>
+                <option value="planning">Planning &amp; Forecast</option>
+                <option value="scenario">Scenario Analysis</option>
+              </select>
+            </label>
+            <label>Historical comparison terms <select id="studentChoiceHistoricalTerms" multiple data-placeholder="Select historical terms"></select></label>
+            <label>Demand source
+              <select id="studentChoiceDemandSource">
+                <option value="actual">Actual enrollment, if available</option>
+                <option value="average">Historical average</option>
+                <option value="weighted3">Three-year weighted average</option>
+                <option value="weighted5">Five-year weighted average</option>
+                <option value="bestMatch">Best historical match</option>
               </select>
             </label>
             <label>Metric
@@ -1972,6 +1990,26 @@
             <button type="button" data-modality-quick="studentChoiceModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
             <button type="button" data-modality-quick="studentChoiceModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
             <label>Faculty type <select id="studentChoiceFacultyType"></select></label>
+            <label>Scenario CRNs <input id="studentChoiceScenarioCrns" type="text" placeholder="10001,10002"></label>
+            <label>Scenario action
+              <select id="studentChoiceScenarioAction">
+                <option value="none">No scenario</option>
+                <option value="remove">Remove selected sections</option>
+                <option value="shiftTime">Shift selected time</option>
+                <option value="shiftPattern">Shift day/time pattern</option>
+                <option value="changeModality">Change modality</option>
+              </select>
+            </label>
+            <label>New days <input id="studentChoiceScenarioDays" type="text" placeholder="MW"></label>
+            <label>New start <input id="studentChoiceScenarioStart" type="time" step="1800" value="09:00"></label>
+            <label>New end <input id="studentChoiceScenarioEnd" type="time" step="1800" value="10:30"></label>
+            <label>New modality
+              <select id="studentChoiceScenarioModality">
+                <option value="In-Person">In-Person</option>
+                <option value="Hybrid">Hybrid</option>
+                <option value="Online">Online</option>
+              </select>
+            </label>
             <label class="analytics-check"><input id="studentChoiceExcludeTutoring" type="checkbox" checked> Exclude Tutoring/Open Lab</label>
             <button id="runStudentChoiceOpportunity" type="button">Run</button>
             <button id="clearStudentChoiceOpportunity" type="button">Clear</button>
@@ -1980,6 +2018,10 @@
           <div id="studentChoiceMetrics" class="analytics-metrics"></div>
           <div id="studentChoiceHeatmap" class="analytics-insights"></div>
           <div id="studentChoiceLineGraph" class="analytics-insights"></div>
+          <div id="studentChoiceHistoricalTable" class="analytics-table"></div>
+          <div id="studentChoicePlanningGapTable" class="analytics-table"></div>
+          <div id="studentChoiceScenarioTable" class="analytics-table"></div>
+          <div id="studentChoiceRecommendations" class="analytics-legend"></div>
           <div id="studentChoiceTable" class="analytics-table"></div>
           <div id="studentChoiceLegend" class="analytics-legend"></div>
         </div>
@@ -4257,6 +4299,231 @@
     if (options.some(option => option.value === previous)) select.value = previous;
   }
 
+  function distinctScheduleSections(rows) {
+    const map = new Map();
+    (rows || []).forEach(row => {
+      const key = sectionKey(row);
+      if (!key || map.has(key)) return;
+      map.set(key, row);
+    });
+    return [...map.values()];
+  }
+
+  function scheduleOpportunityEnrollment(row) {
+    return busyTimeEnrollment(row);
+  }
+
+  function scheduleOpportunityHasEnrollment(rows) {
+    return (rows || []).some(row => scheduleOpportunityEnrollment(row) > 0 || (row.waitlist || 0) > 0);
+  }
+
+  function scheduleOpportunitySummary(rows, options = {}) {
+    const sourceRows = (rows || []).filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row));
+    const sections = distinctScheduleSections(sourceRows);
+    const calGetcCodes = studentChoiceCalGetcCodes();
+    const courses = new Set();
+    const subjects = new Set();
+    const calGetcCourses = new Set();
+    const campuses = new Set();
+    const modalities = new Set();
+    const courseCounts = new Map();
+    sections.forEach(row => {
+      const courseCode = calGetcCourseCode(row);
+      if (courseCode) {
+        courses.add(courseCode);
+        courseCounts.set(courseCode, (courseCounts.get(courseCode) || 0) + 1);
+        if (calGetcCodes.has(courseCode)) calGetcCourses.add(courseCode);
+      }
+      if (row.subject) subjects.add(canon(row.subject));
+      if (row.campus) campuses.add(row.campus);
+      if (row.modality) modalities.add(row.modality);
+    });
+    const seats = sections.reduce((total, row) => total + (row.cap || 0), 0);
+    const enrollment = sections.reduce((total, row) => total + scheduleOpportunityEnrollment(row), 0);
+    const waitlist = sections.reduce((total, row) => total + (row.waitlist || 0), 0);
+    const physicalBuckets = buildStudentChoiceBuckets(sourceRows, 'studentPresence', { includeOnline: options.includeOnline === true });
+    const studentPresence = physicalBuckets.reduce((total, row) => total + (row.studentPresence || 0), 0);
+    const fillRateNumber = safeDiv(enrollment, seats);
+    const choiceIndex = choiceDiversityIndex({
+      uniqueCourses: courses.size,
+      uniqueSubjects: subjects.size,
+      uniqueCalGetcCourses: calGetcCourses.size,
+      sections: sections.length,
+      maxCourseSections: maxCourseCount(courseCounts)
+    });
+    const demandPressureScore = Math.round(Math.min(100, (fillRateNumber * 70) + (Math.min(1, safeDiv(waitlist, Math.max(1, seats))) * 30)));
+    return {
+      scheduledClassOfferings: sections.length,
+      uniqueCourses: courses.size,
+      uniqueSubjects: subjects.size,
+      uniqueCalGetcCourses: calGetcCourses.size,
+      seatsOffered: seats,
+      enrollment,
+      projectedEnrollment: options.projectedEnrollment ?? enrollment,
+      studentPresence,
+      projectedStudentPresence: options.projectedStudentPresence ?? studentPresence,
+      fillRateNumber,
+      fillRate: `${(fillRateNumber * 100).toFixed(1)}%`,
+      projectedFillRateNumber: safeDiv(options.projectedEnrollment ?? enrollment, seats),
+      projectedFillRate: `${(safeDiv(options.projectedEnrollment ?? enrollment, seats) * 100).toFixed(1)}%`,
+      waitlist,
+      enrollmentPerClassOffering: safeDiv(enrollment, sections.length),
+      emptySeats: Math.max(0, seats - enrollment),
+      campusChoices: campuses.size,
+      modalityChoices: modalities.size,
+      choiceDiversityIndex: choiceIndex,
+      demandPressureScore,
+      opportunityGapScore: options.opportunityGapScore ?? 0,
+      hasCurrentEnrollment: scheduleOpportunityHasEnrollment(sections)
+    };
+  }
+
+  function scheduleOpportunityModeForRows(rows, requestedMode = 'auto') {
+    if (requestedMode && requestedMode !== 'auto') return requestedMode;
+    return scheduleOpportunityHasEnrollment(rows) ? 'historical' : 'planning';
+  }
+
+  function scheduleOpportunityTermSummaries(rows, options = {}) {
+    return [...group(rows || [], row => normalizeTermLabel(row.term || row.__sourceTerm || 'Unknown')).entries()]
+      .map(([term, termRows]) => ({ term, sortValue: termSortValue(term), ...scheduleOpportunitySummary(termRows, options) }))
+      .sort((a, b) => a.sortValue - b.sortValue);
+  }
+
+  function weightedAverage(values, maxTerms) {
+    const usable = (values || []).slice(-maxTerms);
+    const totalWeight = usable.reduce((total, _row, index) => total + index + 1, 0);
+    if (!totalWeight) return 0;
+    return usable.reduce((total, row, index) => total + row.value * (index + 1), 0) / totalWeight;
+  }
+
+  function scheduleOpportunityHistoricalProjection(currentRows, historicalRows, demandSource = 'average', options = {}) {
+    const current = scheduleOpportunitySummary(currentRows, options);
+    const summaries = scheduleOpportunityTermSummaries(historicalRows, options);
+    const numericFields = ['scheduledClassOfferings', 'seatsOffered', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'campusChoices', 'modalityChoices', 'studentPresence', 'enrollment', 'fillRateNumber', 'waitlist', 'enrollmentPerClassOffering', 'choiceDiversityIndex', 'demandPressureScore'];
+    const projection = { demandSource, termsIncluded: summaries.map(row => row.term), termCount: summaries.length };
+    numericFields.forEach(field => {
+      const values = summaries.map(row => ({ term: row.term, value: Number(row[field]) || 0 }));
+      if (demandSource === 'weighted3') projection[field] = weightedAverage(values, 3);
+      else if (demandSource === 'weighted5') projection[field] = weightedAverage(values, 5);
+      else if (demandSource === 'bestMatch') {
+        const best = summaries.slice().sort((a, b) => Math.abs((a.scheduledClassOfferings || 0) - current.scheduledClassOfferings) - Math.abs((b.scheduledClassOfferings || 0) - current.scheduledClassOfferings))[0];
+        projection[field] = best ? Number(best[field]) || 0 : (values.reduce((total, row) => total + row.value, 0) / Math.max(1, values.length));
+        projection.bestMatchTerm = best?.term || '';
+      } else {
+        projection[field] = values.reduce((total, row) => total + row.value, 0) / Math.max(1, values.length);
+      }
+    });
+    if (demandSource === 'actual' && current.hasCurrentEnrollment) {
+      projection.enrollment = current.enrollment;
+      projection.fillRateNumber = current.fillRateNumber;
+      projection.studentPresence = current.studentPresence;
+    }
+    return {
+      ...projection,
+      projectedEnrollment: projection.enrollment || 0,
+      projectedStudentPresence: projection.studentPresence || 0,
+      projectedFillRateNumber: safeDiv(projection.enrollment || 0, current.seatsOffered || projection.seatsOffered || 0),
+      projectedFillRate: `${(safeDiv(projection.enrollment || 0, current.seatsOffered || projection.seatsOffered || 0) * 100).toFixed(1)}%`
+    };
+  }
+
+  function scheduleOpportunityGapRows(currentRows, historicalRows, demandSource = 'average', options = {}) {
+    const current = scheduleOpportunitySummary(currentRows, options);
+    const historical = scheduleOpportunityHistoricalProjection(currentRows, historicalRows, demandSource, options);
+    const fields = [
+      ['Scheduled Class Offerings', 'scheduledClassOfferings'],
+      ['Seats Offered', 'seatsOffered'],
+      ['Unique Courses', 'uniqueCourses'],
+      ['Unique Subjects', 'uniqueSubjects'],
+      ['Unique CAL-GETC/GE Courses', 'uniqueCalGetcCourses'],
+      ['Campus Choices', 'campusChoices'],
+      ['Modality Choices', 'modalityChoices'],
+      ['Student Presence Projection', 'studentPresence'],
+      ['Enrollment Projection', 'enrollment'],
+      ['Historical Average Fill Rate', 'fillRateNumber'],
+      ['Historical Average Waitlist', 'waitlist'],
+      ['Historical Average Enrollment per Class Offering', 'enrollmentPerClassOffering'],
+      ['Historical Average Course Choice Count', 'uniqueCourses'],
+      ['Historical Opportunity Gap', 'choiceDiversityIndex']
+    ];
+    return fields.map(([metricName, key]) => {
+      const currentValue = Number(current[key]) || 0;
+      const historicalValue = Number(historical[key]) || 0;
+      const gap = currentValue - historicalValue;
+      return {
+        metric: metricName,
+        current: Number(currentValue.toFixed ? currentValue.toFixed(2) : currentValue),
+        historicalAverage: Number(historicalValue.toFixed ? historicalValue.toFixed(2) : historicalValue),
+        opportunityGap: Number(gap.toFixed ? gap.toFixed(2) : gap),
+        interpretation: gap >= 0 ? 'Historical opportunity expansion' : 'Historical opportunity reduction'
+      };
+    });
+  }
+
+  function scheduleOpportunityScenarioRows(rows, scenario = {}) {
+    const action = scenario.action || 'none';
+    const crns = new Set((scenario.crns || []).map(canon).filter(Boolean));
+    if (!action || action === 'none' || !crns.size) return rows || [];
+    return (rows || []).flatMap(row => {
+      const rowCrn = canon(row.crn);
+      if (!crns.has(rowCrn)) return [row];
+      if (action === 'remove') return [];
+      const updated = { ...row };
+      if (action === 'shiftTime' || action === 'shiftPattern') {
+        if (scenario.start) updated.start = normalizeTime(scenario.start);
+        if (scenario.end) updated.end = normalizeTime(scenario.end);
+        updated.timeBlock = updated.start && updated.end ? `${updated.start}-${updated.end}` : updated.timeBlock;
+      }
+      if (action === 'shiftPattern' && scenario.days) {
+        updated.days = normalizeDays(scenario.days);
+        updated.dayPattern = dayPattern(updated.days);
+      }
+      if (action === 'changeModality' && scenario.modality) updated.modality = scenario.modality;
+      return [updated];
+    });
+  }
+
+  function scheduleOpportunityScenarioComparison(rows, scenario = {}, historicalRows = [], demandSource = 'average', options = {}) {
+    const before = scheduleOpportunitySummary(rows, options);
+    const afterRows = scheduleOpportunityScenarioRows(rows, scenario);
+    const afterProjection = scheduleOpportunityHistoricalProjection(afterRows, historicalRows, demandSource, options);
+    const after = scheduleOpportunitySummary(afterRows, {
+      ...options,
+      projectedEnrollment: afterProjection.projectedEnrollment,
+      projectedStudentPresence: afterProjection.projectedStudentPresence
+    });
+    const fields = [
+      ['Scheduled Class Offerings', 'scheduledClassOfferings'],
+      ['Seats Offered', 'seatsOffered'],
+      ['Projected Enrollment', 'projectedEnrollment'],
+      ['Projected Fill Rate', 'projectedFillRateNumber'],
+      ['Choice Diversity Metrics', 'choiceDiversityIndex'],
+      ['Room/Time Pressure', 'demandPressureScore'],
+      ['Historical Opportunity Gap', 'opportunityGapScore']
+    ];
+    return fields.map(([metric, key]) => {
+      const beforeValue = Number(before[key]) || 0;
+      const afterValue = Number(after[key]) || 0;
+      return {
+        metric,
+        before: Number(beforeValue.toFixed ? beforeValue.toFixed(2) : beforeValue),
+        after: Number(afterValue.toFixed ? afterValue.toFixed(2) : afterValue),
+        change: Number((afterValue - beforeValue).toFixed(2))
+      };
+    });
+  }
+
+  function scheduleOpportunityCategory(summary, projection = {}, mode = 'historical') {
+    if (!summary.scheduledClassOfferings) return 'Low activity / insufficient evidence';
+    if (mode === 'planning' && !summary.hasCurrentEnrollment) return projection.projectedEnrollment ? 'Historical opportunity reduction' : 'Low activity / insufficient evidence';
+    if ((summary.waitlist || 0) > 0 && (summary.fillRateNumber || 0) >= 0.85) return 'Hidden demand';
+    if ((summary.choiceDiversityIndex || 0) < 25 && ((summary.fillRateNumber || 0) >= 0.75 || (summary.waitlist || 0) > 0)) return 'Choice gap';
+    if ((summary.fillRateNumber || 0) < 0.55 && (summary.emptySeats || 0) >= 30) return 'Oversupply';
+    if ((summary.scheduledClassOfferings || 0) > (projection.scheduledClassOfferings || summary.scheduledClassOfferings) * 1.2 && !summary.hasCurrentEnrollment) return 'Possible overbuild';
+    if ((summary.scheduledClassOfferings || 0) < (projection.scheduledClassOfferings || 0) * 0.8) return 'Possible underbuild';
+    return 'Strong alignment';
+  }
+
   function updateStudentChoiceFilterOptions() {
     const rows = state.studentChoiceRows || [];
     setFacultyFilterOptions('studentChoiceTerm', rows.map(row => row.term), 'All terms');
@@ -4271,6 +4538,7 @@
     const discipline = document.getElementById('studentChoiceDiscipline')?.value || '';
     const courseSource = discipline ? disciplineSource.filter(row => row.subject === discipline) : disciplineSource;
     setFacultyFilterOptions('studentChoiceCourse', courseSource.map(calGetcCourseCode), 'All courses');
+    setSelectOptions('studentChoiceHistoricalTerms', uniqueOptions(rows, row => normalizeTermLabel(row.term)));
     setModalitySelectOptions('studentChoiceModality', PHYSICAL_MODALITY_LABELS);
     const facultyRows = reportableFacultyRows(state.studentChoiceFacultyRows?.length ? state.studentChoiceFacultyRows : state.facultyHeatmapRows || []);
     setFacultyFilterOptions('studentChoiceFacultyType', facultyRows.map(row => row.facultyType).filter(Boolean), 'All faculty types');
@@ -4285,8 +4553,9 @@
     return new Set(facultyRows.filter(row => row.facultyType === selected).map(row => canon(row.crn)).filter(Boolean));
   }
 
-  function studentChoiceFilteredRows() {
+  function studentChoiceFilteredRows(options = {}) {
     const term = document.getElementById('studentChoiceTerm')?.value || '';
+    const selectedTerms = new Set((options.terms || []).map(normalizeTermLabel).filter(Boolean));
     const campus = document.getElementById('studentChoiceCampus')?.value || '';
     const division = document.getElementById('studentChoiceDivision')?.value || '';
     const department = document.getElementById('studentChoiceDepartment')?.value || '';
@@ -4298,7 +4567,8 @@
       .filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row))
       .filter(row => !(excludeTutoring && isTutoringOpenLabSection(row)))
       .filter(row => {
-        if (term && row.term !== term) return false;
+        if (selectedTerms.size && !selectedTerms.has(normalizeTermLabel(row.term))) return false;
+        if (!options.ignoreTerm && term && row.term !== term) return false;
         if (campus && row.campus !== campus) return false;
         if (division && row.division !== division) return false;
         if (department && row.department !== department) return false;
@@ -4465,7 +4735,7 @@
       }).join('');
       return `<tr><th class="heatmap-day-cell">${day}</th>${cells}</tr>`;
     }).join('');
-    node.innerHTML = `<section class="presence-curve" data-collapsible-title="Student Choice Heatmap" data-collapsible-id="student-choice-heatmap-generated"><h3>Student Choice Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    node.innerHTML = `<section class="presence-curve" data-collapsible-title="Opportunity Heatmap" data-collapsible-id="schedule-opportunity-heatmap-generated"><h3>Opportunity Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
     refreshGeneratedCollapsibleSections(node);
   }
 
@@ -4523,10 +4793,10 @@
     }).join('');
     const legend = dayNames.map((day, index) => `<span><i style="background:${colors[index]}"></i>${escapeAttr(day)}</span>`).join('');
     node.innerHTML = `
-      <section class="presence-curve supply-demand-line" data-collapsible-title="Student Choice Line Graph" data-collapsible-id="student-choice-line-generated">
-        <h3>Student Choice Line Graph</h3>
-        <p>One line per day using the selected student choice metric.</p>
-        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Student Choice ${escapeAttr(metricName)} line graph">
+      <section class="presence-curve supply-demand-line" data-collapsible-title="Opportunity Line Graph" data-collapsible-id="schedule-opportunity-line-generated">
+        <h3>Opportunity Line Graph</h3>
+        <p>One line per day using the selected opportunity metric.</p>
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Schedule Opportunity ${escapeAttr(metricName)} line graph">
           <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#cbd5e1"></line>
           <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#cbd5e1"></line>
           <text x="8" y="${top + 10}" text-anchor="start">${escapeAttr(metricName === 'fillRate' ? '100%' : String(Math.round(maxValue)))}</text>
@@ -4541,22 +4811,70 @@
 
   function renderStudentChoiceOpportunity() {
     const rows = studentChoiceFilteredRows();
+    const historicalTerms = getSelectedValues('studentChoiceHistoricalTerms').map(normalizeTermLabel).filter(Boolean);
+    const historicalRows = studentChoiceFilteredRows({ ignoreTerm: true, terms: historicalTerms });
+    const requestedMode = document.getElementById('studentChoiceMode')?.value || 'auto';
+    const mode = scheduleOpportunityModeForRows(rows, requestedMode);
+    const demandSource = document.getElementById('studentChoiceDemandSource')?.value || 'average';
     const metricName = document.getElementById('studentChoiceMetric')?.value || 'uniqueCourses';
     const buckets = buildStudentChoiceBuckets(rows, metricName, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
     state.studentChoiceBucketRows = buckets;
     const nonEmpty = buckets.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
+    const summary = scheduleOpportunitySummary(rows, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
+    const projection = scheduleOpportunityHistoricalProjection(rows, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
+    const gapRows = scheduleOpportunityGapRows(rows, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
+    const historicalComparisonRows = scheduleOpportunityTermSummaries(historicalRows, { includeOnline: includeOnlineFromSelect('studentChoiceModality') })
+      .map(row => ({
+        term: row.term,
+        scheduledClassOfferings: row.scheduledClassOfferings,
+        seatsOffered: row.seatsOffered,
+        enrollment: row.enrollment,
+        fillRate: row.fillRate,
+        waitlist: row.waitlist,
+        studentPresence: row.studentPresence,
+        enrollmentPerClassOffering: round1(row.enrollmentPerClassOffering),
+        uniqueCourses: row.uniqueCourses,
+        uniqueSubjects: row.uniqueSubjects,
+        uniqueCalGetcCourses: row.uniqueCalGetcCourses,
+        campusChoices: row.campusChoices,
+        modalityChoices: row.modalityChoices,
+        choiceDiversityIndex: row.choiceDiversityIndex,
+        demandPressureScore: row.demandPressureScore
+      }));
+    const scenario = {
+      action: document.getElementById('studentChoiceScenarioAction')?.value || 'none',
+      crns: String(document.getElementById('studentChoiceScenarioCrns')?.value || '').split(/[,\s]+/).filter(Boolean),
+      days: document.getElementById('studentChoiceScenarioDays')?.value || '',
+      start: document.getElementById('studentChoiceScenarioStart')?.value || '',
+      end: document.getElementById('studentChoiceScenarioEnd')?.value || '',
+      modality: document.getElementById('studentChoiceScenarioModality')?.value || ''
+    };
+    const scenarioRows = scheduleOpportunityScenarioComparison(rows, scenario, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
+    state.studentChoicePlanningGapRows = gapRows;
+    state.studentChoiceScenarioRows = scenarioRows;
     const highChoice = nonEmpty.filter(row => row.interpretation.startsWith('High choice')).length;
     const lowChoiceHighDemand = nonEmpty.filter(row => row.interpretation === 'Low choice / high demand').length;
-    const totalSeats = nonEmpty.reduce((total, row) => total + row.seats, 0);
-    const totalEnrollment = nonEmpty.reduce((total, row) => total + row.enrollment, 0);
+    const noCurrentEnrollment = mode === 'planning' && !summary.hasCurrentEnrollment;
     metric('studentChoiceMetrics', [
-      ['Course Choice Count', Math.max(0, ...nonEmpty.map(row => row.courseChoiceCount || 0))],
-      ['GE Choice Count', Math.max(0, ...nonEmpty.map(row => row.geChoiceCount || 0))],
-      ['Subject Breadth Count', Math.max(0, ...nonEmpty.map(row => row.subjectBreadthCount || 0))],
-      ['Seat Choice Count', totalSeats],
-      ['Modality Choice Count', Math.max(0, ...nonEmpty.map(row => row.modalityChoiceCount || 0))],
-      ['Campus Choice Count', Math.max(0, ...nonEmpty.map(row => row.campusChoiceCount || 0))],
-      ['Peak Choice Diversity Index', Math.max(0, ...nonEmpty.map(row => row.choiceDiversityIndex || 0))],
+      ['Analysis Mode', mode === 'historical' ? 'Historical Evaluation' : mode === 'scenario' ? 'Scenario Analysis' : 'Planning & Forecast'],
+      ['Scheduled Class Offerings', summary.scheduledClassOfferings],
+      ['Unique Courses Available', summary.uniqueCourses],
+      ['Unique Subjects Available', summary.uniqueSubjects],
+      ['Unique CAL-GETC/GE Courses', summary.uniqueCalGetcCourses],
+      ['Seats Offered', summary.seatsOffered],
+      ['Enrollment', noCurrentEnrollment ? 'No current enrollment yet' : summary.enrollment],
+      ['Projected Enrollment', Math.round(projection.projectedEnrollment || 0)],
+      ['Student Presence', noCurrentEnrollment ? 'No current enrollment yet' : summary.studentPresence],
+      ['Projected Student Presence', Math.round(projection.projectedStudentPresence || 0)],
+      ['Fill Rate', noCurrentEnrollment ? 'No current enrollment yet' : summary.fillRate],
+      ['Projected Fill Rate', projection.projectedFillRate],
+      ['Waitlist', summary.waitlist],
+      ['Enrollment per Class Offering', noCurrentEnrollment ? 'No current enrollment yet' : round1(summary.enrollmentPerClassOffering)],
+      ['Empty Seats', summary.emptySeats],
+      ['Campus Choices', summary.campusChoices],
+      ['Modality Choices', summary.modalityChoices],
+      ['Choice Diversity Index', summary.choiceDiversityIndex],
+      ['Demand Pressure Score', summary.demandPressureScore],
       ['High Choice Blocks', highChoice],
       ['Low Choice / High Demand', lowChoiceHighDemand]
     ]);
@@ -4568,6 +4886,7 @@
     const tableRows = nonEmpty.map(row => ({
       day: row.day,
       timeBlock: row.timeBlock,
+      analysisMode: mode,
       uniqueCourses: row.uniqueCourses,
       uniqueSubjects: row.uniqueSubjects,
       uniqueCalGetcCourses: row.uniqueCalGetcCourses,
@@ -4580,32 +4899,70 @@
       waitlist: row.waitlist,
       interpretation: row.interpretation
     }));
-    table('studentChoiceTable', tableRows, ['day', 'timeBlock', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'choiceDiversityIndex', 'sections', 'seats', 'enrollment', 'fillRate', 'emptySeats', 'waitlist', 'interpretation']);
+    state.studentChoiceExportRows = [
+      ...tableRows,
+      ...historicalComparisonRows.map(row => ({ analysisMode: 'Historical Evaluation', rowType: 'Historical Comparison', ...row })),
+      ...gapRows.map(row => ({ analysisMode: 'Planning & Forecast', rowType: 'Planning Gap', ...row })),
+      ...scenarioRows.map(row => ({ analysisMode: 'Scenario Analysis', rowType: 'Scenario Before/After', ...row }))
+    ];
+    table('studentChoiceTable', tableRows, ['day', 'timeBlock', 'analysisMode', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'choiceDiversityIndex', 'sections', 'seats', 'enrollment', 'fillRate', 'emptySeats', 'waitlist', 'interpretation']);
+    const historicalNode = document.getElementById('studentChoiceHistoricalTable');
+    if (historicalNode) historicalNode.style.display = view === 'all' || mode === 'historical' || mode === 'planning' ? '' : 'none';
+    table('studentChoiceHistoricalTable', historicalComparisonRows, ['term', 'scheduledClassOfferings', 'seatsOffered', 'enrollment', 'fillRate', 'waitlist', 'studentPresence', 'enrollmentPerClassOffering', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'campusChoices', 'modalityChoices', 'choiceDiversityIndex', 'demandPressureScore']);
+    const gapNode = document.getElementById('studentChoicePlanningGapTable');
+    if (gapNode) gapNode.style.display = view === 'all' || mode === 'planning' ? '' : 'none';
+    table('studentChoicePlanningGapTable', gapRows, ['metric', 'current', 'historicalAverage', 'opportunityGap', 'interpretation']);
+    const scenarioNode = document.getElementById('studentChoiceScenarioTable');
+    if (scenarioNode) scenarioNode.style.display = view === 'all' || mode === 'scenario' ? '' : 'none';
+    table('studentChoiceScenarioTable', scenarioRows, ['metric', 'before', 'after', 'change']);
+    const category = scheduleOpportunityCategory(summary, projection, mode);
+    const recommendationRows = buildSchedulingRecommendations(rows, {
+      includeOnline: includeOnlineFromSelect('studentChoiceModality'),
+      planningWindow: { earliest: '07:00', latest: '19:00' }
+    });
+    const recommendationNode = document.getElementById('studentChoiceRecommendations');
+    if (recommendationNode) {
+      recommendationNode.innerHTML = `
+        <section data-collapsible-title="Recommendation and Interpretation" data-collapsible-id="schedule-opportunity-interpretation">
+          <h3>Recommendation and Interpretation</h3>
+          <p><strong>${escapeAttr(category)}</strong></p>
+          <ul>
+            <li>Historical terms used: ${escapeAttr(projection.termsIncluded?.join(', ') || 'None selected')}</li>
+            <li>Demand source: ${escapeAttr(demandSource)}</li>
+            <li>${noCurrentEnrollment ? 'No current enrollment yet; historical demand projections are used instead of treating zero enrollment as low demand.' : 'Current demand uses census enrollment when available and actual/current enrollment as fallback.'}</li>
+            ${recommendationRows.slice(0, 4).map(row => `<li>${escapeAttr(row.category)}: ${escapeAttr(row.recommendationTitle)}</li>`).join('')}
+          </ul>
+        </section>`;
+      refreshGeneratedCollapsibleSections(recommendationNode);
+    }
     renderMethodologyPanel(document.getElementById('studentChoiceLegend'), {
-      title: 'Student Choice Opportunity Methodology & Data Dictionary',
-      purpose: 'Measures how much schedule choice students have by day and time, not just how many students enrolled.',
-      metricsUsed: ['Campus Choice Count', 'Course Choice Count', 'GE Choice Count', 'Subject Breadth Count', 'Seat Choice Count', 'Modality Choice Count', 'Choice Diversity Index', 'Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats'],
-      calculationRules: 'Fixed meeting rows are placed into every half-hour interval they overlap. Duplicate rows for the same CRN, day, start, and end are counted once per bucket. Online/TBA rows are excluded from physical time buckets unless selected. Tutoring/Open Lab sections are excluded by default when the checkbox is selected.',
-      assumptions: 'Enrollment alone does not show whether students had meaningful choices. A time block may fill well because students prefer that time, or because very few alternatives exist.',
-      limitations: 'Choice counts indicate available schedule variety in the uploaded data. They do not include student intent, unseen conflicts, program sequencing, commute constraints, or course substitution rules not represented in the source data.',
+      title: 'Schedule Opportunity Analysis Methodology & Data Dictionary',
+      purpose: 'Measures schedule opportunity by comparing planned offerings, historical demand, student choice, enrollment pressure, and schedule distribution. This report measures schedule opportunity, not pure student preference.',
+      metricsUsed: ['Scheduled Class Offerings', 'Unique Courses Available', 'Unique Subjects Available', 'Unique CAL-GETC/GE Courses Available', 'Seats Offered', 'Enrollment', 'Projected Enrollment', 'Student Presence', 'Projected Student Presence', 'Fill Rate', 'Projected Fill Rate', 'Waitlist', 'Enrollment per Class Offering', 'Empty Seats', 'Campus Choices', 'Modality Choices', 'Choice Diversity Index', 'Demand Pressure Score', 'Opportunity Gap Score'],
+      calculationRules: 'Census enrollment is preferred and actual/current enrollment is the fallback. Duplicate CRNs are counted once for class offerings unless distinct meeting times/components are being analyzed in the heatmap. Fixed meeting rows are placed into every half-hour interval they overlap. Online/TBA rows are excluded from physical time buckets unless selected. Future terms without enrollment show No current enrollment yet and use selected historical demand projections.',
+      assumptions: 'Students can only enroll in sections that exist. Future terms without enrollment should be evaluated against historical demand. Historical projections are planning estimates, not guarantees.',
+      limitations: 'Opportunity metrics do not include every operational constraint, such as budget, program sequencing, instructor availability, room setup, commute constraints, or course substitution rules not represented in the source data.',
       items: [
         ['Unique Courses', 'Distinct discipline + course combinations available in a time bucket.'],
         ['Unique Subjects', 'Distinct subject/discipline codes available in a time bucket.'],
         ['Unique CAL-GETC Courses', 'Distinct courses in the bucket that map to configured CAL-GETC areas.'],
+        ['Scheduled Class Offerings', 'Distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN are counted once in summary metrics.'],
+        ['Historical Opportunity Gap', 'Current planned schedule metric minus the selected historical average metric.'],
+        ['Planning Window', 'Active expansion recommendations use the default recommended start window of 7:00 AM through 7:00 PM. Late-night findings are suppressed from active recommendations and may appear as diagnostics in recommendation tooling.'],
         ['Choice Diversity Index', '0-100 index. Formula blends course breadth, subject breadth, GE breadth, and a concentration penalty based on the largest single-course share of active sections in the bucket.'],
         ['High choice / high demand', 'A bucket with broad choice and strong enrollment/fill indicators.'],
         ['Low choice / high demand', 'A bucket with limited choice and strong enrollment/fill indicators.']
       ],
-      version: 'Methodology v1.0'
+      version: 'Methodology v2.0'
     });
     const status = document.getElementById('studentChoiceStatus');
-    if (status) status.textContent = `Loaded ${state.studentChoiceRows.length} row(s); ${rows.length} row(s) match filters; ${nonEmpty.length} active time block(s).`;
+    if (status) status.textContent = `Loaded ${state.studentChoiceRows.length} row(s); ${rows.length} row(s) match filters; ${nonEmpty.length} active time block(s); ${mode === 'planning' && !summary.hasCurrentEnrollment ? 'No current enrollment yet.' : `${mode} mode.`}`;
     state.studentChoiceRan = true;
   }
 
   async function loadStudentChoiceRows() {
     const uploadedRows = await readCsv(document.getElementById('studentChoiceCsv'), { sourceType: 'STUDENT_CHOICE_UPLOAD' });
-    const archivedRows = await readArchivedRows('studentChoiceArchiveTerms', { reportLabel: 'Student Choice Opportunity' });
+    const archivedRows = await readArchivedRows('studentChoiceArchiveTerms', { reportLabel: 'Schedule Opportunity Analysis' });
     state.studentChoiceRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     const facultyInput = document.getElementById('studentChoiceFacultyCsv');
     state.studentChoiceFacultyRows = facultyInput?.files?.length
@@ -4626,16 +4983,34 @@
   }
 
   function clearStudentChoiceOpportunity() {
-    ['studentChoiceView', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse', 'studentChoiceCalGetc', 'studentChoiceFacultyType'].forEach(id => {
+    ['studentChoiceView', 'studentChoiceMode', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse', 'studentChoiceCalGetc', 'studentChoiceFacultyType', 'studentChoiceScenarioAction', 'studentChoiceScenarioModality'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.value = '';
+    });
+    const historical = document.getElementById('studentChoiceHistoricalTerms');
+    if (historical) Array.from(historical.options || []).forEach(option => { option.selected = false; });
+    ['studentChoiceScenarioCrns', 'studentChoiceScenarioDays'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
     setModalitySelectValues('studentChoiceModality', PHYSICAL_MODALITY_LABELS);
     const metricSelect = document.getElementById('studentChoiceMetric');
     const viewSelect = document.getElementById('studentChoiceView');
+    const modeSelect = document.getElementById('studentChoiceMode');
+    const demandSelect = document.getElementById('studentChoiceDemandSource');
+    const scenarioAction = document.getElementById('studentChoiceScenarioAction');
+    const scenarioModality = document.getElementById('studentChoiceScenarioModality');
+    const scenarioStart = document.getElementById('studentChoiceScenarioStart');
+    const scenarioEnd = document.getElementById('studentChoiceScenarioEnd');
     const exclude = document.getElementById('studentChoiceExcludeTutoring');
     if (metricSelect) metricSelect.value = 'uniqueCourses';
     if (viewSelect) viewSelect.value = 'all';
+    if (modeSelect) modeSelect.value = 'auto';
+    if (demandSelect) demandSelect.value = 'average';
+    if (scenarioAction) scenarioAction.value = 'none';
+    if (scenarioModality) scenarioModality.value = 'In-Person';
+    if (scenarioStart) scenarioStart.value = '09:00';
+    if (scenarioEnd) scenarioEnd.value = '10:30';
     if (exclude) exclude.checked = true;
     if (state.studentChoiceRows.length) renderStudentChoiceOpportunity();
   }
@@ -9761,11 +10136,15 @@
       { selector: '#busyTimeObservations', id: 'busy-time-observations', title: 'Busy Time Observations' },
       { selector: '#busyTimeTable', id: 'busy-time-summary-table', title: 'Busy Time Summary Table' },
       { selector: '#busyTimeLegend', id: 'busy-time-methodology', title: 'Busy Time Definitions and Methodology' },
-      { selector: '#studentChoiceMetrics', id: 'student-choice-summary-cards', title: 'Student Choice Summary Cards' },
-      { selector: '#studentChoiceHeatmap', id: 'student-choice-heatmap', title: 'Student Choice Heatmap' },
-      { selector: '#studentChoiceLineGraph', id: 'student-choice-line-graph', title: 'Student Choice Line Graph' },
-      { selector: '#studentChoiceTable', id: 'student-choice-summary-table', title: 'Student Choice Summary Table' },
-      { selector: '#studentChoiceLegend', id: 'student-choice-methodology', title: 'Student Choice Recommendations and Methodology' },
+      { selector: '#studentChoiceMetrics', id: 'schedule-opportunity-summary-cards', title: 'Schedule Opportunity Summary Cards' },
+      { selector: '#studentChoiceHeatmap', id: 'schedule-opportunity-heatmap', title: 'Opportunity Heatmap' },
+      { selector: '#studentChoiceLineGraph', id: 'schedule-opportunity-line-graph', title: 'Opportunity Line Graph' },
+      { selector: '#studentChoiceHistoricalTable', id: 'schedule-opportunity-historical-comparison-table', title: 'Historical Comparison Table' },
+      { selector: '#studentChoicePlanningGapTable', id: 'schedule-opportunity-planning-gap-table', title: 'Planning Gap Table' },
+      { selector: '#studentChoiceScenarioTable', id: 'schedule-opportunity-scenario-table', title: 'Scenario Before/After Table' },
+      { selector: '#studentChoiceRecommendations', id: 'schedule-opportunity-recommendation-panel', title: 'Recommendation and Interpretation Panel' },
+      { selector: '#studentChoiceTable', id: 'schedule-opportunity-summary-table', title: 'Historical Comparison Table' },
+      { selector: '#studentChoiceLegend', id: 'schedule-opportunity-methodology', title: 'Schedule Opportunity Definitions and Methodology' },
       { selector: '#recommendationMetrics', id: 'recommendation-summary-cards', title: 'Recommendation Summary Cards' },
       { selector: '#recommendationCards', id: 'recommendation-cards', title: 'Recommendation Cards' },
       { selector: '#recommendationPriorityList', id: 'recommendation-priority-list', title: 'Filterable Priority List' },
@@ -10901,13 +11280,13 @@
     });
     document.getElementById('clearBusyTimeDashboard')?.addEventListener('click', clearBusyTimeDashboard);
     document.getElementById('exportBusyTimeDashboard')?.addEventListener('click', () => exportRowsWithoutMethodology(state.busyTimeTableRows, 'busy-time-dashboard.csv'));
-    document.getElementById('runStudentChoiceOpportunity')?.addEventListener('click', () => runStudentChoiceOpportunity().catch(err => alert(err.message || 'Student Choice Opportunity failed.')));
+    document.getElementById('runStudentChoiceOpportunity')?.addEventListener('click', () => runStudentChoiceOpportunity().catch(err => alert(err.message || 'Schedule Opportunity Analysis failed.')));
     document.getElementById('studentChoiceCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('studentChoiceFacultyCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('loadSavedStudentChoiceFaculty')?.addEventListener('click', () => loadSavedStudentChoiceFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('studentChoiceArchiveTerms')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('archiveStudentChoiceUploads')?.addEventListener('click', () => archiveUploads('studentChoiceCsv').catch(err => alert(err.message || 'Archive failed.')));
-    ['studentChoiceView', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceFacultyType', 'studentChoiceExcludeTutoring'].forEach(id => {
+    ['studentChoiceView', 'studentChoiceMode', 'studentChoiceHistoricalTerms', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceFacultyType', 'studentChoiceScenarioCrns', 'studentChoiceScenarioAction', 'studentChoiceScenarioDays', 'studentChoiceScenarioStart', 'studentChoiceScenarioEnd', 'studentChoiceScenarioModality', 'studentChoiceExcludeTutoring'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.studentChoiceRan) renderStudentChoiceOpportunity(); });
     });
     ['studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse'].forEach(id => {
@@ -10917,7 +11296,7 @@
       });
     });
     document.getElementById('clearStudentChoiceOpportunity')?.addEventListener('click', clearStudentChoiceOpportunity);
-    document.getElementById('exportStudentChoiceOpportunity')?.addEventListener('click', () => exportRowsWithoutMethodology(state.studentChoiceBucketRows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), 'student-choice-opportunity.csv'));
+    document.getElementById('exportStudentChoiceOpportunity')?.addEventListener('click', () => exportRowsWithoutMethodology(state.studentChoiceExportRows || state.studentChoiceBucketRows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), 'schedule-opportunity-analysis.csv'));
     document.getElementById('runRecommendationEngine')?.addEventListener('click', () => runRecommendationEngine().catch(err => alert(err.message || 'Recommendation Engine failed.')));
     document.getElementById('recommendationCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
     document.getElementById('recommendationFacultyCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
@@ -11019,6 +11398,15 @@
     physicalIntervalRows,
     buildSupplyDemandBuckets,
     buildStudentChoiceBuckets,
+    distinctScheduleSections,
+    scheduleOpportunitySummary,
+    scheduleOpportunityModeForRows,
+    scheduleOpportunityTermSummaries,
+    scheduleOpportunityHistoricalProjection,
+    scheduleOpportunityGapRows,
+    scheduleOpportunityScenarioRows,
+    scheduleOpportunityScenarioComparison,
+    scheduleOpportunityCategory,
     buildSchedulingRecommendations,
     instructionalMethodValidationRows,
     buildFacultyHeatmapBuckets,

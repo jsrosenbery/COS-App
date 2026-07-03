@@ -2454,12 +2454,12 @@ test('busy time dashboard is a standalone Development report summarizing core bu
   assert.match(text, /busy-time-dashboard\.csv/);
 });
 
-test('student choice opportunity is a standalone Development report with choice metrics', () => {
+test('schedule opportunity analysis is a standalone Development report with planning and scenario modes', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(text, /studentChoiceOpportunity: 'student-choice-opportunity'/);
   assert.match(text, /\[REPORTS\.studentChoiceOpportunity\]: 'development'/);
-  assert.match(text, /Student Choice Opportunity/);
+  assert.match(text, /Schedule Opportunity Analysis/);
   assert.match(text, /id="studentChoiceOpportunityReport"/);
   assert.match(text, /id="studentChoiceCsv"/);
   assert.match(text, /id="studentChoiceArchiveTerms"/);
@@ -2467,6 +2467,20 @@ test('student choice opportunity is a standalone Development report with choice 
   assert.match(text, /id="studentChoiceFacultyArchiveTerm"/);
   assert.match(text, /id="loadSavedStudentChoiceFaculty"/);
   assert.match(text, /function loadSavedStudentChoiceFacultySchedule/);
+  assert.match(text, /Historical Evaluation/);
+  assert.match(text, /Planning &amp; Forecast/);
+  assert.match(text, /Scenario Analysis/);
+  assert.match(text, /studentChoiceHistoricalTerms/);
+  assert.match(text, /studentChoiceDemandSource/);
+  assert.match(text, /studentChoiceScenarioAction/);
+  assert.match(text, /Scheduled Class Offerings/);
+  assert.match(text, /Projected Enrollment/);
+  assert.match(text, /Historical Opportunity Gap/);
+  assert.match(text, /id="studentChoiceHistoricalTable"/);
+  assert.match(text, /Historical Comparison Table/);
+  assert.match(text, /Scenario Before\/After Table/);
+  assert.match(text, /No current enrollment yet/);
+  assert.match(text, /Students can only enroll in sections that exist/);
   assert.match(text, /Unique courses/);
   assert.match(text, /Unique CAL-GETC courses/);
   assert.match(text, /Seats offered/);
@@ -2494,7 +2508,7 @@ test('student choice opportunity is a standalone Development report with choice 
   assert.match(text, /function buildStudentChoiceBuckets/);
   assert.match(text, /function renderStudentChoiceHeatmap/);
   assert.match(text, /function renderStudentChoiceLineGraph/);
-  assert.match(text, /student-choice-opportunity\.csv/);
+  assert.match(text, /schedule-opportunity-analysis\.csv/);
 });
 
 test('choice diversity index rewards broad course choice over repeated sections', () => {
@@ -2519,6 +2533,72 @@ test('choice diversity index rewards broad course choice over repeated sections'
   });
 
   assert.ok(repeatedFewCourses < broadCourses, `${repeatedFewCourses} should be lower than ${broadCourses}`);
+});
+
+test('schedule opportunity planning mode uses historical demand instead of labeling future zero enrollment as low demand', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    { Term: 'FALL 2027', CRN: '10001', Subject: 'MATH', Course: '021', Campus: 'COS', Capacity: '30', ACTUAL_ENROLL: '0', CENSUS_ENROLL: '0', Waitlist: '0', Days: 'MW', Start_Time: '09:00', End_Time: '10:30', 'Instructional Method': 'IP' },
+    { Term: 'FALL 2027', CRN: '10001', Subject: 'MATH', Course: '021', Campus: 'COS', Capacity: '30', ACTUAL_ENROLL: '0', CENSUS_ENROLL: '0', Waitlist: '0', Days: 'MW', Start_Time: '09:00', End_Time: '10:30', 'Instructional Method': 'IP' },
+    { Term: 'FALL 2026', CRN: '20001', Subject: 'MATH', Course: '021', Campus: 'COS', Capacity: '30', CENSUS_ENROLL: '27', Waitlist: '3', Days: 'MW', Start_Time: '09:00', End_Time: '10:30', 'Instructional Method': 'IP' },
+    { Term: 'FALL 2025', CRN: '30001', Subject: 'MATH', Course: '021', Campus: 'COS', Capacity: '30', CENSUS_ENROLL: '24', Waitlist: '1', Days: 'MW', Start_Time: '09:00', End_Time: '10:30', 'Instructional Method': 'IP' }
+  ].map(row => COSEnrollmentAnalytics.normalizeRow(row));
+  const current = rows.filter(row => row.term === 'FALL 2027');
+  const historical = rows.filter(row => row.term !== 'FALL 2027');
+
+  assert.equal(COSEnrollmentAnalytics.scheduleOpportunityModeForRows(current), 'planning');
+  const summary = COSEnrollmentAnalytics.scheduleOpportunitySummary(current);
+  assert.equal(summary.scheduledClassOfferings, 1);
+  assert.equal(summary.hasCurrentEnrollment, false);
+  const projection = COSEnrollmentAnalytics.scheduleOpportunityHistoricalProjection(current, historical, 'average');
+  assert.equal(projection.projectedEnrollment, 25.5);
+  assert.notEqual(COSEnrollmentAnalytics.scheduleOpportunityCategory(summary, projection, 'planning'), 'Low demand');
+});
+
+test('schedule opportunity weighted averages best match gaps and scenario outputs are calculated', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const make = (term, crn, enrollment, capacity = 30, start = '09:00', days = 'MW', modality = 'IP') => COSEnrollmentAnalytics.normalizeRow({
+    Term: term,
+    CRN: crn,
+    Subject: 'ENGL',
+    Course: '001',
+    Campus: 'COS',
+    Capacity: String(capacity),
+    CENSUS_ENROLL: String(enrollment),
+    Waitlist: enrollment >= capacity ? '2' : '0',
+    Days: days,
+    Start_Time: start,
+    End_Time: start === '13:00' ? '14:30' : '10:30',
+    'Instructional Method': modality
+  });
+  const current = [make('FALL 2027', '90001', 0), make('FALL 2027', '90002', 0, 25, '13:00')];
+  const historical = [
+    make('FALL 2022', '10001', 10),
+    make('FALL 2023', '20001', 20),
+    make('FALL 2024', '30001', 30),
+    make('FALL 2025', '40001', 40),
+    make('FALL 2026', '50001', 50)
+  ];
+
+  const weighted3 = COSEnrollmentAnalytics.scheduleOpportunityHistoricalProjection(current, historical, 'weighted3');
+  const weighted5 = COSEnrollmentAnalytics.scheduleOpportunityHistoricalProjection(current, historical, 'weighted5');
+  const best = COSEnrollmentAnalytics.scheduleOpportunityHistoricalProjection(current, historical, 'bestMatch');
+  assert.equal(Math.round(weighted3.projectedEnrollment), 43);
+  assert.equal(Math.round(weighted5.projectedEnrollment), 37);
+  assert.equal(best.bestMatchTerm, 'FALL 2022');
+
+  const gaps = COSEnrollmentAnalytics.scheduleOpportunityGapRows(current, historical, 'weighted3');
+  assert.ok(gaps.some(row => row.metric === 'Scheduled Class Offerings' && row.opportunityGap === 1));
+  assert.ok(gaps.some(row => row.metric === 'Enrollment Projection'));
+
+  const removed = COSEnrollmentAnalytics.scheduleOpportunityScenarioRows(current, { action: 'remove', crns: ['90002'] });
+  assert.equal(COSEnrollmentAnalytics.distinctScheduleSections(removed).length, 1);
+  const shifted = COSEnrollmentAnalytics.scheduleOpportunityScenarioRows(current, { action: 'shiftPattern', crns: ['90001'], days: 'TR', start: '11:00', end: '12:30' });
+  assert.equal(shifted.find(row => row.crn === '90001').dayPattern, 'TR');
+  assert.equal(shifted.find(row => row.crn === '90001').start, '11:00');
+  const comparison = COSEnrollmentAnalytics.scheduleOpportunityScenarioComparison(current, { action: 'remove', crns: ['90002'] }, historical, 'weighted3');
+  assert.ok(comparison.some(row => row.metric === 'Scheduled Class Offerings' && row.before === 2 && row.after === 1));
+  assert.ok(comparison.every(row => ['metric', 'before', 'after', 'change'].every(key => Object.hasOwn(row, key))));
 });
 
 test('scheduling recommendation engine is advisory and covers recommendation categories', () => {
@@ -3053,7 +3133,7 @@ test('collapsible sections are wired across reports without changing Room Availa
   assert.match(app, /modality-instructional-method-details/);
   assert.match(analytics, /registerEnrollmentCollapsibleSections/);
   assert.match(analytics, /supply-demand-heatmap/);
-  assert.match(analytics, /student-choice-line-graph/);
+  assert.match(analytics, /schedule-opportunity-line-graph/);
   assert.match(analytics, /recommendation-priority-list/);
   assert.match(analytics, /<details class="methodology-panel" open>/);
 });
