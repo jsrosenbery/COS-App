@@ -2778,6 +2778,12 @@ test('modality balance uses shared three-category modality normalization and dia
   assert.match(app, /includeDualEnrollment/);
   assert.match(app, /COSModalityNormalizer\.normalize/);
   assert.match(app, /renderModalityDiagnostics/);
+  assert.match(app, /Modality Filter Diagnostics/);
+  assert.match(app, /Rows after Division filter/);
+  assert.match(app, /rowsAfterDivisionFilter/);
+  assert.match(app, /function filterMatchesAny/);
+  assert.match(app, /function uniqueFilterOptions/);
+  assert.match(app, /function modalityDivisionValue/);
   assert.match(app, /Unmapped Instructional Method Diagnostics/);
   assert.match(app, /isReportableModalityCategory/);
   assert.match(app, /loadModalityArchiveRowsFromBackend/);
@@ -2889,6 +2895,50 @@ test('modality source exposes total class offerings term comparison', () => {
   assert.match(app, /Positive means the focus term scheduled more offerings; negative means fewer/);
   assert.match(app, /Section: 'Total Class Offerings Term Comparison'/);
   assert.match(app, /Net total class offerings across all modalities/);
+});
+
+test('modality division filter preserves matching rows and summary counts', () => {
+  const hooks = loadScheduleAppRuntime();
+  const rows = [
+    { Term: 'FALL 2026', CRN: '20001', Division: ' Student Services ', Subject: 'COUN', Course: '100', 'Instructional Method': 'IP', CENSUS_ENROLL: '22' },
+    { Term: 'FALL 2026', CRN: '20002', DIVISION: 'student services', Subject: 'COUN', Course: '101', 'Instructional Method': 'ONL', CENSUS_ENROLL: '18' },
+    { Term: 'FALL 2026', CRN: '20003', Division: 'Arts', Subject: 'ART', Course: '101', 'Instructional Method': 'HYB', CENSUS_ENROLL: '12' }
+  ];
+  const filtered = hooks.modalityFilteredSections({
+    sourceRows: rows,
+    term: 'FALL 2026',
+    selectedDivision: ['Student Services']
+  });
+  const summary = hooks.calculateModalityBalanceFromItems(filtered.rows, { filterDebug: filtered.debug });
+
+  assert.equal(filtered.debug.rowsLoaded, 3);
+  assert.equal(filtered.debug.rowsAfterDivisionFilter, 2);
+  assert.equal(filtered.debug.finalRows, 2);
+  assert.equal(JSON.stringify(filtered.rows.map(row => row.courseCode).sort()), JSON.stringify(['COUN 100', 'COUN 101']));
+  assert.equal(summary[0].totalClassOfferings, 2);
+  assert.equal(summary[0].totalEnrollment, 40);
+
+  const cleared = hooks.modalityFilteredSections({ sourceRows: rows, term: 'FALL 2026', selectedDivision: [] });
+  assert.equal(cleared.rows.length, 3);
+});
+
+test('modality division filtering works for historical comparison rows', () => {
+  const hooks = loadScheduleAppRuntime();
+  const historicalRows = [
+    { Term: 'FALL 2025', CRN: '30001', Division: 'Student Services', Subject: 'COUN', Course: '100', 'Instructional Method': 'IP', CENSUS_ENROLL: '20' },
+    { Term: 'FALL 2025', CRN: '30002', Division: 'Arts', Subject: 'ART', Course: '101', 'Instructional Method': 'ONL', CENSUS_ENROLL: '30' }
+  ];
+  const filtered = hooks.modalityFilteredSections({
+    sourceRows: historicalRows,
+    term: 'FALL 2025',
+    selectedDivision: ['student services']
+  });
+  const comparison = hooks.calculateModalityBalanceFromItems(filtered.rows);
+
+  assert.equal(filtered.rows.length, 1);
+  assert.equal(filtered.rows[0].division, 'Student Services');
+  assert.equal(comparison[0].totalClassOfferings, 1);
+  assert.equal(comparison[0].totalEnrollment, 20);
 });
 
 test('modality chart and export data separate class offerings from enrollment', () => {

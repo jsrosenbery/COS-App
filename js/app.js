@@ -205,18 +205,43 @@ function selectedValues(select) {
 function preserveSelected(select, values) {
   if (!select) return;
   const wanted = new Set((values || []).filter(Boolean));
+  const wantedKeys = new Set([...wanted].map(normalizeFilterKey));
   if (select.multiple) {
-    Array.from(select.options).forEach(option => { option.selected = wanted.has(option.value); });
-  } else if (wanted.has(select.value)) {
+    Array.from(select.options).forEach(option => { option.selected = wanted.has(option.value) || wantedKeys.has(normalizeFilterKey(option.value)); });
+  } else if (wanted.has(select.value) || wantedKeys.has(normalizeFilterKey(select.value))) {
     return;
   } else {
-    const first = [...wanted].find(value => Array.from(select.options).some(option => option.value === value));
-    if (first) select.value = first;
+    const first = Array.from(select.options).find(option => wanted.has(option.value) || wantedKeys.has(normalizeFilterKey(option.value)));
+    if (first) select.value = first.value;
   }
 }
 
 function valueMatchesAny(value, selected) {
   return !selected?.length || selected.includes(value);
+}
+
+function normalizeFilterLabel(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeFilterKey(value) {
+  return normalizeFilterLabel(value).toUpperCase();
+}
+
+function uniqueFilterOptions(values) {
+  const byKey = new Map();
+  (values || []).forEach(value => {
+    const label = normalizeFilterLabel(value);
+    const key = normalizeFilterKey(label);
+    if (label && !byKey.has(key)) byKey.set(key, label);
+  });
+  return [...byKey.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function filterMatchesAny(value, selected) {
+  if (!selected?.length) return true;
+  const valueKey = normalizeFilterKey(value);
+  return selected.map(normalizeFilterKey).includes(valueKey);
 }
 
 function appendLine(parent, text, bold = false) {
@@ -852,6 +877,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let snapshotRoomFilter = null;
   let calendarRoomFilter = null;
   let modalityArchiveRows = [];
+  let modalityLastFilterDebug = null;
   let modalityUploadRows = [];
   let modalityLoadedSourceRows = null;
   let scheduleAnalysisRows = null;
@@ -904,6 +930,10 @@ document.addEventListener('DOMContentLoaded', () => {
       termMatches,
       getEnrollmentValue,
       getModalitySectionIdentity,
+      normalizeFilterLabel,
+      filterMatchesAny,
+      modalityDivisionValue,
+      modalityFilteredSections,
       modalityMixGraphData,
       modalityBalanceItemsFromSections,
       calculateModalityBalanceFromItems,
@@ -3289,11 +3319,19 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function getDivision(section) {
-    return extractField(section, ['Division', 'Academic Division', 'Department Division', 'School', 'Area']);
+    return normalizeFilterLabel(extractField(section, ['Division', 'DIVISION', 'Division Name', 'DIVISION_NAME', 'Academic Division', 'Department Division', 'School', 'Area']));
   }
 
   function getDepartment(section) {
-    return extractField(section, ['Department', 'DEPARTMENT', 'Dept', 'DEPT', 'Department Name']);
+    return normalizeFilterLabel(extractField(section, ['Department', 'DEPARTMENT', 'Dept', 'DEPT', 'Department Name']));
+  }
+
+  function modalityDivisionValue(section) {
+    return normalizeFilterLabel(getDivision(section) || getCanonicalSection(section)?.division);
+  }
+
+  function modalityDepartmentValue(section) {
+    return normalizeFilterLabel(getDepartment(section) || getCanonicalSection(section)?.department);
   }
 
   function getCourseCode(section) {
@@ -3380,9 +3418,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const campuses = getUniqueCampuses(rows);
     const terms = [...new Set(rows.map(getSectionTerm).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const comparisonTerms = getModalityComparisonTerms(terms);
-    const divisions = [...new Set(rows.map(getDivision).filter(Boolean))].sort();
+    const divisions = uniqueFilterOptions(rows.map(modalityDivisionValue));
     const disciplines = [...new Set(rows.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
-    const departments = [...new Set(rows.map(getDepartment).filter(Boolean))].sort();
+    const departments = uniqueFilterOptions(rows.map(modalityDepartmentValue));
     const courses = [...new Set(rows.map(getCourseCode).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const modalityOptions = [...new Set(rows.map(section => getModalityCategory(getInstructionalMethod(section) || 'Unspecified')).filter(isReportableModalityCategory))].sort();
     const levels = [...new Set(rows.map(section => getCourseLevel(getCourseParts(section).courseNumber)).filter(Boolean))]
@@ -3426,43 +3464,65 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return extractField(section, ['Title', 'Course_Title', 'Course Title', 'Section Title', 'COURSE_TITLE', 'Course_Name', 'Course Name']);
   }
 
+  function modalityFilterDebugBase(sourceRows, selected = {}) {
+    return {
+      selectedDivision: (selected.division || []).join('; ') || 'All',
+      uniqueDivisions: uniqueFilterOptions(sourceRows.map(modalityDivisionValue)),
+      rowsLoaded: sourceRows.length,
+      rowsBeforeDivisionFilter: 0,
+      rowsAfterCampusFilter: 0,
+      rowsAfterDivisionFilter: 0,
+      rowsAfterDepartmentFilter: 0,
+      rowsAfterDisciplineFilter: 0,
+      rowsAfterCourseFilter: 0,
+      finalRows: 0
+    };
+  }
+
   function modalityFilteredSections(options = {}) {
     const selectedTerm = options.term || modalityDecisionTermSelect?.value || '';
-    const selectedCampus = selectedValues(modalityCampusSelect);
-    const selectedDivision = selectedValues(modalityDivisionSelect);
-    const selectedDiscipline = selectedValues(modalityDisciplineSelect);
-    const selectedDepartment = selectedValues(modalityDepartmentSelect);
-    const selectedCourse = selectedValues(modalityCourseSelect);
-    const selectedModality = selectedValues(modalityModalitySelect);
-    const selectedLevel = selectedValues(modalityLevelSelect);
-    const selectedCalGetc = modalityCalGetcSelect?.value || '';
+    const selectedCampus = options.selectedCampus || selectedValues(modalityCampusSelect);
+    const selectedDivision = options.selectedDivision || selectedValues(modalityDivisionSelect);
+    const selectedDiscipline = options.selectedDiscipline || selectedValues(modalityDisciplineSelect);
+    const selectedDepartment = options.selectedDepartment || selectedValues(modalityDepartmentSelect);
+    const selectedCourse = options.selectedCourse || selectedValues(modalityCourseSelect);
+    const selectedModality = options.selectedModality || selectedValues(modalityModalitySelect);
+    const selectedLevel = options.selectedLevel || selectedValues(modalityLevelSelect);
+    const selectedCalGetc = options.selectedCalGetc ?? (modalityCalGetcSelect?.value || '');
     const includeDualEnrollment = Boolean(modalityIncludeDe?.checked);
     const excludeTutoringOpenLab = document.getElementById('modality-exclude-tutoring-openlab')?.checked !== false;
     let tutoringOpenLabRowsExcluded = 0;
     const seenSections = new Set();
     const rows = [];
     const sourceRows = options.sourceRows || getModalitySourceRows();
+    const debug = modalityFilterDebugBase(sourceRows, { division: selectedDivision });
 
     sourceRows.forEach((section, index) => {
       const canonical = getCanonicalSection(section);
-      const campus = canonical?.campus || extractField(section, ['Campus', 'campus', 'CAMPUS']);
+      const campus = normalizeFilterLabel(canonical?.campus || extractField(section, ['Campus', 'campus', 'CAMPUS']));
       const term = canonical?.term ? normalizeTermLabel(canonical.term) : getSectionTerm(section);
-      const division = canonical?.division || getDivision(section);
-      const department = canonical?.department || getDepartment(section);
+      const division = modalityDivisionValue(section);
+      const department = modalityDepartmentValue(section);
       const courseParts = canonical ? { discipline: canonical.subject, courseNumber: canonical.course } : getCourseParts(section);
-      const courseCode = canonical?.courseCode || getCourseCode(section);
+      const courseCode = normalizeFilterLabel(canonical?.courseCode || getCourseCode(section));
       const courseLevel = getCourseLevel(courseParts.courseNumber);
       if (excludeTutoringOpenLab && isTutoringOpenLabSection(section)) {
         tutoringOpenLabRowsExcluded += 1;
         return;
       }
       if (selectedTerm && !termMatches(term, selectedTerm)) return;
-      if (!valueMatchesAny(campus, selectedCampus)) return;
-      if (!valueMatchesAny(division, selectedDivision)) return;
-      if (!valueMatchesAny(courseParts.discipline, selectedDiscipline)) return;
-      if (!valueMatchesAny(department, selectedDepartment)) return;
-      if (!valueMatchesAny(courseCode, selectedCourse)) return;
-      if (!valueMatchesAny(courseLevel, selectedLevel)) return;
+      debug.rowsBeforeDivisionFilter += 1;
+      if (!filterMatchesAny(campus, selectedCampus)) return;
+      debug.rowsAfterCampusFilter += 1;
+      if (!filterMatchesAny(division, selectedDivision)) return;
+      debug.rowsAfterDivisionFilter += 1;
+      if (!filterMatchesAny(department, selectedDepartment)) return;
+      debug.rowsAfterDepartmentFilter += 1;
+      if (!filterMatchesAny(courseParts.discipline, selectedDiscipline)) return;
+      debug.rowsAfterDisciplineFilter += 1;
+      if (!filterMatchesAny(courseCode, selectedCourse)) return;
+      debug.rowsAfterCourseFilter += 1;
+      if (!filterMatchesAny(courseLevel, selectedLevel)) return;
       if (!sectionMatchesCalGetc(section, selectedCalGetc)) return;
 
       const identity = getModalitySectionIdentity(section, index);
@@ -3489,8 +3549,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         enrollment: window.COSSectionModel?.enrollmentForSection?.(canonical || section) ?? getEnrollmentValue(section)
       });
     });
+    debug.finalRows = rows.length;
 
-    return { rows, tutoringOpenLabRowsExcluded };
+    return { rows, tutoringOpenLabRowsExcluded, debug };
   }
 
   function modalityBalanceItemsFromSections(sourceRows = []) {
@@ -3518,8 +3579,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function calculateModalityBalance(options = {}) {
     const filtered = modalityFilteredSections(options);
+    if (!options.sourceRows || options.sourceRows === getModalitySourceRows()) modalityLastFilterDebug = filtered.debug;
     return calculateModalityBalanceFromItems(filtered.rows, {
-      tutoringOpenLabRowsExcluded: filtered.tutoringOpenLabRowsExcluded
+      tutoringOpenLabRowsExcluded: filtered.tutoringOpenLabRowsExcluded,
+      filterDebug: filtered.debug
     });
   }
 
@@ -3560,7 +3623,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const bi = order.includes(b.category) ? order.indexOf(b.category) : order.length;
         return ai - bi || a.category.localeCompare(b.category);
       })
-      .map(item => ({ ...item, total, totalEnrollment, totalClassOfferings: total, tutoringOpenLabRowsExcluded: options.tutoringOpenLabRowsExcluded || 0 }));
+      .map(item => ({ ...item, total, totalEnrollment, totalClassOfferings: total, tutoringOpenLabRowsExcluded: options.tutoringOpenLabRowsExcluded || 0, filterDebug: options.filterDebug || null }));
   }
 
   function renderModalityTool() {
@@ -3644,9 +3707,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function renderModalityDiagnostics() {
-    if (!modalityComparison || !window.COSModalityNormalizer?.diagnosticRows) return;
-    const diagnostics = window.COSModalityNormalizer.diagnosticRows(getModalitySourceRows(), row => getInstructionalMethod(row));
-    if (!diagnostics.length) return;
+    if (!modalityComparison) return;
+    const filterDebug = modalityLastFilterDebug || modalityFilterDebugBase(getModalitySourceRows(), { division: selectedValues(modalityDivisionSelect) });
+    const diagnostics = window.COSModalityNormalizer?.diagnosticRows
+      ? window.COSModalityNormalizer.diagnosticRows(getModalitySourceRows(), row => getInstructionalMethod(row))
+      : [];
     const section = document.createElement('section');
     section.className = 'modality-diagnostics';
     const rows = diagnostics.map(row => `
@@ -3656,12 +3721,30 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         <td>${escapeHTML(row.currentMappedCategory)}</td>
         <td>${escapeHTML(row.exampleCrnsCourses || '')}</td>
       </tr>`).join('');
+    const debugRows = [
+      ['Selected Division', filterDebug.selectedDivision],
+      ['Unique Division values loaded', filterDebug.uniqueDivisions.join('; ') || 'None'],
+      ['Rows loaded', filterDebug.rowsLoaded],
+      ['Rows before division filter', filterDebug.rowsBeforeDivisionFilter],
+      ['Rows after Campus filter', filterDebug.rowsAfterCampusFilter],
+      ['Rows after Division filter', filterDebug.rowsAfterDivisionFilter],
+      ['Rows after Department filter', filterDebug.rowsAfterDepartmentFilter],
+      ['Rows after Discipline filter', filterDebug.rowsAfterDisciplineFilter],
+      ['Rows after Course filter', filterDebug.rowsAfterCourseFilter],
+      ['Final rows', filterDebug.finalRows]
+    ].map(([metric, value]) => `<tr><td>${escapeHTML(metric)}</td><td>${escapeHTML(value)}</td></tr>`).join('');
     section.innerHTML = `
+      <h3>Modality Filter Diagnostics</h3>
+      <p>Division, department, discipline, course, campus, and term filters are applied before modality classification, summary cards, charts, comparison tables, and exports. Comparison terms use the same normalized filter values.</p>
+      <div class="table-scroll"><table class="modality-diagnostics-table">
+        <thead><tr><th>Filter stage</th><th>Value</th></tr></thead>
+        <tbody>${debugRows}</tbody>
+      </table></div>
       <h3>Unmapped Instructional Method Diagnostics</h3>
       <p>Unknown instructional method codes are stored internally as UNKNOWN and excluded from standard modality analytics until mapped.</p>
       <div class="table-scroll"><table class="modality-diagnostics-table">
         <thead><tr><th>Original instructional method code</th><th>Count</th><th>Current mapped category</th><th>Example CRNs/courses</th></tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rows || '<tr><td colspan="4">No unmapped instructional method codes detected.</td></tr>'}</tbody>
       </table></div>`;
     modalityComparison.appendChild(section);
   }
@@ -3677,6 +3760,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function modalityExportContextRows(focusRows, comparisonTerms) {
     const termsInSource = [...new Set(getModalitySourceRows().map(getSectionTerm).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const debug = modalityLastFilterDebug || modalityFilterDebugBase(getModalitySourceRows(), { division: selectedValues(modalityDivisionSelect) });
     return [
       ['Report', 'Modality Balance'],
       ['Focus Term', modalityTermLabel()],
@@ -3694,7 +3778,15 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       ['Course Filter', selectedValues(modalityCourseSelect).join('; ') || 'All'],
       ['Modality Filter', selectedValues(modalityModalitySelect).join('; ') || 'All'],
       ['Course Level Filter', selectedValues(modalityLevelSelect).join('; ') || 'All'],
-      ['CAL-GETC Filter', modalityCalGetcSelect?.value || 'All']
+      ['CAL-GETC Filter', modalityCalGetcSelect?.value || 'All'],
+      ['Debug Rows Loaded', debug.rowsLoaded],
+      ['Debug Rows After Campus Filter', debug.rowsAfterCampusFilter],
+      ['Debug Rows After Division Filter', debug.rowsAfterDivisionFilter],
+      ['Debug Rows After Department Filter', debug.rowsAfterDepartmentFilter],
+      ['Debug Rows After Discipline Filter', debug.rowsAfterDisciplineFilter],
+      ['Debug Rows After Course Filter', debug.rowsAfterCourseFilter],
+      ['Debug Final Rows', debug.finalRows],
+      ['Debug Unique Divisions Loaded', debug.uniqueDivisions.join('; ') || 'None']
     ].map(([metric, value]) => ({
       Section: 'Export Context',
       Term: modalityTermLabel(),
