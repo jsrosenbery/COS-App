@@ -727,7 +727,8 @@
   }
 
   function physicalIntervalRows(rows, options = {}) {
-    const includeOnline = options.includeOnline === true;
+    const treatment = options.onlineTreatment || (options.includeOnline === true ? 'scheduled-online' : 'physical');
+    const includeOnline = treatment === 'scheduled-online' || treatment === 'all-online' || options.includeOnline === true;
     return (rows || []).filter(row => {
       if (!hasUsablePhysicalInterval(row)) return false;
       if (isPhysicalInstructionModality(row)) return true;
@@ -824,6 +825,21 @@
 
   function includeOnlineFromSelect(id) {
     return selectedModalityLabels(id, PHYSICAL_MODALITY_LABELS).has('Online');
+  }
+
+  function onlineTreatmentFromSelect(id, fallback = 'physical') {
+    const value = document.getElementById(id)?.value || fallback;
+    return ['physical', 'scheduled-online', 'all-online'].includes(value) ? value : fallback;
+  }
+
+  function includeOnlineForTreatment(treatment) {
+    return treatment === 'scheduled-online' || treatment === 'all-online';
+  }
+
+  function onlineTreatmentLabel(treatment) {
+    if (treatment === 'scheduled-online') return 'Include Scheduled Online';
+    if (treatment === 'all-online') return 'Include All Online';
+    return 'Physical Scheduling Only';
   }
 
   function sectionKey(section) {
@@ -2013,6 +2029,14 @@
             <label>Modality <select id="studentChoiceModality" multiple size="3"></select></label>
             <button type="button" data-modality-quick="studentChoiceModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
             <button type="button" data-modality-quick="studentChoiceModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
+            <label>Time-Based Modality Treatment
+              <select id="studentChoiceOnlineTreatment">
+                <option value="physical" selected>Physical Scheduling Only</option>
+                <option value="scheduled-online">Include Scheduled Online</option>
+                <option value="all-online">Include All Online</option>
+              </select>
+            </label>
+            <label class="analytics-check"><input id="studentChoiceShowInactiveHours" type="checkbox"> Show inactive hours</label>
             <label>Faculty type <select id="studentChoiceFacultyType"></select></label>
             <label>Scenario CRNs <input id="studentChoiceScenarioCrns" type="text" placeholder="10001,10002"></label>
             <label>Scenario action
@@ -3759,17 +3783,28 @@
     return row.census == null ? row.actual || 0 : row.census || 0;
   }
 
-  function supplyDemandSlots(rows) {
-    let min = 6 * 60;
-    let max = 22 * 60;
+  function supplyDemandSlots(rows, options = {}) {
+    if (options.showInactiveHours || options.fullDay) {
+      const fullSlots = [];
+      for (let minutes = 0; minutes < 24 * 60; minutes += 30) fullSlots.push(minutes);
+      return fullSlots;
+    }
+    let min = options.dynamicWindow ? null : 6 * 60;
+    let max = options.dynamicWindow ? null : 22 * 60;
     (rows || []).forEach(row => {
       const start = minutesFromTime(row.start);
       const end = minutesFromTime(row.end);
       if (start != null && end != null && end > start) {
-        min = Math.min(min, Math.floor(start / 30) * 30);
-        max = Math.max(max, Math.ceil(end / 30) * 30);
+        const floorStart = Math.floor(start / 30) * 30;
+        const ceilEnd = Math.ceil(end / 30) * 30;
+        min = min == null ? floorStart : Math.min(min, floorStart);
+        max = max == null ? ceilEnd : Math.max(max, ceilEnd);
       }
     });
+    if (min == null || max == null || max <= min) {
+      min = 6 * 60;
+      max = 22 * 60;
+    }
     const slots = [];
     for (let minutes = min; minutes < max; minutes += 30) slots.push(minutes);
     return slots;
@@ -4838,7 +4873,7 @@
     const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
     const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
     const fixedRows = busyTimeFixedRows(rows, options);
-    const slots = supplyDemandSlots(fixedRows);
+    const slots = supplyDemandSlots(fixedRows, { dynamicWindow: options.dynamicWindow === true, showInactiveHours: options.showInactiveHours === true });
     const calGetcCodes = studentChoiceCalGetcCodes();
     const map = new Map();
     dayKeys.forEach(day => slots.forEach(minutes => map.set(`${day}|${minutes}`, {
@@ -4925,6 +4960,10 @@
         metricValue: 0,
         interpretation: ''
       };
+      row.visibleWindowStart = slots[0] ?? null;
+      row.visibleWindowEnd = slots.length ? slots[slots.length - 1] + 30 : null;
+      row.showInactiveHours = options.showInactiveHours === true;
+      row.onlineTreatment = options.onlineTreatment || (options.includeOnline ? 'scheduled-online' : 'physical');
       row.metricValue = studentChoiceMetricValue(row, metricName);
       row.interpretation = studentChoiceInterpretation(row);
       return row;
@@ -4973,7 +5012,11 @@
     attachHeatmapExportToolbar('studentChoiceHeatmap', rows, {
       title: 'Schedule Opportunity Analysis Heatmap',
       term: document.getElementById('studentChoiceTerm')?.value || 'All terms',
-      filters: heatmapScopeFilters('studentChoice', [`CAL-GETC: ${selectedFilterLabel('studentChoiceCalGetc')}`]),
+      filters: heatmapScopeFilters('studentChoice', [
+        `CAL-GETC: ${selectedFilterLabel('studentChoiceCalGetc')}`,
+        `Time-based modality treatment: ${onlineTreatmentLabel(onlineTreatmentFromSelect('studentChoiceOnlineTreatment'))}`,
+        `Show inactive hours: ${document.getElementById('studentChoiceShowInactiveHours')?.checked === true ? 'Yes' : 'No'}`
+      ]),
       metric: metricDisplayLabel(metricName),
       metricKey: 'metricValue',
       modalityScope: selectedModalityScopeLabel('studentChoiceModality'),
@@ -5061,13 +5104,23 @@
     const demandSource = document.getElementById('studentChoiceDemandSource')?.value || 'average';
     const aggregationMode = historicalAggregationMode('studentChoiceHistoricalAggregation');
     const metricName = document.getElementById('studentChoiceMetric')?.value || 'uniqueCourses';
-    const buckets = buildStudentChoiceBuckets(rows, metricName, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
+    const onlineTreatment = onlineTreatmentFromSelect('studentChoiceOnlineTreatment');
+    const showInactiveHours = document.getElementById('studentChoiceShowInactiveHours')?.checked === true;
+    const timeBucketOptions = {
+      includeOnline: includeOnlineForTreatment(onlineTreatment),
+      onlineTreatment,
+      dynamicWindow: !showInactiveHours,
+      showInactiveHours
+    };
+    const summaryOptions = { includeOnline: includeOnlineForTreatment(onlineTreatment), onlineTreatment };
+    const aggregationOptions = { ...summaryOptions, aggregationMode };
+    const buckets = buildStudentChoiceBuckets(rows, metricName, timeBucketOptions);
     state.studentChoiceBucketRows = buckets;
     const nonEmpty = buckets.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
-    const summary = scheduleOpportunitySummary(rows, { includeOnline: includeOnlineFromSelect('studentChoiceModality') });
-    const projection = scheduleOpportunityHistoricalProjection(rows, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality'), aggregationMode });
-    const gapRows = scheduleOpportunityGapRows(rows, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality'), aggregationMode });
-    const historicalComparisonRows = scheduleOpportunityTermSummaries(historicalRows, { includeOnline: includeOnlineFromSelect('studentChoiceModality') })
+    const summary = scheduleOpportunitySummary(rows, summaryOptions);
+    const projection = scheduleOpportunityHistoricalProjection(rows, historicalRows, demandSource, aggregationOptions);
+    const gapRows = scheduleOpportunityGapRows(rows, historicalRows, demandSource, aggregationOptions);
+    const historicalComparisonRows = scheduleOpportunityTermSummaries(historicalRows, summaryOptions)
       .map(row => ({
         term: row.term,
         scheduledClassOfferings: row.scheduledClassOfferings,
@@ -5093,7 +5146,7 @@
       end: document.getElementById('studentChoiceScenarioEnd')?.value || '',
       modality: document.getElementById('studentChoiceScenarioModality')?.value || ''
     };
-    const scenarioRows = scheduleOpportunityScenarioComparison(rows, scenario, historicalRows, demandSource, { includeOnline: includeOnlineFromSelect('studentChoiceModality'), aggregationMode });
+    const scenarioRows = scheduleOpportunityScenarioComparison(rows, scenario, historicalRows, demandSource, aggregationOptions);
     state.studentChoicePlanningGapRows = gapRows;
     state.studentChoiceScenarioRows = scenarioRows;
     const highChoice = nonEmpty.filter(row => row.interpretation.startsWith('High choice')).length;
@@ -5162,7 +5215,8 @@
     table('studentChoiceScenarioTable', scenarioRows, ['metric', 'before', 'after', 'change']);
     const category = scheduleOpportunityCategory(summary, projection, mode);
     const recommendationRows = buildSchedulingRecommendations(rows, {
-      includeOnline: includeOnlineFromSelect('studentChoiceModality'),
+      includeOnline: includeOnlineForTreatment(onlineTreatment),
+      onlineTreatment,
       planningWindow: { earliest: '07:00', latest: '19:00' }
     });
     const recommendationNode = document.getElementById('studentChoiceRecommendations');
@@ -5175,6 +5229,8 @@
             <li>Historical terms used: ${escapeAttr(projection.termsIncluded?.join(', ') || 'None selected')}</li>
             <li>Demand source: ${escapeAttr(demandSource)}</li>
             <li>Historical Aggregation: ${escapeAttr(historicalAggregationLabel(aggregationMode))}</li>
+            <li>Time-based modality treatment: ${escapeAttr(onlineTreatmentLabel(onlineTreatment))}</li>
+            <li>Visible time axis: ${showInactiveHours ? 'Full 12:00 AM-11:30 PM axis.' : 'Automatically cropped to active instructional hours after filters.'}</li>
             <li>Historical weights: ${escapeAttr(projection.historicalTermWeights?.map(weight => `${weight.term}:${weight.weight} (${weight.relation})`).join('; ') || 'None')}</li>
             <li>${noCurrentEnrollment ? 'No current enrollment yet; historical demand projections are used instead of treating zero enrollment as low demand.' : 'Current demand uses census enrollment when available and actual/current enrollment as fallback.'}</li>
             ${recommendationRows.slice(0, 4).map(row => `<li>${escapeAttr(row.category)}: ${escapeAttr(row.recommendationTitle)}</li>`).join('')}
@@ -5186,7 +5242,7 @@
       title: 'Schedule Opportunity Analysis Methodology & Data Dictionary',
       purpose: 'Measures schedule opportunity by comparing planned offerings, historical demand, student choice, enrollment pressure, and schedule distribution. This report measures schedule opportunity, not pure student preference.',
       metricsUsed: ['Scheduled Class Offerings', 'Unique Courses Available', 'Unique Subjects Available', 'Unique CAL-GETC/GE Courses Available', 'Seats Offered', 'Enrollment', 'Projected Enrollment', 'Student Presence', 'Projected Student Presence', 'Fill Rate', 'Projected Fill Rate', 'Waitlist', 'Enrollment per Class Offering', 'Empty Seats', 'Campus Choices', 'Modality Choices', 'Choice Diversity Index', 'Demand Pressure Score', 'Opportunity Gap Score'],
-      calculationRules: 'Census enrollment is preferred and actual/current enrollment is the fallback. Duplicate CRNs are counted once for class offerings unless distinct meeting times/components are being analyzed in the heatmap. Fixed meeting rows are placed into every half-hour interval they overlap. Online/TBA rows are excluded from physical time buckets unless selected. Future terms without enrollment show No current enrollment yet and use selected historical demand projections.',
+      calculationRules: 'Census enrollment is preferred and actual/current enrollment is the fallback. Duplicate CRNs are counted once for class offerings unless distinct meeting times/components are being analyzed in the heatmap. Fixed meeting rows are placed into every half-hour interval they overlap. By default, the heatmap renders only the active instructional window after filters are applied. Show inactive hours restores the full 12:00 AM-11:30 PM axis. Future terms without enrollment show No current enrollment yet and use selected historical demand projections.',
       assumptions: 'Students can only enroll in sections that exist. Future terms without enrollment should be evaluated against historical demand. Historical projections are planning estimates, not guarantees.',
       limitations: 'Opportunity metrics do not include every operational constraint, such as budget, program sequencing, instructor availability, room setup, commute constraints, or course substitution rules not represented in the source data.',
       items: [
@@ -5203,6 +5259,10 @@
         ['Summer Weighting', 'Summer terms are weighted lower when planning Fall or Spring because Summer has different scheduling patterns, compressed calendars, student availability, and section mix. Summer receives full or near-full weight when planning another Summer term.'],
         ['Historical Opportunity Gap', 'Current planned schedule metric minus the selected historical average metric.'],
         ['Planning Window', 'Active expansion recommendations use the default recommended start window of 7:00 AM through 7:00 PM. Late-night findings are suppressed from active recommendations and may appear as diagnostics in recommendation tooling.'],
+        ['Physical Scheduling Only', 'Default time-based mode. Counts in-person and hybrid scheduled meeting intervals only. Asynchronous online sections are excluded from time buckets because they do not consume a specific day/time block.'],
+        ['Scheduled Online', 'Includes synchronous online rows only when they have real scheduled days and start/end times. They contribute only to the intervals they overlap.'],
+        ['All Online', 'Includes online rows that have usable scheduled meeting intervals in time-based buckets. Asynchronous or placeholder online rows still do not populate overnight or full-day activity.'],
+        ['Show inactive hours', 'When unchecked, the heatmap crops to the earliest and latest active instructional interval after filters. When checked, it exports and displays the complete full-day axis.'],
         ['Choice Diversity Index', '0-100 index. Formula blends course breadth, subject breadth, GE breadth, and a concentration penalty based on the largest single-course share of active sections in the bucket.'],
         ['High choice / high demand', 'A bucket with broad choice and strong enrollment/fill indicators.'],
         ['Low choice / high demand', 'A bucket with limited choice and strong enrollment/fill indicators.']
@@ -5210,7 +5270,14 @@
       version: 'Methodology v2.0'
     });
     const status = document.getElementById('studentChoiceStatus');
-    if (status) status.textContent = `Loaded ${state.studentChoiceRows.length} row(s); ${rows.length} row(s) match filters; ${nonEmpty.length} active time block(s); ${mode === 'planning' && !summary.hasCurrentEnrollment ? 'No current enrollment yet.' : `${mode} mode.`}`;
+    if (status) {
+      const firstSlot = buckets[0]?.visibleWindowStart;
+      const lastSlot = buckets[0]?.visibleWindowEnd;
+      const visibleWindow = firstSlot != null && lastSlot != null
+        ? `${formatPresenceHourLabel(firstSlot / 60)}-${formatPresenceHourLabel(lastSlot / 60)}`
+        : 'No active time window';
+      status.textContent = `Loaded ${state.studentChoiceRows.length} row(s); ${rows.length} row(s) match filters; ${nonEmpty.length} active time block(s); ${mode === 'planning' && !summary.hasCurrentEnrollment ? 'No current enrollment yet.' : `${mode} mode.`} Time axis: ${showInactiveHours ? 'full day' : visibleWindow}; ${onlineTreatmentLabel(onlineTreatment)}.`;
+    }
     state.studentChoiceRan = true;
   }
 
@@ -5258,6 +5325,8 @@
     const scenarioStart = document.getElementById('studentChoiceScenarioStart');
     const scenarioEnd = document.getElementById('studentChoiceScenarioEnd');
     const exclude = document.getElementById('studentChoiceExcludeTutoring');
+    const onlineTreatment = document.getElementById('studentChoiceOnlineTreatment');
+    const showInactiveHours = document.getElementById('studentChoiceShowInactiveHours');
     if (metricSelect) metricSelect.value = 'uniqueCourses';
     if (viewSelect) viewSelect.value = 'all';
     if (modeSelect) modeSelect.value = 'auto';
@@ -5268,6 +5337,8 @@
     if (scenarioStart) scenarioStart.value = '09:00';
     if (scenarioEnd) scenarioEnd.value = '10:30';
     if (exclude) exclude.checked = true;
+    if (onlineTreatment) onlineTreatment.value = 'physical';
+    if (showInactiveHours) showInactiveHours.checked = false;
     if (state.studentChoiceRows.length) renderStudentChoiceOpportunity();
   }
 
@@ -7479,6 +7550,10 @@
         metric: options.metric || '',
         day: row.dayName || row.day || '',
         timeBlock: row.time || row.timeBlock || '',
+        visibleWindowStart: row.visibleWindowStart == null ? '' : formatPresenceHourLabel(row.visibleWindowStart / 60),
+        visibleWindowEnd: row.visibleWindowEnd == null ? '' : formatPresenceHourLabel(row.visibleWindowEnd / 60),
+        showInactiveHours: row.showInactiveHours === true ? 'Yes' : row.showInactiveHours === false ? 'No' : '',
+        timeBasedModalityTreatment: row.onlineTreatment ? onlineTreatmentLabel(row.onlineTreatment) : '',
         value: row.metricValue ?? row[options.metricKey] ?? row.sections ?? '',
         sections: row.sections ?? row.facultyCount ?? '',
         seats: row.seats ?? '',
@@ -11978,7 +12053,7 @@
     document.getElementById('loadSavedStudentChoiceFaculty')?.addEventListener('click', () => loadSavedStudentChoiceFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('studentChoiceArchiveTerms')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('archiveStudentChoiceUploads')?.addEventListener('click', () => archiveUploads('studentChoiceCsv').catch(err => alert(err.message || 'Archive failed.')));
-    ['studentChoiceView', 'studentChoiceMode', 'studentChoiceHistoricalAggregation', 'studentChoiceHistoricalTerms', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceFacultyType', 'studentChoiceScenarioCrns', 'studentChoiceScenarioAction', 'studentChoiceScenarioDays', 'studentChoiceScenarioStart', 'studentChoiceScenarioEnd', 'studentChoiceScenarioModality', 'studentChoiceExcludeTutoring'].forEach(id => {
+    ['studentChoiceView', 'studentChoiceMode', 'studentChoiceHistoricalAggregation', 'studentChoiceHistoricalTerms', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceOnlineTreatment', 'studentChoiceShowInactiveHours', 'studentChoiceFacultyType', 'studentChoiceScenarioCrns', 'studentChoiceScenarioAction', 'studentChoiceScenarioDays', 'studentChoiceScenarioStart', 'studentChoiceScenarioEnd', 'studentChoiceScenarioModality', 'studentChoiceExcludeTutoring'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.studentChoiceRan) renderStudentChoiceOpportunity(); });
     });
     ['studentChoiceDivision', 'studentChoiceDepartment', 'studentChoiceDiscipline', 'studentChoiceCourse'].forEach(id => {
@@ -12088,6 +12163,9 @@
     rowInstructionModality,
     hasUsablePhysicalInterval,
     physicalIntervalRows,
+    supplyDemandSlots,
+    includeOnlineForTreatment,
+    onlineTreatmentLabel,
     buildSupplyDemandBuckets,
     historicalTermWeights,
     aggregateHistoricalValues,

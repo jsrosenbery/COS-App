@@ -2033,6 +2033,64 @@ test('development time buckets include online only when explicitly selected and 
   assert.equal(withOnline[0].enrollment, 40);
 });
 
+test('schedule opportunity heatmap crops to active instructional window after filters', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ crn: 'AM1', modality: 'IN PERSON', days: ['MO'], dayPattern: 'M', start: '07:00', end: '08:00', timeBlock: '07:00-07:59', census: 20, actual: 18 }),
+    section({ crn: 'PM1', modality: 'HYBRID', days: ['MO'], dayPattern: 'M', start: '20:30', end: '21:00', timeBlock: '20:30-20:59', census: 12, actual: 12 })
+  ];
+  const cropped = COSEnrollmentAnalytics.buildStudentChoiceBuckets(rows, 'studentPresence', { dynamicWindow: true });
+  const croppedSlots = [...new Set(cropped.map(row => row.minutes))];
+  const fullDay = COSEnrollmentAnalytics.buildStudentChoiceBuckets(rows, 'studentPresence', { dynamicWindow: true, showInactiveHours: true });
+  const fullDaySlots = [...new Set(fullDay.map(row => row.minutes))];
+
+  assert.equal(cropped[0].visibleWindowStart, 7 * 60);
+  assert.equal(cropped[0].visibleWindowEnd, 21 * 60);
+  assert.equal(croppedSlots[0], 7 * 60);
+  assert.equal(croppedSlots.at(-1), 20 * 60 + 30);
+  assert.equal(croppedSlots.length < fullDaySlots.length, true);
+  assert.equal(fullDaySlots.length, 48);
+  assert.equal(fullDay[0].visibleWindowStart, 0);
+  assert.equal(fullDay[0].visibleWindowEnd, 24 * 60);
+  assert.equal(fullDay[0].showInactiveHours, true);
+});
+
+test('schedule opportunity online treatment excludes asynchronous online from full-day heatmap pollution', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ crn: 'ASY1', modality: 'ONLINE', days: [], dayPattern: 'TBA', start: '', end: '', timeBlock: 'ONLINE/TBA', census: 45, actual: 45 }),
+    section({ crn: 'ASY2', modality: 'ONLINE', days: ['MO'], dayPattern: 'M', start: '00:00', end: '19:00', timeBlock: '00:00-00:59', census: 30, actual: 30 }),
+    section({ crn: 'SYN1', modality: 'ONLINE', days: ['TU'], dayPattern: 'T', start: '10:00', end: '11:00', timeBlock: '10:00-10:59', census: 25, actual: 25 })
+  ];
+  const physicalOnly = COSEnrollmentAnalytics.buildStudentChoiceBuckets(rows, 'studentPresence', { onlineTreatment: 'physical', dynamicWindow: true });
+  const scheduledOnline = COSEnrollmentAnalytics.buildStudentChoiceBuckets(rows, 'studentPresence', { onlineTreatment: 'scheduled-online', dynamicWindow: true });
+  const allOnline = COSEnrollmentAnalytics.buildStudentChoiceBuckets(rows, 'studentPresence', { onlineTreatment: 'all-online', includeOnline: true, dynamicWindow: true, showInactiveHours: true });
+  const scheduledActive = scheduledOnline.filter(row => row.sections || row.studentPresence);
+  const allActive = allOnline.filter(row => row.sections || row.studentPresence);
+
+  assert.equal(physicalOnly.filter(row => row.sections || row.studentPresence).length, 0);
+  assert.equal(JSON.stringify(scheduledActive.map(row => `${row.dayCode}|${row.minutes}`)), JSON.stringify(['TU|600', 'TU|630']));
+  assert.equal(scheduledActive.every(row => row.studentPresence === 25), true);
+  assert.equal(JSON.stringify(allActive.map(row => `${row.dayCode}|${row.minutes}`)), JSON.stringify(['TU|600', 'TU|630']));
+  assert.equal(allOnline[0].onlineTreatment, 'all-online');
+});
+
+test('schedule opportunity heatmap controls and export metadata are wired', () => {
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(analytics, /id="studentChoiceOnlineTreatment"/);
+  assert.match(analytics, /Physical Scheduling Only/);
+  assert.match(analytics, /Include Scheduled Online/);
+  assert.match(analytics, /Include All Online/);
+  assert.match(analytics, /id="studentChoiceShowInactiveHours"/);
+  assert.match(analytics, /Show inactive hours/);
+  assert.match(analytics, /Time-based modality treatment/);
+  assert.match(analytics, /visibleWindowStart/);
+  assert.match(analytics, /visibleWindowEnd/);
+  assert.match(analytics, /showInactiveHours/);
+  assert.match(analytics, /timeBasedModalityTreatment/);
+});
+
 test('scheduling recommendations are not generated from online placeholder time blocks', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
