@@ -1672,6 +1672,8 @@
           <div id="facultyHeatmapMetrics" class="analytics-metrics"></div>
           <div id="facultyHeatmapContainer" class="analytics-insights"></div>
           <div id="facultyHeatmapComparisonTable" class="analytics-table"></div>
+          <div id="facultyHeatmapDistributionChart" class="analytics-insights"></div>
+          <div id="facultyHeatmapRatioHeatmap" class="analytics-insights"></div>
           <div id="facultyHeatmapTable" class="analytics-table"></div>
           <div id="facultyHeatmapLegend" class="analytics-legend"></div>
         </div>
@@ -3078,6 +3080,191 @@
     });
   }
 
+  function facultyDistributionMetricValue(row, metricName) {
+    if (!row) return 0;
+    if (metricName === 'facultyCount') return row.facultyCount || 0;
+    if (metricName === 'enrollment') return row.enrollment || 0;
+    if (metricName === 'seats') return row.seats || 0;
+    if (metricName === 'lhe') return row.lhe || 0;
+    return row.sections || 0;
+  }
+
+  function facultyHeatmapDistributionRows(builtFullTime, builtPartTime, metricName) {
+    const analysisDays = new Set(['MO', 'TU', 'WE', 'TH']);
+    return (builtFullTime.slots || []).map(minutes => {
+      const ftValue = builtFullTime.rows
+        .filter(row => analysisDays.has(row.day) && row.minutes === minutes)
+        .reduce((total, row) => total + facultyDistributionMetricValue(row, metricName), 0);
+      const ptValue = builtPartTime.rows
+        .filter(row => analysisDays.has(row.day) && row.minutes === minutes)
+        .reduce((total, row) => total + facultyDistributionMetricValue(row, metricName), 0);
+      const total = ftValue + ptValue;
+      return {
+        time: formatPresenceHourLabel(minutes / 60),
+        minutes,
+        fullTime: ftValue,
+        partTime: ptValue,
+        total,
+        ftShare: total ? ftValue / total : null,
+        ptShare: total ? ptValue / total : null
+      };
+    });
+  }
+
+  function renderFacultyHeatmapDistributionChart(rows, metricName) {
+    const node = document.getElementById('facultyHeatmapDistributionChart');
+    if (!node) return;
+    const width = 920;
+    const height = 330;
+    const left = 56;
+    const right = 22;
+    const top = 24;
+    const bottom = 48;
+    const maxValue = Math.max(1, ...rows.map(row => row.total || 0));
+    const usableWidth = width - left - right;
+    const usableHeight = height - top - bottom;
+    const xFor = index => left + (rows.length <= 1 ? 0 : index / (rows.length - 1) * usableWidth);
+    const yFor = value => top + usableHeight - (value / maxValue * usableHeight);
+    const baseline = height - bottom;
+    const fullTop = rows.map((row, index) => `${xFor(index).toFixed(1)},${yFor(row.fullTime).toFixed(1)}`).join(' ');
+    const totalTop = rows.map((row, index) => `${xFor(index).toFixed(1)},${yFor(row.total).toFixed(1)}`).join(' ');
+    const baseReverse = rows.slice().reverse().map((_, reverseIndex) => `${xFor(rows.length - 1 - reverseIndex).toFixed(1)},${baseline.toFixed(1)}`).join(' ');
+    const fullReverse = rows.slice().reverse().map((row, reverseIndex) => `${xFor(rows.length - 1 - reverseIndex).toFixed(1)},${yFor(row.fullTime).toFixed(1)}`).join(' ');
+    const xTicks = rows.filter((_, index) => index % 2 === 0).map(row => {
+      const index = rows.indexOf(row);
+      return `<text x="${xFor(index).toFixed(1)}" y="${height - 16}" text-anchor="middle">${escapeAttr(row.time.replace(':00 ', ''))}</text>`;
+    }).join('');
+    const points = rows.map((row, index) => {
+      const tooltip = analyticsTooltip([
+        ['Time', row.time],
+        ['Full-Time count', metricName === 'lhe' ? row.fullTime.toFixed(1) : Math.round(row.fullTime)],
+        ['Part-Time count', metricName === 'lhe' ? row.partTime.toFixed(1) : Math.round(row.partTime)],
+        ['Total', metricName === 'lhe' ? row.total.toFixed(1) : Math.round(row.total)],
+        ['FT share', row.total ? `${Math.round(row.ftShare * 100)}%` : 'N/A'],
+        ['PT share', row.total ? `${Math.round(row.ptShare * 100)}%` : 'N/A']
+      ]);
+      return `<circle cx="${xFor(index).toFixed(1)}" cy="${yFor(row.total).toFixed(1)}" r="4" class="faculty-distribution-point"><title>${escapeAttr(tooltip)}</title></circle>`;
+    }).join('');
+    node.innerHTML = `
+      <section class="faculty-distribution-visual demand-report-section" data-collapsible-title="FT/PT Distribution Stacked Area Chart" data-collapsible-id="faculty-heatmap-distribution-chart" data-collapsible-default-open="true">
+        <h3>FT/PT Distribution Stacked Area Chart</h3>
+        <p class="analytics-chart-note">Monday through Thursday aggregate using the selected metric: ${escapeAttr(metricDisplayLabel(metricName))}.</p>
+        <svg class="faculty-stacked-area-chart analytics-line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Full-Time and Part-Time faculty stacked area chart">
+          <line x1="${left}" y1="${top}" x2="${left}" y2="${baseline}" class="analytics-chart-axis"></line>
+          <line x1="${left}" y1="${baseline}" x2="${width - right}" y2="${baseline}" class="analytics-chart-axis"></line>
+          <text x="8" y="${top + 10}" text-anchor="start">${escapeAttr(metricName === 'lhe' ? maxValue.toFixed(1) : String(Math.round(maxValue)))}</text>
+          <text x="8" y="${baseline}" text-anchor="start">0</text>
+          <polygon class="faculty-stacked-area faculty-stacked-area-ft" points="${fullTop} ${baseReverse}"></polygon>
+          <polygon class="faculty-stacked-area faculty-stacked-area-pt" points="${totalTop} ${fullReverse}"></polygon>
+          <polyline fill="none" class="faculty-stacked-line-total" points="${totalTop}"></polyline>
+          ${points}
+          ${xTicks}
+        </svg>
+        <div class="supply-demand-line-legend faculty-distribution-legend"><span><i class="faculty-ft-swatch"></i>Full-Time</span><span><i class="faculty-pt-swatch"></i>Part-Time</span></div>
+      </section>`;
+    attachHeatmapExportToolbar('facultyHeatmapDistributionChart', rows.map(row => ({
+      day: 'Monday-Thursday Aggregate',
+      timeBlock: row.time,
+      minutes: row.minutes,
+      metricValue: row.total,
+      sections: row.total,
+      facultyCount: row.total,
+      fullTime: row.fullTime,
+      partTime: row.partTime,
+      ftShare: row.ftShare == null ? '' : `${Math.round(row.ftShare * 100)}%`,
+      ptShare: row.ptShare == null ? '' : `${Math.round(row.ptShare * 100)}%`
+    })), {
+      title: 'Faculty Schedule FT/PT Distribution Stacked Area Chart',
+      term: document.getElementById('fhTerm')?.value || 'All terms',
+      filters: heatmapScopeFilters('fh'),
+      metric: metricDisplayLabel(metricName),
+      metricKey: 'metricValue',
+      modalityScope: selectedModalityScopeLabel('fhModality'),
+      legend: 'Stacked area shows Full-Time plus Part-Time faculty activity across Monday through Thursday by time of day.',
+      filename: 'faculty-heatmap-ft-pt-distribution.png'
+    });
+    refreshGeneratedCollapsibleSections(node);
+  }
+
+  function facultyHeatmapRatioRows(builtFullTime, builtPartTime, metricName) {
+    const ftMap = new Map((builtFullTime.rows || []).map(row => [row.key, row]));
+    const ptMap = new Map((builtPartTime.rows || []).map(row => [row.key, row]));
+    return (builtFullTime.rows || []).map(row => {
+      const ftValue = facultyDistributionMetricValue(ftMap.get(row.key), metricName);
+      const ptValue = facultyDistributionMetricValue(ptMap.get(row.key), metricName);
+      const total = ftValue + ptValue;
+      const ftPercent = total ? ftValue / total * 100 : null;
+      const ptPercent = total ? ptValue / total * 100 : null;
+      const interpretation = !total ? 'No activity' : ftPercent >= 67 ? 'Mostly Full-Time' : ftPercent <= 33 ? 'Mostly Part-Time' : 'Balanced';
+      return {
+        key: row.key,
+        day: row.dayName,
+        dayCode: row.day,
+        timeBlock: row.time,
+        minutes: row.minutes,
+        fullTime: ftValue,
+        partTime: ptValue,
+        total,
+        ftPercent,
+        ptPercent,
+        interpretation,
+        metricValue: total ? ftPercent : 0
+      };
+    });
+  }
+
+  function renderFacultyHeatmapRatioHeatmap(rows, built, metricName) {
+    const node = document.getElementById('facultyHeatmapRatioHeatmap');
+    if (!node) return;
+    const rowByKey = new Map(rows.map(row => [row.key, row]));
+    const headers = built.slots.map(minutes => `<th class="heatmap-time-header">${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
+    const body = built.dayKeys.map(day => {
+      const cells = built.slots.map(minutes => {
+        const row = rowByKey.get(`${day}|${minutes}`);
+        const level = !row?.total ? 'empty' : row.interpretation === 'Mostly Full-Time' ? 'ratio-ft' : row.interpretation === 'Mostly Part-Time' ? 'ratio-pt' : 'ratio-balanced';
+        const display = row?.total ? `${Math.round(row.ftPercent)}% FT` : '';
+        const tooltip = analyticsTooltip([
+          ['Day', built.dayNames[day]],
+          ['Time', formatPresenceHourLabel(minutes / 60)],
+          ['FT percentage', row?.total ? `${Math.round(row.ftPercent)}%` : 'N/A'],
+          ['PT percentage', row?.total ? `${Math.round(row.ptPercent)}%` : 'N/A'],
+          ['Total faculty count or instructional meetings', row?.total ? (metricName === 'lhe' ? row.total.toFixed(1) : Math.round(row.total)) : 0],
+          ['Interpretation', row?.interpretation || 'No activity']
+        ]);
+        return `<td class="heatmap-cell heatmap-value-cell faculty-ratio-cell faculty-${level}" title="${escapeAttr(tooltip)}">${display}</td>`;
+      }).join('');
+      return `<tr><th class="heatmap-day-cell">${built.dayNames[day]}</th>${cells}</tr>`;
+    }).join('');
+    node.innerHTML = `
+      <section class="faculty-ratio-heatmap-panel demand-report-section" data-collapsible-title="FT/PT Ratio Heatmap" data-collapsible-id="faculty-heatmap-ratio-heatmap" data-collapsible-default-open="false">
+        <h3>FT/PT Ratio Heatmap</h3>
+        <p class="analytics-chart-note">FT/PT Ratio shows the share of faculty activity in each day/time block carried by Full-Time versus Part-Time faculty. It should be interpreted with the total count because a high percentage can occur in a low-volume time block.</p>
+        <div class="heatmap-wrap">
+          <table class="heatmap heatmap-table faculty-ratio-heatmap">
+            <thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+        <div class="faculty-ratio-legend">
+          <span><i class="faculty-ratio-ft-swatch"></i>Mostly Full-Time</span>
+          <span><i class="faculty-ratio-balanced-swatch"></i>Balanced</span>
+          <span><i class="faculty-ratio-pt-swatch"></i>Mostly Part-Time</span>
+          <span><i class="faculty-ratio-empty-swatch"></i>No activity</span>
+        </div>
+      </section>`;
+    attachHeatmapExportToolbar('facultyHeatmapRatioHeatmap', rows, {
+      title: 'Faculty Schedule FT/PT Ratio Heatmap',
+      term: document.getElementById('fhTerm')?.value || 'All terms',
+      filters: heatmapScopeFilters('fh'),
+      metric: `FT/PT Ratio - ${metricDisplayLabel(metricName)}`,
+      metricKey: 'metricValue',
+      modalityScope: selectedModalityScopeLabel('fhModality'),
+      legend: 'Separate ratio legend: Mostly Full-Time, Balanced, Mostly Part-Time, and No activity. Ratio percentages should be interpreted alongside total activity.',
+      filename: 'faculty-heatmap-ft-pt-ratio.png'
+    });
+    refreshGeneratedCollapsibleSections(node);
+  }
+
   function renderFacultyScheduleHeatmap() {
     const status = document.getElementById('facultyScheduleHeatmapStatus');
     const sourceRows = state.facultyHeatmapRows || [];
@@ -3096,6 +3283,8 @@
       ]);
       document.getElementById('facultyHeatmapContainer').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Schedule.</p>';
       document.getElementById('facultyHeatmapComparisonTable').innerHTML = '<p class="analytics-empty">No faculty schedule data loaded.</p>';
+      document.getElementById('facultyHeatmapDistributionChart').innerHTML = '';
+      document.getElementById('facultyHeatmapRatioHeatmap').innerHTML = '';
       document.getElementById('facultyHeatmapTable').innerHTML = '<p class="analytics-empty">No faculty schedule data loaded.</p>';
       document.getElementById('facultyHeatmapLegend').innerHTML = '';
       return;
@@ -3140,6 +3329,10 @@
       filename: `${panel.id}.png`
     }));
     table('facultyHeatmapComparisonTable', facultyHeatmapComparisonRows(panels), ['metric', 'overall', 'fullTime', 'partTime']);
+    const distributionRows = facultyHeatmapDistributionRows(builtFullTime, builtPartTime, metricName);
+    renderFacultyHeatmapDistributionChart(distributionRows, metricName);
+    const ratioRows = facultyHeatmapRatioRows(builtFullTime, builtPartTime, metricName);
+    renderFacultyHeatmapRatioHeatmap(ratioRows, builtOverall, metricName);
     const peakTeaching = peakFacultyHeatmapCell(builtOverall.rows, 'sections');
     const peakEnrollment = peakFacultyHeatmapCell(builtOverall.rows, 'enrollment');
     const peakLhe = peakFacultyHeatmapCell(builtOverall.rows, 'lhe');

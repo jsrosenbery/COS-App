@@ -2776,6 +2776,33 @@ test('faculty schedule heatmap is a standalone Development report', () => {
   assert.match(text, /Export Part-Time Heatmap/);
   assert.match(text, /Export All Three Heatmaps/);
   assert.match(text, /Faculty Schedule Heatmaps - Overall, Full-Time, and Part-Time/);
+  assert.match(text, /id="facultyHeatmapDistributionChart"/);
+  assert.match(text, /id="facultyHeatmapRatioHeatmap"/);
+  assert.match(text, /function facultyHeatmapDistributionRows/);
+  assert.match(text, /const total = ftValue \+ ptValue/);
+  assert.match(text, /ftShare: total \? ftValue \/ total : null/);
+  assert.match(text, /ptShare: total \? ptValue \/ total : null/);
+  assert.match(text, /function renderFacultyHeatmapDistributionChart/);
+  assert.match(text, /FT\/PT Distribution Stacked Area Chart/);
+  assert.match(text, /Monday through Thursday aggregate/);
+  assert.match(text, /Full-Time count/);
+  assert.match(text, /Part-Time count/);
+  assert.match(text, /FT share/);
+  assert.match(text, /PT share/);
+  assert.match(text, /function facultyHeatmapRatioRows/);
+  assert.match(text, /const ftPercent = total \? ftValue \/ total \* 100 : null/);
+  assert.match(text, /const ptPercent = total \? ptValue \/ total \* 100 : null/);
+  assert.match(text, /!total \? 'No activity'/);
+  assert.match(text, /function renderFacultyHeatmapRatioHeatmap/);
+  assert.match(text, /FT\/PT Ratio Heatmap/);
+  assert.match(text, /data-collapsible-id="faculty-heatmap-ratio-heatmap" data-collapsible-default-open="false"/);
+  assert.match(text, /row\?\.total \? `\$\{Math\.round\(row\.ftPercent\)\}% FT` : ''/);
+  assert.match(text, /Mostly Full-Time/);
+  assert.match(text, /Balanced/);
+  assert.match(text, /Mostly Part-Time/);
+  assert.match(text, /Separate ratio legend/);
+  assert.match(text, /faculty-heatmap-ft-pt-distribution\.png/);
+  assert.match(text, /faculty-heatmap-ft-pt-ratio\.png/);
   assert.match(text, /term: options\.term/);
   assert.match(text, /filters: options\.filters/);
   assert.match(text, /panels\.forEach\(panel => attachHeatmapExportToolbar\(panel\.id/);
@@ -3747,6 +3774,15 @@ test('collapsible section helper defaults open toggles aria and persists state',
   const persistedSection = utils.applyCollapsibleSection(persistedTarget, { title: 'Sample Section' });
   assert.equal(persistedSection.querySelector('.collapsible-section-toggle').getAttribute('aria-expanded'), 'false');
   assert.equal(persistedSection.querySelector('.collapsible-section-body').hidden, true);
+
+  const generatedTarget = document.createElement('section');
+  generatedTarget.dataset.collapsibleTitle = 'Generated Collapsed';
+  generatedTarget.dataset.collapsibleId = 'generated-collapsed';
+  generatedTarget.dataset.collapsibleDefaultOpen = 'false';
+  document.body.appendChild(generatedTarget);
+  const [generatedSection] = utils.applyCollapsibleSections(document);
+  assert.equal(generatedSection.querySelector('.collapsible-section-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(generatedSection.querySelector('.collapsible-section-body').hidden, true);
 });
 
 test('metric help registry opens and closes accessible popovers', () => {

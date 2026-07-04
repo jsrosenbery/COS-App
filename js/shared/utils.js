@@ -168,7 +168,8 @@
       const section = applyCollapsibleSection(target, {
         title: target.dataset.collapsibleTitle,
         id: target.dataset.collapsibleId || target.id || target.dataset.collapsibleTitle,
-        className: target.dataset.collapsibleClass || ''
+        className: target.dataset.collapsibleClass || '',
+        defaultOpen: target.dataset.collapsibleDefaultOpen === 'false' ? false : undefined
       });
       if (section) sections.push(section);
     });
