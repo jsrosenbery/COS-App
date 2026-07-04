@@ -229,11 +229,11 @@
   }
 
   function heatmapExportStatus(message, ok = true) {
-    let node = document.getElementById('heatmap-export-status');
+    let node = document.getElementById('visualization-export-status') || document.getElementById('heatmap-export-status');
     if (!node) {
       node = document.createElement('div');
-      node.id = 'heatmap-export-status';
-      node.className = 'analytics-note heatmap-export-status';
+      node.id = 'visualization-export-status';
+      node.className = 'analytics-note heatmap-export-status visualization-export-status';
       document.body.appendChild(node);
     }
     node.textContent = message;
@@ -278,7 +278,7 @@
         <p>${lines.slice(1).map(escapeHtml).join(' | ')}</p>
       </div>`;
     const clone = source.cloneNode(true);
-    clone.querySelectorAll('.heatmap-export-toolbar,.collapsible-section-header,.collapsible-controls').forEach(node => node.remove());
+    clone.querySelectorAll('.visualization-export-toolbar,.heatmap-export-toolbar,.collapsible-section-header,.collapsible-controls').forEach(node => node.remove());
     clone.querySelectorAll('.heatmap-wrap').forEach(node => {
       node.style.overflow = 'visible';
       node.style.maxWidth = 'none';
@@ -386,18 +386,34 @@
     return csv;
   }
 
-  function renderHeatmapExportToolbar(target, config = {}) {
+  function preferredVisualizationAnchor(host, config = {}) {
+    if (config.anchor) {
+      const configured = typeof config.anchor === 'function' ? config.anchor() : host.querySelector(config.anchor);
+      if (configured) return configured;
+    }
+    return host.querySelector('.heatmap-wrap,.presence-chart-container,.modality-pie-grid,.analytics-line-chart,.analytics-bar-chart,canvas,svg');
+  }
+
+  function renderVisualizationExportMenu(target, config = {}) {
     const host = typeof target === 'string' ? document.querySelector(target) : target;
     if (!host) return null;
-    host.querySelector('.heatmap-export-toolbar')?.remove();
+    host.querySelectorAll('.visualization-export-toolbar,.heatmap-export-toolbar').forEach(node => node.remove());
     const toolbar = document.createElement('div');
-    toolbar.className = 'heatmap-export-toolbar';
+    const menuId = config.menuId || `visualization-export-menu-${Math.random().toString(36).slice(2, 9)}`;
+    toolbar.className = 'visualization-export-toolbar heatmap-export-toolbar';
     toolbar.innerHTML = `
-      <button type="button" data-heatmap-export="png">Export Heatmap PNG</button>
-      <button type="button" data-heatmap-export="copy">Copy Heatmap Image</button>
-      <button type="button" data-heatmap-export="pdf">Export Heatmap PDF</button>
-      <button type="button" data-heatmap-export="csv">Export Heatmap CSV</button>
-      <span class="heatmap-export-inline-status" aria-live="polite"></span>`;
+      <div class="visualization-export-menu">
+        <button type="button" class="visualization-export-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="${menuId}">Export <span aria-hidden="true">▼</span></button>
+        <div id="${menuId}" class="visualization-export-dropdown" role="menu" hidden>
+          <button type="button" role="menuitem" data-visualization-export="png">Export PNG</button>
+          <button type="button" role="menuitem" data-visualization-export="copy">Copy Image</button>
+          <button type="button" role="menuitem" data-visualization-export="pdf">Export PDF</button>
+          <button type="button" role="menuitem" data-visualization-export="csv">Export CSV</button>
+        </div>
+      </div>
+      <span class="heatmap-export-inline-status visualization-export-inline-status" aria-live="polite"></span>`;
+    const trigger = toolbar.querySelector('.visualization-export-trigger');
+    const menu = toolbar.querySelector('.visualization-export-dropdown');
     const source = () => config.container ? (typeof config.container === 'function' ? config.container() : document.querySelector(config.container)) : host;
     const options = () => typeof config.options === 'function' ? config.options() : (config.options || {});
     const rows = () => typeof config.rows === 'function' ? config.rows() : (config.rows || []);
@@ -408,19 +424,74 @@
         status.dataset.status = ok ? 'ok' : 'error';
       }
     };
-    toolbar.querySelector('[data-heatmap-export="png"]').addEventListener('click', () => exportHeatmapAsPng(source(), options()).then(() => setInline('PNG exported.')).catch(err => setInline(err.message || 'PNG export failed.', false)));
-    toolbar.querySelector('[data-heatmap-export="copy"]').addEventListener('click', () => copyHeatmapImage(source(), options()).then(copied => setInline(copied ? 'Copied.' : 'Downloaded PNG fallback.')).catch(err => setInline(err.message || 'Copy failed.', false)));
-    toolbar.querySelector('[data-heatmap-export="pdf"]').addEventListener('click', () => exportHeatmapAsPdf(source(), options()).then(() => setInline('PDF exported.')).catch(err => setInline(err.message || 'PDF export failed.', false)));
-    toolbar.querySelector('[data-heatmap-export="csv"]').addEventListener('click', () => {
+    const closeMenu = () => {
+      menu.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+    };
+    const openMenu = () => {
+      menu.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+      menu.querySelector('[role="menuitem"]')?.focus();
+    };
+    const toggleMenu = () => menu.hidden ? openMenu() : closeMenu();
+    trigger.addEventListener('click', event => {
+      event.stopPropagation();
+      toggleMenu();
+    });
+    trigger.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openMenu();
+      }
+      if (event.key === 'Escape') closeMenu();
+    });
+    const runExport = (promise, successMessage, fallbackMessage) => {
+      closeMenu();
+      return promise.then(result => {
+        setInline(typeof successMessage === 'function' ? successMessage(result) : successMessage);
+      }).catch(err => setInline(err.message || fallbackMessage, false));
+    };
+    toolbar.querySelector('[data-visualization-export="png"]').addEventListener('click', () => runExport(exportVisualizationPng(source(), options()), 'PNG exported.', 'PNG export failed.'));
+    toolbar.querySelector('[data-visualization-export="copy"]').addEventListener('click', () => runExport(copyVisualizationImage(source(), options()), copied => copied ? 'Copied.' : 'Downloaded PNG fallback.', 'Copy failed.'));
+    toolbar.querySelector('[data-visualization-export="pdf"]').addEventListener('click', () => runExport(exportVisualizationPdf(source(), options()), 'PDF exported.', 'PDF export failed.'));
+    toolbar.querySelector('[data-visualization-export="csv"]').addEventListener('click', () => {
+      closeMenu();
       try {
-        exportHeatmapMatrixCsv(rows(), options());
+        if (typeof config.csvExporter === 'function') {
+          config.csvExporter(rows(), options());
+        } else {
+          exportVisualizationCsv(rows(), options());
+        }
         setInline('CSV exported.');
       } catch (err) {
         setInline(err.message || 'CSV export failed.', false);
       }
     });
-    host.insertBefore(toolbar, host.firstChild);
+    toolbar.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        closeMenu();
+        trigger.focus();
+      }
+    });
+    document.addEventListener('click', event => {
+      if (!toolbar.contains(event.target)) closeMenu();
+    });
+    const anchor = preferredVisualizationAnchor(host, config);
+    if (anchor && anchor.parentNode === host) {
+      host.insertBefore(toolbar, anchor);
+    } else {
+      host.insertBefore(toolbar, host.firstChild);
+    }
     return toolbar;
+  }
+
+  const exportVisualizationPng = exportHeatmapAsPng;
+  const copyVisualizationImage = copyHeatmapImage;
+  const exportVisualizationPdf = exportHeatmapAsPdf;
+  const exportVisualizationCsv = exportHeatmapMatrixCsv;
+
+  function renderHeatmapExportToolbar(target, config = {}) {
+    return renderVisualizationExportMenu(target, config);
   }
 
   window.COSUtils = {
@@ -444,6 +515,11 @@
     copyHeatmapImage,
     exportHeatmapAsPdf,
     exportHeatmapMatrixCsv,
+    exportVisualizationPng,
+    copyVisualizationImage,
+    exportVisualizationPdf,
+    exportVisualizationCsv,
+    renderVisualizationExportMenu,
     renderHeatmapExportToolbar,
     cloneHeatmapForExport
   };

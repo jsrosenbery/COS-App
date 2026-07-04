@@ -3146,7 +3146,8 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(css, /\.heatmap-wrap \{\s*width: 100%;\s*max-width: 100%;\s*overflow-x: auto;/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /\.heatmap-time-label/);
-  assert.match(css, /\.heatmap-export-toolbar/);
+  assert.match(css, /\.visualization-export-toolbar/);
+  assert.match(css, /\.visualization-export-dropdown/);
   assert.doesNotMatch(css, /\.heatmap th,[\s\S]*?overflow-wrap: anywhere;/);
 });
 
@@ -3177,7 +3178,7 @@ test('heatmap visual exports are wired for full heatmap capture and metadata CSV
   const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const utils = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
 
-  ['exportHeatmapAsPng', 'copyHeatmapImage', 'exportHeatmapAsPdf', 'exportHeatmapMatrixCsv', 'renderHeatmapExportToolbar'].forEach(name => {
+  ['exportHeatmapAsPng', 'copyHeatmapImage', 'exportHeatmapAsPdf', 'exportHeatmapMatrixCsv', 'renderHeatmapExportToolbar', 'renderVisualizationExportMenu', 'exportVisualizationPng', 'copyVisualizationImage', 'exportVisualizationPdf', 'exportVisualizationCsv'].forEach(name => {
     assert.match(utils, new RegExp(name));
   });
   assert.match(utils, /cloneHeatmapForExport/);
@@ -3192,10 +3193,21 @@ test('heatmap visual exports are wired for full heatmap capture and metadata CSV
   assert.match(utils, /Modality scope/);
   assert.match(utils, /Exported/);
   assert.match(utils, /title \|\| 'Heatmap'/);
-  ['Export Heatmap PNG', 'Copy Heatmap Image', 'Export Heatmap PDF', 'Export Heatmap CSV'].forEach(label => {
+  ['Export PNG', 'Copy Image', 'Export PDF', 'Export CSV'].forEach(label => {
     assert.match(utils, new RegExp(label));
   });
+  assert.match(utils, /aria-haspopup="menu"/);
+  assert.match(utils, /aria-expanded="false"/);
+  assert.match(utils, /role="menu"/);
+  assert.match(utils, /role="menuitem"/);
+  assert.match(utils, /event\.key === 'Escape'/);
+  assert.match(utils, /document\.addEventListener\('click'/);
+  assert.match(utils, /preferredVisualizationAnchor/);
+  assert.match(utils, /host\.insertBefore\(toolbar, anchor\)/);
   assert.match(app, /renderHeatmapExportToolbar\(document\.getElementById\('heatmapContainer'\)/);
+  assert.match(app, /renderModalityChartExportMenu/);
+  assert.match(app, /renderVisualizationExportMenu\(modalityChart/);
+  assert.match(app, /anchor: '\.modality-pie-grid'/);
   assert.match(app, /allCells\.map\(cell =>/);
   assert.match(analytics, /attachHeatmapExportToolbar\('facultyHeatmapContainer'/);
   assert.match(analytics, /attachHeatmapExportToolbar\('supplyDemandHeatmap'/);

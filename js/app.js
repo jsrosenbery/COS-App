@@ -4050,6 +4050,76 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       modalityPieCard(`${modalityTermLabel()} Enrollment by Modality`, 'Enrollment by modality uses census enrollment first, then actual/current enrollment.', rows, 'enrollment', 'enrollmentShare')
     );
     modalityChart.appendChild(charts);
+    renderModalityChartExportMenu(rows);
+  }
+
+  function renderModalityChartExportMenu(rows) {
+    if (!modalityChart || !window.COSUtils?.renderVisualizationExportMenu) return;
+    const filters = [
+      `Term/source: ${modalityTermLabel()}`,
+      `Campus: ${selectedValues(modalityCampusSelect).join('; ') || 'All'}`,
+      `Division: ${selectedValues(modalityDivisionSelect).join('; ') || 'All'}`,
+      `Discipline: ${selectedValues(modalityDisciplineSelect).join('; ') || 'All'}`,
+      `Department: ${selectedValues(modalityDepartmentSelect).join('; ') || 'All'}`,
+      `Course: ${selectedValues(modalityCourseSelect).join('; ') || 'All'}`,
+      `Modality: ${selectedValues(modalityModalitySelect).join('; ') || 'All'}`
+    ];
+    window.COSUtils.renderVisualizationExportMenu(modalityChart, {
+      container: () => modalityChart,
+      anchor: '.modality-pie-grid',
+      rows: () => modalityVisualizationRows(rows),
+      options: () => ({
+        title: 'Modality Balance Charts',
+        term: modalityTermLabel(),
+        filters,
+        metric: 'Class Offerings and Enrollment by Modality',
+        modalityScope: selectedValues(modalityModalitySelect).join(', ') || 'All reportable modalities',
+        legend: 'Class offerings use distinct CRNs after filters. Enrollment uses census enrollment when available, otherwise actual/current enrollment.',
+        columns: ['reportName', 'termSource', 'selectedFilters', 'metric', 'modality', 'value', 'sections', 'enrollment', 'share', 'modalityScope'],
+        filename: 'modality-balance-charts.png',
+        csvFilename: 'modality-balance-charts.csv',
+        pdfFilename: 'modality-balance-charts.pdf'
+      })
+    });
+  }
+
+  function modalityVisualizationRows(rows) {
+    const term = modalityTermLabel();
+    const classRows = modalityMixGraphData(rows, 'classOfferings', 'classOfferingShare').map(row => ({
+      reportName: 'Modality Balance',
+      termSource: term,
+      selectedFilters: 'Current report filters',
+      metric: 'Class Offerings by Modality',
+      day: '',
+      timeBlock: '',
+      value: row.value,
+      sections: row.value,
+      seats: '',
+      enrollment: '',
+      fillRate: '',
+      waitlist: '',
+      modalityScope: row.category,
+      modality: row.category,
+      share: row.percentLabel
+    }));
+    const enrollmentRows = modalityMixGraphData(rows, 'enrollment', 'enrollmentShare').map(row => ({
+      reportName: 'Modality Balance',
+      termSource: term,
+      selectedFilters: 'Current report filters',
+      metric: 'Enrollment by Modality',
+      day: '',
+      timeBlock: '',
+      value: row.value,
+      sections: '',
+      seats: '',
+      enrollment: row.value,
+      fillRate: '',
+      waitlist: '',
+      modalityScope: row.category,
+      modality: row.category,
+      share: row.percentLabel
+    }));
+    return [...classRows, ...enrollmentRows];
   }
 
   function modalityPieCard(title, description, rows, metricKey, shareKey) {
