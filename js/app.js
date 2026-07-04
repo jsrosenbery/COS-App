@@ -743,7 +743,7 @@ function renderSchedulingAnalysisMethodologyPanels() {
     title: 'Course Duration and Student Presence Graph Methodology & Data Dictionary',
     purpose: 'Shows how active course load or estimated student presence persists across half-hour intervals by day of week.',
     metricsUsed: ['Sections Active', 'Student Presence', 'Enrollment Present', 'Seats Offered'],
-    calculationRules: 'Each valid physical meeting contributes to every half-hour interval it overlaps. Course Count mode counts active sections. Student Presence mode uses census enrollment when available and actual/current enrollment otherwise. Duplicate CRN/day/start/end rows are counted once.',
+    calculationRules: 'Each valid physical meeting contributes to every half-hour interval it overlaps. Course Count mode counts active distinct CRN/day/start/end blocks. Student Presence mode applies census enrollment when available, otherwise actual/current enrollment, once per distinct CRN/day/start/end block. Duplicate CRN/day/start/end rows are counted once; the same CRN with a different start/end or different day counts as a distinct active meeting block.',
     assumptions: 'Online/TBA placeholder rows are excluded from physical interval calculations. Lecture/lab/activity can count separately when meeting times differ.',
     limitations: 'The graph estimates scheduled presence, not actual attendance or campus traffic. It reflects only loaded schedule data and selected filters.',
     items: [
@@ -5116,8 +5116,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (titleNode) titleNode.textContent = isPresenceMetric ? 'Student Presence Duration Graph' : 'Course Duration Graph';
     if (methodologyNode) {
       methodologyNode.textContent = isPresenceMetric
-        ? 'The Student Presence Duration Graph estimates how many enrolled students are scheduled to be physically present during each half-hour interval by day of week. Calculation: interval total = census enrollment when available, otherwise current enrollment, for sections whose meeting day includes that line and whose meeting time overlaps that half-hour interval. A section contributes to every half-hour slot it overlaps, so this view shows estimated student presence across the span of class meetings rather than only the start time.'
-        : 'The Course Duration Graph counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = sections whose meeting day includes that line and whose meeting time overlaps that half-hour interval. A section contributes to every half-hour slot it overlaps, so this view shows classroom demand across the span of class meetings rather than only the start time.';
+        ? 'The Student Presence Duration Graph estimates how many enrolled students are scheduled to be physically present during each half-hour interval by day of week. Calculation: interval total = census enrollment when available, otherwise current enrollment, applied once per distinct CRN/day/start/end block whose meeting time overlaps that half-hour interval. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct meeting block.'
+        : 'The Course Duration Graph counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = active distinct CRN/day/start/end blocks whose meeting time overlaps that half-hour interval. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct meeting block.';
     }
     const filtered = filterAnalysisRows({
       campusId: 'linechart-campus-select',

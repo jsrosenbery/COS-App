@@ -250,7 +250,7 @@
           if (!dayOrder.includes(day)) return;
           const key = [row.campus || 'UNKNOWN', day, hour].join('|');
           const item = buckets.get(key) || presenceBucket({ campus: row.campus || 'UNKNOWN', day, hour });
-          addPresenceRow(item, row);
+          addPresenceRow(item, { ...row, __presenceDay: day });
           buckets.set(key, item);
         });
       });
@@ -279,7 +279,7 @@
             day,
             hour
           };
-          addPresenceRow(item, row);
+          addPresenceRow(item, { ...row, __presenceDay: day });
           buckets.set(key, item);
         });
       });
@@ -296,11 +296,13 @@
       studentsPresent: 0,
       sectionsActive: 0,
       distinctCrns: 0,
+      instructionalMeetings: 0,
       meetingRowsIncluded: 0,
       availableRoomCapacity: 0,
       seatsScheduled: 0,
       fillRate: 0,
       _crns: new Set(),
+      _meetings: new Set(),
       ...base
     };
   }
@@ -309,23 +311,38 @@
     return String(row?.crn || [row?.term, row?.subject, row?.course, row?.section, row?.instructor, row?.start, row?.end].filter(Boolean).join('|') || Math.random()).trim();
   }
 
+  function presenceMeetingKey(row) {
+    const crn = presenceCrn(row);
+    return [
+      row?.term || '',
+      crn,
+      row?.__presenceDay || row?.day || row?.dayCode || row?.days?.join?.(',') || row?.dayPattern || '',
+      row?.start || row?.startTime || '',
+      row?.end || row?.endTime || ''
+    ].join('|');
+  }
+
   function addPresenceRow(item, row) {
     item.meetingRowsIncluded += 1;
+    const meetingKey = presenceMeetingKey(row);
+    if (item._meetings.has(meetingKey)) return;
+    item._meetings.add(meetingKey);
     const crn = presenceCrn(row);
-    if (item._crns.has(crn)) return;
     item._crns.add(crn);
     const enrolled = enrollment(row);
     item.studentsPresent += enrolled;
     item.sectionsActive += 1;
+    item.instructionalMeetings += 1;
     item.seatsScheduled += Number(row.cap) || 0;
     item.availableRoomCapacity += Math.max(0, (Number(row.cap) || 0) - enrolled);
   }
 
   function finalizePresenceBucket(item) {
-    const { _crns, ...bucket } = item;
+    const { _crns, _meetings, ...bucket } = item;
     return {
       ...bucket,
       distinctCrns: _crns?.size || bucket.sectionsActive || 0,
+      instructionalMeetings: _meetings?.size || bucket.instructionalMeetings || bucket.sectionsActive || 0,
       averageFillRate: safeDiv(bucket.studentsPresent, bucket.seatsScheduled)
     };
   }

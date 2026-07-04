@@ -541,6 +541,59 @@ test('student presence graph series counts enrollment by overlapping half-hour i
   assert.equal(courseCount['Wednesday-9.5'], 1);
 });
 
+test('course duration dedupes CRN day time blocks but keeps distinct meeting blocks', () => {
+  const { sectionModel } = loadCoreModules();
+  const rows = [
+    { Term: 'FALL 2026', CRN: '123', Subject: 'BIOL', Course: '001', DAYS: 'M', 'Start Time': '8:00 AM', 'End Time': '9:00 AM', CENSUS_ENROLL: '20', 'Instructional Method': 'IP' },
+    { Term: 'FALL 2026', CRN: '123', Subject: 'BIOL', Course: '001', DAYS: 'M', 'Start Time': '8:00 AM', 'End Time': '9:00 AM', CENSUS_ENROLL: '20', 'Instructional Method': 'IP' },
+    { Term: 'FALL 2026', CRN: '123', Subject: 'BIOL', Course: '001', DAYS: 'M', 'Start Time': '9:00 AM', 'End Time': '10:00 AM', CENSUS_ENROLL: '20', 'Instructional Method': 'IP' },
+    { Term: 'FALL 2026', CRN: '123', Subject: 'BIOL', Course: '001', DAYS: 'W', 'Start Time': '8:00 AM', 'End Time': '9:00 AM', CENSUS_ENROLL: '20', 'Instructional Method': 'IP' }
+  ];
+  const courseCount = sectionModel.buildHalfHourPresenceSeries(rows, [8, 8.5, 9, 9.5], { metric: 'count' });
+
+  assert.equal(courseCount['Monday-8'], 1);
+  assert.equal(courseCount['Monday-8.5'], 1);
+  assert.equal(courseCount['Monday-9'], 1);
+  assert.equal(courseCount['Monday-9.5'], 1);
+  assert.equal(courseCount['Wednesday-8'], 1);
+  assert.equal(courseCount['Wednesday-8.5'], 1);
+});
+
+test('student presence applies enrollment once per distinct CRN day time block', () => {
+  const { sectionModel } = loadCoreModules();
+  const rows = [
+    { Term: 'FALL 2026', CRN: '123', Subject: 'BIOL', Course: '001', DAYS: 'M', 'Start Time': '8:00 AM', 'End Time': '9:00 AM', CENSUS_ENROLL: '20', ACTUAL_ENROLL: '25', 'Instructional Method': 'IP' },
+    { Term: 'FALL 2026', CRN: '123', Subject: 'BIOL', Course: '001', DAYS: 'M', 'Start Time': '8:00 AM', 'End Time': '9:00 AM', CENSUS_ENROLL: '20', ACTUAL_ENROLL: '25', 'Instructional Method': 'IP' },
+    { Term: 'FALL 2026', CRN: '123', Subject: 'BIOL', Course: '001', DAYS: 'M', 'Start Time': '9:00 AM', 'End Time': '10:00 AM', CENSUS_ENROLL: '20', ACTUAL_ENROLL: '25', 'Instructional Method': 'IP' },
+    { Term: 'FALL 2026', CRN: '123', Subject: 'BIOL', Course: '001', DAYS: 'W', 'Start Time': '8:00 AM', 'End Time': '9:00 AM', CENSUS_ENROLL: '20', ACTUAL_ENROLL: '25', 'Instructional Method': 'IP' }
+  ];
+  const presence = sectionModel.buildHalfHourPresenceSeries(rows, [8, 8.5, 9, 9.5], { metric: 'presence' });
+
+  assert.equal(presence['Monday-8'], 20);
+  assert.equal(presence['Monday-8.5'], 20);
+  assert.equal(presence['Monday-9'], 20);
+  assert.equal(presence['Monday-9.5'], 20);
+  assert.equal(presence['Wednesday-8'], 20);
+  assert.equal(presence['Wednesday-8.5'], 20);
+});
+
+test('student presence report distinguishes scheduled offerings from instructional meeting blocks', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentModules();
+  const rows = [
+    section({ crn: '123', days: ['MO'], dayPattern: 'M', start: '08:00', end: '09:00', census: 20, actual: 25, cap: 30 }),
+    section({ crn: '123', days: ['MO'], dayPattern: 'M', start: '08:00', end: '09:00', census: 20, actual: 25, cap: 30 }),
+    section({ crn: '123', days: ['MO'], dayPattern: 'M', start: '09:00', end: '10:00', census: 20, actual: 25, cap: 30 }),
+    section({ crn: '123', days: ['WE'], dayPattern: 'W', start: '08:00', end: '09:00', census: 20, actual: 25, cap: 30 })
+  ];
+  const report = COSEnrollmentDashboard.studentPresenceReport(rows, 'all');
+
+  assert.equal(report.metrics.totalSections, 1);
+  assert.equal(report.metrics.distinctCrns, 1);
+  assert.equal(report.rows[0].instructionalMeetings, 3);
+  assert.equal(report.rows[0].sectionsActive, 3);
+  assert.equal(report.rows[0].studentsPresent, 60);
+});
+
 test('student presence graph series accepts already-normalized enrollment rows', () => {
   const { sectionModel } = loadCoreModules();
   const rows = [

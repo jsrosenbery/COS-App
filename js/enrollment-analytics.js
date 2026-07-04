@@ -7744,7 +7744,7 @@
     node.innerHTML = `
       <section class="presence-curve">
         <h3>Student Presence Graph</h3>
-        <p>Student Presence estimates how many enrolled students are scheduled to be physically present during each half-hour interval. Each section contributes its census enrollment, or current enrollment when census is unavailable, to every interval where the class is active. Duplicate rows for the same CRN/day/time block are counted once.</p>
+        <p>Student Presence estimates how many enrolled students are scheduled to be physically present during each half-hour interval. Each distinct CRN/day/start/end block contributes its census enrollment, or current enrollment when census is unavailable, to every interval where that meeting block is active. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct meeting block.</p>
         <div class="presence-chart-container" style="width:100%; max-width:1600px; height:600px; margin:auto;">
           <canvas id="studentPresenceLineChart" style="width:100%; height:100%;"></canvas>
         </div>
@@ -7843,15 +7843,18 @@
     renderMethodologyPanel(legend, {
       title: 'Student Presence Analytics Methodology & Data Dictionary',
       purpose: 'Estimates physical student presence from loaded scheduled sections and enrollment for the selected focus term.',
-      methodology: 'Rows are included by default only when they are in-person or hybrid, have fixed meeting days and times, use physical COS/TCC/HAC campus codes or their local aliases, and do not use online, web, virtual, or TBA campus values. Dual Enrollment is excluded by default and can be included with the report toggle. Students present uses census enrollment when available and current enrollment otherwise. Each CRN is counted once within each half-hour day/time bucket even if the source file has multiple rows for the same section, non-recurring dates, or paired rooms.',
-      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included meeting buckets. A multi-day or long-duration section contributes to each applicable half-hour bucket, but overall active sections count distinct CRNs across the selected scope. Comparison curves use the same filters and inclusion toggles for each selected term.',
+      methodology: 'Rows are included by default only when they are in-person or hybrid, have fixed meeting days and times, use physical COS/TCC/HAC campus codes or their local aliases, and do not use online, web, virtual, or TBA campus values. Dual Enrollment is excluded by default and can be included with the report toggle. Students present uses census enrollment when available and current enrollment otherwise. Enrollment is applied once per distinct CRN/day/start/end meeting block in each half-hour bucket. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct instructional meeting block.',
+      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included meeting buckets. A multi-day or long-duration section contributes to each applicable half-hour bucket, but Scheduled Class Offerings still count unique CRNs across the selected scope. Comparison curves use the same filters and inclusion toggles for each selected term.',
       limitations: 'This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.',
       items: [
-        ['Students Present', 'Sum of census/current enrollment once per CRN in the selected physical presence bucket.'],
-        ['Sections Active', 'Distinct CRNs represented in the bucket, not raw meeting rows.'],
+        ['Students Present', 'Sum of census/current enrollment once per distinct CRN/day/start/end block in the selected physical presence bucket.'],
+        ['Scheduled Class Offerings', 'Unique CRNs after filters are applied.'],
+        ['Instructional Meetings', 'Distinct CRN/day/start/end/component blocks. The same CRN may count more than once when it has distinct lecture, lab, activity, day, or time records.'],
+        ['Course Duration', 'Active distinct CRN/day/start/end blocks across overlapping half-hour intervals.'],
+        ['Sections Active', 'Distinct instructional meeting blocks active in the selected bucket.'],
         ['Distinct CRNs Included', 'Overall count of unique CRNs included after filters and physical-presence exclusions.'],
         ['Meeting Rows Included', 'Raw included meeting rows after filters. This can be higher than distinct CRNs when a section has multiple meeting rows.'],
-        ['Half-Hour Physical Presence Curve', 'Compares selected terms across half-hour intervals. A section contributes to every half-hour interval overlapped by its meeting time, and duplicate rows for the same CRN/interval are counted once.'],
+        ['Half-Hour Physical Presence Curve', 'Compares selected terms across half-hour intervals. A section contributes to every half-hour interval overlapped by its meeting time, and duplicate rows for the same CRN/day/start/end block are counted once.'],
         ['Include Dual Enrollment', 'Optional control. Default OFF. When enabled, Dual Enrollment rows with physical campus/day/time data may be included.'],
         ['Include Other Modalities', 'Optional control. Default OFF. When enabled, fixed-time non-online rows outside In-Person/Hybrid can be reviewed. Hide Online can then be used to remove online rows from that expanded scope.'],
         ['Campus Scope', 'Limits Student Presence Analytics to COS, HAC, and TCC only. All includes those three campus codes; selecting COS, HAC, or TCC narrows the report to that campus. Other campus codes are omitted from this report.'],
