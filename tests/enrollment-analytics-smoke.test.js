@@ -1841,6 +1841,79 @@ test('demand course distribution chart data separates expanding and softening co
   assert.deepEqual([...data.map(row => row.course)], ['ART 101', 'BUS 101']);
   assert.deepEqual([...data.map(row => row.direction)], ['Expanding', 'Softening']);
   assert.equal(data[0].confidence, 'High');
+  assert.equal(data[0].demandVariance, 8);
+  assert.equal(data[1].demandVariance, -6);
+  assert.equal(data[0].forecastEnrollment, 28);
+});
+
+test('demand redesign helpers distinguish lifecycle expected enrollment and confidence', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const trends = [
+    { term: 'FALL 2022', census: 100, final: 96, fillRate: 0.78, waitlist: 2, ftes: 30 },
+    { term: 'FALL 2023', census: 120, final: 118, fillRate: 0.84, waitlist: 4, ftes: 35 },
+    { term: 'FALL 2024', census: 150, final: 147, fillRate: 0.92, waitlist: 8, ftes: 42 }
+  ];
+  const simpleAverage = Math.round((100 + 120 + 150) / 3);
+  const expected = COSEnrollmentAnalytics.demandHistoricalExpectedEnrollment(trends);
+  const future = COSEnrollmentAnalytics.demandLifecycleStatus(trends, { term: 'FALL 2026' });
+  const active = COSEnrollmentAnalytics.demandLifecycleStatus([{ term: 'FALL 2026', census: 0, final: 40 }], { term: 'FALL 2026' });
+  const completed = COSEnrollmentAnalytics.demandLifecycleStatus([{ term: 'FALL 2026', census: 90, final: 88 }], { term: 'FALL 2026' });
+  const confidence = COSEnrollmentAnalytics.demandForecastConfidenceScore([{ forecastConfidence: 'High' }, { forecastConfidence: 'Medium' }]);
+
+  assert.notEqual(expected, simpleAverage);
+  assert.equal(future.status, 'future');
+  assert.equal(active.status, 'active');
+  assert.equal(active.currentEnrollment, 40);
+  assert.equal(completed.status, 'completed');
+  assert.equal(completed.finalEnrollment, 90);
+  assert.equal(confidence.label, 'Medium');
+});
+
+test('demand executive summary recommendations and diagnostics support decision story', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    { forecastLevel: 'College', expectedEnrollmentNextTerm: 170, expectedFtesNextTerm: 52, forecastConfidence: 'Medium', capacityGuidance: 'Moderate growth - monitor for added capacity.' },
+    { forecastLevel: 'Course', course: 'ART 101', avgCensusEnrollment: 20, expectedEnrollmentNextTerm: 30, adjustedForecastGrowth: 0.2, forecastConfidence: 'High', capacityGuidance: 'Expanding demand - plan additional capacity.' },
+    { forecastLevel: 'Course', course: 'BUS 101', avgCensusEnrollment: 30, expectedEnrollmentNextTerm: 24, adjustedForecastGrowth: -0.2, forecastConfidence: 'Medium', capacityGuidance: 'Softening demand - review capacity assumptions.' }
+  ];
+  const trends = [
+    { term: 'FALL 2023', census: 120, final: 118, fillRate: 0.85, waitlist: 4, ftes: 36 },
+    { term: 'FALL 2024', census: 140, final: 138, fillRate: 0.94, waitlist: 9, ftes: 44 }
+  ];
+  const summary = COSEnrollmentAnalytics.demandExecutiveSummary(rows, trends, { target: { term: 'FALL 2026' }, ftesCap: 50, annualFtes: 52 }, {});
+  const findings = COSEnrollmentAnalytics.demandRecommendationSummary(rows, [{ pattern: 'M | 10:00 | HYBRID | COS', fillRate: 0.96, waitlist: 5, sections: 2 }], summary);
+  const pattern = COSEnrollmentAnalytics.parseDemandPattern('M | 10:00 | HYBRID | COS');
+  const diagnostics = COSEnrollmentAnalytics.demandTermDiagnostics({
+    selectedArchivedTerms: ['FALL 2023', 'FALL 2024', 'FALL 2025'],
+    archiveResults: [{ term: 'FALL 2023' }, { term: 'FALL 2024' }, { term: 'FALL 2025' }],
+    usableRows: [{ term: 'FALL 2023' }, { term: 'FALL 2024' }, { term: 'FALL 2025' }],
+    filteredRows: [{ term: 'FALL 2023' }, { term: 'FALL 2024' }, { term: 'FALL 2025' }],
+    comparableRows: [{ term: 'FALL 2023' }, { term: 'FALL 2024' }],
+    forecastRows: [{ term: 'FALL 2024' }]
+  });
+
+  assert.match(summary.health, /Watch|Intervention Recommended|On Track/);
+  assert.ok(summary.drivers.length >= 3);
+  assert.ok(findings.some(row => row.category === 'Expansion Candidate'));
+  assert.ok(findings.some(row => row.category === 'Waitlist Pressure'));
+  assert.equal(pattern.day, 'M');
+  assert.equal(JSON.stringify(diagnostics.termsExcludedByForecastTarget), JSON.stringify(['FALL 2025']));
+  assert.equal(JSON.stringify(diagnostics.termsExcludedByAnalysisWindow), JSON.stringify(['FALL 2023']));
+});
+
+test('demand redesign sections and metric definitions are wired', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const registry = require('../js/core/metric-definitions.js');
+
+  ['Executive Summary', 'Historical Trends', 'Fill Rate & Waitlist Pressure', 'Course Demand Distribution', 'Top Findings / Recommendations', 'Day/Time Demand Patterns', 'Diagnostics & Methodology', 'Show All Recommendations', 'Forecast Accuracy / Back-test'].forEach(label => {
+    assert.match(text, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  });
+  assert.match(text, /demand-zero-track/);
+  assert.match(text, /Below Expected/);
+  assert.match(text, /Above Expected/);
+  ['current-enrollment', 'projected-final-enrollment', 'historical-expected-enrollment', 'current-variance', 'projected-variance', 'forecast-confidence', 'forecast-gap', 'ftes-cap-position', 'expanding-demand', 'softening-demand', 'demand-above-expected', 'demand-below-expected'].forEach(id => {
+    assert.ok(registry.get(id), `${id} definition missing`);
+  });
 });
 
 test('archive inspection exposes parsed archived schedule validation', () => {

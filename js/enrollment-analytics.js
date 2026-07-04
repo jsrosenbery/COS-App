@@ -2818,8 +2818,8 @@
         ['Peak teaching time', 'N/A'],
         ['Peak FT teaching', 'N/A'],
         ['Peak PT teaching', 'N/A'],
-        ['Peak enrollment', 'N/A'],
-        ['Peak LHE', 'N/A'],
+        ['Peak enrollment', 'N/A', 'enrollment'],
+        ['Peak LHE', 'N/A', 'lhe'],
         ['Most active day', 'N/A'],
         ['Least active day', 'N/A']
       ]);
@@ -2893,10 +2893,10 @@
     const cellLabel = (cell, metric = 'sections') => cell ? `${cell.dayName} ${cell.time} (${metric === 'lhe' ? (cell[metric] || 0).toFixed(1) : Math.round(cell[metric] || 0)})` : 'N/A';
     metric('facultyHeatmapMetrics', [
       ['Peak teaching time', cellLabel(peakTeaching, 'sections')],
-      ['Peak FT teaching', cellLabel(peakFt, 'sections')],
-      ['Peak PT teaching', cellLabel(peakPt, 'sections')],
-      ['Peak enrollment', cellLabel(peakEnrollment, 'enrollment')],
-      ['Peak LHE', cellLabel(peakLhe, 'lhe')],
+      ['Peak FT teaching', cellLabel(peakFt, 'sections'), 'full-time-faculty'],
+      ['Peak PT teaching', cellLabel(peakPt, 'sections'), 'part-time-faculty'],
+      ['Peak enrollment', cellLabel(peakEnrollment, 'enrollment'), 'enrollment'],
+      ['Peak LHE', cellLabel(peakLhe, 'lhe'), 'lhe'],
       ['Most active day', mostActiveDay ? `${mostActiveDay.day} (${mostActiveDay.sections})` : 'N/A'],
       ['Least active day', leastActiveDay ? `${leastActiveDay.day} (${leastActiveDay.sections})` : 'N/A']
     ]);
@@ -3566,17 +3566,17 @@
       if (status) status.textContent = 'No faculty schedule rows loaded.';
       document.getElementById('primeTimeGauges').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Prime Time Analysis.</p>';
       metric('primeTimeMetrics', [
-        ['Historical Aggregation', historicalAggregationLabel(historicalAggregationMode('ptHistoricalAggregation'))],
-        ['Class offerings prime time', '0%'],
-        ['Instructional meetings prime time', '0%'],
-        ['FT faculty meetings prime time', '0%'],
-        ['PT faculty meetings prime time', '0%'],
-        ['Lecture prime time', '0%'],
-        ['Lab prime time', '0%'],
-        ['Activity prime time', '0%'],
-        ['Enrollment prime time', '0%'],
-        ['Seats prime time', '0%'],
-        ['LHE prime time', '0%']
+        ['Historical Aggregation', historicalAggregationLabel(historicalAggregationMode('ptHistoricalAggregation')), 'average-per-selected-term'],
+        ['Class offerings prime time', '0%', 'scheduled-class-offerings'],
+        ['Instructional meetings prime time', '0%', 'instructional-meetings'],
+        ['FT faculty meetings prime time', '0%', 'full-time-faculty'],
+        ['PT faculty meetings prime time', '0%', 'part-time-faculty'],
+        ['Lecture prime time', '0%', 'lecture'],
+        ['Lab prime time', '0%', 'lab'],
+        ['Activity prime time', '0%', 'activity'],
+        ['Enrollment prime time', '0%', 'enrollment'],
+        ['Seats prime time', '0%', 'seats-offered'],
+        ['LHE prime time', '0%', 'lhe']
       ]);
       document.getElementById('primeTimeTable').innerHTML = '<p class="analytics-empty">No prime-time data loaded.</p>';
       document.getElementById('primeTimeLegend').innerHTML = '';
@@ -3594,17 +3594,17 @@
     renderPrimeTimeGauges(tableRows);
     const pick = label => tableRows.find(row => row.category === label)?.percentPrime || '0%';
     metric('primeTimeMetrics', [
-      ['Historical Aggregation', historicalAggregationLabel(aggregationMode)],
-      ['Class offerings prime time', pick('Scheduled Class Offerings, Unique CRNs')],
-      ['Instructional meetings prime time', pick('Instructional Meetings')],
-      ['FT faculty meetings prime time', pick('Full-Time Faculty Instructional Meetings')],
-      ['PT faculty meetings prime time', pick('Part-Time Faculty Instructional Meetings')],
-      ['Lecture prime time', pick('Lecture')],
-      ['Lab prime time', pick('Lab')],
-      ['Activity prime time', pick('Activity')],
-      ['Enrollment prime time', pick('Enrollment')],
-      ['Seats prime time', pick('Seats')],
-      ['LHE prime time', pick('LHE')]
+      ['Historical Aggregation', historicalAggregationLabel(aggregationMode), 'average-per-selected-term'],
+      ['Class offerings prime time', pick('Scheduled Class Offerings, Unique CRNs'), 'scheduled-class-offerings'],
+      ['Instructional meetings prime time', pick('Instructional Meetings'), 'instructional-meetings'],
+      ['FT faculty meetings prime time', pick('Full-Time Faculty Instructional Meetings'), 'full-time-faculty'],
+      ['PT faculty meetings prime time', pick('Part-Time Faculty Instructional Meetings'), 'part-time-faculty'],
+      ['Lecture prime time', pick('Lecture'), 'lecture'],
+      ['Lab prime time', pick('Lab'), 'lab'],
+      ['Activity prime time', pick('Activity'), 'activity'],
+      ['Enrollment prime time', pick('Enrollment'), 'enrollment'],
+      ['Seats prime time', pick('Seats'), 'seats-offered'],
+      ['LHE prime time', pick('LHE'), 'lhe']
     ]);
     table('primeTimeTable', tableRows, ['category', 'aggregationMode', 'focusPlanningTerm', 'selectedHistoricalTerms', 'historicalTermWeights', 'primeValue', 'nonPrimeValue', 'totalValue', 'percentPrime', 'totalAcrossSelectedTerms', 'averagePerSelectedTerm', 'weightedHistoricalAverage']);
     const definition = primeTimeDefinition();
@@ -3974,14 +3974,14 @@
     const hiddenDemand = built.rows.filter(row => row.interpretation === 'Hidden Demand').length;
     const oversupplied = built.rows.filter(row => row.interpretation === 'Oversupplied').length;
     metric('supplyDemandMetrics', [
-      ['Sections', totalSections],
-      ['Seats Offered', totalSeats],
-      ['Enrollment', totalEnrollment],
-      ['Fill Rate', `${(safeDiv(totalEnrollment, totalSeats) * 100).toFixed(1)}%`],
-      ['Waitlist', totalWaitlist],
+      ['Sections', totalSections, 'scheduled-class-offerings'],
+      ['Seats Offered', totalSeats, 'seats-offered'],
+      ['Enrollment', totalEnrollment, 'enrollment'],
+      ['Fill Rate', `${(safeDiv(totalEnrollment, totalSeats) * 100).toFixed(1)}%`, 'fill-rate'],
+      ['Waitlist', totalWaitlist, 'waitlist'],
       ['High Demand Buckets', highDemand],
-      ['Hidden Demand Buckets', hiddenDemand],
-      ['Oversupplied Buckets', oversupplied]
+      ['Hidden Demand Buckets', hiddenDemand, 'hidden-demand'],
+      ['Oversupplied Buckets', oversupplied, 'oversupply']
     ]);
   }
 
@@ -5101,27 +5101,27 @@
     const noCurrentEnrollment = mode === 'planning' && !summary.hasCurrentEnrollment;
     metric('studentChoiceMetrics', [
       ['Analysis Mode', mode === 'historical' ? 'Historical Evaluation' : mode === 'scenario' ? 'Scenario Analysis' : 'Planning & Forecast'],
-      ['Historical Aggregation', historicalAggregationLabel(aggregationMode)],
-      ['Scheduled Class Offerings', summary.scheduledClassOfferings],
-      ['Unique Courses Available', summary.uniqueCourses],
-      ['Unique Subjects Available', summary.uniqueSubjects],
-      ['Unique CAL-GETC/GE Courses', summary.uniqueCalGetcCourses],
-      ['Seats Offered', summary.seatsOffered],
-      ['Enrollment', noCurrentEnrollment ? 'No current enrollment yet' : summary.enrollment],
-      ['Projected Enrollment', Math.round(projection.projectedEnrollment || 0)],
-      ['Student Presence', noCurrentEnrollment ? 'No current enrollment yet' : summary.studentPresence],
-      ['Projected Student Presence', Math.round(projection.projectedStudentPresence || 0)],
-      ['Fill Rate', noCurrentEnrollment ? 'No current enrollment yet' : summary.fillRate],
-      ['Projected Fill Rate', projection.projectedFillRate],
-      ['Waitlist', summary.waitlist],
-      ['Enrollment per Class Offering', noCurrentEnrollment ? 'No current enrollment yet' : round1(summary.enrollmentPerClassOffering)],
-      ['Empty Seats', summary.emptySeats],
-      ['Campus Choices', summary.campusChoices],
-      ['Modality Choices', summary.modalityChoices],
-      ['Choice Diversity Index', summary.choiceDiversityIndex],
-      ['Demand Pressure Score', summary.demandPressureScore],
+      ['Historical Aggregation', historicalAggregationLabel(aggregationMode), 'average-per-selected-term'],
+      ['Scheduled Class Offerings', summary.scheduledClassOfferings, 'scheduled-class-offerings'],
+      ['Unique Courses Available', summary.uniqueCourses, 'unique-courses-available'],
+      ['Unique Subjects Available', summary.uniqueSubjects, 'subject-breadth-count'],
+      ['Unique CAL-GETC/GE Courses', summary.uniqueCalGetcCourses, 'ge-choice-count'],
+      ['Seats Offered', summary.seatsOffered, 'seats-offered'],
+      ['Enrollment', noCurrentEnrollment ? 'No current enrollment yet' : summary.enrollment, 'enrollment'],
+      ['Projected Enrollment', Math.round(projection.projectedEnrollment || 0), 'enrollment'],
+      ['Student Presence', noCurrentEnrollment ? 'No current enrollment yet' : summary.studentPresence, 'student-presence'],
+      ['Projected Student Presence', Math.round(projection.projectedStudentPresence || 0), 'student-presence'],
+      ['Fill Rate', noCurrentEnrollment ? 'No current enrollment yet' : summary.fillRate, 'fill-rate'],
+      ['Projected Fill Rate', projection.projectedFillRate, 'fill-rate'],
+      ['Waitlist', summary.waitlist, 'waitlist'],
+      ['Enrollment per Class Offering', noCurrentEnrollment ? 'No current enrollment yet' : round1(summary.enrollmentPerClassOffering), 'enrollment-per-class-offering'],
+      ['Empty Seats', summary.emptySeats, 'empty-seats'],
+      ['Campus Choices', summary.campusChoices, 'campus-choice-count'],
+      ['Modality Choices', summary.modalityChoices, 'modality-choice-count'],
+      ['Choice Diversity Index', summary.choiceDiversityIndex, 'choice-diversity-index'],
+      ['Demand Pressure Score', summary.demandPressureScore, 'demand-pressure-score'],
       ['High Choice Blocks', highChoice],
-      ['Low Choice / High Demand', lowChoiceHighDemand]
+      ['Low Choice / High Demand', lowChoiceHighDemand, 'choice-gap']
     ]);
     renderStudentChoiceHeatmap(buckets, metricName);
     renderStudentChoiceLineGraph(buckets, metricName);
@@ -9045,6 +9045,172 @@
     };
   }
 
+  function demandHistoricalExpectedEnrollment(trends = []) {
+    if (!trends.length) return 0;
+    const values = trends.map(row => row.census || 0);
+    const simpleAverage = average(values);
+    const trend = demandTrend(values);
+    const weights = trends.map((_, index) => index + 1);
+    const weightedAverage = safeDiv(values.reduce((total, value, index) => total + value * weights[index], 0), weights.reduce((total, value) => total + value, 0));
+    const trendExpected = Math.max(0, values[values.length - 1] + trend.delta);
+    return Math.round(Math.abs(trend.rate) >= 0.03 ? average([weightedAverage, trendExpected]) : weightedAverage || simpleAverage);
+  }
+
+  function demandLifecycleStatus(trends = [], target = {}) {
+    const targetTerm = target.term || '';
+    const matching = trends.find(row => normalizeTermLabel(row.term) === normalizeTermLabel(targetTerm));
+    if (!matching) return { status: 'future', label: 'Future term', currentEnrollment: 0, finalEnrollment: null };
+    const hasCensus = Number(matching.census || 0) > 0;
+    const hasActual = Number(matching.final || 0) > 0;
+    if (hasCensus) return { status: 'completed', label: 'Completed term', currentEnrollment: matching.final || matching.census || 0, finalEnrollment: matching.census || matching.final || 0 };
+    if (hasActual) return { status: 'active', label: 'Active enrollment term', currentEnrollment: matching.final || 0, finalEnrollment: null };
+    return { status: 'future', label: 'Future term', currentEnrollment: 0, finalEnrollment: null };
+  }
+
+  function demandForecastConfidenceScore(rows = []) {
+    const labels = rows.map(row => row.forecastConfidence).filter(Boolean);
+    if (!labels.length) return { label: 'Low', score: 35 };
+    const score = average(labels.map(label => ({ High: 90, Medium: 65, Low: 35 }[label] || 35)));
+    return { label: score >= 80 ? 'High' : score >= 55 ? 'Medium' : 'Low', score };
+  }
+
+  function demandExecutiveSummary(rows, trends, context = {}, diagnostics = {}) {
+    const college = rows.find(row => row.forecastLevel === 'College') || rows[0] || {};
+    const expected = demandHistoricalExpectedEnrollment(trends);
+    const projected = Number(college.expectedEnrollmentNextTerm || 0);
+    const lifecycle = demandLifecycleStatus(trends, context.target || {});
+    const current = lifecycle.currentEnrollment || (trends.at(-1)?.final || 0);
+    const projectedVariance = projected - expected;
+    const currentVariance = current - expected;
+    const fillTrend = demandTrend(trends.map(row => row.fillRate || 0));
+    const waitlistTrend = demandTrend(trends.map(row => row.waitlist || 0));
+    const expanding = rows.filter(row => /expanding|growth|increase/i.test(row.capacityGuidance || '')).length;
+    const softening = rows.filter(row => /softening/i.test(row.capacityGuidance || '')).length;
+    const confidence = demandForecastConfidenceScore(rows);
+    const capDelta = context.ftesCap > 0 ? Number(context.ftesCap) - Number(context.annualFtes || context.forecastFtes || 0) : null;
+    let risk = 0;
+    if (expected && projected < expected * 0.95) risk += 2;
+    else if (expected && projected < expected) risk += 1;
+    if (capDelta != null && capDelta < 0) risk += 2;
+    if (fillTrend.rate < -0.03) risk += 1;
+    if (waitlistTrend.rate > 0.15) risk += 1;
+    if (softening > expanding) risk += 1;
+    if (confidence.label === 'Low') risk += 1;
+    const health = risk >= 4 ? 'Intervention Recommended' : risk >= 2 ? 'Watch' : 'On Track';
+    const drivers = [
+      expected ? `Projected variance is ${projectedVariance >= 0 ? '+' : ''}${Math.round(projectedVariance)} students against the historical expected enrollment.` : 'Historical expected enrollment is unavailable for this scope.',
+      capDelta == null ? 'No FTES cap was entered for cap-position review.' : `Annual FTES projection is ${capDelta >= 0 ? `${round1(capDelta)} under` : `${round1(Math.abs(capDelta))} over`} cap.`,
+      `${expanding} expanding demand rows and ${softening} softening demand rows were identified.`,
+      `Forecast confidence is ${confidence.label.toLowerCase()} across visible forecast rows.`
+    ].slice(0, 4);
+    return {
+      health,
+      explanation: health === 'On Track'
+        ? 'Forecast indicators are generally aligned with historical demand and capacity assumptions.'
+        : health === 'Watch'
+          ? 'Several indicators need monitoring before final schedule decisions.'
+          : 'Demand, cap, or confidence indicators suggest active intervention is warranted.',
+      drivers: drivers.slice(0, 3),
+      lifecycle,
+      expected,
+      projected,
+      current,
+      currentVariance,
+      projectedVariance,
+      confidence,
+      expanding,
+      softening,
+      capDelta,
+      diagnostics
+    };
+  }
+
+  function demandRecommendationSummary(rows = [], patterns = [], summary = {}) {
+    const findings = [];
+    const topExpansion = rows.filter(row => row.forecastLevel === 'Course' && /expanding|growth|increase/i.test(row.capacityGuidance || ''))
+      .sort((a, b) => Number(b.adjustedForecastGrowth) - Number(a.adjustedForecastGrowth))[0];
+    const topSoftening = rows.filter(row => row.forecastLevel === 'Course' && /softening/i.test(row.capacityGuidance || ''))
+      .sort((a, b) => Number(a.adjustedForecastGrowth) - Number(b.adjustedForecastGrowth))[0];
+    const pressure = patterns.find(row => row.fillRate >= 0.9 && row.waitlist > 0);
+    if (topExpansion) findings.push({
+      category: 'Expansion Candidate',
+      confidence: topExpansion.forecastConfidence,
+      evidence: `${topExpansion.course} is ${pct(topExpansion.adjustedForecastGrowth)} above historical expectation.`,
+      action: 'Review section count, seat supply, and modality/campus placement before schedule build.'
+    });
+    if (pressure) findings.push({
+      category: 'Waitlist Pressure',
+      confidence: summary.confidence?.label || 'Medium',
+      evidence: `${readableDemandPatternLabel(pressure)} has ${pct(pressure.fillRate)} fill and ${pressure.waitlist} waitlist.`,
+      action: 'Check whether additional capacity or time redistribution is feasible.'
+    });
+    if (topSoftening) findings.push({
+      category: 'Softening Demand',
+      confidence: topSoftening.forecastConfidence,
+      evidence: `${topSoftening.course} is ${pct(topSoftening.adjustedForecastGrowth)} below historical expectation.`,
+      action: 'Review future offerings for right-sizing before adding sections.'
+    });
+    if (summary.capDelta != null && summary.capDelta < 0) findings.push({
+      category: 'FTES Cap Position',
+      confidence: summary.confidence?.label || 'Medium',
+      evidence: `Annual FTES projection is ${round1(Math.abs(summary.capDelta))} over the entered cap.`,
+      action: 'Review FTES target assumptions and companion-term projections.'
+    });
+    if (!findings.length) findings.push({
+      category: 'Stable Baseline',
+      confidence: summary.confidence?.label || 'Medium',
+      evidence: 'No high-priority demand imbalance surfaced from the selected rows.',
+      action: 'Maintain baseline while monitoring enrollment and waitlist updates.'
+    });
+    return findings.slice(0, 5);
+  }
+
+  function renderDemandMetricGroups(config = {}) {
+    const summary = config.executiveSummary || {};
+    const rows = config.rows || [];
+    const metricRows = [
+      ['Enrollment', [
+        ['Current Enrollment', Math.round(summary.current || 0), 'current-enrollment'],
+        ['Projected Final Enrollment', Math.round(summary.projected || 0), 'projected-final-enrollment'],
+        ['Historical Expected Enrollment', Math.round(summary.expected || 0), 'historical-expected-enrollment'],
+        [summary.lifecycle?.status === 'completed' ? 'Final Variance' : 'Projected Variance', `${summary.projectedVariance >= 0 ? '+' : ''}${Math.round(summary.projectedVariance || 0)}`, summary.lifecycle?.status === 'completed' ? 'current-variance' : 'projected-variance']
+      ]],
+      ['FTES', [
+        ['Historical FTES', round1(config.collegeRow?.avgFtes || 0), 'ftes'],
+        ['Forecast FTES', round1(config.forecastFtes || 0), 'ftes'],
+        ['FTES Cap Position', config.ftesCapDelta == null ? 'No cap entered' : (config.ftesCapDelta >= 0 ? `${round1(config.ftesCapDelta)} under cap` : `${round1(Math.abs(config.ftesCapDelta))} over cap`), 'ftes-cap-position'],
+        ['Annual FTES Projection', round1(config.capComparisonFtes || 0), 'ftes']
+      ]],
+      ['Scope', [
+        ['Courses Reviewed', rows.filter(row => row.forecastLevel === 'Course').length, 'course-choice-count'],
+        ['Scheduled Class Offerings', rows.find(row => row.forecastLevel === 'College')?.totalSectionsOffered || 0, 'scheduled-class-offerings'],
+        ['Terms Included', config.termDiagnostics?.termsUsedInForecast?.length || 0, 'terms-included'],
+        ['Work Experience Rows Included', config.workExperience?.rows || 0, 'instructional-meetings'],
+        ['Tutoring/Open Lab Rows Excluded', config.diagnostics?.tutoringOpenLabRowsExcluded || 0, 'instructional-meetings']
+      ]]
+    ];
+    const flatItems = metricRows.flatMap(([groupName, items]) => [
+      [`${groupName}`, '', ''],
+      ...items
+    ]);
+    metric('demandMetrics', flatItems);
+    const node = document.getElementById('demandMetrics');
+    if (!node) return;
+    node.classList.add('demand-metric-groups');
+    let index = 0;
+    metricRows.forEach(([groupName, items]) => {
+      const header = node.children[index++];
+      if (header) {
+        header.classList.add('demand-metric-group-label');
+        header.innerHTML = `<span>${escapeAttr(groupName)}</span>`;
+      }
+      items.forEach(() => {
+        const card = node.children[index++];
+        if (card) card.dataset.metricGroup = groupName;
+      });
+    });
+  }
+
   function collectDemandSourceTerms(rows) {
     const terms = new Set();
     (rows || []).forEach(row => {
@@ -9074,6 +9240,10 @@
         <div><dt>Terms excluded by forecast target/window</dt><dd>${escapeAttr(termListLabel([...(diagnostics.termsExcludedByForecastTarget || []), ...(diagnostics.termsExcludedByAnalysisWindow || [])]))}</dd></div>
         <div><dt>Terms with zero usable rows</dt><dd>${escapeAttr(termListLabel(diagnostics.termsWithZeroUsableRows))}</dd></div>
         <div><dt>Terms failed to load</dt><dd>${escapeAttr(termListLabel(failed))}</dd></div>
+        <div><dt>Forecast method</dt><dd>Blended historical same-season trend forecast</dd></div>
+        <div><dt>Aggregation mode</dt><dd>Single-term forecasts use same-season terms; academic-year forecasts use Summer/Fall/Spring annual buckets.</dd></div>
+        <div><dt>Historical term weights</dt><dd>${escapeAttr((diagnostics.termsUsedInForecast || []).map((term, index, list) => `${term}: ${index + 1}/${list.length}`).join('; ') || 'None')}</dd></div>
+        <div><dt>Terms excluded by forecast target/window</dt><dd>${escapeAttr(termListLabel([...(diagnostics.termsExcludedByForecastTarget || []), ...(diagnostics.termsExcludedByAnalysisWindow || [])]))}</dd></div>
       </dl>`;
   }
 
@@ -9154,28 +9324,28 @@
       const capComparisonFtes = annualFtes.annualFtes;
       const ftesCapDelta = ftesCap > 0 ? ftesCap - capComparisonFtes : null;
       const workExperience = workExperienceSummary(rows);
-      metric('demandMetrics', [
-        ['Forecast Target', target.label],
-        ['Forecast Scope', target.scope === 'year' ? 'Academic year' : 'Single term'],
-        ['Terms Included', termDiagnostics.termsUsedInForecast.length],
-        ['Courses Reviewed', state.demandRows.filter(row => row.forecastLevel === 'Course').length],
-        ['College Growth', pct(context.collegeGrowth)],
-        ['Modifier Applied', pct(growthModifier)],
-        ['Historical FTES', round1(collegeRow?.avgFtes || 0)],
-        ['Forecast FTES', round1(forecastFtes)],
-        ['Known/Projected Companion FTES', round1(annualFtes.companionFtes)],
-        ['Annual FTES Projection', round1(capComparisonFtes)],
-        ...(yearSeasonForecast ? yearSeasonForecast.seasons.map(row => [`${row.termLabel} Est. FTES`, round1(row.forecastFtes)]) : []),
-        ['FTES Cap Position', ftesCapDelta == null ? 'No cap entered' : (ftesCapDelta >= 0 ? `${round1(ftesCapDelta)} under cap` : `${round1(Math.abs(ftesCapDelta))} over cap`)],
-        ['Work Experience Rows Included', workExperience.rows],
-        ['Work Experience FTES Warnings', workExperience.missingFtes],
-        ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
-        ['Expanding Demand', expanding.length],
-        ['Softening Demand', softening.length],
-        ['Avg Forecast Growth', pct(safeDiv(sum(state.demandRows, 'adjustedForecastGrowth'), state.demandRows.length))]
-      ]);
+      const trends = demandTrendSeries(rows);
+      const executiveSummary = demandExecutiveSummary(state.demandRows, trends, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes }, termDiagnostics);
+      renderDemandMetricGroups({
+        target,
+        executiveSummary,
+        termDiagnostics,
+        collegeRow,
+        forecastFtes,
+        annualFtes,
+        capComparisonFtes,
+        ftesCapDelta,
+        workExperience,
+        diagnostics,
+        expanding,
+        softening,
+        growthModifier,
+        context,
+        yearSeasonForecast,
+        rows
+      });
       renderDemandDiagnosticsPanel(termDiagnostics);
-      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), demandTrendSeries(rows), yearSeasonForecast, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes });
+      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), trends, yearSeasonForecast, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, executiveSummary, growthModifier, diagnostics: termDiagnostics, context });
       table('demandTable', state.demandRows, demandColumns());
       renderDemandLegend();
     } catch (err) {
@@ -9511,21 +9681,55 @@
     const highPatterns = patterns.slice(0, 5);
     const lowPatterns = patterns.slice(-5).reverse();
     const targetLabel = forecastContext.target?.label || 'Forecast';
+    const summary = forecastContext.executiveSummary || demandExecutiveSummary(rows, trends, forecastContext, forecastContext.diagnostics || {});
+    const findings = demandRecommendationSummary(rows, patterns, summary);
     const enrollmentData = buildEnrollmentTrendChartData(trends, forecastContext.forecastFtes == null ? null : rows.find(row => row.forecastLevel === 'College')?.expectedEnrollmentNextTerm, targetLabel);
     const ftesData = buildFtesTrendChartData(trends, forecastContext.forecastFtes || 0, forecastContext.ftesCap || 0, targetLabel);
     const fillWaitlistData = buildFillWaitlistPressureChartData(trends);
     const distributionData = buildCourseDemandDistributionChartData(rows);
     const backtestData = buildForecastBacktestChartData(trends);
     wrap.innerHTML = `
-      ${lineChartPanel('Enrollment Trend Chart', enrollmentData, { valueFormatter: value => Math.round(value), yLabel: 'Enrollment' })}
-      ${lineChartPanel('FTES Trend Chart', ftesData, { valueFormatter: value => round1(value), yLabel: 'FTES', warning: ftesData.exceedsCap ? 'Forecast exceeds the entered FTES cap.' : '' })}
-      ${fillWaitlistPanel(fillWaitlistData)}
-      ${courseDemandDistributionPanel(distributionData)}
-      ${forecastBacktestPanel(backtestData)}
-      ${insightPanel('Semester FTES Totals', trends.map(row => `${row.term}: ${round1(row.ftes)} FTES; ${row.census} census enrollment`))}
-      ${yearSeasonForecast ? insightPanel('Forecast Term FTES Split', yearSeasonForecast.seasons.map(row => `${row.termLabel}: ${round1(row.forecastFtes)} FTES (${pct(row.share)} of annual forecast, based on ${yearSeasonForecast.basis})`)) : ''}
-      ${insightPanel('Highest Demand Day/Time Patterns', highPatterns.map(row => `${row.pattern}: ${pct(row.fillRate)} fill, ${row.waitlist} waitlist`))}
-      ${insightPanel('Lowest Demand Day/Time Patterns', lowPatterns.map(row => `${row.pattern}: ${pct(row.fillRate)} fill, ${row.waitlist} waitlist`))}`;
+      <section class="demand-report-section demand-executive-summary" data-collapsible-title="Executive Summary" data-collapsible-id="demand-executive-summary" data-collapsible-default-open="true">
+        <h3>Executive Summary</h3>
+        ${demandExecutiveSummaryPanel(summary)}
+      </section>
+      <section class="demand-report-section" data-collapsible-title="Historical Trends" data-collapsible-id="demand-historical-trends" data-collapsible-default-open="true">
+        <h3>Historical Trends</h3>
+        ${lineChartPanel('Enrollment Trend Chart', enrollmentData, { valueFormatter: value => Math.round(value), yLabel: 'Enrollment' })}
+        ${lineChartPanel('FTES Trend Chart', ftesData, { valueFormatter: value => round1(value), yLabel: 'FTES', warning: ftesData.exceedsCap ? 'Forecast exceeds the entered FTES cap.' : '' })}
+      </section>
+      <section class="demand-report-section" data-collapsible-title="Fill Rate & Waitlist Pressure" data-collapsible-id="demand-fill-waitlist" data-collapsible-default-open="true">
+        <h3>Fill Rate & Waitlist Pressure</h3>
+        <p class="analytics-chart-note">High fill plus rising waitlist indicates pressure. Low fill plus low waitlist may indicate excess capacity or weaker visible demand.</p>
+        ${fillWaitlistPanel(fillWaitlistData)}
+      </section>
+      <section class="demand-report-section" data-collapsible-title="Course Demand Distribution" data-collapsible-id="demand-course-distribution" data-collapsible-default-open="true">
+        <h3>Course Demand Distribution</h3>
+        ${courseDemandDistributionPanel(distributionData)}
+      </section>
+      <section class="demand-report-section" data-collapsible-title="Top Findings / Recommendations" data-collapsible-id="demand-top-findings" data-collapsible-default-open="true">
+        <h3>Top Findings / Recommendations</h3>
+        ${demandFindingsPanel(findings)}
+        <section data-collapsible-title="Show All Recommendations" data-collapsible-id="demand-full-recommendations" data-collapsible-default-open="false">
+          <h3>Show All Recommendations</h3>
+          ${demandFullRecommendationsPanel(rows)}
+        </section>
+      </section>
+      <section class="demand-report-section" data-collapsible-title="Day/Time Demand Patterns" data-collapsible-id="demand-day-time-patterns" data-collapsible-default-open="true">
+        <h3>Day/Time Demand Patterns</h3>
+        ${demandPatternPanel('Highest Demand Day/Time Patterns', highPatterns)}
+        ${demandPatternPanel('Lowest Demand Day/Time Patterns', lowPatterns)}
+      </section>
+      <section class="demand-report-section" data-collapsible-title="Diagnostics & Methodology" data-collapsible-id="demand-diagnostics-methodology" data-collapsible-default-open="false">
+        <h3>Diagnostics & Methodology</h3>
+        ${demandForecastMethodCard(forecastContext, summary, backtestData)}
+        ${insightPanel('Semester FTES Totals', trends.map(row => `${row.term}: ${round1(row.ftes)} FTES; ${row.census} census enrollment`))}
+        ${yearSeasonForecast ? insightPanel('Forecast Term FTES Split', yearSeasonForecast.seasons.map(row => `${row.termLabel}: ${round1(row.forecastFtes)} FTES (${pct(row.share)} of annual forecast, based on ${yearSeasonForecast.basis})`)) : ''}
+        <section data-collapsible-title="Forecast Accuracy / Back-test" data-collapsible-id="demand-forecast-backtest" data-collapsible-default-open="false">
+          ${forecastBacktestPanel(backtestData)}
+        </section>
+      </section>`;
+    refreshGeneratedCollapsibleSections(wrap);
   }
 
   function buildEnrollmentTrendChartData(trends, forecastEnrollment = null, targetLabel = 'Forecast') {
@@ -9604,12 +9808,110 @@
       .slice(0, 5);
     return [...expanding, ...softening].map(row => ({
       course: row.course || row.groupName,
-      currentEnrollment: row.expectedEnrollmentNextTerm || 0,
+      currentEnrollment: row.avgFinalEnrollment || row.avgCensusEnrollment || 0,
       historicalAverage: row.avgCensusEnrollment || 0,
+      forecastEnrollment: row.expectedEnrollmentNextTerm || 0,
       forecastGrowth: row.adjustedForecastGrowth || 0,
+      demandVariance: (row.expectedEnrollmentNextTerm || 0) - (row.avgCensusEnrollment || 0),
       confidence: row.forecastConfidence || 'N/A',
       direction: Number(row.adjustedForecastGrowth) >= 0 ? 'Expanding' : 'Softening'
     }));
+  }
+
+  function demandExecutiveSummaryPanel(summary = {}) {
+    const tone = summary.health === 'On Track' ? 'ok' : summary.health === 'Watch' ? 'watch' : 'alert';
+    return `
+      <div class="demand-health-card demand-health-${tone}">
+        <div>
+          <span>Overall Health Score</span>
+          <strong>${escapeAttr(summary.health || 'Watch')}</strong>
+          <p>${escapeAttr(summary.explanation || '')}</p>
+        </div>
+        <dl>
+          <div><dt>Term lifecycle</dt><dd>${escapeAttr(summary.lifecycle?.label || 'Future term')}</dd></div>
+          <div><dt>Forecast confidence</dt><dd>${escapeAttr(summary.confidence?.label || 'Low')}</dd></div>
+          <div><dt>Projected variance</dt><dd>${summary.projectedVariance >= 0 ? '+' : ''}${Math.round(summary.projectedVariance || 0)}</dd></div>
+        </dl>
+      </div>
+      <div class="demand-driver-list">
+        <h4>Top Drivers</h4>
+        <ol>${(summary.drivers || []).map(driver => `<li>${escapeAttr(driver)}</li>`).join('')}</ol>
+      </div>`;
+  }
+
+  function demandFindingsPanel(findings = []) {
+    return `<div class="demand-findings">${findings.map(row => `
+      <article>
+        <span>${escapeAttr(row.category)}</span>
+        <strong>${escapeAttr(row.confidence || 'Medium')}</strong>
+        <p>${escapeAttr(row.evidence || '')}</p>
+        <em>${escapeAttr(row.action || '')}</em>
+      </article>`).join('')}</div>`;
+  }
+
+  function demandFullRecommendationsPanel(rows = []) {
+    const recommendationRows = rows
+      .filter(row => row.forecastLevel === 'Course')
+      .sort((a, b) => Math.abs(Number(b.adjustedForecastGrowth || 0)) - Math.abs(Number(a.adjustedForecastGrowth || 0)))
+      .slice(0, 25);
+    if (!recommendationRows.length) return '<p class="analytics-empty">No course-level recommendation detail rows are available.</p>';
+    return `<div class="demand-recommendation-detail">${recommendationRows.map(row => `
+      <article>
+        <h4>${escapeAttr(row.course || row.groupName)}</h4>
+        <p>${escapeAttr(row.capacityGuidance || 'Maintain planning baseline.')}</p>
+        <dl>
+          <div><dt>Confidence</dt><dd>${escapeAttr(row.forecastConfidence || 'N/A')}</dd></div>
+          <div><dt>Forecast growth</dt><dd>${pct(row.adjustedForecastGrowth || 0)}</dd></div>
+          <div><dt>Historical expected</dt><dd>${row.avgCensusEnrollment || 0}</dd></div>
+          <div><dt>Forecast enrollment</dt><dd>${row.expectedEnrollmentNextTerm || 0}</dd></div>
+        </dl>
+      </article>`).join('')}</div>`;
+  }
+
+  function parseDemandPattern(pattern = '') {
+    const [day = '', time = '', modality = '', campus = ''] = String(pattern).split('|').map(part => part.trim());
+    return { day, time, modality, campus };
+  }
+
+  function readableDemandPatternLabel(row = {}) {
+    const pattern = parseDemandPattern(row.pattern);
+    return [pattern.day, pattern.time, pattern.modality, pattern.campus].filter(Boolean).join(' ');
+  }
+
+  function demandPatternPanel(title, rows = []) {
+    const cards = rows.map(row => {
+      const pattern = parseDemandPattern(row.pattern);
+      return `<article class="demand-pattern-card">
+        <div class="demand-chip-row">
+          <span>Day: ${escapeAttr(pattern.day || 'N/A')}</span>
+          <span>Time: ${escapeAttr(pattern.time || 'N/A')}</span>
+          <span>Campus: ${escapeAttr(pattern.campus || 'N/A')}</span>
+          <span>Modality: ${escapeAttr(pattern.modality || 'N/A')}</span>
+        </div>
+        <dl>
+          <div><dt>Fill rate</dt><dd>${pct(row.fillRate || 0)}</dd></div>
+          <div><dt>Waitlist</dt><dd>${row.waitlist || 0}</dd></div>
+          <div><dt>Class offerings</dt><dd>${row.sections || 0}</dd></div>
+        </dl>
+      </article>`;
+    }).join('') || '<p class="analytics-empty">No matching day/time patterns.</p>';
+    return `<section class="demand-pattern-panel"><h4>${escapeAttr(title)}</h4>${cards}</section>`;
+  }
+
+  function demandForecastMethodCard(context = {}, summary = {}, backtest = {}) {
+    const target = context.target || {};
+    return `<section class="demand-method-card">
+      <h4>Forecast Method</h4>
+      <dl>
+        <div><dt>Forecast method used</dt><dd>Blended historical same-season trend forecast</dd></div>
+        <div><dt>Historical aggregation mode</dt><dd>${target.scope === 'year' ? 'Academic-year buckets' : 'Same-season terms'}</dd></div>
+        <div><dt>Trend model</dt><dd>Recent weighted trend plus college/division/discipline/course growth blend</dd></div>
+        <div><dt>Growth modifier</dt><dd>${pct(context.growthModifier || 0)}</dd></div>
+        <div><dt>Schedule basis</dt><dd>Scheduled Class Offerings use unique CRNs; enrollment uses census first and actual/current fallback</dd></div>
+        <div><dt>Confidence level</dt><dd>${escapeAttr(summary.confidence?.label || 'Low')}</dd></div>
+        <div><dt>Average historical forecast gap</dt><dd>${Math.round(backtest.averageGap || 0)} students</dd></div>
+      </dl>
+    </section>`;
   }
 
   function buildForecastBacktestChartData(trends) {
@@ -9682,19 +9984,29 @@
   }
 
   function courseDemandDistributionPanel(rows) {
-    const max = Math.max(1, ...rows.map(row => Math.abs(row.forecastGrowth || 0)));
+    const max = Math.max(1, ...rows.map(row => Math.abs(row.demandVariance || 0)));
     const bars = rows.map(row => {
-      const width = Math.max(3, Math.abs(row.forecastGrowth || 0) / max * 100);
+      const variance = row.demandVariance || 0;
+      const width = Math.max(3, Math.abs(variance) / max * 50);
       const tooltip = analyticsTooltip([
         ['Course', row.course],
         ['Current enrollment', row.currentEnrollment],
         ['Historical average', row.historicalAverage],
+        ['Forecast enrollment', row.forecastEnrollment],
+        ['Demand variance', variance],
         ['Forecast growth', pct(row.forecastGrowth)],
         ['Confidence', row.confidence]
       ]);
-      return `<div class="analytics-demand-bar ${row.direction === 'Softening' ? 'softening' : 'expanding'}" title="${escapeAttr(tooltip)}"><span>${escapeAttr(row.course)}</span><div><i style="width:${round1(width)}%"></i></div><strong>${escapeAttr(pct(row.forecastGrowth))}</strong><em>${escapeAttr(row.confidence)}</em></div>`;
+      const leftWidth = variance < 0 ? width : 0;
+      const rightWidth = variance >= 0 ? width : 0;
+      return `<div class="analytics-demand-zero-bar ${variance < 0 ? 'softening' : 'expanding'}" title="${escapeAttr(tooltip)}">
+        <span>${escapeAttr(row.course)}</span>
+        <div class="demand-zero-track"><i class="below" style="width:${round1(leftWidth)}%"></i><b></b><i class="above" style="width:${round1(rightWidth)}%"></i></div>
+        <strong>${variance >= 0 ? '+' : ''}${Math.round(variance)}</strong>
+        <em>${escapeAttr(row.confidence)}</em>
+      </div>`;
     }).join('') || '<p class="analytics-empty">No course-level expanding or softening demand rows.</p>';
-    return `<section class="analytics-chart-panel"><h3>Course Demand Distribution Chart</h3>${bars}</section>`;
+    return `<section class="analytics-chart-panel"><h3>Course Demand Distribution Chart</h3><div class="demand-zero-legend"><span>Below Expected</span><span>Above Expected</span></div>${bars}</section>`;
   }
 
   function forecastBacktestPanel(data) {
@@ -10053,7 +10365,19 @@
   }
 
   function metric(id, items) {
-    document.getElementById(id).innerHTML = items.map(([label, value]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join('');
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.replaceChildren();
+    items.forEach(([labelText, value, metricId]) => {
+      const card = document.createElement('div');
+      const strong = document.createElement('strong');
+      const labelNode = document.createElement('span');
+      strong.textContent = value ?? '';
+      labelNode.textContent = labelText ?? '';
+      card.append(strong, labelNode);
+      window.MetricHelpProvider?.attach?.(card, metricId);
+      node.appendChild(card);
+    });
   }
 
   function table(id, rows, columns) {
@@ -11200,6 +11524,9 @@
       .analytics-metrics div{border:1px solid #d8e1ec;border-radius:8px;padding:12px;background:#f8fbff}
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
       .analytics-metrics span{font-size:12px;color:#51657c;text-transform:uppercase}
+      .demand-metric-groups{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+      .demand-metric-groups .demand-metric-group-label{grid-column:1/-1;background:#eef5f9;border-color:#cdddea;padding:8px 10px}
+      .demand-metric-groups .demand-metric-group-label span{font-size:13px;color:#123367;text-transform:none;font-weight:900}
       .analytics-table tr.analytics-row-warning td{background:#fff7ed;color:#7c2d12;font-weight:800}
       .analytics-table tr.analytics-row-muted td{background:#f3f4f6;color:#4b5563}
       .analytics-table tr.analytics-row-info td{background:#eff6ff;color:#1e3a8a}
@@ -11314,6 +11641,37 @@
       .analytics-demand-bar strong{color:#123367;text-align:right}
       .analytics-demand-bar em{color:#51657c;font-style:normal;text-align:right}
       .analytics-chart-note{margin:4px 0 0;color:#51657c;font-size:12px;line-height:1.3}
+      .demand-report-section{grid-column:1/-1;background:#fff}
+      .demand-health-card{display:grid;grid-template-columns:minmax(220px,1fr) minmax(260px,1fr);gap:12px;padding:12px;border-radius:10px;border:1px solid #d8e1ec;background:#f8fbff;margin-bottom:10px}
+      .demand-health-card span{display:block;color:#51657c;font-size:12px;text-transform:uppercase;font-weight:900}
+      .demand-health-card strong{display:block;color:#123367;font-size:24px}
+      .demand-health-card p{margin:4px 0 0;color:#334862}
+      .demand-health-card dl,.demand-method-card dl,.demand-pattern-card dl,.demand-recommendation-detail dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:0}
+      .demand-health-card dt,.demand-method-card dt,.demand-pattern-card dt,.demand-recommendation-detail dt{font-size:11px;color:#51657c;text-transform:uppercase;font-weight:900}
+      .demand-health-card dd,.demand-method-card dd,.demand-pattern-card dd,.demand-recommendation-detail dd{margin:2px 0 0;color:#123367;font-weight:900}
+      .demand-health-ok{border-color:#b9ddc3;background:#eef9f1}
+      .demand-health-watch{border-color:#f0c36d;background:#fff7dc}
+      .demand-health-alert{border-color:#f4b4a8;background:#fff1ed}
+      .demand-driver-list{margin:0 0 10px;padding:10px;border:1px solid #e2eaf3;border-radius:10px;background:#f8fbff}
+      .demand-driver-list h4,.demand-pattern-panel h4,.demand-method-card h4,.demand-recommendation-detail h4{margin:0 0 6px;color:#123367}
+      .demand-findings,.demand-recommendation-detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px}
+      .demand-findings article,.demand-recommendation-detail article,.demand-pattern-card,.demand-method-card{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:10px}
+      .demand-findings span{display:inline-block;color:#51657c;font-size:11px;text-transform:uppercase;font-weight:900}
+      .demand-findings strong{float:right;color:#123367}
+      .demand-findings p,.demand-findings em{display:block;clear:both;margin:6px 0 0;color:#334862;font-style:normal;line-height:1.35}
+      .demand-pattern-panel{display:grid;gap:8px;margin-top:10px}
+      .demand-chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+      .demand-chip-row span{display:inline-flex;border:1px solid #ccd6e2;border-radius:999px;background:#fff;padding:4px 8px;color:#123367;font-size:12px;font-weight:800}
+      .demand-zero-legend{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 8px;color:#51657c;font-size:12px;font-weight:900}
+      .demand-zero-legend span:first-child{text-align:right}
+      .analytics-demand-zero-bar{display:grid;grid-template-columns:minmax(90px,1fr) minmax(180px,2fr) minmax(56px,auto) minmax(54px,auto);gap:8px;align-items:center;margin:8px 0;color:#334862;font-size:12px}
+      .demand-zero-track{position:relative;display:grid;grid-template-columns:1fr 2px 1fr;align-items:center;height:16px;background:#e6edf5;border-radius:999px;overflow:hidden}
+      .demand-zero-track b{display:block;width:2px;height:100%;background:#123367}
+      .demand-zero-track i{display:block;height:100%}
+      .demand-zero-track .below{justify-self:end;background:#b35f00;border-radius:999px 0 0 999px}
+      .demand-zero-track .above{justify-self:start;background:#2f8f57;border-radius:0 999px 999px 0}
+      .analytics-demand-zero-bar strong{color:#123367;text-align:right}
+      .analytics-demand-zero-bar em{color:#51657c;font-style:normal;text-align:right}
       .analytics-table{overflow:auto;max-height:620px;border:1px solid #d8e1ec;border-radius:8px}
       .analytics-table table{width:100%;border-collapse:collapse;background:#fff}
       .analytics-table th{position:sticky;top:0;background:#174f7d;color:#fff;text-align:left;padding:9px;font-size:13px}
@@ -11767,6 +12125,12 @@
     addAttritionLifecycle,
     lifecycleMetricLabel,
     demandTermDiagnostics,
+    demandHistoricalExpectedEnrollment,
+    demandLifecycleStatus,
+    demandForecastConfidenceScore,
+    demandExecutiveSummary,
+    demandRecommendationSummary,
+    parseDemandPattern,
     buildEnrollmentTrendChartData,
     buildFtesTrendChartData,
     buildFillWaitlistPressureChartData,
