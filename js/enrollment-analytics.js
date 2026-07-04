@@ -2002,7 +2002,7 @@
             <label>Demand source
               <select id="studentChoiceDemandSource">
                 <option value="actual">Actual enrollment, if available</option>
-                <option value="average">Historical average</option>
+                <option value="average">Trend projection</option>
                 <option value="weighted3">Three-year weighted average</option>
                 <option value="weighted5">Five-year weighted average</option>
                 <option value="bestMatch">Best historical match</option>
@@ -3470,6 +3470,40 @@
     };
   }
 
+  function trendProjectionEngine() {
+    return window.COSTrendProjection || (typeof require === 'function' ? require('./enrollment/trend-projection.js') : null);
+  }
+
+  function trendProjectionTermTotals(summaries = []) {
+    return (summaries || []).map(row => ({
+      term: row.term,
+      sortValue: row.sortValue ?? termSortValue(row.term),
+      scheduledClassOfferings: Number(row.scheduledClassOfferings) || 0,
+      instructionalMeetings: Number(row.instructionalMeetings || row.scheduledClassOfferings) || 0,
+      seatsOffered: Number(row.seatsOffered || row.capacity) || 0,
+      enrollment: Number(row.enrollment ?? row.censusEnrollment ?? row.census) || 0,
+      censusEnrollment: Number(row.censusEnrollment ?? row.enrollment ?? row.census) || 0,
+      actualEnrollment: Number(row.actualEnrollment ?? row.final ?? row.enrollment) || 0,
+      fillRateNumber: Number(row.fillRateNumber || row.fillRate) || 0,
+      waitlist: Number(row.waitlist) || 0,
+      ftes: Number(row.ftes) || 0,
+      studentPresence: Number(row.studentPresence) || 0,
+      enrollmentPerClassOffering: Number(row.enrollmentPerClassOffering) || 0,
+      seatsPerOffering: safeDiv(Number(row.seatsOffered || row.capacity) || 0, Number(row.scheduledClassOfferings || row.sections) || 0)
+    }));
+  }
+
+  function buildTrendProjection(summaries = [], currentTotals = {}, options = {}) {
+    const engine = trendProjectionEngine();
+    if (!engine?.buildProjection) return null;
+    return engine.buildProjection({
+      termTotals: trendProjectionTermTotals(summaries),
+      currentTotals,
+      growthModifier: Number(options.growthModifier) || 0,
+      termSortValue
+    });
+  }
+
   function facultyMeetingKey(row) {
     return [facultyTerm(row), row.crn || '', row.facultyId || row.facultyName || '', row.dayPattern || '', row.start || '', row.end || '', row.meetingType || ''].join('|');
   }
@@ -4667,9 +4701,19 @@
     const weights = historicalTermWeights(summaries.map(row => row.term), focusTerm);
     const numericFields = ['scheduledClassOfferings', 'seatsOffered', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'campusChoices', 'modalityChoices', 'studentPresence', 'enrollment', 'fillRateNumber', 'waitlist', 'enrollmentPerClassOffering', 'choiceDiversityIndex', 'demandPressureScore'];
     const projection = { demandSource, aggregationMode: historicalAggregationLabel(aggregationMode), historicalTermWeights: weights, termsIncluded: summaries.map(row => row.term), termCount: summaries.length };
+    const useTrendProjection = !['total', 'recent', 'weighted'].includes(aggregationMode) && !['weighted3', 'weighted5', 'bestMatch', 'actual'].includes(demandSource);
+    const trendProjection = useTrendProjection ? buildTrendProjection(summaries, current, options) : null;
     numericFields.forEach(field => {
       const values = summaries.map(row => ({ term: row.term, value: Number(row[field]) || 0 }));
-      if (aggregationMode === 'total') projection[field] = aggregateHistoricalValues(values, 'total', weights).selectedValue;
+      if (useTrendProjection && trendProjection) {
+        if (field === 'enrollment') projection[field] = trendProjection.finalExpectedProjection.enrollment;
+        else if (field === 'studentPresence') projection[field] = trendProjection.finalExpectedProjection.enrollment;
+        else if (field === 'seatsOffered') projection[field] = trendProjection.trendProjection.seatsOffered;
+        else if (field === 'scheduledClassOfferings') projection[field] = trendProjection.trendProjection.scheduledClassOfferings;
+        else if (field === 'fillRateNumber') projection[field] = safeDiv(trendProjection.finalExpectedProjection.enrollment, current.seatsOffered || trendProjection.trendProjection.seatsOffered || 0);
+        else if (field === 'enrollmentPerClassOffering') projection[field] = safeDiv(trendProjection.finalExpectedProjection.enrollment, current.scheduledClassOfferings || trendProjection.trendProjection.scheduledClassOfferings || 0);
+        else projection[field] = aggregateHistoricalValues(values, 'weighted', weights).selectedValue;
+      } else if (aggregationMode === 'total') projection[field] = aggregateHistoricalValues(values, 'total', weights).selectedValue;
       else if (aggregationMode === 'recent') projection[field] = aggregateHistoricalValues(values, 'recent', weights).selectedValue;
       else if (aggregationMode === 'weighted' || demandSource === 'weighted') projection[field] = aggregateHistoricalValues(values, 'weighted', weights).selectedValue;
       else if (demandSource === 'weighted3') projection[field] = weightedAverage(values, 3);
@@ -4689,6 +4733,17 @@
     }
     return {
       ...projection,
+      forecastMethod: trendProjection ? 'Trend Projection' : projection.aggregationMode,
+      historicalBaseline: trendProjection?.historicalBaseline || null,
+      trendProjection: trendProjection?.trendProjection || null,
+      scheduleAdjustment: trendProjection?.scheduleAdjustment || null,
+      scheduleAdjustedProjection: trendProjection?.scheduleAdjustedProjection || null,
+      finalExpectedProjection: trendProjection?.finalExpectedProjection || null,
+      expectedRange: trendProjection?.expectedRange || null,
+      forecastConfidence: trendProjection?.confidence || projection.forecastConfidence || '',
+      yearOverYearGrowth: trendProjection?.yearOverYearGrowth || [],
+      recencyWeights: trendProjection?.recencyWeights || weights,
+      recencyWeightedGrowth: trendProjection?.recencyWeightedGrowth ?? null,
       projectedEnrollment: projection.enrollment || 0,
       projectedStudentPresence: projection.studentPresence || 0,
       projectedFillRateNumber: safeDiv(projection.enrollment || 0, current.seatsOffered || projection.seatsOffered || 0),
@@ -4709,10 +4764,10 @@
       ['Modality Choices', 'modalityChoices'],
       ['Student Presence Projection', 'studentPresence'],
       ['Enrollment Projection', 'enrollment'],
-      ['Historical Average Fill Rate', 'fillRateNumber'],
-      ['Historical Average Waitlist', 'waitlist'],
-      ['Historical Average Enrollment per Class Offering', 'enrollmentPerClassOffering'],
-      ['Historical Average Course Choice Count', 'uniqueCourses'],
+      ['Trend Projection Fill Rate', 'fillRateNumber'],
+      ['Historical Baseline Waitlist', 'waitlist'],
+      ['Schedule-Adjusted Enrollment per Class Offering', 'enrollmentPerClassOffering'],
+      ['Historical Baseline Course Choice Count', 'uniqueCourses'],
       ['Historical Opportunity Gap', 'choiceDiversityIndex']
     ];
     return fields.map(([metricName, key]) => {
@@ -4722,8 +4777,12 @@
       return {
         metric: metricName,
         current: Number(currentValue.toFixed ? currentValue.toFixed(2) : currentValue),
+        historicalBaseline: historical.historicalBaseline?.[key] == null ? Number(historicalValue.toFixed ? historicalValue.toFixed(2) : historicalValue) : round1(historical.historicalBaseline[key]),
+        trendProjection: historical.trendProjection?.[key] == null ? Number(historicalValue.toFixed ? historicalValue.toFixed(2) : historicalValue) : round1(historical.trendProjection[key]),
+        scheduleAdjustedProjection: historical.scheduleAdjustedProjection?.[key] == null ? Number(historicalValue.toFixed ? historicalValue.toFixed(2) : historicalValue) : round1(historical.scheduleAdjustedProjection[key]),
         historicalAverage: Number(historicalValue.toFixed ? historicalValue.toFixed(2) : historicalValue),
         opportunityGap: Number(gap.toFixed ? gap.toFixed(2) : gap),
+        forecastConfidence: historical.forecastConfidence || '',
         interpretation: gap >= 0 ? 'Historical opportunity expansion' : 'Historical opportunity reduction'
       };
     });
@@ -5209,7 +5268,7 @@
     table('studentChoiceHistoricalTable', historicalComparisonRows, ['term', 'scheduledClassOfferings', 'seatsOffered', 'enrollment', 'fillRate', 'waitlist', 'studentPresence', 'enrollmentPerClassOffering', 'uniqueCourses', 'uniqueSubjects', 'uniqueCalGetcCourses', 'campusChoices', 'modalityChoices', 'choiceDiversityIndex', 'demandPressureScore']);
     const gapNode = document.getElementById('studentChoicePlanningGapTable');
     if (gapNode) gapNode.style.display = view === 'all' || mode === 'planning' ? '' : 'none';
-    table('studentChoicePlanningGapTable', gapRows, ['metric', 'current', 'historicalAverage', 'opportunityGap', 'interpretation']);
+    table('studentChoicePlanningGapTable', gapRows, ['metric', 'current', 'historicalBaseline', 'trendProjection', 'scheduleAdjustedProjection', 'opportunityGap', 'forecastConfidence', 'interpretation']);
     const scenarioNode = document.getElementById('studentChoiceScenarioTable');
     if (scenarioNode) scenarioNode.style.display = view === 'all' || mode === 'scenario' ? '' : 'none';
     table('studentChoiceScenarioTable', scenarioRows, ['metric', 'before', 'after', 'change']);
@@ -9122,13 +9181,15 @@
 
   function demandHistoricalExpectedEnrollment(trends = []) {
     if (!trends.length) return 0;
-    const values = trends.map(row => row.census || 0);
-    const simpleAverage = average(values);
-    const trend = demandTrend(values);
-    const weights = trends.map((_, index) => index + 1);
-    const weightedAverage = safeDiv(values.reduce((total, value, index) => total + value * weights[index], 0), weights.reduce((total, value) => total + value, 0));
-    const trendExpected = Math.max(0, values[values.length - 1] + trend.delta);
-    return Math.round(Math.abs(trend.rate) >= 0.03 ? average([weightedAverage, trendExpected]) : weightedAverage || simpleAverage);
+    const projection = buildTrendProjection(trends.map(row => ({
+      term: row.term,
+      enrollment: row.census || 0,
+      ftes: row.ftes || 0,
+      seatsOffered: row.seats || row.capacity || 0,
+      scheduledClassOfferings: row.sections || row.scheduledClassOfferings || 0
+    })));
+    if (projection?.trendProjection?.enrollment != null) return Math.round(projection.trendProjection.enrollment);
+    return Math.round(average(trends.map(row => row.census || 0)));
   }
 
   function demandLifecycleStatus(trends = [], target = {}) {
@@ -9145,8 +9206,8 @@
   function demandForecastConfidenceScore(rows = []) {
     const labels = rows.map(row => row.forecastConfidence).filter(Boolean);
     if (!labels.length) return { label: 'Low', score: 35 };
-    const score = average(labels.map(label => ({ High: 90, Medium: 65, Low: 35 }[label] || 35)));
-    return { label: score >= 80 ? 'High' : score >= 55 ? 'Medium' : 'Low', score };
+    const score = average(labels.map(label => ({ High: 90, Moderate: 65, Medium: 65, Low: 35 }[label] || 35)));
+    return { label: score >= 80 ? 'High' : score >= 55 ? 'Moderate' : 'Low', score };
   }
 
   function demandExecutiveSummary(rows, trends, context = {}, diagnostics = {}) {
@@ -9173,7 +9234,7 @@
     if (confidence.label === 'Low') risk += 1;
     const health = risk >= 4 ? 'Intervention Recommended' : risk >= 2 ? 'Watch' : 'On Track';
     const drivers = [
-      expected ? `Projected variance is ${projectedVariance >= 0 ? '+' : ''}${Math.round(projectedVariance)} students against the historical expected enrollment.` : 'Historical expected enrollment is unavailable for this scope.',
+      expected ? `Projected variance is ${projectedVariance >= 0 ? '+' : ''}${Math.round(projectedVariance)} students against the trend projection.` : 'Trend projection is unavailable for this scope.',
       capDelta == null ? 'No FTES cap was entered for cap-position review.' : `Annual FTES projection is ${capDelta >= 0 ? `${round1(capDelta)} under` : `${round1(Math.abs(capDelta))} over`} cap.`,
       `${expanding} expanding demand rows and ${softening} softening demand rows were identified.`,
       `Forecast confidence is ${confidence.label.toLowerCase()} across visible forecast rows.`
@@ -9247,7 +9308,7 @@
       ['Enrollment', [
         ['Current Enrollment', Math.round(summary.current || 0), 'current-enrollment'],
         ['Projected Final Enrollment', Math.round(summary.projected || 0), 'projected-final-enrollment'],
-        ['Historical Expected Enrollment', Math.round(summary.expected || 0), 'historical-expected-enrollment'],
+        ['Trend Projection', Math.round(summary.expected || 0), 'trend-projection'],
         [summary.lifecycle?.status === 'completed' ? 'Final Variance' : 'Projected Variance', `${summary.projectedVariance >= 0 ? '+' : ''}${Math.round(summary.projectedVariance || 0)}`, summary.lifecycle?.status === 'completed' ? 'current-variance' : 'projected-variance']
       ]],
       ['FTES', [
@@ -9463,7 +9524,7 @@
   }
 
   function demandColumns() {
-    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'adjustedForecastGrowth', 'expectedEnrollmentNextTerm', 'expectedFtesNextTerm', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'recencyWeightedGrowth', 'adjustedForecastGrowth', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
   }
 
   function demandForecastRowsForLevels(rows, context, modifierGrowth = 0) {
@@ -9509,21 +9570,23 @@
     const avgSections = average(termRows.map(row => row.sections));
     const waitlistTerms = termRows.filter(row => row.waitlist > 0).length;
     const trend = demandTrend(termRows.map(row => row.census));
+    const trendModel = buildTrendProjection(termRows, {}, { growthModifier: modifierGrowth });
     const hasWaitlistData = rows.some(row => row.hasWaitlistData);
     const divisionGrowth = level === 'Division'
       ? context.division.get(groupName) ?? context.collegeGrowth
       : context.division.get(rows[0]?.division || 'UNKNOWN') ?? context.collegeGrowth;
     const disciplineGrowth = context.discipline.get(subject || 'UNKNOWN') ?? divisionGrowth;
     const courseGrowth = trend.rate;
-    const adjustedForecastGrowth = blendedForecastGrowth(level, {
+    const blendedGrowth = blendedForecastGrowth(level, {
       college: context.collegeGrowth,
       division: divisionGrowth,
       discipline: disciplineGrowth,
       course: courseGrowth,
       modifier: modifierGrowth
     });
-    const expectedEnrollmentNextTerm = Math.max(0, Math.round(avgCensusEnrollment * (1 + adjustedForecastGrowth)));
-    const expectedFtesNextTerm = Math.max(0, avgFtes * (1 + adjustedForecastGrowth));
+    const expectedEnrollmentNextTerm = Math.max(0, Math.round(trendModel?.finalExpectedProjection?.enrollment ?? (avgCensusEnrollment * (1 + blendedGrowth))));
+    const expectedFtesNextTerm = Math.max(0, trendModel?.finalExpectedProjection?.ftes ?? (avgFtes * (1 + blendedGrowth)));
+    const adjustedForecastGrowth = safeDiv(expectedEnrollmentNextTerm, avgCensusEnrollment) - 1;
     const expectedFillRate = safeDiv(expectedEnrollmentNextTerm, avgCapacity);
     const expectedSectionsNeeded = Math.max(1, Math.ceil((expectedEnrollmentNextTerm + avgWaitlistCount) / avgCapPerSection));
     const suggestedSectionCount = Math.max(1, expectedSectionsNeeded);
@@ -9549,9 +9612,16 @@
       terms: termRows.length,
       totalSectionsOffered: sum(termRows, 'sections'),
       avgSectionsOffered: round1(avgSections),
+      historicalBaselineEnrollment: Math.round(trendModel?.historicalBaseline?.enrollment ?? avgCensusEnrollment),
+      trendProjectionEnrollment: Math.round(trendModel?.trendProjection?.enrollment ?? expectedEnrollmentNextTerm),
+      scheduleAdjustedProjectionEnrollment: Math.round(trendModel?.scheduleAdjustedProjection?.enrollment ?? expectedEnrollmentNextTerm),
+      expectedRangeLow: Math.round(trendModel?.expectedRange?.low ?? expectedEnrollmentNextTerm),
+      expectedRangeHigh: Math.round(trendModel?.expectedRange?.high ?? expectedEnrollmentNextTerm),
       avgCensusEnrollment,
       avgFinalEnrollment,
       avgFtes,
+      trendProjectionFtes: trendModel?.trendProjection?.ftes ?? expectedFtesNextTerm,
+      scheduleAdjustedProjectionFtes: trendModel?.scheduleAdjustedProjection?.ftes ?? expectedFtesNextTerm,
       avgFillRate,
       avgFinalFillRate,
       avgAttritionCount,
@@ -9562,13 +9632,19 @@
       disciplineGrowth,
       courseGrowth,
       modifierGrowth,
+      recencyWeightedGrowth: trendModel?.recencyWeightedGrowth ?? adjustedForecastGrowth,
       adjustedForecastGrowth,
       expectedEnrollmentNextTerm,
       expectedFtesNextTerm,
       expectedFillRate,
       expectedSectionsNeeded,
       suggestedSectionCount,
-      forecastConfidence,
+      forecastConfidence: trendModel?.confidence || forecastConfidence,
+      forecastMethod: trendModel?.method || 'Trend Projection',
+      expectedRange: trendModel?.expectedRange || null,
+      yearOverYearGrowth: trendModel?.yearOverYearGrowth || [],
+      recencyWeights: trendModel?.recencyWeights || [],
+      scheduleAdjustment: trendModel?.scheduleAdjustment || null,
       capacityGuidance,
       hasWaitlistData: hasWaitlistData ? 'Yes' : 'No',
       enrollmentTrend: trend.label
@@ -9884,10 +9960,10 @@
     return [...expanding, ...softening].map(row => ({
       course: row.course || row.groupName,
       currentEnrollment: row.avgFinalEnrollment || row.avgCensusEnrollment || 0,
-      historicalAverage: row.avgCensusEnrollment || 0,
+      historicalBaseline: row.historicalBaselineEnrollment || row.avgCensusEnrollment || 0,
       forecastEnrollment: row.expectedEnrollmentNextTerm || 0,
       forecastGrowth: row.adjustedForecastGrowth || 0,
-      demandVariance: (row.expectedEnrollmentNextTerm || 0) - (row.avgCensusEnrollment || 0),
+      demandVariance: (row.expectedEnrollmentNextTerm || 0) - (row.trendProjectionEnrollment || row.avgCensusEnrollment || 0),
       confidence: row.forecastConfidence || 'N/A',
       direction: Number(row.adjustedForecastGrowth) >= 0 ? 'Expanding' : 'Softening'
     }));
@@ -9937,7 +10013,7 @@
         <dl>
           <div><dt>Confidence</dt><dd>${escapeAttr(row.forecastConfidence || 'N/A')}</dd></div>
           <div><dt>Forecast growth</dt><dd>${pct(row.adjustedForecastGrowth || 0)}</dd></div>
-          <div><dt>Historical expected</dt><dd>${row.avgCensusEnrollment || 0}</dd></div>
+          <div><dt>Trend projection</dt><dd>${row.trendProjectionEnrollment || row.avgCensusEnrollment || 0}</dd></div>
           <div><dt>Forecast enrollment</dt><dd>${row.expectedEnrollmentNextTerm || 0}</dd></div>
         </dl>
       </article>`).join('')}</div>`;
@@ -9978,9 +10054,9 @@
     return `<section class="demand-method-card">
       <h4>Forecast Method</h4>
       <dl>
-        <div><dt>Forecast method used</dt><dd>Blended historical same-season trend forecast</dd></div>
+        <div><dt>Forecast method used</dt><dd>Trend Projection with schedule adjustment</dd></div>
         <div><dt>Historical aggregation mode</dt><dd>${target.scope === 'year' ? 'Academic-year buckets' : 'Same-season terms'}</dd></div>
-        <div><dt>Trend model</dt><dd>Recent weighted trend plus college/division/discipline/course growth blend</dd></div>
+        <div><dt>Trend model</dt><dd>Year-over-year growth, recency-weighted growth, expected range, and current schedule size adjustment</dd></div>
         <div><dt>Growth modifier</dt><dd>${pct(context.growthModifier || 0)}</dd></div>
         <div><dt>Schedule basis</dt><dd>Scheduled Class Offerings use unique CRNs; enrollment uses census first and actual/current fallback</dd></div>
         <div><dt>Confidence level</dt><dd>${escapeAttr(summary.confidence?.label || 'Low')}</dd></div>
@@ -10066,7 +10142,7 @@
       const tooltip = analyticsTooltip([
         ['Course', row.course],
         ['Current enrollment', row.currentEnrollment],
-        ['Historical average', row.historicalAverage],
+        ['Historical baseline', row.historicalBaseline],
         ['Forecast enrollment', row.forecastEnrollment],
         ['Demand variance', variance],
         ['Forecast growth', pct(row.forecastGrowth)],
@@ -12169,6 +12245,7 @@
     buildSupplyDemandBuckets,
     historicalTermWeights,
     aggregateHistoricalValues,
+    buildTrendProjection,
     buildStudentChoiceBuckets,
     distinctScheduleSections,
     scheduleOpportunitySummary,

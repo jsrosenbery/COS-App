@@ -32,7 +32,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment-analytics.js'].forEach(file => {
+  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -1866,7 +1866,7 @@ test('demand redesign helpers distinguish lifecycle expected enrollment and conf
   assert.equal(active.currentEnrollment, 40);
   assert.equal(completed.status, 'completed');
   assert.equal(completed.finalEnrollment, 90);
-  assert.equal(confidence.label, 'Medium');
+  assert.equal(confidence.label, 'Moderate');
 });
 
 test('demand executive summary recommendations and diagnostics support decision story', () => {
@@ -1911,9 +1911,46 @@ test('demand redesign sections and metric definitions are wired', () => {
   assert.match(text, /demand-zero-track/);
   assert.match(text, /Below Expected/);
   assert.match(text, /Above Expected/);
-  ['current-enrollment', 'projected-final-enrollment', 'historical-expected-enrollment', 'current-variance', 'projected-variance', 'forecast-confidence', 'forecast-gap', 'ftes-cap-position', 'expanding-demand', 'softening-demand', 'demand-above-expected', 'demand-below-expected'].forEach(id => {
+  ['current-enrollment', 'projected-final-enrollment', 'historical-expected-enrollment', 'historical-baseline', 'year-over-year-growth', 'recency-weighted-growth', 'trend-projection', 'schedule-adjusted-projection', 'final-expected-projection', 'expected-range', 'current-variance', 'projected-variance', 'forecast-confidence', 'forecast-gap', 'ftes-cap-position', 'expanding-demand', 'softening-demand', 'demand-above-expected', 'demand-below-expected'].forEach(id => {
     assert.ok(registry.get(id), `${id} definition missing`);
   });
+});
+
+test('trend projection engine replaces simple historical average for planning forecasts', () => {
+  const engine = require('../js/enrollment/trend-projection.js');
+  const upward = [
+    { term: 'FALL 2022', enrollment: 100, seatsOffered: 140, scheduledClassOfferings: 5, ftes: 30 },
+    { term: 'FALL 2023', enrollment: 110, seatsOffered: 145, scheduledClassOfferings: 5, ftes: 33 },
+    { term: 'FALL 2024', enrollment: 125, seatsOffered: 160, scheduledClassOfferings: 6, ftes: 37 },
+    { term: 'FALL 2025', enrollment: 145, seatsOffered: 175, scheduledClassOfferings: 6, ftes: 43 }
+  ];
+  const downward = upward.map((row, index) => ({ ...row, enrollment: [145, 130, 115, 100][index] }));
+  const flat = upward.map(row => ({ ...row, enrollment: 120 }));
+  const upProjection = engine.buildProjection({ termTotals: upward });
+  const downProjection = engine.buildProjection({ termTotals: downward });
+  const flatProjection = engine.buildProjection({ termTotals: flat });
+
+  assert.ok(upProjection.trendProjection.enrollment > 120, 'upward trend should project above the simple average');
+  assert.ok(downProjection.trendProjection.enrollment < 122.5, 'downward trend should project below the simple average');
+  assert.ok(Math.abs(flatProjection.trendProjection.enrollment - flatProjection.historicalBaseline.enrollment) < 1);
+  assert.ok(upProjection.recencyWeights.at(-1).weight > upProjection.recencyWeights[0].weight);
+  assert.equal(upProjection.confidence, 'High');
+  assert.ok(upProjection.expectedRange.low < upProjection.expectedRange.mostLikely);
+  assert.ok(upProjection.expectedRange.high > upProjection.expectedRange.mostLikely);
+});
+
+test('trend projection engine adjusts for current schedule supply', () => {
+  const engine = require('../js/enrollment/trend-projection.js');
+  const termTotals = [
+    { term: 'FALL 2022', enrollment: 100, seatsOffered: 100, scheduledClassOfferings: 5 },
+    { term: 'FALL 2023', enrollment: 100, seatsOffered: 100, scheduledClassOfferings: 5 },
+    { term: 'FALL 2024', enrollment: 100, seatsOffered: 100, scheduledClassOfferings: 5 }
+  ];
+  const larger = engine.buildProjection({ termTotals, currentTotals: { seatsOffered: 120, scheduledClassOfferings: 6 } });
+  const smaller = engine.buildProjection({ termTotals, currentTotals: { seatsOffered: 80, scheduledClassOfferings: 4 } });
+
+  assert.ok(larger.scheduleAdjustedProjection.enrollment > larger.trendProjection.enrollment);
+  assert.ok(smaller.scheduleAdjustedProjection.enrollment < smaller.trendProjection.enrollment);
 });
 
 test('archive inspection exposes parsed archived schedule validation', () => {
@@ -2739,7 +2776,9 @@ test('schedule opportunity planning mode uses historical demand instead of label
   assert.equal(summary.scheduledClassOfferings, 1);
   assert.equal(summary.hasCurrentEnrollment, false);
   const projection = COSEnrollmentAnalytics.scheduleOpportunityHistoricalProjection(current, historical, 'average');
-  assert.equal(projection.projectedEnrollment, 25.5);
+  assert.ok(projection.projectedEnrollment > 25.5);
+  assert.equal(projection.forecastMethod, 'Trend Projection');
+  assert.ok(projection.expectedRange.low < projection.expectedRange.mostLikely);
   assert.notEqual(COSEnrollmentAnalytics.scheduleOpportunityCategory(summary, projection, 'planning'), 'Low demand');
 });
 

@@ -43,6 +43,7 @@ For a different backend, override `window.COS_APP_CONFIG.backendBaseUrl` before 
 - `js/parser.js`: CSV parsing/normalization plus compatibility shims for the enrollment analytics module.
 - `js/enrollment-analytics.js`: supplemental Enrollment Management report UI/orchestration loaded by `parser.js`.
 - `js/enrollment/metrics.js`: shared enrollment metric calculations used by reports and smoke tests.
+- `js/enrollment/trend-projection.js`: shared trend projection engine for forecast presentation. It uses comparable-term trends, recency-weighted growth, schedule adjustment, confidence, and expected ranges without affecting Room Availability logic.
 - `js/enrollment/consolidation.js`: Section Consolidation recommendation logic used by the report and smoke tests.
 - `js/cal_getc_mapping.js`, `js/curriculum_crosswalk.js`, `js/roomCatalog.js`: bundled fallback data used when backend data is missing.
 
