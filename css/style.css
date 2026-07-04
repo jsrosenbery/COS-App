@@ -1167,6 +1167,76 @@ button:hover,
   font-weight: 700;
 }
 
+.demand-executive-narrative,
+.demand-composition-panel,
+.demand-waterfall-panel,
+.demand-breakdown-panel,
+.demand-supply-panel {
+  margin: 0.75rem 0;
+  padding: 0.8rem;
+  border: 1px solid #d8e1ec;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.demand-executive-narrative {
+  color: #334862;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.demand-composition-row,
+.demand-composition-total,
+.demand-waterfall-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(80px, auto) minmax(70px, auto);
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-top: 1px solid #e6edf5;
+}
+
+.demand-waterfall-row {
+  grid-template-columns: minmax(180px, 1fr) minmax(90px, auto);
+}
+
+.demand-composition-row:first-of-type,
+.demand-waterfall-row:first-of-type {
+  border-top: 0;
+}
+
+.demand-composition-total,
+.demand-waterfall-row.total {
+  border-top: 2px solid #8ba6c2;
+  color: #123367;
+  font-weight: 900;
+}
+
+.demand-breakdown-panel {
+  overflow-x: auto;
+}
+
+.demand-breakdown-panel table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.demand-breakdown-panel th,
+.demand-breakdown-panel td {
+  padding: 0.45rem;
+  border-top: 1px solid #e6edf5;
+  text-align: left;
+  font-size: 0.82rem;
+}
+
+.demand-breakdown-panel th {
+  background: #eaf1f7;
+  color: #123367;
+  font-weight: 900;
+}
+
 .heatmap-wrap {
   width: 100%;
   max-width: 100%;

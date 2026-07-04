@@ -1743,7 +1743,7 @@ test('enrollment analytics report labels are operational', () => {
 
   assert.doesNotMatch(text, /WIP/);
   assert.match(text, /Enrollment Analytics Dashboard/);
-  assert.match(text, /Enrollment Demand Forecast/);
+  assert.match(text, /Enrollment Planning Forecast/);
   assert.match(text, /Enrollment Attrition Trend/);
   assert.match(text, /Diagnostic Attrition Rates/);
   assert.match(text, /attritionDiagnosticRates/);
@@ -1890,7 +1890,7 @@ test('demand forecast is scoped to selected demand uploads and archives', () => 
   const defaultsBlock = text.slice(defaultsStart, defaultsEnd);
   const archiveBlock = text.slice(archiveStart, archiveEnd);
 
-  assert.match(loadBlock, /readArchivedRowsWithDiagnostics\('demArchiveTerms', \{ reportLabel: 'Demand Forecast' \}\)/);
+  assert.match(loadBlock, /readArchivedRowsWithDiagnostics\('demArchiveTerms', \{ reportLabel: 'Enrollment Planning Forecast' \}\)/);
   assert.match(loadBlock, /const rows = rowsWithWorkExperience\(uploaded, 'dem'\)/);
   assert.doesNotMatch(loadBlock, /currentRows\(\)/);
   assert.match(archiveBlock, /Could not load archived term/);
@@ -1898,6 +1898,48 @@ test('demand forecast is scoped to selected demand uploads and archives', () => 
   assert.match(defaultsBlock, /academicYearTrailingYear/);
   assert.match(defaultsBlock, /dataset\.autoDefault/);
   assert.match(text, /Demand source load failed:/);
+});
+
+test('enrollment planning forecast exposes population toggles sections and metadata', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /Enrollment Planning Forecast/);
+  assert.match(text, /id="demIncludePhysicalCampuses"/);
+  assert.match(text, /id="demIncludeDualEnrollment"/);
+  assert.match(text, /id="demIncludeWorkExperience"/);
+  [
+    'Executive Summary',
+    'FTES Analysis',
+    'Enrollment Analysis',
+    'Schedule Supply',
+    'Student Demand',
+    'Recommendation Engine',
+    'Data Quality & Methodology',
+    'FTES Waterfall',
+    'Population Composition'
+  ].forEach(label => assert.match(text, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
+  assert.match(text, /Population Types Included/);
+  assert.match(text, /Instructional FTES/);
+  assert.match(text, /Dual Enrollment FTES/);
+  assert.match(text, /Work Experience FTES/);
+  assert.match(text, /enrollment-planning-forecast-/);
+});
+
+test('enrollment planning population summary reconciles instructional dual and work experience totals', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const sourceRows = [
+    section({ crn: '1', census: 100, actual: 90, ftes: 10, cap: 120, campus: 'VIS' }),
+    section({ crn: '2', census: 50, actual: 45, ftes: 5, cap: 60, modality: 'DUAL ENROLLMENT' }),
+    section({ crn: '3', census: 25, actual: 25, ftes: 2.5, cap: 0, modality: 'WORK EXPERIENCE', isWorkExperience: true })
+  ];
+  const summary = COSEnrollmentAnalytics.demandPopulationSummary(sourceRows, [{ forecastLevel: 'College', expectedFtesNextTerm: 35, expectedEnrollmentNextTerm: 350 }]);
+  const componentFtes = summary.instructional.projectedFtes + summary.dual.projectedFtes + summary.workExperience.projectedFtes;
+  const componentEnrollment = summary.instructional.projectedEnrollment + summary.dual.projectedEnrollment + summary.workExperience.projectedEnrollment;
+
+  assert.equal(COSEnrollmentAnalytics.demandPlanningPopulationType(sourceRows[1]), 'Dual Enrollment');
+  assert.equal(COSEnrollmentAnalytics.demandPlanningPopulationType(sourceRows[2]), 'Work Experience');
+  assert.ok(Math.abs(componentFtes - summary.total.projectedFtes) < 0.0001);
+  assert.ok(Math.abs(componentEnrollment - summary.total.projectedEnrollment) < 0.0001);
 });
 
 test('demand term diagnostics count selected loaded filtered empty and failed terms', () => {
@@ -2090,7 +2132,7 @@ test('demand redesign sections and metric definitions are wired', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const registry = require('../js/core/metric-definitions.js');
 
-  ['Executive Summary', 'Historical Trends', 'Fill Rate & Waitlist Pressure', 'Course Demand Distribution', 'Top Findings / Recommendations', 'Day/Time Demand Patterns', 'Diagnostics & Methodology', 'Show All Recommendations', 'Forecast Accuracy / Back-test'].forEach(label => {
+  ['Executive Summary', 'FTES Analysis', 'Enrollment Analysis', 'Schedule Supply', 'Student Demand', 'Recommendation Engine', 'Data Quality & Methodology', 'Show All Recommendations', 'Forecast Accuracy / Back-test'].forEach(label => {
     assert.match(text, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   });
   assert.match(text, /demand-zero-track/);

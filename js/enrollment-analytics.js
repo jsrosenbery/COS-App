@@ -71,7 +71,7 @@
     [REPORTS.duration]: 'Course Duration / Concurrent Courses',
     [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
     [REPORTS.attrition]: 'Enrollment Attrition Trend',
-    [REPORTS.demand]: 'Enrollment Demand Forecast',
+    [REPORTS.demand]: 'Enrollment Planning Forecast',
     [REPORTS.snapshotManager]: 'Enrollment Snapshot Manager',
     [REPORTS.heatmap]: 'Heatmap Analytics',
     [REPORTS.instructorAvailability]: 'Instructor Availability - Planning View',
@@ -1278,7 +1278,7 @@
             <button id="exportRotation" type="button">Export Course Rotation CSV</button>
           </div>
           <div class="dashboard-actions">
-            <button type="button" data-report-target="${REPORTS.demand}">Demand Forecast</button>
+            <button type="button" data-report-target="${REPORTS.demand}">Enrollment Planning Forecast</button>
             <button type="button" data-report-target="${REPORTS.attrition}">Enrollment Attrition Trend</button>
             <button type="button" data-report-target="${REPORTS.consolidation}">Consolidation</button>
             <button type="button" data-report-target="${REPORTS.utilization}">Room Utilization</button>
@@ -2271,8 +2271,8 @@
         </div>
         <div id="demandReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Demand Forecast</h2>
-            <p>Use historical enrollment growth patterns to forecast future student demand by college, division, discipline, and course. This report is a planning forecast, not a cancellation or consolidation recommendation.</p>
+            <h2>Enrollment Planning Forecast</h2>
+            <p>Use historical enrollment growth patterns, schedule supply, FTES, population mix, and demand signals to answer where enrollment stands now, where it is projected to finish, and what planning actions to consider.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -2314,7 +2314,9 @@
             <label>Known/projected Summer FTES <input id="demKnownSummerFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
             <label>Known/projected Fall FTES <input id="demKnownFallFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
             <label>Known/projected Spring FTES <input id="demKnownSpringFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
-            <label><input id="demIncludeWorkExperience" type="checkbox" checked> include Work Experience</label>
+            <label><input id="demIncludePhysicalCampuses" type="checkbox" checked> Include Physical Campuses</label>
+            <label><input id="demIncludeDualEnrollment" type="checkbox" checked> Include Dual Enrollment</label>
+            <label><input id="demIncludeWorkExperience" type="checkbox" checked> Include Work Experience</label>
             <button id="runDemand" type="button">Run</button>
             <button id="clearDemand" type="button">Clear</button>
             <button id="exportDemand" type="button">Export CSV</button>
@@ -2536,6 +2538,10 @@
     if (prefix === 'dem') {
       const workExperience = document.getElementById('demIncludeWorkExperience');
       if (workExperience) workExperience.checked = true;
+      const physicalCampuses = document.getElementById('demIncludePhysicalCampuses');
+      if (physicalCampuses) physicalCampuses.checked = true;
+      const dualEnrollment = document.getElementById('demIncludeDualEnrollment');
+      if (dualEnrollment) dualEnrollment.checked = true;
       setDemandTargetDefaults();
       const windowInput = document.getElementById('demWindow');
       if (windowInput) windowInput.value = '5';
@@ -5860,6 +5866,43 @@
     const base = rows || [];
     if (!includeWorkExperience(prefix)) return base.filter(row => !row.isWorkExperience);
     return dedupeEnrollmentRows([...base, ...workExperienceRows()]);
+  }
+
+  function demandPopulationSelections() {
+    return {
+      physical: document.getElementById('demIncludePhysicalCampuses')?.checked !== false,
+      dual: document.getElementById('demIncludeDualEnrollment')?.checked !== false,
+      workExperience: document.getElementById('demIncludeWorkExperience')?.checked !== false
+    };
+  }
+
+  function demandPlanningPopulationType(row) {
+    if (row?.isWorkExperience || row?.modality === 'WORK EXPERIENCE') return 'Work Experience';
+    if (isDualEnrollmentRow(row) || row?.populationType === 'Dual Enrollment' || row?.modality === 'DUAL ENROLLMENT') return 'Dual Enrollment';
+    return 'Physical Campuses';
+  }
+
+  function demandPopulationLabel(row) {
+    const type = demandPlanningPopulationType(row);
+    if (type !== 'Physical Campuses') return type;
+    return row?.campus || 'Unknown Campus';
+  }
+
+  function demandRowsForPopulationSelections(rows, selections = demandPopulationSelections()) {
+    return (rows || []).filter(row => {
+      const type = demandPlanningPopulationType(row);
+      if (type === 'Work Experience') return selections.workExperience;
+      if (type === 'Dual Enrollment') return selections.dual;
+      return selections.physical;
+    });
+  }
+
+  function demandPopulationSelectionLabel(selections = demandPopulationSelections()) {
+    const labels = [];
+    if (selections.physical) labels.push('Physical Campuses');
+    if (selections.dual) labels.push('Dual Enrollment');
+    if (selections.workExperience) labels.push('Work Experience');
+    return labels.join(', ') || 'None';
   }
 
   function renderWorkExperienceUploadStatus() {
@@ -9422,23 +9465,28 @@
   function renderDemandMetricGroups(config = {}) {
     const summary = config.executiveSummary || {};
     const rows = config.rows || [];
+    const collegeRow = config.collegeRow || rows.find(row => row.forecastLevel === 'College') || {};
+    const populationSummary = config.populationSummary || demandPopulationSummary(config.sourceRows || [], rows);
+    renderReportContext(REPORTS.demand, demandReportContextOverrides(config));
     const metricRows = [
-      ['Enrollment', [
+      ['Executive Summary', [
+        ['Projected Enrollment', Math.round(summary.projected || collegeRow.expectedEnrollmentNextTerm || 0), 'projected-final-enrollment'],
         ['Current Enrollment', Math.round(summary.current || 0), 'current-enrollment'],
-        ['Projected Final Enrollment', Math.round(summary.projected || 0), 'projected-final-enrollment'],
-        ['Trend Projection', Math.round(summary.expected || 0), 'trend-projection'],
-        [summary.lifecycle?.status === 'completed' ? 'Final Variance' : 'Projected Variance', `${summary.projectedVariance >= 0 ? '+' : ''}${Math.round(summary.projectedVariance || 0)}`, summary.lifecycle?.status === 'completed' ? 'current-variance' : 'projected-variance']
-      ]],
-      ['FTES', [
-        ['Historical FTES', round1(config.collegeRow?.avgFtes || 0), 'ftes'],
-        ['Forecast FTES', round1(config.forecastFtes || 0), 'ftes'],
-        ['FTES Cap Position', config.ftesCapDelta == null ? 'No cap entered' : (config.ftesCapDelta >= 0 ? `${round1(config.ftesCapDelta)} under cap` : `${round1(Math.abs(config.ftesCapDelta))} over cap`), 'ftes-cap-position'],
-        ['Annual FTES Projection', round1(config.capComparisonFtes || 0), 'ftes']
+        ['Projected FTES', round1(config.forecastFtes || 0), 'ftes'],
+        ['FTES Cap', config.ftesCapDelta == null ? 'No cap entered' : round1(Number(document.getElementById('demFtesCap')?.value || 0)), 'ftes'],
+        ['FTES Over/Under Cap', config.ftesCapDelta == null ? 'No cap entered' : (config.ftesCapDelta >= 0 ? `${round1(config.ftesCapDelta)} under` : `${round1(Math.abs(config.ftesCapDelta))} over`), 'ftes-cap-position'],
+        ['Expected Fill Rate', pct(collegeRow.expectedFillRate || 0), 'fill-rate'],
+        ['Projected Waitlist', Math.round(collegeRow.avgWaitlistCount || 0), 'waitlist'],
+        ['Historical Growth Rate', pct(collegeRow.adjustedForecastGrowth || 0), 'trend-projection'],
+        ['Forecast Confidence', summary.confidence?.label || collegeRow.forecastConfidence || 'Low', 'forecast-confidence'],
+        ['Expected Projection Range', `${Math.round(collegeRow.expectedRangeLow || summary.projected || 0)}-${Math.round(collegeRow.expectedRangeHigh || summary.projected || 0)}`, 'expected-projection-range']
       ]],
       ['Scope', [
         ['Courses Reviewed', rows.filter(row => row.forecastLevel === 'Course').length, 'course-choice-count'],
-        ['Scheduled Class Offerings', rows.find(row => row.forecastLevel === 'College')?.totalSectionsOffered || 0, 'scheduled-class-offerings'],
+        ['Scheduled Class Offerings', collegeRow.totalSectionsOffered || 0, 'scheduled-class-offerings'],
         ['Terms Included', config.termDiagnostics?.termsUsedInForecast?.length || 0, 'terms-included'],
+        ['Instructional FTES', round1(populationSummary.instructional.ftes || 0), 'ftes'],
+        ['Dual Enrollment FTES', round1(populationSummary.dual.ftes || 0), 'ftes'],
         ['Work Experience Rows Included', config.workExperience?.rows || 0, 'instructional-meetings'],
         ['Tutoring/Open Lab Rows Excluded', config.diagnostics?.tutoringOpenLabRowsExcluded || 0, 'instructional-meetings']
       ]]
@@ -9463,6 +9511,42 @@
         if (card) card.dataset.metricGroup = groupName;
       });
     });
+  }
+
+  function demandReportContextOverrides(config = {}) {
+    const selections = config.populationSelections || demandPopulationSelections();
+    return {
+      prefix: 'dem',
+      focusTerm: config.target?.label || demandForecastTarget().label,
+      historicalTerms: config.termDiagnostics?.termsUsedInForecast || [],
+      archivedTerms: config.termDiagnostics?.selectedArchivedTerms || getSelectedValues('demArchiveTerms'),
+      rowsLoaded: (config.loadedRows || state.demandInput || []).length,
+      rowsIncluded: (config.rows || []).length,
+      rowsExcluded: Math.max(0, (config.loadedRows || state.demandInput || []).length - (config.rows || []).length),
+      distinctCrns: demandDistinctCrnCount(config.rows || []),
+      activeFilters: [
+        ...collectActiveFilterChips('dem'),
+        { label: 'Population Types Included', value: demandPopulationSelectionLabel(selections) }
+      ],
+      exclusions: [
+        ...collectExclusionChips('dem'),
+        { label: 'Dual Enrollment', value: selections.dual ? 'Included' : 'Excluded' },
+        { label: 'Work Experience', value: selections.workExperience ? 'Included' : 'Excluded' },
+        { label: 'Physical Campuses', value: selections.physical ? 'Included' : 'Excluded' }
+      ],
+      method: [
+        { label: 'Forecast method', value: 'Trend Projection with schedule adjustment' },
+        { label: 'Projection method', value: 'Weighted historical projection plus schedule adjustment' },
+        { label: 'Forecast scope', value: document.getElementById('demForecastScope')?.value === 'year' ? 'Academic year' : 'Single term' },
+        { label: 'Enrollment basis', value: 'Census preferred, actual/current fallback' },
+        { label: 'Scheduled Class Offerings', value: 'Unique CRNs' },
+        { label: 'FTES composition', value: 'Instructional + Dual Enrollment + Work Experience = Total' }
+      ],
+      notes: [
+        config.executiveSummary?.explanation || '',
+        `Population selections: ${demandPopulationSelectionLabel(selections)}`
+      ].filter(Boolean)
+    };
   }
 
   function collectDemandSourceTerms(rows) {
@@ -9504,12 +9588,12 @@
   async function loadDemandRows() {
     const saved = captureFilterState('dem');
     const uploadedRows = await readCsv(document.getElementById('demandCsv'));
-    const archiveLoad = await readArchivedRowsWithDiagnostics('demArchiveTerms', { reportLabel: 'Demand Forecast' });
+    const archiveLoad = await readArchivedRowsWithDiagnostics('demArchiveTerms', { reportLabel: 'Enrollment Planning Forecast' });
     await loadWorkExperienceRows();
     const archiveUsableRows = dedupeEnrollmentRows(archiveLoad.rows.map(normalize))
-      .filter(row => !isOmittedInstructionalMethod(row));
+      .filter(isDemandPlanningUsableRow);
     const uploaded = dedupeEnrollmentRows([...uploadedRows, ...archiveLoad.rows].map(normalize))
-      .filter(row => !isOmittedInstructionalMethod(row));
+      .filter(isDemandPlanningUsableRow);
     state.demandInput = uploaded;
     state.demandArchiveLoad = archiveLoad;
     state.demandArchiveUsableRows = archiveUsableRows;
@@ -9522,9 +9606,11 @@
 
   async function runDemand() {
     state.demandRan = true;
-    setDemandMessage('Loading demand forecast...');
+    setDemandMessage('Loading enrollment planning forecast...');
     try {
-      const allRows = await loadDemandRows();
+      const loadedRows = await loadDemandRows();
+      const populationSelections = demandPopulationSelections();
+      const allRows = demandRowsForPopulationSelections(loadedRows, populationSelections);
       const diagnostics = standardExclusionDiagnostics(allRows, 'dem');
       const baseTermDiagnostics = {
         selectedArchivedTerms: state.demandArchiveLoad?.selectedTerms || [],
@@ -9534,14 +9620,14 @@
       };
       if (!allRows.length) {
         state.demandRows = [];
-        renderEmptyDemand('No enrollment rows were loaded. Select archived terms or upload CSV files, then click Run.', demandTermDiagnostics(baseTermDiagnostics));
+        renderEmptyDemand('No enrollment rows were loaded for the selected planning populations. Select archived terms, upload CSV files, or enable additional population types.', demandTermDiagnostics(baseTermDiagnostics), { loadedRows, populationSelections });
         return;
       }
       const filtered = applyFilters(allRows, 'dem');
       const filteredTermDiagnostics = demandTermDiagnostics({ ...baseTermDiagnostics, filteredRows: filtered });
       if (!filtered.length) {
         state.demandRows = [];
-        renderEmptyDemand('Rows loaded, but none match the current filters. Clear filters or select different archived terms.', filteredTermDiagnostics);
+        renderEmptyDemand('Rows loaded, but none match the current filters. Clear filters, select different archived terms, or enable additional population types.', filteredTermDiagnostics, { loadedRows, populationSelections });
         return;
       }
       const windowSize = Number(document.getElementById('demWindow')?.value || 5);
@@ -9550,7 +9636,7 @@
       const comparableTermDiagnostics = demandTermDiagnostics({ ...baseTermDiagnostics, filteredRows: filtered, comparableRows: finalizedHistorical });
       if (!finalizedHistorical.length) {
         state.demandRows = [];
-        renderEmptyDemand(`No comparable finalized historical rows are available before ${target.label}. Select archived completed ${target.scope === 'year' ? 'academic-year' : target.season} terms earlier than the forecast target.`, comparableTermDiagnostics);
+        renderEmptyDemand(`No comparable finalized historical rows are available before ${target.label}. Select archived completed ${target.scope === 'year' ? 'academic-year' : target.season} terms earlier than the forecast target.`, comparableTermDiagnostics, { loadedRows, populationSelections, filteredRows: filtered });
         return;
       }
       const analysisRows = normalizeDemandAnalysisTerms(finalizedHistorical, target);
@@ -9562,7 +9648,7 @@
       const termDiagnostics = demandTermDiagnostics({ ...baseTermDiagnostics, filteredRows: filtered, comparableRows: analysisRows, forecastRows: rows });
       if (!rows.length) {
         state.demandRows = [];
-        renderEmptyDemand('No rows remain after applying the analysis window. Increase the analysis window or choose more terms.', termDiagnostics);
+        renderEmptyDemand('No rows remain after applying the analysis window. Increase the analysis window or choose more terms.', termDiagnostics, { loadedRows, populationSelections, filteredRows: filtered });
         return;
       }
       const growthModifier = Number(document.getElementById('demGrowthModifier')?.value || 0) / 100;
@@ -9578,6 +9664,7 @@
       const capComparisonFtes = annualFtes.annualFtes;
       const ftesCapDelta = ftesCap > 0 ? ftesCap - capComparisonFtes : null;
       const workExperience = workExperienceSummary(rows);
+      const populationSummary = demandPopulationSummary(rows, state.demandRows);
       const trends = demandTrendSeries(rows);
       const executiveSummary = demandExecutiveSummary(state.demandRows, trends, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes }, termDiagnostics);
       renderDemandMetricGroups({
@@ -9596,16 +9683,20 @@
         growthModifier,
         context,
         yearSeasonForecast,
-        rows
+        rows,
+        loadedRows,
+        filteredRows: filtered,
+        populationSelections,
+        populationSummary
       });
       renderDemandDiagnosticsPanel(termDiagnostics);
-      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), trends, yearSeasonForecast, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, executiveSummary, growthModifier, diagnostics: termDiagnostics, context });
+      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), trends, yearSeasonForecast, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, executiveSummary, growthModifier, diagnostics: termDiagnostics, context, populationSelections, populationSummary, rows });
       table('demandTable', state.demandRows, demandColumns());
       renderDemandLegend();
     } catch (err) {
-      console.error('Demand forecast failed:', err);
+      console.error('Enrollment planning forecast failed:', err);
       state.demandRows = [];
-      renderEmptyDemand(`Demand forecast failed: ${err.message || err}`, demandTermDiagnostics({
+      renderEmptyDemand(`Enrollment planning forecast failed: ${err.message || err}`, demandTermDiagnostics({
         selectedArchivedTerms: state.demandArchiveLoad?.selectedTerms || [],
         archiveResults: state.demandArchiveLoad?.results || [],
         usableRows: state.demandInput || [],
@@ -9619,7 +9710,14 @@
     if (tableNode) tableNode.innerHTML = `<p class="analytics-empty">${escapeAttr(message)}</p>`;
   }
 
-  function renderEmptyDemand(message, termDiagnostics = null) {
+  function renderEmptyDemand(message, termDiagnostics = null, context = {}) {
+    renderReportContext(REPORTS.demand, demandReportContextOverrides({
+      loadedRows: context.loadedRows || state.demandInput || [],
+      rows: context.filteredRows || [],
+      termDiagnostics,
+      populationSelections: context.populationSelections || demandPopulationSelections(),
+      target: demandForecastTarget()
+    }));
     metric('demandMetrics', [
       ['Terms Included', 0],
       ['Courses Reviewed', 0],
@@ -9952,6 +10050,10 @@
     const targetLabel = forecastContext.target?.label || 'Forecast';
     const summary = forecastContext.executiveSummary || demandExecutiveSummary(rows, trends, forecastContext, forecastContext.diagnostics || {});
     const findings = demandRecommendationSummary(rows, patterns, summary);
+    const sourceRows = forecastContext.rows || [];
+    const populationSummary = forecastContext.populationSummary || demandPopulationSummary(sourceRows, rows);
+    const supply = demandSupplyMetrics(sourceRows);
+    const breakdowns = demandPlanningBreakdowns(sourceRows, rows);
     const enrollmentData = buildEnrollmentTrendChartData(trends, forecastContext.forecastFtes == null ? null : rows.find(row => row.forecastLevel === 'College')?.expectedEnrollmentNextTerm, targetLabel);
     const ftesData = buildFtesTrendChartData(trends, forecastContext.forecastFtes || 0, forecastContext.ftesCap || 0, targetLabel);
     const fillWaitlistData = buildFillWaitlistPressureChartData(trends);
@@ -9961,36 +10063,61 @@
       <section class="demand-report-section demand-executive-summary" data-collapsible-title="Executive Summary" data-collapsible-id="demand-executive-summary" data-collapsible-default-open="true">
         <h3>Executive Summary</h3>
         ${demandExecutiveSummaryPanel(summary)}
+        ${demandExecutiveNarrative(summary, forecastContext)}
+        ${demandCompositionPanel(populationSummary, 'Population Composition')}
       </section>
-      <section class="demand-report-section" data-collapsible-title="Historical Trends" data-collapsible-id="demand-historical-trends" data-collapsible-default-open="true">
-        <h3>Historical Trends</h3>
-        ${lineChartPanel('Enrollment Trend Chart', enrollmentData, { valueFormatter: value => Math.round(value), yLabel: 'Enrollment' })}
+      <section class="demand-report-section" data-collapsible-title="FTES Analysis" data-collapsible-id="demand-ftes-analysis" data-collapsible-default-open="true">
+        <h3>FTES Analysis</h3>
         ${lineChartPanel('FTES Trend Chart', ftesData, { valueFormatter: value => round1(value), yLabel: 'FTES', warning: ftesData.exceedsCap ? 'Forecast exceeds the entered FTES cap.' : '' })}
+        ${demandFtesWaterfallPanel({ ...forecastContext, forecastRows: rows }, populationSummary)}
+        ${demandCompositionPanel(populationSummary, 'FTES Composition')}
+        ${demandBreakdownPanel('FTES by Population', breakdowns.population, 'ftes')}
+        ${demandBreakdownPanel('FTES by Campus / Population', breakdowns.campus, 'ftes')}
+        ${demandBreakdownPanel('FTES by Modality', breakdowns.modality, 'ftes')}
+        ${demandBreakdownPanel('FTES by Division', breakdowns.division, 'ftes')}
+        ${demandBreakdownPanel('FTES by Department', breakdowns.department, 'ftes')}
+        ${demandBreakdownPanel('FTES by Discipline', breakdowns.discipline, 'ftes')}
+        ${demandBreakdownPanel('FTES by Course Level', breakdowns.courseLevel, 'ftes')}
+        ${demandBreakdownPanel('FTES by Time of Day', breakdowns.timeOfDay, 'ftes')}
+        ${demandBreakdownPanel('FTES by Day of Week', breakdowns.dayOfWeek, 'ftes')}
       </section>
-      <section class="demand-report-section" data-collapsible-title="Fill Rate & Waitlist Pressure" data-collapsible-id="demand-fill-waitlist" data-collapsible-default-open="true">
-        <h3>Fill Rate & Waitlist Pressure</h3>
+      <section class="demand-report-section" data-collapsible-title="Enrollment Analysis" data-collapsible-id="demand-enrollment-analysis" data-collapsible-default-open="true">
+        <h3>Enrollment Analysis</h3>
+        ${lineChartPanel('Enrollment Trend Chart', enrollmentData, { valueFormatter: value => Math.round(value), yLabel: 'Enrollment' })}
+        ${demandCompositionPanel(populationSummary, 'Enrollment Composition', 'enrollment')}
+        ${demandBreakdownPanel('Enrollment by Population', breakdowns.population, 'enrollment')}
+        ${demandBreakdownPanel('Enrollment by Campus / Population', breakdowns.campus, 'enrollment')}
+        ${demandBreakdownPanel('Enrollment by Modality', breakdowns.modality, 'enrollment')}
+        ${demandBreakdownPanel('Enrollment by Division', breakdowns.division, 'enrollment')}
+        ${demandBreakdownPanel('Enrollment by Department', breakdowns.department, 'enrollment')}
+        ${demandBreakdownPanel('Enrollment by Discipline', breakdowns.discipline, 'enrollment')}
+        ${demandBreakdownPanel('Enrollment by Course Level', breakdowns.courseLevel, 'enrollment')}
+        ${demandBreakdownPanel('Enrollment by Time', breakdowns.timeOfDay, 'enrollment')}
         <p class="analytics-chart-note">High fill plus rising waitlist indicates pressure. Low fill plus low waitlist may indicate excess capacity or weaker visible demand.</p>
         ${fillWaitlistPanel(fillWaitlistData)}
       </section>
-      <section class="demand-report-section" data-collapsible-title="Course Demand Distribution" data-collapsible-id="demand-course-distribution" data-collapsible-default-open="true">
-        <h3>Course Demand Distribution</h3>
-        ${courseDemandDistributionPanel(distributionData)}
+      <section class="demand-report-section" data-collapsible-title="Schedule Supply" data-collapsible-id="demand-schedule-supply" data-collapsible-default-open="true">
+        <h3>Schedule Supply</h3>
+        ${demandSupplyPanel(supply)}
+        ${demandBreakdownPanel('Campus Distribution', breakdowns.campus, 'enrollment')}
+        ${demandBreakdownPanel('Modality Distribution', breakdowns.modality, 'enrollment')}
       </section>
-      <section class="demand-report-section" data-collapsible-title="Top Findings / Recommendations" data-collapsible-id="demand-top-findings" data-collapsible-default-open="true">
-        <h3>Top Findings / Recommendations</h3>
+      <section class="demand-report-section" data-collapsible-title="Student Demand" data-collapsible-id="demand-student-demand" data-collapsible-default-open="true">
+        <h3>Student Demand</h3>
+        ${courseDemandDistributionPanel(distributionData)}
+        ${demandPatternPanel('Highest Demand Day/Time Patterns', highPatterns)}
+        ${demandPatternPanel('Lowest Demand Day/Time Patterns', lowPatterns)}
+      </section>
+      <section class="demand-report-section" data-collapsible-title="Recommendation Engine" data-collapsible-id="demand-recommendation-engine" data-collapsible-default-open="true">
+        <h3>Recommendation Engine</h3>
         ${demandFindingsPanel(findings)}
         <section data-collapsible-title="Show All Recommendations" data-collapsible-id="demand-full-recommendations" data-collapsible-default-open="false">
           <h3>Show All Recommendations</h3>
           ${demandFullRecommendationsPanel(rows)}
         </section>
       </section>
-      <section class="demand-report-section" data-collapsible-title="Day/Time Demand Patterns" data-collapsible-id="demand-day-time-patterns" data-collapsible-default-open="true">
-        <h3>Day/Time Demand Patterns</h3>
-        ${demandPatternPanel('Highest Demand Day/Time Patterns', highPatterns)}
-        ${demandPatternPanel('Lowest Demand Day/Time Patterns', lowPatterns)}
-      </section>
-      <section class="demand-report-section" data-collapsible-title="Diagnostics & Methodology" data-collapsible-id="demand-diagnostics-methodology" data-collapsible-default-open="false">
-        <h3>Diagnostics & Methodology</h3>
+      <section class="demand-report-section" data-collapsible-title="Data Quality & Methodology" data-collapsible-id="demand-diagnostics-methodology" data-collapsible-default-open="false">
+        <h3>Data Quality & Methodology</h3>
         ${demandForecastMethodCard(forecastContext, summary, backtestData)}
         ${insightPanel('Semester FTES Totals', trends.map(row => `${row.term}: ${round1(row.ftes)} FTES; ${row.census} census enrollment`))}
         ${yearSeasonForecast ? insightPanel('Forecast Term FTES Split', yearSeasonForecast.seasons.map(row => `${row.termLabel}: ${round1(row.forecastFtes)} FTES (${pct(row.share)} of annual forecast, based on ${yearSeasonForecast.basis})`)) : ''}
@@ -10085,6 +10212,207 @@
       confidence: row.forecastConfidence || 'N/A',
       direction: Number(row.adjustedForecastGrowth) >= 0 ? 'Expanding' : 'Softening'
     }));
+  }
+
+  function demandDistinctCrnCount(rows = []) {
+    const keys = new Set();
+    (rows || []).forEach((row, index) => {
+      keys.add(row.crn || [row.term, row.subject, row.course, row.section, index].filter(Boolean).join('|'));
+    });
+    return keys.size;
+  }
+
+  function demandPopulationSummary(sourceRows = [], forecastRows = []) {
+    const college = forecastRows.find(row => row.forecastLevel === 'College') || {};
+    const sourceTotalFtes = sum(sourceRows, 'ftes');
+    const forecastTotalFtes = Number(college.expectedFtesNextTerm || 0);
+    const scale = sourceTotalFtes > 0 && forecastTotalFtes > 0 ? forecastTotalFtes / sourceTotalFtes : 1;
+    const buckets = {
+      instructional: emptyDemandPopulationBucket('Instructional'),
+      dual: emptyDemandPopulationBucket('Dual Enrollment'),
+      workExperience: emptyDemandPopulationBucket('Work Experience')
+    };
+    (sourceRows || []).forEach(row => {
+      const type = demandPlanningPopulationType(row);
+      const key = type === 'Work Experience' ? 'workExperience' : type === 'Dual Enrollment' ? 'dual' : 'instructional';
+      const bucket = buckets[key];
+      bucket.rows += 1;
+      bucket.enrollment += row.census == null ? row.actual || 0 : row.census || 0;
+      bucket.ftes += row.ftes || 0;
+      bucket.seats += row.cap || 0;
+      bucket.crns.add(row.crn || [row.term, row.subject, row.course, row.section].filter(Boolean).join('|'));
+    });
+    Object.values(buckets).forEach(bucket => {
+      bucket.projectedFtes = bucket.ftes * scale;
+      bucket.projectedEnrollment = bucket.enrollment * (sourceRows.length && college.expectedEnrollmentNextTerm ? safeDiv(college.expectedEnrollmentNextTerm, sourceRows.reduce((total, row) => total + (row.census == null ? row.actual || 0 : row.census || 0), 0)) : 1);
+      bucket.distinctCrns = bucket.crns.size;
+      delete bucket.crns;
+    });
+    const total = emptyDemandPopulationBucket('Total');
+    Object.values(buckets).forEach(bucket => {
+      total.rows += bucket.rows;
+      total.enrollment += bucket.enrollment;
+      total.ftes += bucket.ftes;
+      total.projectedFtes += bucket.projectedFtes || 0;
+      total.projectedEnrollment += bucket.projectedEnrollment || 0;
+      total.seats += bucket.seats;
+      total.distinctCrns = (total.distinctCrns || 0) + (bucket.distinctCrns || 0);
+    });
+    delete total.crns;
+    return { ...buckets, total };
+  }
+
+  function emptyDemandPopulationBucket(labelText) {
+    return { label: labelText, rows: 0, enrollment: 0, projectedEnrollment: 0, ftes: 0, projectedFtes: 0, seats: 0, distinctCrns: 0, crns: new Set() };
+  }
+
+  function demandBreakdownRows(sourceRows = [], forecastRows = [], keyer = () => 'Unknown') {
+    const college = forecastRows.find(row => row.forecastLevel === 'College') || {};
+    const totalFtes = sum(sourceRows, 'ftes');
+    const totalEnrollment = sourceRows.reduce((total, row) => total + (row.census == null ? row.actual || 0 : row.census || 0), 0);
+    const ftesScale = totalFtes > 0 && college.expectedFtesNextTerm ? safeDiv(college.expectedFtesNextTerm, totalFtes) : 1;
+    const enrollmentScale = totalEnrollment > 0 && college.expectedEnrollmentNextTerm ? safeDiv(college.expectedEnrollmentNextTerm, totalEnrollment) : 1;
+    return [...group(sourceRows, keyer).entries()]
+      .map(([name, rows]) => {
+        const historicalFtes = sum(rows, 'ftes');
+        const historicalEnrollment = rows.reduce((total, row) => total + (row.census == null ? row.actual || 0 : row.census || 0), 0);
+        const projectedFtes = historicalFtes * ftesScale;
+        const projectedEnrollment = historicalEnrollment * enrollmentScale;
+        return {
+          name: name || 'Unknown',
+          historicalFtes,
+          projectedFtes,
+          ftesDifference: projectedFtes - historicalFtes,
+          ftesPercentDifference: safeDiv(projectedFtes - historicalFtes, historicalFtes),
+          ftesShareOfTotal: safeDiv(projectedFtes, Math.max(1, Number(college.expectedFtesNextTerm || totalFtes || 1))),
+          historicalEnrollment,
+          projectedEnrollment,
+          enrollmentDifference: projectedEnrollment - historicalEnrollment,
+          enrollmentPercentDifference: safeDiv(projectedEnrollment - historicalEnrollment, historicalEnrollment),
+          enrollmentShareOfTotal: safeDiv(projectedEnrollment, Math.max(1, Number(college.expectedEnrollmentNextTerm || totalEnrollment || 1)))
+        };
+      })
+      .sort((a, b) => b.projectedFtes - a.projectedFtes);
+  }
+
+  function demandSupplyMetrics(sourceRows = []) {
+    return {
+      scheduledClassOfferings: demandDistinctCrnCount(sourceRows),
+      instructionalMeetings: sourceRows.length,
+      seatsOffered: sum(sourceRows, 'cap'),
+      courseOfferings: new Set(sourceRows.map(row => courseKey(row))).size,
+      uniqueCourses: new Set(sourceRows.map(row => courseKey(row))).size,
+      uniqueSubjects: new Set(sourceRows.map(row => row.subject).filter(Boolean)).size,
+      geOfferings: sourceRows.filter(row => row.calGetc || /GE|GETC/i.test(row.title || '')).length,
+      campusDistribution: demandBreakdownRows(sourceRows, [], row => demandPopulationLabel(row)),
+      modalityDistribution: demandBreakdownRows(sourceRows, [], row => row.modality || 'Unknown')
+    };
+  }
+
+  function demandCourseLevel(row = {}) {
+    const number = String(row.course || '').match(/\d+/)?.[0] || '';
+    const level = Number(number.slice(0, 1));
+    if (!level) return 'Unknown';
+    return `${level}00 Level`;
+  }
+
+  function demandTimeOfDay(row = {}) {
+    const minutes = minutesFromTime(row.start);
+    if (minutes == null) return 'Online/TBA';
+    if (minutes < 12 * 60) return 'Morning';
+    if (minutes < 17 * 60) return 'Afternoon';
+    return 'Evening';
+  }
+
+  function demandDayOfWeek(row = {}) {
+    return (row.days || []).join(', ') || row.dayPattern || 'TBA';
+  }
+
+  function demandPlanningBreakdowns(sourceRows = [], forecastRows = []) {
+    return {
+      population: demandBreakdownRows(sourceRows, forecastRows, row => demandPlanningPopulationType(row)),
+      campus: demandBreakdownRows(sourceRows, forecastRows, row => demandPopulationLabel(row)),
+      modality: demandBreakdownRows(sourceRows, forecastRows, row => row.modality || 'Unknown'),
+      division: demandBreakdownRows(sourceRows, forecastRows, row => row.division || 'Unknown'),
+      department: demandBreakdownRows(sourceRows, forecastRows, row => row.department || 'Unknown'),
+      discipline: demandBreakdownRows(sourceRows, forecastRows, row => row.subject || 'Unknown'),
+      courseLevel: demandBreakdownRows(sourceRows, forecastRows, demandCourseLevel),
+      timeOfDay: demandBreakdownRows(sourceRows, forecastRows, demandTimeOfDay),
+      dayOfWeek: demandBreakdownRows(sourceRows, forecastRows, demandDayOfWeek)
+    };
+  }
+
+  function demandExecutiveNarrative(summary = {}, context = {}) {
+    const terms = context.diagnostics?.termsUsedInForecast?.length || 0;
+    const target = context.target?.label || 'the forecast target';
+    const projected = Math.round(summary.projected || 0);
+    const expected = Math.round(summary.expected || 0);
+    const variancePct = expected ? pct(safeDiv(projected - expected, expected)) : 'N/A';
+    return `<p class="demand-executive-narrative">Based on ${terms || 'selected'} comparable historical term${terms === 1 ? '' : 's'}, current schedule construction, and projected growth, ${escapeAttr(target)} is expected to finish at approximately ${projected} students, ${variancePct} versus the trend baseline, with ${escapeAttr(summary.confidence?.label || 'low')} confidence.</p>`;
+  }
+
+  function demandCompositionPanel(summary = {}, title = 'FTES Composition', mode = 'ftes') {
+    const buckets = [summary.instructional, summary.dual, summary.workExperience].filter(Boolean);
+    const total = mode === 'enrollment'
+      ? buckets.reduce((sumValue, bucket) => sumValue + (bucket.projectedEnrollment || bucket.enrollment || 0), 0)
+      : buckets.reduce((sumValue, bucket) => sumValue + (bucket.projectedFtes || bucket.ftes || 0), 0);
+    const rows = buckets.map(bucket => {
+      const value = mode === 'enrollment' ? (bucket.projectedEnrollment || bucket.enrollment || 0) : (bucket.projectedFtes || bucket.ftes || 0);
+      return `<div class="demand-composition-row">
+        <span>${escapeAttr(bucket.label)}</span>
+        <strong>${mode === 'enrollment' ? Math.round(value) : round1(value)}</strong>
+        <em>${pct(safeDiv(value, total))}</em>
+      </div>`;
+    }).join('');
+    return `<section class="demand-composition-panel"><h4>${escapeAttr(title)}</h4>${rows}<div class="demand-composition-total"><span>Total</span><strong>${mode === 'enrollment' ? Math.round(total) : round1(total)}</strong><em>100%</em></div></section>`;
+  }
+
+  function demandFtesWaterfallPanel(context = {}, populationSummary = {}) {
+    const college = (context.forecastRows || []).find(row => row.forecastLevel === 'College') || {};
+    const historical = Number(college.avgFtes || 0);
+    const projected = Number(context.forecastFtes || college.expectedFtesNextTerm || 0);
+    const growth = Number(college.trendProjectionFtes || projected) - historical;
+    const schedule = Number(college.scheduleAdjustedProjectionFtes || projected) - Number(college.trendProjectionFtes || projected);
+    const dual = Number(populationSummary.dual?.projectedFtes || 0);
+    const work = Number(populationSummary.workExperience?.projectedFtes || 0);
+    const instructional = Number(populationSummary.instructional?.projectedFtes || 0);
+    const rows = [
+      ['Historical FTES', historical],
+      ['Historical Growth', growth],
+      ['Added Sections / Seat Changes / Modality Changes', schedule],
+      ['Instructional FTES', instructional],
+      ['Dual Enrollment', dual],
+      ['Work Experience', work],
+      ['Projected FTES', projected]
+    ];
+    return `<section class="demand-waterfall-panel"><h4>FTES Waterfall</h4>${rows.map(([labelText, value], index) => `<div class="demand-waterfall-row ${index === rows.length - 1 ? 'total' : ''}"><span>${escapeAttr(labelText)}</span><strong>${value >= 0 && index > 0 ? '+' : ''}${round1(value)}</strong></div>`).join('')}</section>`;
+  }
+
+  function demandBreakdownPanel(title, rows = [], mode = 'ftes') {
+    const columns = mode === 'enrollment'
+      ? ['name', 'historicalEnrollment', 'projectedEnrollment', 'enrollmentDifference', 'enrollmentPercentDifference', 'enrollmentShareOfTotal']
+      : ['name', 'historicalFtes', 'projectedFtes', 'ftesDifference', 'ftesPercentDifference', 'ftesShareOfTotal'];
+    const visible = rows.slice(0, 12);
+    if (!visible.length) return `<section class="demand-breakdown-panel"><h4>${escapeAttr(title)}</h4><p class="analytics-empty">No breakdown rows available.</p></section>`;
+    return `<section class="demand-breakdown-panel" data-collapsible-title="${escapeAttr(title)}" data-collapsible-id="${slugify(title)}" data-collapsible-default-open="false">
+      <h4>${escapeAttr(title)}</h4>
+      <table><thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead>
+      <tbody>${visible.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    </section>`;
+  }
+
+  function demandSupplyPanel(supply = {}) {
+    const cards = [
+      ['Scheduled Class Offerings', supply.scheduledClassOfferings || 0],
+      ['Instructional Meetings', supply.instructionalMeetings || 0],
+      ['Seats Offered', supply.seatsOffered || 0],
+      ['Course Offerings', supply.courseOfferings || 0],
+      ['Unique Courses', supply.uniqueCourses || 0],
+      ['Unique Subjects', supply.uniqueSubjects || 0],
+      ['CAL-GETC/GE Offerings', supply.geOfferings || 0],
+      ['Student Choice Indicators', supply.uniqueCourses || 0]
+    ];
+    return `<section class="demand-supply-panel"><h4>Schedule Supply Indicators</h4><div class="analytics-metrics">${cards.map(([labelText, value]) => `<div><strong>${escapeAttr(value)}</strong><span>${escapeAttr(labelText)}</span></div>`).join('')}</div></section>`;
   }
 
   function demandExecutiveSummaryPanel(summary = {}) {
@@ -10813,6 +11141,10 @@
     return rows;
   }
 
+  function isDemandPlanningUsableRow(row) {
+    return row?.isWorkExperience || isDualEnrollmentRow(row) || !isOmittedInstructionalMethod(row);
+  }
+
   function collectActiveFilterChips(prefix) {
     if (!prefix) return [];
     const suffixes = [
@@ -11137,6 +11469,15 @@
     const legend = document.getElementById('demandLegend');
     if (!legend) return;
     const items = [
+      ['Instructional FTES', 'FTES from regular section seating / schedule rows that are not Dual Enrollment or Work Experience. Displayed separately from Dual Enrollment and Work Experience so totals reconcile visibly.'],
+      ['Dual Enrollment FTES', 'FTES from Dual Enrollment rows retained as the Dual Enrollment planning population. Dual Enrollment is not treated as a physical campus internally.'],
+      ['Work Experience FTES', 'FTES from the separate Work Experience dataset when included. Work Experience is shown as its own planning population and is never silently merged into instructional totals.'],
+      ['Population Type', 'Planning dimension with three values: Physical Campuses, Dual Enrollment, and Work Experience. Executive totals display Instructional, Dual Enrollment, Work Experience, and Overall.'],
+      ['Projection Method', 'Weighted historical projection with trend and schedule adjustment. Existing forecast calculations are preserved while the report displays population, FTES, enrollment, supply, and recommendation context.'],
+      ['Trend Projection', 'Historical same-season or academic-year trend projected forward with recency weighting, growth modifiers, expected range, and schedule adjustment when available.'],
+      ['Schedule Adjustment', 'Adjustment from historical baseline toward the expected projection based on schedule construction signals such as class offerings, seats, and modality mix.'],
+      ['Expected Projection', 'Projected enrollment or FTES after trend projection and schedule adjustment. Expected Projection Range shows low and high range when available.'],
+      ['Forecast Confidence', 'High, Moderate, or Low confidence based on available history, forecast stability, and visible forecast row confidence labels.'],
       ['Terms Included', 'Metric card. Number of selected historical terms included after filters and the Analysis window are applied.'],
       ['Forecast Target', 'Metric card and controls. The future term or academic year being forecast. This does not require an uploaded section seating report. Forecast year uses the trailing FY/AY convention: FY/AY 2027 includes Summer 2026, Fall 2026, and Spring 2027, so FY/AY 2027 + Fall targets Fall 2026 / Banner term 202710. Rows from this target and later terms are excluded from historical calculations because in-progress enrollment is not a finalized baseline.'],
       ['Forecast Scope', 'Metric card and control. Single term forecasts compare only the same season before the target, such as prior Fall terms for a Fall target. Academic year forecasts aggregate Summer, Fall, and Spring rows into annual buckets before calculating growth.'],
@@ -11205,8 +11546,8 @@
       ['Data Limitations', 'Forecasts depend on uploaded columns. Missing FTES, contact-hour, unit, and accounting-method columns reduce FTES reliability. Missing Work Experience FTES inputs are flagged rather than treated as a confirmed zero. Missing waitlist columns make waitlist demand unknown, not zero. Missing division, department, or course title values appear blank or UNKNOWN. Terms that are still enrolling should not be selected as historical archives unless they are intentionally being reviewed as incomplete scenario data.']
     ];
     renderMethodologyPanel(legend, {
-      title: 'Enrollment Demand Forecast Methodology & Data Dictionary',
-      purpose: 'Forecasts future enrollment demand from finalized historical growth patterns at the college, division, discipline, and course levels. It supports schedule planning, enrollment growth, apportionment context, FTES cap planning, and capacity assumptions.',
+      title: 'Enrollment Planning Forecast Methodology & Data Dictionary',
+      purpose: 'Forecasts enrollment, FTES, schedule supply, population mix, and planning actions from finalized historical growth patterns at the college, division, discipline, course, population, campus, modality, time, and FTES levels.',
       methodology: 'Forecast growth blends course, discipline, division, and college trends, then applies the optional modifier. Single-term forecasts compare like terms only. Academic-year forecasts aggregate Summer, Fall, and Spring into FY/AY buckets before calculating growth.',
       assumptions: 'Forecast growth is capped between -75% and +150%. FTES is direct-upload FTES when present; otherwise it is estimated from ACCOUNTING METHOD, census enrollment, and contact-hour fields. I and O accounting methods are omitted from ordinary Section Seating rows. Separate Work Experience upload rows are included when toggled on because they are not available in Section Seating. E is treated as open-entry/open-exit positive attendance.',
       limitations: 'Forecasts are planning estimates, not guarantees. Positive attendance and Work Experience FTES are estimated from available fields unless official production values are entered directly. Missing waitlist, FTES, contact-hour, unit, division, department, or title fields reduce reliability.',
@@ -11350,11 +11691,11 @@
       { selector: '#attritionDiagnostics', id: 'attrition-diagnostics', title: 'Attrition Diagnostics' },
       { selector: '#attritionTable', id: 'attrition-detail-table', title: 'Attrition Detail Table' },
       { selector: '#attritionLegend', id: 'attrition-methodology', title: 'Attrition Methodology and Definitions' },
-      { selector: '#demandSummary', id: 'demand-summary-cards', title: 'Demand Forecast Summary Cards' },
+      { selector: '#demandSummary', id: 'demand-summary-cards', title: 'Enrollment Planning Forecast Summary Cards' },
       { selector: '#demandDiagnostics', id: 'demand-term-diagnostics', title: 'Data Scope & Term Diagnostics' },
-      { selector: '#demandCharts', id: 'demand-forecast-charts', title: 'Demand Forecast Charts' },
-      { selector: '#demandTable', id: 'demand-detail-table', title: 'Demand Forecast Detail Table' },
-      { selector: '#demandLegend', id: 'demand-methodology', title: 'Demand Forecast Methodology and Definitions' },
+      { selector: '#demandCharts', id: 'demand-forecast-charts', title: 'Enrollment Planning Forecast Charts' },
+      { selector: '#demandTable', id: 'demand-detail-table', title: 'Enrollment Planning Forecast Detail Table' },
+      { selector: '#demandLegend', id: 'demand-methodology', title: 'Enrollment Planning Forecast Methodology and Definitions' },
       { selector: '#facultyHeatmapMetrics', id: 'faculty-heatmap-summary-cards', title: 'Faculty Schedule Heatmap Summary Cards' },
       { selector: '#facultyHeatmapContainer', id: 'faculty-heatmap', title: 'Faculty Schedule Heatmap' },
       { selector: '#facultyHeatmapTable', id: 'faculty-heatmap-table', title: 'Faculty Schedule Detail Table' },
@@ -11422,6 +11763,17 @@
       census1ToFinalAttritionDisplay: 'Census 1 to Final Attrition',
       trendInterpretation: 'Trend / Interpretation',
       confidence: 'Confidence',
+      name: 'Planning Dimension',
+      historicalFtes: 'Historical FTES',
+      projectedFtes: 'Projected FTES',
+      ftesDifference: 'Difference',
+      ftesPercentDifference: '% Difference',
+      ftesShareOfTotal: 'Share of Total',
+      historicalEnrollment: 'Historical Enrollment',
+      projectedEnrollment: 'Projected Enrollment',
+      enrollmentDifference: 'Difference',
+      enrollmentPercentDifference: '% Difference',
+      enrollmentShareOfTotal: 'Share of Total',
       firstDayToCensus1Attrition: 'First Day to Census 1 Attrition',
       firstDayToCensus2Attrition: 'First Day to Census 2 Attrition',
       firstDayToEndFinalAttrition: 'First Day to End/Final Attrition',
@@ -12346,7 +12698,9 @@
     document.getElementById('runAttrition')?.addEventListener('click', () => runAttrition().catch(handleAttritionError));
     document.getElementById('dashIncludeWorkExperience')?.addEventListener('change', rerunDashboard);
     document.getElementById('attrIncludeWorkExperience')?.addEventListener('change', () => runAttrition().catch(handleAttritionError));
-    document.getElementById('demIncludeWorkExperience')?.addEventListener('change', runDemand);
+    ['demIncludePhysicalCampuses', 'demIncludeDualEnrollment', 'demIncludeWorkExperience'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', runDemand);
+    });
     document.getElementById('enrollmentCsv')?.addEventListener('change', () => loadAttritionFiles().catch(handleAttritionError));
     document.getElementById('attrArchiveTerms')?.addEventListener('change', () => loadAttritionFiles().catch(handleAttritionError));
     document.getElementById('archiveAttritionUploads')?.addEventListener('click', () => archiveUploads('enrollmentCsv').catch(err => alert(err.message || 'Archive failed.')));
@@ -12578,8 +12932,8 @@
     document.getElementById('clearFacultyHeatmap')?.addEventListener('click', clearFacultyScheduleHeatmap);
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-trend-${attritionDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${consolidationDecisionTerm() || currentTerm() || 'term'}.csv`));
-    document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-demand-forecast-${demandTargetSlug()}.csv`));
-    document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-demand-forecast-${demandTargetSlug()}.xls`));
+    document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-planning-forecast-${demandTargetSlug()}.csv`));
+    document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-planning-forecast-${demandTargetSlug()}.xls`));
     document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
       const modalityQuickButton = event.target.closest('[data-modality-quick]');
@@ -12689,6 +13043,10 @@
     demandForecastConfidenceScore,
     demandExecutiveSummary,
     demandRecommendationSummary,
+    demandPlanningPopulationType,
+    demandRowsForPopulationSelections,
+    demandPopulationSummary,
+    demandPlanningBreakdowns,
     parseDemandPattern,
     buildEnrollmentTrendChartData,
     buildFtesTrendChartData,
