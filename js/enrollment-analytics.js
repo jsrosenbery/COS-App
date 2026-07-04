@@ -246,6 +246,7 @@
     enrollmentSnapshots: [],
     snapshotRows: [],
     snapshotLastUpdated: null,
+    reportContexts: {},
     pendingAccessRole: '',
     pendingAccessReport: ''
   };
@@ -2201,6 +2202,7 @@
           <div id="attritionMetrics" class="analytics-metrics"></div>
           <div id="attritionDiagnosticRates" class="analytics-table"></div>
           <div id="attritionDataQualityNotes" class="analytics-legend"></div>
+          <p class="analytics-table-description">This table summarizes historical enrollment attrition by course/group using comparable historical terms. The planning term is excluded so future planning is based on prior completed or active terms.</p>
           <div id="attritionTable" class="analytics-table"></div>
           <div id="attritionLegend" class="analytics-legend"></div>
         </div>
@@ -8378,16 +8380,28 @@
       .filter(row => !excludedPlanningTermKey || canon(row.term) !== excludedPlanningTermKey);
     if (!enrollment.length) {
       state.attritionRows = [];
-      metric('attritionMetrics', [
-        ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
-        ['Historical Terms Included', 0],
-        ['Historical Sections', 0],
-        ['Historical Overall Attrition', 'N/A'],
-        ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
-        ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
-        ['Distinct CRNs with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Crns],
-        ['Data Quality Warning', diagnostics.hasInvalidNegativeCensus2 ? 'Negative Census 2 values were detected and treated as invalid.' : 'None']
-      ]);
+      renderReportContext(REPORTS.attrition, attritionContextOverrides(allEnrollment, [], diagnostics, excludedPlanningTerm, {
+        historicalTerms: [],
+        rowsIncluded: 0,
+        historicalSections: 0
+      }));
+      renderAttritionSummarySections({
+        executive: [
+          ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
+          ['Historical Terms Included', 0],
+          ['Historical Sections / CRNs Included', 0],
+          ['Overall Attrition', 'N/A'],
+          ['Census 1 to Census 2 Attrition', 'N/A'],
+          ['Census 2 to End/Final Attrition', 'N/A'],
+          ['Census 1 to End/Final Attrition', 'N/A']
+        ],
+        dataQuality: [
+          ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
+          ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
+          ['Distinct CRNs with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Crns],
+          ['Data Quality Warning', diagnostics.hasInvalidNegativeCensus2 ? 'Negative Census 2 values were detected and treated as invalid.' : 'None']
+        ]
+      });
       setAttritionStatus('No historical enrollment rows match the selected uploads, archived terms, excluded planning term, and filters.');
       renderAttritionDiagnosticRates({});
       renderAttritionDataQualityNotes(['No enrollment rows match the selected filters.']);
@@ -8507,81 +8521,134 @@
       ...row,
       dataQualityNotes: dataQualityWarnings.join(' ') || 'None'
     }));
-    metric('attritionMetrics', [
-      ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
-      ['Historical Terms Included', historicalTerms.length],
-      ['Historical Sections', historicalSummary.sections],
-      ['Historical Overall Attrition', lifecycleMetricLabel(historicalSummary.overallRate)],
-      ['Historical Census 1 to Census 2 Attrition', lifecycleMetricLabel(historicalSummary.census1ToCensus2Rate)],
-      ['Historical Census 2 to End Attrition', lifecycleMetricLabel(historicalSummary.census2ToEndRate)],
-      ['Historical Census 1 to End Attrition', lifecycleMetricLabel(historicalSummary.census1ToEndRate)],
-      ['Historical Census 1 Total', historicalMilestones.census1.total],
-      ['Historical Census 2 Total', historicalMilestones.census2.total],
-      ['Historical End/Final Total', historicalMilestones.final.total],
-      ['Historical CRNs with Census 1', historicalMilestones.census1.count],
-      ['Historical CRNs with Census 2', historicalMilestones.census2.count],
-      ['Historical CRNs with End/Final', historicalMilestones.final.count],
-      ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
-      ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
-      ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
-      ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
-      ['Distinct CRNs with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Crns],
-      ['Work Experience Rows Included', workExperience.rows],
-      ['Work Experience FTES Warnings', workExperience.missingFtes]
-    ]);
+    renderReportContext(REPORTS.attrition, attritionContextOverrides(allEnrollment, enrollment, diagnostics, excludedPlanningTerm, {
+      historicalTerms,
+      rowsIncluded: enrollment.length,
+      historicalSections: historicalSummary.sections,
+      distinctCrns: historicalSummary.sections
+    }));
+    renderAttritionSummarySections({
+      executive: [
+        ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
+        ['Historical Terms Included', historicalTerms.length],
+        ['Historical Sections / CRNs Included', historicalSummary.sections],
+        ['Overall Attrition', lifecycleMetricLabel(historicalSummary.overallRate)],
+        ['Census 1 to Census 2 Attrition', lifecycleMetricLabel(historicalSummary.census1ToCensus2Rate)],
+        ['Census 2 to End/Final Attrition', lifecycleMetricLabel(historicalSummary.census2ToEndRate)],
+        ['Census 1 to End/Final Attrition', lifecycleMetricLabel(historicalSummary.census1ToEndRate)]
+      ],
+      dataQuality: [
+        ['Historical Census 1 Total', historicalMilestones.census1.total],
+        ['Historical Census 2 Total', historicalMilestones.census2.total],
+        ['Historical End/Final Total', historicalMilestones.final.total],
+        ['Historical CRNs with Census 1', historicalMilestones.census1.count],
+        ['Historical CRNs with Census 2', historicalMilestones.census2.count],
+        ['Historical CRNs with End/Final', historicalMilestones.final.count],
+        ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
+        ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
+        ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
+        ['Distinct CRNs with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Crns],
+        ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
+        ['Work Experience Rows Included', workExperience.rows],
+        ['Work Experience FTES Warnings', workExperience.missingFtes]
+      ]
+    });
     renderAttritionDiagnosticRates({
       historical: historicalSummary,
       all: allSummary,
       includeAll: false
     });
     renderAttritionDataQualityNotes(dataQualityWarnings);
-    table('attritionTable', state.attritionRows, [
-      'group',
-      'excludedPlanningTerm',
-      'courseHistoricalTermsIncluded',
-      'overallHistoricalTermsIncluded',
-      'totalUploadedTerms',
-      'historySections',
-      'totalSeats',
-      'historyCensus',
-      'historyCensus2',
-      'historyFinal',
-      'historicalAttritionRate',
-      'historyStartToEndAttritionRate',
-      'historyStartToCensus1AttritionRate',
-      'historyStartToCensus2AttritionRate',
-      'historyCensus1ToCensus2AttritionRate',
-      'historyCensus1ToEndAttritionRate',
-      'historyCensus2ToEndAttritionRate',
-      'historyOverallAttritionRate',
-      'census1ToCensus2MatchedCrns',
-      'census2ToEndMatchedCrns',
-      'census1ToEndMatchedCrns',
-      'census1ToCensus2AttritionRate',
-      'census2ToEndAttritionRate',
-      'census1ToEndAttritionRate',
-      'invalidCensus2Count',
-      'missingCensus2Count',
-      'missingFinalCount',
-      'firstDayToCensus1Attrition',
-      'firstDayToCensus2Attrition',
-      'firstDayToEndFinalAttrition',
-      'census1ToCensus2Attrition',
-      'census1ToEndFinalAttrition',
-      'census2ToEndFinalAttrition',
-      'firstDayToCensus1MatchedCrns',
-      'firstDayToCensus2MatchedCrns',
-      'firstDayToEndFinalMatchedCrns',
-      'census1ToCensus2DiagnosticMatchedCrns',
-      'census1ToEndFinalMatchedCrns',
-      'census2ToEndFinalMatchedCrns',
-      'dataQualityNotes',
-      'censusFillRate',
-      'finalFillRate',
-      'emptySeatsAtCensus',
-      'emptySeatsAtFinal'
+    table('attritionTable', attritionDisplayRows(state.attritionRows), [
+      'courseGroup',
+      'historicalTermsUsed',
+      'historicalSectionsCrns',
+      'census1Enrollment',
+      'census2Enrollment',
+      'endFinalEnrollment',
+      'census1ToCensus2AttritionDisplay',
+      'census2ToFinalAttritionDisplay',
+      'census1ToFinalAttritionDisplay',
+      'trendInterpretation',
+      'confidence'
     ]);
     renderAttritionLegend();
+  }
+
+  function attritionContextOverrides(rowsLoaded, rowsIncluded, diagnostics = {}, excludedPlanningTerm = '', summary = {}) {
+    const historicalTerms = summary.historicalTerms || collectRowTerms(rowsIncluded || []);
+    return {
+      prefix: 'attr',
+      focusTerm: excludedPlanningTerm || 'No planning term selected',
+      historicalTerms,
+      rowsLoaded: (rowsLoaded || []).length,
+      rowsIncluded: summary.rowsIncluded ?? (rowsIncluded || []).length,
+      rowsExcluded: Math.max(0, (rowsLoaded || []).length - (summary.rowsIncluded ?? (rowsIncluded || []).length)),
+      distinctCrns: summary.distinctCrns ?? summary.historicalSections ?? '',
+      exclusions: [
+        ...collectExclusionChips('attr'),
+        { label: 'Planning Term Excluded', value: excludedPlanningTerm || 'None' },
+        { label: 'Tutoring/Open Lab', value: `${diagnostics.tutoringOpenLabRowsExcluded || 0} rows excluded` },
+        { label: 'Invalid Census 2', value: `${diagnostics.invalidNegativeCensus2Rows || 0} rows treated as missing` }
+      ],
+      method: [
+        { label: 'Aggregation mode', value: document.getElementById('attrGroup')?.value || 'COURSE' },
+        { label: 'Enrollment basis', value: 'Census preferred, actual/current fallback' },
+        { label: 'Planning Term Excluded', value: 'Selected future/planning term is not used as historical evidence' },
+        { label: 'Historical Terms Used', value: historicalTerms.join(', ') || 'None' },
+        { label: 'Scheduled Class Offerings', value: 'Unique CRNs' },
+        { label: 'Attrition basis', value: 'Matched CRNs for each lifecycle interval' }
+      ]
+    };
+  }
+
+  function renderAttritionSummarySections(config = {}) {
+    const node = document.getElementById('attritionMetrics');
+    if (!node) return;
+    const section = (title, items, open) => `
+      <section class="attrition-summary-section collapsible-section ${open ? '' : 'is-collapsed'}" data-collapsible-title="${escapeAttr(title)}" data-collapsible-id="${slugify(title)}" ${open ? '' : 'data-collapsible-default="closed"'}>
+        <h3>${escapeAttr(title)}</h3>
+        <div class="analytics-metrics">${(items || []).map(([labelText, value]) => `<div><strong>${escapeAttr(value ?? '')}</strong><span>${escapeAttr(labelText ?? '')}</span></div>`).join('')}</div>
+      </section>`;
+    node.innerHTML = [
+      section('Attrition Executive Summary', config.executive || [], true),
+      section('Data Quality & Coverage', config.dataQuality || [], false)
+    ].join('');
+    window.COSUtils?.applyCollapsibleSections?.(node);
+  }
+
+  function attritionDisplayRows(rows = []) {
+    return rows.map(row => ({
+      ...row,
+      courseGroup: row.group || '',
+      historicalTermsUsed: row.courseHistoricalTermsIncluded || row.historyTerms || 0,
+      historicalSectionsCrns: row.historySections || 0,
+      census1Enrollment: row.historyCensus || row.census || 0,
+      census2Enrollment: row.historyCensus2 || row.census2 || 0,
+      endFinalEnrollment: row.historyFinal || row.final || 0,
+      census1ToCensus2AttritionDisplay: row.historyCensus1ToCensus2AttritionRate,
+      census2ToFinalAttritionDisplay: row.historyCensus2ToEndAttritionRate,
+      census1ToFinalAttritionDisplay: row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate,
+      trendInterpretation: attritionTrendInterpretation(row),
+      confidence: attritionConfidence(row)
+    }));
+  }
+
+  function attritionTrendInterpretation(row) {
+    const rate = row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate;
+    if (rate == null) return 'Insufficient lifecycle data';
+    if (rate < 0) return 'Enrollment increased by final';
+    if (rate >= 0.15) return 'High attrition pattern';
+    if (rate >= 0.07) return 'Moderate attrition pattern';
+    return 'Low attrition pattern';
+  }
+
+  function attritionConfidence(row) {
+    const terms = Number(row.courseHistoricalTermsIncluded || row.historyTerms || 0);
+    const crns = Number(row.historySections || 0);
+    if (terms >= 4 && crns >= 8) return 'High';
+    if (terms >= 2 && crns >= 3) return 'Medium';
+    return 'Limited';
   }
 
   function renderAttritionDiagnosticRates(summaries = {}) {
@@ -10566,9 +10633,277 @@
     return labels[metricName] || label(metricName);
   }
 
+  const REPORT_VIEW_ID = {
+    [REPORTS.archiveInspection]: 'archiveInspectionReport',
+    [REPORTS.conflictCheck]: 'conflictReport',
+    [REPORTS.duration]: 'durationReport',
+    [REPORTS.dashboard]: 'dashboardReport',
+    [REPORTS.attrition]: 'attritionReport',
+    [REPORTS.demand]: 'demandReport',
+    [REPORTS.snapshotManager]: 'snapshotManagerReport',
+    [REPORTS.heatmap]: 'heatmapReport',
+    [REPORTS.instructorAvailability]: 'instructorAvailabilityReport',
+    [REPORTS.modality]: 'modalityReport',
+    [REPORTS.roomFit]: 'roomFitReport',
+    [REPORTS.utilization]: 'utilizationReport',
+    [REPORTS.consolidation]: 'consolidationReport',
+    [REPORTS.studentPresence]: 'studentPresenceReport',
+    [REPORTS.facultyModality]: 'facultyModalityReport',
+    [REPORTS.instructionalMethodValidation]: 'instructionalMethodValidationReport',
+    [REPORTS.primeTimeAnalysis]: 'primeTimeReport',
+    [REPORTS.supplyDemand]: 'supplyDemandReport',
+    [REPORTS.busyTimeDashboard]: 'busyTimeReport',
+    [REPORTS.studentChoiceOpportunity]: 'studentChoiceReport',
+    [REPORTS.recommendationEngine]: 'recommendationReport',
+    [REPORTS.facultyHeatmap]: 'facultyHeatmapReport',
+    [REPORTS.workExperience]: 'workExperienceReport'
+  };
+
+  const REPORT_FILTER_PREFIX = {
+    [REPORTS.dashboard]: 'dash',
+    [REPORTS.attrition]: 'attr',
+    [REPORTS.consolidation]: 'con',
+    [REPORTS.demand]: 'dem',
+    [REPORTS.conflictCheck]: 'conflict',
+    [REPORTS.studentPresence]: 'sp',
+    [REPORTS.instructorAvailability]: 'ia',
+    [REPORTS.modality]: 'modality',
+    [REPORTS.facultyHeatmap]: 'facultyHeatmap',
+    [REPORTS.facultyModality]: 'facultyModality',
+    [REPORTS.primeTimeAnalysis]: 'primeTime',
+    [REPORTS.supplyDemand]: 'supplyDemand',
+    [REPORTS.studentChoiceOpportunity]: 'studentChoice',
+    [REPORTS.recommendationEngine]: 'recommendation'
+  };
+
+  const METRIC_REPORT_MAP = {
+    dashboardMetrics: REPORTS.dashboard,
+    attritionMetrics: REPORTS.attrition,
+    consolidationMetrics: REPORTS.consolidation,
+    demandMetrics: REPORTS.demand,
+    studentPresenceMetrics: REPORTS.studentPresence,
+    facultyHeatmapMetrics: REPORTS.facultyHeatmap,
+    facultyModalityMetrics: REPORTS.facultyModality,
+    primeTimeMetrics: REPORTS.primeTimeAnalysis,
+    supplyDemandMetrics: REPORTS.supplyDemand,
+    busyTimeMetrics: REPORTS.busyTimeDashboard,
+    studentChoiceMetrics: REPORTS.studentChoiceOpportunity,
+    recommendationMetrics: REPORTS.recommendationEngine,
+    modalityMetrics: REPORTS.modality,
+    roomFitReportMetrics: REPORTS.roomFit
+  };
+
+  function collectReportContext(reportId, overrides = {}) {
+    const prefix = overrides.prefix || REPORT_FILTER_PREFIX[reportId] || '';
+    const activeFilters = overrides.activeFilters || collectActiveFilterChips(prefix);
+    const exclusions = overrides.exclusions || collectExclusionChips(prefix);
+    const method = overrides.method || defaultMethodContext(reportId);
+    const rowsLoaded = overrides.rowsLoaded ?? '';
+    const rowsIncluded = overrides.rowsIncluded ?? '';
+    const rowsExcluded = overrides.rowsExcluded ?? (Number.isFinite(Number(rowsLoaded)) && Number.isFinite(Number(rowsIncluded)) ? Math.max(0, Number(rowsLoaded) - Number(rowsIncluded)) : '');
+    return {
+      reportId,
+      reportName: overrides.reportName || REPORT_LABEL[reportId] || label(reportId),
+      generatedAt: overrides.generatedAt || new Date().toISOString(),
+      focusTerm: overrides.focusTerm ?? reportFocusTerm(reportId),
+      currentTerm: overrides.currentTerm ?? currentTerm(),
+      historicalTerms: asArray(overrides.historicalTerms),
+      comparisonTerms: asArray(overrides.comparisonTerms),
+      uploadedFiles: asArray(overrides.uploadedFiles),
+      archivedTerms: asArray(overrides.archivedTerms),
+      rowsLoaded,
+      rowsIncluded,
+      rowsExcluded,
+      distinctCrns: overrides.distinctCrns ?? '',
+      instructionalMeetings: overrides.instructionalMeetings ?? '',
+      activeFilters,
+      exclusions,
+      method,
+      notes: asArray(overrides.notes)
+    };
+  }
+
+  function buildReportContextMetadata(reportId, overrides = {}) {
+    const context = collectReportContext(reportId, overrides);
+    state.reportContexts[reportId] = context;
+    return context;
+  }
+
+  function renderReportContext(reportId, overrides = {}) {
+    const context = buildReportContextMetadata(reportId, overrides);
+    const view = document.getElementById(REPORT_VIEW_ID[reportId]);
+    if (!view) return context;
+    let node = view.querySelector(':scope > .report-context-panel');
+    if (!node) {
+      node = document.createElement('section');
+      node.className = 'report-context-panel collapsible-section';
+      node.dataset.collapsibleTitle = 'Report Context';
+      node.dataset.collapsibleId = `report-context-${reportId}`;
+      const toolbar = view.querySelector(':scope > .analytics-toolbar');
+      if (toolbar?.nextSibling) view.insertBefore(node, toolbar.nextSibling);
+      else if (toolbar) view.appendChild(node);
+      else view.insertBefore(node, view.firstChild);
+    }
+    const filters = context.activeFilters.length
+      ? context.activeFilters.map(chip => `<span class="report-context-chip">${escapeAttr(chip.label)}: ${escapeAttr(chip.value)}</span>`).join('')
+      : '<span class="report-context-chip muted">No active filters</span>';
+    const exclusions = context.exclusions.length
+      ? context.exclusions.map(chip => `<span class="report-context-chip excluded">${escapeAttr(chip.label)}: ${escapeAttr(chip.value)}</span>`).join('')
+      : '<span class="report-context-chip muted">No exclusions reported</span>';
+    const method = context.method.length
+      ? context.method.map(chip => `<span class="report-context-chip method">${escapeAttr(chip.label)}: ${escapeAttr(chip.value)}</span>`).join('')
+      : '<span class="report-context-chip muted">Standard report method</span>';
+    const scopeRows = [
+      ['Report name', context.reportName],
+      ['Generated date/time', context.generatedAt],
+      ['Planning/focus term', context.focusTerm || 'All loaded terms'],
+      ['Current/source term', context.currentTerm || 'N/A'],
+      ['Historical/comparison terms', [...context.historicalTerms, ...context.comparisonTerms].join(', ') || 'None selected'],
+      ['Uploaded files', context.uploadedFiles.join(', ') || 'None selected'],
+      ['Archived terms selected', context.archivedTerms.join(', ') || 'None selected'],
+      ['Rows loaded', context.rowsLoaded],
+      ['Rows included', context.rowsIncluded],
+      ['Rows excluded', context.rowsExcluded],
+      ['Distinct CRNs included', context.distinctCrns],
+      ['Instructional meetings included', context.instructionalMeetings]
+    ].filter(([, value]) => value !== '' && value !== null && value !== undefined);
+    node.innerHTML = `
+      <h3>Report Context</h3>
+      <div class="report-context-summary">
+        <span>${escapeAttr(context.reportName)}</span>
+        <span>${escapeAttr(context.focusTerm || 'All loaded terms')}</span>
+        <span>Rows included: ${escapeAttr(context.rowsIncluded || 'N/A')}</span>
+      </div>
+      <details>
+        <summary>Data scope, filters, exclusions, and calculation context</summary>
+        <dl class="report-context-grid">${scopeRows.map(([term, value]) => `<div><dt>${escapeAttr(term)}</dt><dd>${escapeAttr(value)}</dd></div>`).join('')}</dl>
+        <h4>Active Filters</h4>
+        <div class="report-context-chips">${filters}</div>
+        <h4>Exclusions</h4>
+        <div class="report-context-chips">${exclusions}</div>
+        <h4>Method / Calculation Context</h4>
+        <div class="report-context-chips">${method}</div>
+        ${context.notes.length ? `<h4>Notes</h4><ul>${context.notes.map(note => `<li>${escapeAttr(note)}</li>`).join('')}</ul>` : ''}
+      </details>`;
+    window.COSUtils?.applyCollapsibleSections?.(view);
+    return context;
+  }
+
+  function reportContextToExportRows(context = state.reportContexts[selectedEnrollmentReport()]) {
+    if (!context) return [];
+    const rows = [];
+    const add = (Field, Value) => {
+      if (Value !== '' && Value !== null && Value !== undefined) rows.push({ Section: 'Report Context', Field, Value: Array.isArray(Value) ? Value.join(', ') : Value });
+    };
+    add('Report name', context.reportName);
+    add('Generated date/time', context.generatedAt);
+    add('Planning/focus term', context.focusTerm);
+    add('Current/source term', context.currentTerm);
+    add('Historical/comparison terms', [...(context.historicalTerms || []), ...(context.comparisonTerms || [])]);
+    add('Uploaded files', context.uploadedFiles || []);
+    add('Archived terms selected', context.archivedTerms || []);
+    add('Rows loaded', context.rowsLoaded);
+    add('Rows included', context.rowsIncluded);
+    add('Rows excluded', context.rowsExcluded);
+    add('Distinct CRNs included', context.distinctCrns);
+    add('Instructional meetings included', context.instructionalMeetings);
+    add('Active filters', chipSummary(context.activeFilters, 'No active filters'));
+    add('Exclusions', chipSummary(context.exclusions, 'No exclusions reported'));
+    add('Method / Calculation Context', chipSummary(context.method, 'Standard report method'));
+    return rows;
+  }
+
+  function collectActiveFilterChips(prefix) {
+    if (!prefix) return [];
+    const suffixes = [
+      ['Campus', 'Campus'],
+      ['Division', 'Division'],
+      ['Department', 'Department'],
+      ['Discipline', 'Discipline'],
+      ['Course', 'Course'],
+      ['Course Level', 'CourseLevel'],
+      ['Modality', 'Modality'],
+      ['Faculty Type', 'FacultyType'],
+      ['Meeting Type', 'MeetingType'],
+      ['Instructor', 'Instructor'],
+      ['Day', 'Day'],
+      ['Time/start hour', 'TimeBlock'],
+      ['CAL-GETC', 'CalGetc']
+    ];
+    const chips = [];
+    suffixes.forEach(([labelText, suffix]) => {
+      const node = document.getElementById(prefix + suffix);
+      if (!node) return;
+      const value = controlValueLabel(node);
+      if (value && !/^all\b/i.test(value)) chips.push({ label: labelText, value });
+    });
+    return chips;
+  }
+
+  function collectExclusionChips(prefix) {
+    const chips = [];
+    [
+      ['Dual Enrollment', prefix + 'IncludeDualEnrollment', 'Included', 'Excluded'],
+      ['Tutoring/Open Lab', prefix + 'ExcludeTutoringOpenLab', 'Excluded', 'Included'],
+      ['Online/TBA', prefix + 'HideOnline', 'Excluded', 'Included'],
+      ['Work Experience', prefix + 'IncludeWorkExperience', 'Included', 'Excluded']
+    ].forEach(([labelText, id, checkedValue, uncheckedValue]) => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      chips.push({ label: labelText, value: node.checked ? checkedValue : uncheckedValue });
+    });
+    return chips;
+  }
+
+  function defaultMethodContext(reportId) {
+    const items = [
+      { label: 'Enrollment basis', value: 'Census preferred, actual/current fallback' },
+      { label: 'Scheduled Class Offerings', value: 'Unique CRNs' },
+      { label: 'Instructional Meetings', value: 'Distinct CRN/day/start/end/component blocks where applicable' }
+    ];
+    if (reportId === REPORTS.studentPresence) items.push({ label: 'Presence mode', value: document.getElementById('spPresenceMode')?.value === 'expected' ? 'Expected Physical Presence' : 'Nominal Scheduled Presence' });
+    return items;
+  }
+
+  function reportFocusTerm(reportId) {
+    if (reportId === REPORTS.dashboard) return dashboardFocusTerm() || 'All Loaded Terms';
+    if (reportId === REPORTS.attrition) return attritionDecisionTerm() || currentTerm() || '';
+    if (reportId === REPORTS.studentPresence) return studentPresenceFocusTerm() || '';
+    if (reportId === REPORTS.demand) return typeof demandTargetLabel === 'function' ? demandTargetLabel() : '';
+    return currentTerm() || '';
+  }
+
+  function controlValueLabel(node) {
+    if (!node) return '';
+    if (node.tagName === 'SELECT' && node.multiple) {
+      const values = Array.from(node.selectedOptions || []).map(option => option.textContent || option.value).filter(Boolean);
+      return values.length ? values.join(', ') : '';
+    }
+    if (node.tagName === 'SELECT') {
+      const option = node.selectedOptions?.[0];
+      return option ? (option.textContent || option.value) : node.value || '';
+    }
+    if (node.type === 'checkbox') return node.checked ? 'Yes' : '';
+    return node.value || '';
+  }
+
+  function asArray(value) {
+    if (!value) return [];
+    return Array.isArray(value) ? value.filter(Boolean) : [value].filter(Boolean);
+  }
+
+  function chipSummary(chips = [], fallback = '') {
+    return chips.length ? chips.map(chip => `${chip.label}: ${chip.value}`).join('; ') : fallback;
+  }
+
   function metric(id, items) {
     const node = document.getElementById(id);
     if (!node) return;
+    if (METRIC_REPORT_MAP[id]) {
+      renderReportContext(METRIC_REPORT_MAP[id], {
+        rowsIncluded: Array.isArray(items) ? items.find(item => /rows included/i.test(item[0] || ''))?.[1] : ''
+      });
+    }
     node.replaceChildren();
     items.forEach(([labelText, value, metricId]) => {
       const card = document.createElement('div');
@@ -11076,6 +11411,17 @@
       decisionCensus1ToCensus2AttritionRate: 'Decision Census 1 to Census 2 Attrition',
       decisionCensus1ToEndAttritionRate: 'Decision Census 1 to End Attrition',
       decisionCensus2ToEndAttritionRate: 'Decision Census 2 to End Attrition',
+      courseGroup: 'Course / Group',
+      historicalTermsUsed: 'Historical Terms Used',
+      historicalSectionsCrns: 'Historical Sections / CRNs',
+      census1Enrollment: 'Census 1 Enrollment',
+      census2Enrollment: 'Census 2 Enrollment',
+      endFinalEnrollment: 'End/Final Enrollment',
+      census1ToCensus2AttritionDisplay: 'Census 1 to Census 2 Attrition',
+      census2ToFinalAttritionDisplay: 'Census 2 to Final Attrition',
+      census1ToFinalAttritionDisplay: 'Census 1 to Final Attrition',
+      trendInterpretation: 'Trend / Interpretation',
+      confidence: 'Confidence',
       firstDayToCensus1Attrition: 'First Day to Census 1 Attrition',
       firstDayToCensus2Attrition: 'First Day to Census 2 Attrition',
       firstDayToEndFinalAttrition: 'First Day to End/Final Attrition',
@@ -11261,7 +11607,10 @@
   }
 
   function exportRows(rows, filename) {
-    let csv = Papa.unparse(rows);
+    const contextRows = reportContextToExportRows();
+    let csv = contextRows.length
+      ? `${Papa.unparse(contextRows)}\r\n\r\n${Papa.unparse(rows)}`
+      : Papa.unparse(rows);
     const methodology = methodologyExportText();
     if (methodology) {
       csv += `\r\n\r\n${Papa.unparse([{ Section: 'Methodology & Data Dictionary', Detail: methodology }])}`;
@@ -11284,11 +11633,15 @@
   }
 
   function exportRowsExcel(rows, columns, filename) {
+    const contextRows = reportContextToExportRows();
+    const contextTable = contextRows.length
+      ? `<table><thead><tr><th colspan="3">Report Context</th></tr><tr><th>Section</th><th>Field</th><th>Value</th></tr></thead><tbody>${contextRows.map(row => `<tr><td>${escapeAttr(row.Section)}</td><td>${escapeAttr(row.Field)}</td><td>${escapeAttr(row.Value)}</td></tr>`).join('')}</tbody></table><br>`
+      : '';
     const methodology = methodologyExportText();
     const methodologyTable = methodology
       ? `<br><table><thead><tr><th colspan="2">Methodology & Data Dictionary</th></tr></thead><tbody><tr><td>Report Methodology</td><td>${escapeAttr(methodology)}</td></tr></tbody></table>`
       : '';
-    const html = `<table><thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>${methodologyTable}`;
+    const html = `${contextTable}<table><thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>${methodologyTable}`;
     const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);

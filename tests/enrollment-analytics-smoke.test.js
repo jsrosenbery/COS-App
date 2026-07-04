@@ -1001,27 +1001,32 @@ test('attrition lifecycle uses matched CRNs when milestone populations differ', 
 
 test('lifecycle diagnostics presentation keeps mismatch warnings out of headline cards', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
-  const metricStart = text.indexOf("metric('attritionMetrics'");
-  const metricEnd = text.indexOf('renderAttritionDiagnosticRates', metricStart);
   const detailStart = text.indexOf("table('attritionTable'");
   const detailEnd = text.indexOf('renderAttritionLegend', detailStart);
-  const metricsBlock = text.slice(metricStart, metricEnd);
   const detailBlock = text.slice(detailStart, detailEnd);
 
   assert.match(text, /Enrollment Attrition Trend/);
   assert.match(text, /Diagnostic Attrition Rates/);
   assert.match(text, /Planning Term Excluded/);
-  assert.match(text, /Historical Overall Attrition/);
+  assert.match(text, /Attrition Executive Summary/);
+  assert.match(text, /Data Quality & Coverage/);
   assert.doesNotMatch(text, /attrIncludeHistory/);
-  assert.doesNotMatch(metricsBlock, /N\/A - Different section populations/);
+  assert.doesNotMatch(text.slice(text.indexOf('renderAttritionSummarySections'), text.indexOf('renderAttritionDiagnosticRates')), /N\/A - Different section populations/);
   [
-    'firstDayToCensus1Attrition',
-    'firstDayToCensus2Attrition',
-    'firstDayToEndFinalAttrition',
-    'census1ToCensus2Attrition',
-    'census1ToEndFinalAttrition',
-    'census2ToEndFinalAttrition'
+    'courseGroup',
+    'historicalTermsUsed',
+    'historicalSectionsCrns',
+    'census1Enrollment',
+    'census2Enrollment',
+    'endFinalEnrollment',
+    'census1ToCensus2AttritionDisplay',
+    'census2ToFinalAttritionDisplay',
+    'census1ToFinalAttritionDisplay',
+    'trendInterpretation',
+    'confidence'
   ].forEach(column => assert.match(detailBlock, new RegExp(column)));
+  assert.match(text, /firstDayToCensus1Attrition/);
+  assert.match(text, /census2ToEndFinalAttrition/);
 });
 
 test('dashboard focus term scopes current metrics and excludes focus from history', () => {
@@ -1783,6 +1788,47 @@ test('student presence UI and exports expose meeting frequency fields', () => {
   assert.match(text, /frequencyWarning/);
   assert.match(text, /Total Nominal Student Presence/);
   assert.match(text, /Total Expected Student Presence/);
+});
+
+test('shared report context renders filters exclusions rows and export metadata', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+
+  [
+    /function renderReportContext/,
+    /function collectReportContext/,
+    /function buildReportContextMetadata/,
+    /function reportContextToExportRows/
+  ].forEach(pattern => assert.match(app, pattern));
+  assert.match(app, /No active filters/);
+  assert.match(app, /Rows loaded/);
+  assert.match(app, /Rows included/);
+  assert.match(app, /Rows excluded/);
+  assert.match(app, /Active Filters/);
+  assert.match(app, /Exclusions/);
+  assert.match(app, /Method \/ Calculation Context/);
+  assert.match(app, /Papa\.unparse\(contextRows\)/);
+  assert.match(app, /<th colspan="3">Report Context<\/th>/);
+  assert.match(css, /\.report-context-panel/);
+  assert.match(css, /\.report-context-chip/);
+});
+
+test('attrition summary and visible table use executive and coverage clarity labels', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /Attrition Executive Summary/);
+  assert.match(text, /Data Quality & Coverage/);
+  assert.match(text, /This table summarizes historical enrollment attrition by course\/group/);
+  [
+    'Course / Group',
+    'Historical Terms Used',
+    'Historical Sections / CRNs',
+    'Census 1 Enrollment',
+    'Census 2 Enrollment',
+    'End/Final Enrollment',
+    'Trend / Interpretation',
+    'Confidence'
+  ].forEach(label => assert.match(text, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
 });
 
 test('consolidation scope is limited to selected report inputs', () => {
