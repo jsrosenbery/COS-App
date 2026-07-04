@@ -1093,9 +1093,40 @@ button:hover,
   padding: 0;
 }
 
+.visualization-section {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  gap: 0;
+}
+
+.visualization-toolbar {
+  width: 100%;
+  max-width: 100%;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+}
+
+.visualization-body {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.visualization-body > .heatmap-wrap,
+.visualization-body .heatmap-wrap {
+  width: 100%;
+  max-width: 100%;
+}
+
 .visualization-export-toolbar,
 .heatmap-export-toolbar {
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;

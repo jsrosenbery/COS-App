@@ -394,16 +394,47 @@
     return host.querySelector('.heatmap-wrap,.presence-chart-container,.modality-pie-grid,.analytics-line-chart,.analytics-bar-chart,canvas,svg');
   }
 
+  function directChildContaining(parent, child) {
+    let node = child;
+    while (node && node.parentNode && node.parentNode !== parent) node = node.parentNode;
+    return node && node.parentNode === parent ? node : child;
+  }
+
+  function placeVisualizationToolbar(host, toolbar, anchor) {
+    const section = document.createElement('section');
+    section.className = 'visualization-section';
+    const body = document.createElement('div');
+    body.className = 'visualization-body';
+    const visualNode = anchor ? directChildContaining(host, anchor) : host.firstElementChild;
+    if (visualNode && visualNode.parentNode === host) {
+      host.insertBefore(section, visualNode);
+      body.appendChild(visualNode);
+    } else {
+      host.insertBefore(section, host.firstChild);
+      Array.from(host.childNodes)
+        .filter(node => node !== section)
+        .forEach(node => body.appendChild(node));
+    }
+    section.append(toolbar, body);
+    return section;
+  }
+
   function renderVisualizationExportMenu(target, config = {}) {
     const host = typeof target === 'string' ? document.querySelector(target) : target;
     if (!host) return null;
     host.querySelectorAll('.visualization-export-toolbar,.heatmap-export-toolbar').forEach(node => node.remove());
+    host.querySelectorAll('.visualization-section').forEach(section => {
+      const body = section.querySelector(':scope > .visualization-body');
+      if (!body) return;
+      Array.from(body.childNodes).forEach(node => section.parentNode.insertBefore(node, section));
+      section.remove();
+    });
     const toolbar = document.createElement('div');
     const menuId = config.menuId || `visualization-export-menu-${Math.random().toString(36).slice(2, 9)}`;
-    toolbar.className = 'visualization-export-toolbar heatmap-export-toolbar';
+    toolbar.className = 'visualization-toolbar visualization-export-toolbar heatmap-export-toolbar';
     toolbar.innerHTML = `
       <div class="visualization-export-menu">
-        <button type="button" class="visualization-export-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="${menuId}">Export <span aria-hidden="true">▼</span></button>
+        <button type="button" class="visualization-export-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="${menuId}">Export <span aria-hidden="true">&#9662;</span></button>
         <div id="${menuId}" class="visualization-export-dropdown" role="menu" hidden>
           <button type="button" role="menuitem" data-visualization-export="png">Export PNG</button>
           <button type="button" role="menuitem" data-visualization-export="copy">Copy Image</button>
@@ -477,11 +508,7 @@
       if (!toolbar.contains(event.target)) closeMenu();
     });
     const anchor = preferredVisualizationAnchor(host, config);
-    if (anchor && anchor.parentNode === host) {
-      host.insertBefore(toolbar, anchor);
-    } else {
-      host.insertBefore(toolbar, host.firstChild);
-    }
+    placeVisualizationToolbar(host, toolbar, anchor);
     return toolbar;
   }
 

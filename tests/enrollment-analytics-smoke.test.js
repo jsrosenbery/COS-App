@@ -3146,6 +3146,10 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(css, /\.heatmap-wrap \{\s*width: 100%;\s*max-width: 100%;\s*overflow-x: auto;/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /\.heatmap-time-label/);
+  assert.match(css, /\.visualization-section \{\s*display: flex;\s*flex-direction: column;\s*width: 100%;/);
+  assert.match(css, /\.visualization-toolbar \{\s*width: 100%;/);
+  assert.match(css, /\.visualization-body \{\s*display: block;\s*width: 100%;/);
+  assert.match(css, /\.visualization-body > \.heatmap-wrap,/);
   assert.match(css, /\.visualization-export-toolbar/);
   assert.match(css, /\.visualization-export-dropdown/);
   assert.doesNotMatch(css, /\.heatmap th,[\s\S]*?overflow-wrap: anywhere;/);
@@ -3203,7 +3207,12 @@ test('heatmap visual exports are wired for full heatmap capture and metadata CSV
   assert.match(utils, /event\.key === 'Escape'/);
   assert.match(utils, /document\.addEventListener\('click'/);
   assert.match(utils, /preferredVisualizationAnchor/);
-  assert.match(utils, /host\.insertBefore\(toolbar, anchor\)/);
+  assert.match(utils, /function placeVisualizationToolbar/);
+  assert.match(utils, /section\.className = 'visualization-section'/);
+  assert.match(utils, /body\.className = 'visualization-body'/);
+  assert.match(utils, /toolbar\.className = 'visualization-toolbar visualization-export-toolbar heatmap-export-toolbar'/);
+  assert.match(utils, /section\.append\(toolbar, body\)/);
+  assert.doesNotMatch(utils, /host\.insertBefore\(toolbar, anchor\)/);
   assert.match(app, /renderHeatmapExportToolbar\(document\.getElementById\('heatmapContainer'\)/);
   assert.match(app, /renderModalityChartExportMenu/);
   assert.match(app, /renderVisualizationExportMenu\(modalityChart/);
@@ -3213,6 +3222,23 @@ test('heatmap visual exports are wired for full heatmap capture and metadata CSV
   assert.match(analytics, /attachHeatmapExportToolbar\('supplyDemandHeatmap'/);
   assert.match(analytics, /attachHeatmapExportToolbar\('studentChoiceHeatmap'/);
   assert.match(analytics, /normalizeHeatmapMatrixRows/);
+});
+
+test('visualization export menu uses full-width toolbar and body wrapper', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+  const utils = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
+
+  assert.match(utils, /const section = document\.createElement\('section'\)/);
+  assert.match(utils, /section\.className = 'visualization-section'/);
+  assert.match(utils, /const body = document\.createElement\('div'\)/);
+  assert.match(utils, /body\.className = 'visualization-body'/);
+  assert.match(utils, /body\.appendChild\(visualNode\)/);
+  assert.match(utils, /section\.append\(toolbar, body\)/);
+  assert.match(css, /\.visualization-section \{[\s\S]*?flex-direction: column;/);
+  assert.match(css, /\.visualization-toolbar \{[\s\S]*?width: 100%;/);
+  assert.match(css, /\.visualization-body \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/);
+  assert.match(css, /\.heatmap-wrap \{[\s\S]*?width: 100%;/);
+  assert.doesNotMatch(css, /\.visualization-section \{[^}]*flex-direction: row/);
 });
 
 test('collapsible section helper defaults open toggles aria and persists state', () => {
