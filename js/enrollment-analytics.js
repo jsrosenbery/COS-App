@@ -1671,6 +1671,7 @@
           </div>
           <div id="facultyHeatmapMetrics" class="analytics-metrics"></div>
           <div id="facultyHeatmapContainer" class="analytics-insights"></div>
+          <div id="facultyHeatmapComparisonTable" class="analytics-table"></div>
           <div id="facultyHeatmapTable" class="analytics-table"></div>
           <div id="facultyHeatmapLegend" class="analytics-legend"></div>
         </div>
@@ -2845,7 +2846,34 @@
     return peakFacultyHeatmapCell(built.rows, 'sections');
   }
 
-  function renderFacultyHeatmapTableHtml(built, metricName, maxValue) {
+  function facultyHeatmapCellValueMap(panels) {
+    const map = new Map();
+    (panels || []).forEach(panel => {
+      (panel.built?.rows || []).forEach(row => {
+        const current = map.get(row.key) || {};
+        current[panel.key] = row;
+        map.set(row.key, current);
+      });
+    });
+    return map;
+  }
+
+  function facultyHeatmapComparisonTooltip(cellGroup, metricName) {
+    const metricLabel = metricDisplayLabel(metricName);
+    const valueFor = row => {
+      if (!row) return 0;
+      const value = row.metricValue ?? row[metricName] ?? 0;
+      return metricName === 'lhe' ? Number(value || 0).toFixed(1) : Math.round(value || 0);
+    };
+    return analyticsTooltip([
+      ['Overall', `${valueFor(cellGroup?.overall)} ${metricLabel}`],
+      ['Full-Time', `${valueFor(cellGroup?.fullTime)} ${metricLabel}`],
+      ['Part-Time', `${valueFor(cellGroup?.partTime)} ${metricLabel}`]
+    ]);
+  }
+
+  function renderFacultyHeatmapTableHtml(panel, comparisonMap) {
+    const { built, metricName, maxValue } = panel;
     const cellByKey = new Map(built.rows.map(row => [row.key, row]));
     const headers = built.slots.map(minutes => `<th class="heatmap-time-header">${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
     const body = built.dayKeys.map(day => {
@@ -2855,7 +2883,7 @@
         const heat = maxValue ? value / maxValue : 0;
         const level = value <= 0 ? 'empty' : heat >= 0.67 ? 'high' : heat >= 0.34 ? 'medium' : 'low';
         const display = metricName === 'lhe' && value ? value.toFixed(1) : Math.round(value);
-        const tooltip = analyticsTooltip([
+        const baseTooltip = analyticsTooltip([
           ['Day', built.dayNames[day]],
           ['Time', formatPresenceHourLabel(minutes / 60)],
           [metricDisplayLabel(metricName), display],
@@ -2869,7 +2897,9 @@
           ['Faculty type', 'Panel-specific'],
           ['Meeting type', selectedFilterLabel('fhMeetingType')]
         ]);
-        return `<td class="heatmap-cell heatmap-value-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
+        const comparisonTooltip = facultyHeatmapComparisonTooltip(comparisonMap.get(`${day}|${minutes}`), metricName);
+        const tooltip = `${baseTooltip}\n${comparisonTooltip}`;
+        return `<td class="heatmap-cell heatmap-value-cell heatmap-${level}" data-faculty-heatmap-key="${escapeAttr(`${day}|${minutes}`)}" data-faculty-heatmap-panel="${escapeAttr(panel.key)}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
       }).join('');
       return `<tr><th class="heatmap-day-cell">${built.dayNames[day]}</th>${cells}</tr>`;
     }).join('');
@@ -2888,13 +2918,164 @@
         <h3>${escapeAttr(panel.title)}</h3>
         <p class="analytics-chart-note">Shared axis and color scale. Metric: ${escapeAttr(metricDisplayLabel(panel.metricName))}. Shared scale max: ${escapeAttr(panel.maxValue || 0)}.</p>
         <div id="${escapeAttr(panel.id)}" class="faculty-heatmap-panel-body">
-          ${renderFacultyHeatmapTableHtml(panel.built, panel.metricName, panel.maxValue)}
+          ${renderFacultyHeatmapTableHtml(panel, panel.comparisonMap)}
         </div>
       </section>`;
   }
 
   function facultyHeatmapDistinctFaculty(rows) {
     return new Set((rows || []).map(row => row.facultyId || row.facultyName || row.instructor || '').filter(Boolean)).size;
+  }
+
+  function facultyHeatmapAverage(rows, field) {
+    const active = (rows || []).filter(row => (row[field] || 0) > 0);
+    if (!active.length) return 0;
+    return active.reduce((total, row) => total + (row[field] || 0), 0) / active.length;
+  }
+
+  function facultyHeatmapDailyAverage(built) {
+    const activeDays = built.dayKeys
+      .map(day => built.rows.filter(row => row.day === day).reduce((total, row) => total + (row.facultyCount || 0), 0))
+      .filter(total => total > 0);
+    if (!activeDays.length) return 0;
+    return activeDays.reduce((total, value) => total + value, 0) / activeDays.length;
+  }
+
+  function facultyHeatmapPeakDay(built) {
+    return built.dayKeys
+      .map(day => ({
+        label: built.dayNames[day],
+        value: built.rows.filter(row => row.day === day).reduce((total, row) => total + (row.facultyCount || 0), 0)
+      }))
+      .sort((a, b) => b.value - a.value)[0] || { label: 'N/A', value: 0 };
+  }
+
+  function facultyHeatmapComparisonValue(panel, metric) {
+    const rows = panel.built.rows || [];
+    if (metric === 'peakFaculty') return Math.max(0, ...rows.map(row => row.facultyCount || 0));
+    if (metric === 'averageFaculty') return round1(facultyHeatmapAverage(rows, 'facultyCount'));
+    if (metric === 'peakDay') {
+      const peak = facultyHeatmapPeakDay(panel.built);
+      return peak.value ? `${peak.label} (${Math.round(peak.value)})` : 'N/A';
+    }
+    if (metric === 'peakTime') {
+      const peak = peakFacultyHeatmapCell(rows, 'facultyCount');
+      return peak ? `${peak.time} (${Math.round(peak.facultyCount || 0)})` : 'N/A';
+    }
+    if (metric === 'averageDailyFaculty') return round1(facultyHeatmapDailyAverage(panel.built));
+    if (metric === 'peakEnrollment') return Math.max(0, ...rows.map(row => row.enrollment || 0));
+    if (metric === 'peakSeats') return Math.max(0, ...rows.map(row => row.seats || 0));
+    if (metric === 'peakMeetings') return Math.max(0, ...rows.map(row => row.sections || 0));
+    return 'N/A';
+  }
+
+  function facultyHeatmapComparisonRows(panels) {
+    const columns = [
+      { key: 'overall', panel: panels.find(panel => panel.key === 'overall') },
+      { key: 'fullTime', panel: panels.find(panel => panel.key === 'fullTime') },
+      { key: 'partTime', panel: panels.find(panel => panel.key === 'partTime') }
+    ];
+    return [
+      ['Peak Concurrent Faculty', 'peakFaculty'],
+      ['Average Concurrent Faculty', 'averageFaculty'],
+      ['Peak Day', 'peakDay'],
+      ['Peak Time', 'peakTime'],
+      ['Average Daily Faculty', 'averageDailyFaculty'],
+      ['Peak Enrollment Supported', 'peakEnrollment'],
+      ['Peak Seats Supported', 'peakSeats'],
+      ['Peak Instructional Meetings', 'peakMeetings']
+    ].map(([metricLabel, metricKey]) => ({
+      metric: metricLabel,
+      overall: facultyHeatmapComparisonValue(columns[0].panel, metricKey),
+      fullTime: facultyHeatmapComparisonValue(columns[1].panel, metricKey),
+      partTime: facultyHeatmapComparisonValue(columns[2].panel, metricKey)
+    }));
+  }
+
+  function attachFacultyHeatmapHoverSync(container) {
+    if (!container) return;
+    const clear = () => container.querySelectorAll('.faculty-heatmap-linked-cell').forEach(cell => cell.classList.remove('faculty-heatmap-linked-cell'));
+    const cssEscape = value => window.CSS?.escape ? window.CSS.escape(value) : String(value).replace(/["\\]/g, '\\$&');
+    container.querySelectorAll('[data-faculty-heatmap-key]').forEach(cell => {
+      cell.addEventListener('mouseenter', () => {
+        clear();
+        const key = cell.dataset.facultyHeatmapKey;
+        container.querySelectorAll(`[data-faculty-heatmap-key="${cssEscape(key)}"]`).forEach(match => match.classList.add('faculty-heatmap-linked-cell'));
+      });
+      cell.addEventListener('mouseleave', clear);
+      cell.addEventListener('focus', () => {
+        clear();
+        const key = cell.dataset.facultyHeatmapKey;
+        container.querySelectorAll(`[data-faculty-heatmap-key="${cssEscape(key)}"]`).forEach(match => match.classList.add('faculty-heatmap-linked-cell'));
+      });
+      cell.addEventListener('blur', clear);
+    });
+  }
+
+  function renderFacultyHeatmapCombinedExportMenu(container, panels, options = {}) {
+    if (!container || !window.COSUtils?.exportVisualizationPng) return;
+    const toolbar = document.createElement('div');
+    const menuId = 'faculty-heatmap-comparison-export-menu';
+    toolbar.className = 'visualization-toolbar visualization-export-toolbar heatmap-export-toolbar faculty-heatmap-comparison-export-toolbar';
+    toolbar.innerHTML = `
+      <div class="visualization-export-menu">
+        <button type="button" class="visualization-export-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="${menuId}">Export <span aria-hidden="true">&#9662;</span></button>
+        <div id="${menuId}" class="visualization-export-dropdown" role="menu" hidden>
+          <button type="button" role="menuitem" data-faculty-export="overall">Export Overall Heatmap</button>
+          <button type="button" role="menuitem" data-faculty-export="fullTime">Export Full-Time Heatmap</button>
+          <button type="button" role="menuitem" data-faculty-export="partTime">Export Part-Time Heatmap</button>
+          <button type="button" role="menuitem" data-faculty-export="all">Export All Three Heatmaps</button>
+        </div>
+      </div>
+      <span class="heatmap-export-inline-status visualization-export-inline-status" aria-live="polite"></span>`;
+    container.insertBefore(toolbar, container.firstChild);
+    const trigger = toolbar.querySelector('.visualization-export-trigger');
+    const menu = toolbar.querySelector('.visualization-export-dropdown');
+    const status = toolbar.querySelector('.heatmap-export-inline-status');
+    const setStatus = (message, ok = true) => {
+      status.textContent = message;
+      status.dataset.status = ok ? 'ok' : 'error';
+    };
+    const closeMenu = () => {
+      menu.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+    };
+    const openMenu = () => {
+      menu.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+      menu.querySelector('[role="menuitem"]')?.focus();
+    };
+    trigger.addEventListener('click', event => {
+      event.stopPropagation();
+      menu.hidden ? openMenu() : closeMenu();
+    });
+    toolbar.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        closeMenu();
+        trigger.focus();
+      }
+    });
+    document.addEventListener('click', event => {
+      if (!toolbar.contains(event.target)) closeMenu();
+    });
+    toolbar.querySelectorAll('[data-faculty-export]').forEach(button => {
+      button.addEventListener('click', () => {
+        closeMenu();
+        const exportKey = button.dataset.facultyExport;
+        const panel = panels.find(item => item.key === exportKey);
+        const target = exportKey === 'all' ? container : document.getElementById(panel?.id || '');
+        const title = exportKey === 'all' ? 'Faculty Schedule Heatmaps - Overall, Full-Time, and Part-Time' : panel.title;
+        window.COSUtils.exportVisualizationPng(target, {
+          title,
+          term: options.term,
+          filters: options.filters,
+          metric: options.metric,
+          modalityScope: options.modalityScope,
+          legend: 'Shared legend and color scale across Overall, Full-Time, and Part-Time faculty heatmaps. Darker cells indicate higher values. Blank cells indicate zero or unavailable values.',
+          filename: exportKey === 'all' ? 'faculty-schedule-heatmaps-all.png' : `${panel.id}.png`
+        }).then(() => setStatus(`${title} exported.`)).catch(err => setStatus(err.message || 'Export failed.', false));
+      });
+    });
   }
 
   function renderFacultyScheduleHeatmap() {
@@ -2914,6 +3095,7 @@
         ['Least active day', 'N/A']
       ]);
       document.getElementById('facultyHeatmapContainer').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Schedule.</p>';
+      document.getElementById('facultyHeatmapComparisonTable').innerHTML = '<p class="analytics-empty">No faculty schedule data loaded.</p>';
       document.getElementById('facultyHeatmapTable').innerHTML = '<p class="analytics-empty">No faculty schedule data loaded.</p>';
       document.getElementById('facultyHeatmapLegend').innerHTML = '';
       return;
@@ -2933,12 +3115,21 @@
     const maxValue = Math.max(0, ...[builtOverall, builtFullTime, builtPartTime].flatMap(built => built.rows.map(row => row.metricValue || 0)));
     state.facultyHeatmapBucketRows = builtOverall.rows;
     const panels = [
-      { id: 'facultyHeatmapOverall', title: 'Overall Faculty Schedule Heatmap', built: builtOverall, metricName, maxValue },
-      { id: 'facultyHeatmapFullTime', title: 'Full-Time Faculty Schedule Heatmap', built: builtFullTime, metricName, maxValue },
-      { id: 'facultyHeatmapPartTime', title: 'Part-Time Faculty Schedule Heatmap', built: builtPartTime, metricName, maxValue }
+      { key: 'overall', id: 'facultyHeatmapOverall', title: 'Overall Faculty Schedule Heatmap', built: builtOverall, metricName, maxValue },
+      { key: 'fullTime', id: 'facultyHeatmapFullTime', title: 'Full-Time Faculty Schedule Heatmap', built: builtFullTime, metricName, maxValue },
+      { key: 'partTime', id: 'facultyHeatmapPartTime', title: 'Part-Time Faculty Schedule Heatmap', built: builtPartTime, metricName, maxValue }
     ];
+    const comparisonMap = facultyHeatmapCellValueMap(panels);
+    panels.forEach(panel => { panel.comparisonMap = comparisonMap; });
     document.getElementById('facultyHeatmapContainer').innerHTML = panels.map(facultyHeatmapPanelHtml).join('');
     refreshGeneratedCollapsibleSections(document.getElementById('facultyHeatmapContainer'));
+    attachFacultyHeatmapHoverSync(document.getElementById('facultyHeatmapContainer'));
+    renderFacultyHeatmapCombinedExportMenu(document.getElementById('facultyHeatmapContainer'), panels, {
+      term: document.getElementById('fhTerm')?.value || 'All terms',
+      filters: heatmapScopeFilters('fh'),
+      metric: metricDisplayLabel(metricName),
+      modalityScope: selectedModalityScopeLabel('fhModality')
+    });
     panels.forEach(panel => attachHeatmapExportToolbar(panel.id, panel.built.rows, {
       title: panel.title,
       term: document.getElementById('fhTerm')?.value || 'All terms',
@@ -2948,6 +3139,7 @@
       modalityScope: selectedModalityScopeLabel('fhModality'),
       filename: `${panel.id}.png`
     }));
+    table('facultyHeatmapComparisonTable', facultyHeatmapComparisonRows(panels), ['metric', 'overall', 'fullTime', 'partTime']);
     const peakTeaching = peakFacultyHeatmapCell(builtOverall.rows, 'sections');
     const peakEnrollment = peakFacultyHeatmapCell(builtOverall.rows, 'enrollment');
     const peakLhe = peakFacultyHeatmapCell(builtOverall.rows, 'lhe');
@@ -11735,6 +11927,7 @@
       { selector: '#demandLegend', id: 'demand-methodology', title: 'Enrollment Planning Forecast Methodology and Definitions' },
       { selector: '#facultyHeatmapMetrics', id: 'faculty-heatmap-summary-cards', title: 'Faculty Schedule Heatmap Summary Cards' },
       { selector: '#facultyHeatmapContainer', id: 'faculty-heatmap', title: 'Faculty Schedule Heatmap' },
+      { selector: '#facultyHeatmapComparisonTable', id: 'faculty-heatmap-comparison-table', title: 'Faculty Schedule Heatmap Comparison Table' },
       { selector: '#facultyHeatmapTable', id: 'faculty-heatmap-table', title: 'Faculty Schedule Detail Table' },
       { selector: '#facultyHeatmapLegend', id: 'faculty-heatmap-methodology', title: 'Faculty Heatmap Methodology' },
       { selector: '#facultyModalityChart', id: 'faculty-modality-chart', title: 'Faculty Modality Chart' },
