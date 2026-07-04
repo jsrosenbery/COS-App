@@ -856,7 +856,16 @@ document.addEventListener('DOMContentLoaded', () => {
   let modalityLoadedSourceRows = null;
   let scheduleAnalysisRows = null;
   let roomFitReportRows = null;
-  let selectedUtilizationStatus = '';
+  const selectedUtilizationCategories = new Set();
+  const utilizationCategoryLabels = [
+    'Not Utilized',
+    'Very Efficient',
+    'Efficient',
+    'Moderately Utilized',
+    'Under Utilized',
+    'High Opportunity',
+    'Fragmented'
+  ];
 
   initHeatmap();
   initLineChartChoices();
@@ -887,6 +896,9 @@ document.addEventListener('DOMContentLoaded', () => {
     renderRoomFitReport: () => renderRoomFitReport().catch(err => alert(err.message || 'Room Fit Analysis failed.')),
     renderRoomFitReportTable: () => renderRoomFitReportTable(),
     exportRoomFitReport: () => exportRoomFitReport(),
+    roomUtilizationCategoryLabels: () => [...utilizationCategoryLabels],
+    roomMatchesUtilizationCategory,
+    filterRoomUtilizationRowsByCategory,
     modalityBalanceTestHooks: {
       normalizeTermLabel,
       termMatches,
@@ -958,7 +970,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .forEach(input => { input.value = ''; });
       const excludeTutoring = document.getElementById('utilization-exclude-tutoring-openlab');
       if (excludeTutoring) excludeTutoring.checked = true;
-      selectedUtilizationStatus = '';
+      selectedUtilizationCategories.clear();
       renderUtilizationMap();
     };
   }
@@ -2738,6 +2750,49 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return (sorters[sortBy]?.() || 0) || a.buildingRoom.localeCompare(b.buildingRoom, undefined, { numeric: true });
   }
 
+  function roomMatchesUtilizationCategory(room, category) {
+    const label = String(category || '').trim();
+    if (!label) return true;
+    if (label === 'High Opportunity') return (room?.opportunityScore || 0) >= 0.65;
+    if (label === 'Fragmented') return (room?.fragmentationScore || 0) < 0.55 && (room?.totalMinutes || 0) > 0;
+    return room?.status?.label === label;
+  }
+
+  function filterRoomUtilizationRowsByCategory(rooms, categories = selectedUtilizationCategories) {
+    const active = [...categories].filter(Boolean);
+    if (!active.length) return rooms;
+    return rooms.filter(room => active.some(category => roomMatchesUtilizationCategory(room, category)));
+  }
+
+  function getRoomUtilizationRowsForControls() {
+    const selectedCampus = utilizationCampusSelect?.value || '';
+    const selectedType = utilizationTypeSelect?.value || '';
+    const selectedBuilding = utilizationBuildingSelect?.value || '';
+    const minCapacity = Number(utilizationMinCapacityInput?.value || 0);
+    const maxCapacity = Number(utilizationMaxCapacityInput?.value || 0);
+    const minOverall = Number(utilizationMinOverallInput?.value || 0) / 100;
+    const minPrime = Number(utilizationMinPrimeInput?.value || 0) / 100;
+    const minOpportunity = Number(utilizationMinOpportunityInput?.value || 0) / 100;
+    const minDistribution = Number(utilizationMinDistributionInput?.value || 0) / 100;
+    const minFragmentation = Number(utilizationMinFragmentationInput?.value || 0) / 100;
+    return calculateRoomUtilization()
+      .filter(room => !selectedCampus || room.campus === selectedCampus)
+      .filter(room => !selectedType || room.type === selectedType)
+      .filter(room => !selectedBuilding || room.building === selectedBuilding)
+      .filter(room => !minCapacity || (room.capacity != null && room.capacity >= minCapacity))
+      .filter(room => !maxCapacity || (room.capacity != null && room.capacity <= maxCapacity))
+      .filter(room => !minOverall || room.overallUtilization >= minOverall)
+      .filter(room => !minPrime || room.primeUtilization >= minPrime)
+      .filter(room => !minOpportunity || room.opportunityScore >= minOpportunity)
+      .filter(room => !minDistribution || room.distributionScore >= minDistribution)
+      .filter(room => !minFragmentation || room.fragmentationScore >= minFragmentation);
+  }
+
+  function getActiveRoomUtilizationKeys() {
+    return new Set(filterRoomUtilizationRowsByCategory(getRoomUtilizationRowsForControls())
+      .map(room => room.buildingRoom));
+  }
+
   function getSectionCapacity(section) {
     const value = extractField(section, ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'MAX ENROLL', 'Maximum Enrollment']);
     const parsed = Number(String(value || '').replace(/[%,$]/g, '').trim());
@@ -2836,11 +2891,13 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!roomFitSummary || !roomFitTable) return;
     const selectedCampus = utilizationCampusSelect?.value || '';
     const selectedType = utilizationTypeSelect?.value || '';
+    const activeUtilizationRoomKeys = getActiveRoomUtilizationKeys();
     const rows = calculateRoomFitFlags()
       .filter(row => {
         const meta = roomCatalogByKey.get(`${row.building}-${row.room}`);
         if (selectedCampus && row.campus !== selectedCampus && meta?.campus !== selectedCampus) return false;
         if (selectedType && meta?.type !== selectedType) return false;
+        if (selectedUtilizationCategories.size && !activeUtilizationRoomKeys.has(`${row.building}-${row.room}`)) return false;
         return true;
       });
     const counts = rows.reduce((acc, row) => {
@@ -2898,11 +2955,13 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function exportRoomFitAnalysis() {
     const selectedCampus = utilizationCampusSelect?.value || '';
     const selectedType = utilizationTypeSelect?.value || '';
+    const activeUtilizationRoomKeys = getActiveRoomUtilizationKeys();
     const rows = calculateRoomFitFlags()
       .filter(row => {
         const meta = roomCatalogByKey.get(`${row.building}-${row.room}`);
         if (selectedCampus && row.campus !== selectedCampus && meta?.campus !== selectedCampus) return false;
         if (selectedType && meta?.type !== selectedType) return false;
+        if (selectedUtilizationCategories.size && !activeUtilizationRoomKeys.has(`${row.building}-${row.room}`)) return false;
         return true;
       })
       .map(row => ({
@@ -3051,58 +3110,69 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function renderUtilizationMap() {
     if (!utilizationMap || !utilizationSummary) return;
-    const selectedCampus = utilizationCampusSelect?.value || '';
-    const selectedType = utilizationTypeSelect?.value || '';
-    const selectedBuilding = utilizationBuildingSelect?.value || '';
-    const minCapacity = Number(utilizationMinCapacityInput?.value || 0);
-    const maxCapacity = Number(utilizationMaxCapacityInput?.value || 0);
-    const minOverall = Number(utilizationMinOverallInput?.value || 0) / 100;
-    const minPrime = Number(utilizationMinPrimeInput?.value || 0) / 100;
-    const minOpportunity = Number(utilizationMinOpportunityInput?.value || 0) / 100;
-    const minDistribution = Number(utilizationMinDistributionInput?.value || 0) / 100;
-    const minFragmentation = Number(utilizationMinFragmentationInput?.value || 0) / 100;
-    const baseRooms = calculateRoomUtilization()
-      .filter(room => !selectedCampus || room.campus === selectedCampus)
-      .filter(room => !selectedType || room.type === selectedType)
-      .filter(room => !selectedBuilding || room.building === selectedBuilding)
-      .filter(room => !minCapacity || (room.capacity != null && room.capacity >= minCapacity))
-      .filter(room => !maxCapacity || (room.capacity != null && room.capacity <= maxCapacity))
-      .filter(room => !minOverall || room.overallUtilization >= minOverall)
-      .filter(room => !minPrime || room.primeUtilization >= minPrime)
-      .filter(room => !minOpportunity || room.opportunityScore >= minOpportunity)
-      .filter(room => !minDistribution || room.distributionScore >= minDistribution)
-      .filter(room => !minFragmentation || room.fragmentationScore >= minFragmentation);
-    const counts = baseRooms.reduce((acc, room) => {
-      acc[room.status.label] = (acc[room.status.label] || 0) + 1;
+    const baseRooms = getRoomUtilizationRowsForControls();
+    const rooms = filterRoomUtilizationRowsByCategory(baseRooms);
+    const counts = utilizationCategoryLabels.reduce((acc, label) => {
+      acc[label] = baseRooms.filter(room => roomMatchesUtilizationCategory(room, label)).length;
       return acc;
     }, {});
-    const rooms = selectedUtilizationStatus
-      ? baseRooms.filter(room => room.status.label === selectedUtilizationStatus)
-      : baseRooms;
     utilizationSummary.replaceChildren();
+
+    const actions = document.createElement('div');
+    actions.className = 'utilization-filter-actions';
     [
-      { label: 'Rooms', count: baseRooms.length, status: '' },
-      { label: 'Not Utilized', count: counts['Not Utilized'] || 0, status: 'Not Utilized' },
-      { label: 'Very Efficient', count: counts['Very Efficient'] || 0, status: 'Very Efficient' },
-      { label: 'Efficient', count: counts.Efficient || 0, status: 'Efficient' },
-      { label: 'Moderately Utilized', count: counts['Moderately Utilized'] || 0, status: 'Moderately Utilized' },
-      { label: 'Under Utilized', count: counts['Under Utilized'] || 0, status: 'Under Utilized' },
-      { label: 'High Opportunity', count: baseRooms.filter(room => room.opportunityScore >= 0.65).length, status: null },
-      { label: 'Fragmented', count: baseRooms.filter(room => room.fragmentationScore < 0.55 && room.totalMinutes > 0).length, status: null }
-    ].forEach(({ label, count, status }) => {
-      const pill = document.createElement(status === null ? 'div' : 'button');
-      pill.className = `utilization-pill${status !== null ? ' utilization-pill-filter' : ''}${selectedUtilizationStatus === status ? ' is-active' : ''}`;
-      if (status !== null) {
-        pill.type = 'button';
-        pill.dataset.utilizationStatus = status;
-        pill.title = status ? `Show only ${label} rooms` : 'Show all utilization categories';
-        pill.addEventListener('click', () => {
-          selectedUtilizationStatus = selectedUtilizationStatus === status ? '' : status;
+      ['Select All', 'select-all'],
+      ['Clear Category Filters', 'clear']
+    ].forEach(([label, action]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'utilization-filter-action';
+      button.dataset.utilizationCategoryAction = action;
+      button.textContent = label;
+      button.addEventListener('click', () => {
+        selectedUtilizationCategories.clear();
+        if (action === 'select-all') utilizationCategoryLabels.forEach(category => selectedUtilizationCategories.add(category));
+        renderUtilizationMap();
+      });
+      actions.appendChild(button);
+    });
+    utilizationSummary.appendChild(actions);
+
+    [
+      { label: 'Rooms', count: rooms.length, category: '' },
+      ...utilizationCategoryLabels.map(label => ({ label, count: counts[label] || 0, category: label }))
+    ].forEach(({ label, count, category }) => {
+      const pill = document.createElement('div');
+      const isActive = category && selectedUtilizationCategories.has(category);
+      pill.className = `utilization-pill${category ? ' utilization-pill-filter' : ' utilization-pill-info'}${isActive ? ' is-active' : ''}`;
+      if (category) {
+        pill.setAttribute('role', 'button');
+        pill.tabIndex = 0;
+        pill.dataset.utilizationCategory = category;
+        pill.setAttribute('aria-pressed', String(isActive));
+        pill.setAttribute('aria-label', `${label} rooms filter, ${count} rooms`);
+        pill.title = `${isActive ? 'Remove' : 'Add'} ${label} room filter`;
+        const toggleCategory = () => {
+          if (selectedUtilizationCategories.has(category)) {
+            selectedUtilizationCategories.delete(category);
+          } else {
+            selectedUtilizationCategories.add(category);
+          }
           renderUtilizationMap();
+        };
+        pill.addEventListener('click', toggleCategory);
+        pill.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggleCategory();
+          }
         });
       }
-      const text = `${label}: ${count}`;
-      pill.textContent = text;
+      const metricLabel = document.createElement('span');
+      metricLabel.className = 'metric-card-label';
+      metricLabel.textContent = `${label}: ${count}`;
+      pill.appendChild(metricLabel);
+      window.MetricHelpProvider?.attach?.(pill, label, { id: `room-utilization-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-help` });
       utilizationSummary.appendChild(pill);
     });
 
@@ -3506,21 +3576,25 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (tbody) tbody.replaceChildren();
 
     const summaryItems = [
-      `Total Class Offerings: ${total}`,
-      `Enrollment: ${totalEnrollment}`,
-      `In-Person Offerings: ${rows.find(row => row.category === 'In-Person')?.classOfferings || 0}`,
-      `Online Offerings: ${rows.find(row => row.category === 'Online')?.classOfferings || 0}`,
-      `Hybrid Offerings: ${rows.find(row => row.category === 'Hybrid')?.classOfferings || 0}`,
-      `Tutoring/Open Lab Rows Excluded: ${tutoringOpenLabRowsExcluded}`
+      ['Total Class Offerings', total, 'scheduled-class-offerings'],
+      ['Enrollment', totalEnrollment, 'enrollment'],
+      ['In-Person Offerings', rows.find(row => row.category === 'In-Person')?.classOfferings || 0, 'in-person'],
+      ['Online Offerings', rows.find(row => row.category === 'Online')?.classOfferings || 0, 'online'],
+      ['Hybrid Offerings', rows.find(row => row.category === 'Hybrid')?.classOfferings || 0, 'hybrid'],
+      ['Tutoring/Open Lab Rows Excluded', tutoringOpenLabRowsExcluded, '']
     ];
     const comparisonTerms = modalitySelectedComparisonTerms();
     modalityTotalClassOfferingComparisonRows(rows, comparisonTerms).forEach(row => {
-      summaryItems.push(`Net Offerings vs ${row.comparisonTerm}: ${signedNumber(row.classOfferingDiff)} (${row.classOfferingPctChange})`);
+      summaryItems.push([`Net Offerings vs ${row.comparisonTerm}`, `${signedNumber(row.classOfferingDiff)} (${row.classOfferingPctChange})`, 'scheduled-class-offerings']);
     });
-    summaryItems.forEach(text => {
+    summaryItems.forEach(([label, value, metricId]) => {
       const pill = document.createElement('div');
       pill.className = 'modality-pill';
-      pill.textContent = text;
+      const metricLabel = document.createElement('span');
+      metricLabel.className = 'metric-card-label';
+      metricLabel.textContent = `${label}: ${value}`;
+      pill.appendChild(metricLabel);
+      window.MetricHelpProvider?.attach?.(pill, metricId);
       modalitySummary.appendChild(pill);
     });
 

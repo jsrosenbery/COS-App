@@ -207,8 +207,10 @@ function loadCollapsibleUtilsRuntime() {
   };
   context.window.window = context.window;
   vm.createContext(context);
-  const source = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
-  vm.runInContext(source, context, { filename: 'js/shared/utils.js' });
+  ['js/core/metric-definitions.js', 'js/core/metric-help.js', 'js/shared/utils.js'].forEach(file => {
+    const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    vm.runInContext(source, context, { filename: file });
+  });
   return { utils: context.window.COSUtils, document, storage };
 }
 
@@ -307,7 +309,7 @@ function loadScheduleAppRuntime() {
   context.window.jQuery = context.$;
   context.window.COSUtils = { renderStandardMethodologyPanel() {} };
   vm.createContext(context);
-  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/app.js'].forEach(file => {
+  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/core/metric-definitions.js', 'js/core/metric-help.js', 'js/app.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -3081,11 +3083,36 @@ test('room utilization uses component scoring instead of fixed prime bump', () =
   assert.match(app, /utilizationBuildingSelect/);
   assert.match(app, /minOpportunity/);
   assert.match(app, /activeTimeBlocks/);
-  assert.match(app, /selectedUtilizationStatus/);
-  assert.match(app, /dataset\.utilizationStatus/);
+  assert.match(app, /selectedUtilizationCategories/);
+  assert.match(app, /dataset\.utilizationCategory/);
   assert.match(app, /utilization-pill-filter/);
-  assert.match(app, /room\.status\.label === selectedUtilizationStatus/);
+  assert.match(app, /filterRoomUtilizationRowsByCategory/);
+  assert.match(app, /roomMatchesUtilizationCategory\(room, category\)/);
+  assert.match(app, /label === 'High Opportunity'/);
+  assert.match(app, /label === 'Fragmented'/);
   assert.doesNotMatch(app, /peakCreditMinutes \* 1\.5/);
+});
+
+test('room utilization category cards support multi-select filters and exports', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+
+  assert.match(app, /const utilizationCategoryLabels = \[/);
+  ['Not Utilized', 'Very Efficient', 'Efficient', 'Moderately Utilized', 'Under Utilized', 'High Opportunity', 'Fragmented'].forEach(label => {
+    assert.match(app, new RegExp(label));
+  });
+  assert.match(app, /selectedUtilizationCategories\.add\(category\)/);
+  assert.match(app, /selectedUtilizationCategories\.delete\(category\)/);
+  assert.match(app, /active\.some\(category => roomMatchesUtilizationCategory\(room, category\)\)/);
+  assert.match(app, /dataset\.utilizationCategoryAction = action/);
+  assert.match(app, /Select All/);
+  assert.match(app, /Clear Category Filters/);
+  assert.match(app, /aria-pressed/);
+  assert.match(app, /getActiveRoomUtilizationKeys/);
+  assert.match(app, /activeUtilizationRoomKeys\.has\(`\$\{row\.building\}-\$\{row\.room\}`\)/);
+  assert.match(app, /downloadTextFile\('room-capacity-fit-flags\.csv'/);
+  assert.match(css, /\.utilization-filter-actions/);
+  assert.match(css, /\.utilization-pill-info/);
 });
 
 test('heatmap exposes optional metric modes and summary cards', () => {
@@ -3200,6 +3227,100 @@ test('collapsible section helper defaults open toggles aria and persists state',
   const persistedSection = utils.applyCollapsibleSection(persistedTarget, { title: 'Sample Section' });
   assert.equal(persistedSection.querySelector('.collapsible-section-toggle').getAttribute('aria-expanded'), 'false');
   assert.equal(persistedSection.querySelector('.collapsible-section-body').hidden, true);
+});
+
+test('metric help registry opens and closes accessible popovers', () => {
+  const { utils, document } = loadCollapsibleUtilsRuntime();
+  const card = document.createElement('div');
+  document.body.appendChild(card);
+
+  const help = utils.MetricHelpProvider.attach(card, 'high-opportunity');
+  const missingCard = document.createElement('div');
+
+  assert.ok(help);
+  assert.equal(help.trigger.getAttribute('aria-label'), 'Explain High Opportunity');
+  assert.equal(help.trigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(help.popover.getAttribute('role'), 'tooltip');
+  assert.equal(help.popover.hidden, true);
+  help.trigger.eventHandlers.mouseenter();
+  assert.equal(help.popover.hidden, false);
+  assert.equal(help.trigger.getAttribute('aria-expanded'), 'true');
+  help.trigger.eventHandlers.click({ stopPropagation() {} });
+  assert.equal(help.popover.hidden, true);
+  assert.match(help.popover.innerHTML, /Definition:/);
+  assert.match(help.popover.innerHTML, /Calculation:/);
+  assert.match(help.popover.innerHTML, /Interpretation:/);
+  assert.match(help.popover.innerHTML, /Planning Guidance:/);
+  assert.match(help.popover.innerHTML, /Review before requesting additional classroom inventory/);
+  assert.equal(utils.MetricHelpProvider.attach(missingCard, 'missing-metric-id'), null);
+  assert.equal(missingCard.children.length, 0);
+});
+
+test('room utilization summary cards include standardized metric help', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const definitions = fs.readFileSync(path.join(__dirname, '..', 'js/core/metric-definitions.js'), 'utf8');
+  const help = fs.readFileSync(path.join(__dirname, '..', 'js/core/metric-help.js'), 'utf8');
+
+  assert.match(index, /js\/core\/metric-definitions\.js/);
+  assert.match(index, /js\/core\/metric-help\.js/);
+  assert.match(definitions, /MetricDefinitionRegistry/);
+  assert.match(definitions, /Object\.freeze/);
+  assert.doesNotMatch(definitions, /registerMany|register\(/);
+  assert.match(help, /MetricHelpProvider/);
+  assert.match(help, /registry\.get/);
+  assert.match(help, /return null/);
+  assert.match(help, /aria-label', `Explain \$\{definition\.displayName\}`/);
+  assert.match(help, /role', 'tooltip'/);
+  assert.match(help, /event\.key === 'Escape'/);
+  ['rooms', 'not-utilized', 'very-efficient', 'efficient', 'moderately-utilized', 'under-utilized', 'high-opportunity', 'fragmented'].forEach(id => {
+    assert.match(definitions, new RegExp(`'${id}'`));
+  });
+  assert.match(app, /MetricHelpProvider\?\.attach\?\.\(pill, label/);
+  assert.match(app, /setAttribute\('role', 'button'\)/);
+  assert.match(app, /aria-pressed/);
+  assert.match(app, /event\.key === 'Enter' \|\| event\.key === ' '/);
+  assert.match(css, /\.metric-help-trigger/);
+  assert.match(css, /\.metric-help-popover/);
+  assert.match(css, /\.metric-card-label/);
+});
+
+test('metric definition help is presentation-only across scoped summary cards', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const registry = require('../js/core/metric-definitions.js');
+
+  assert.equal(registry.has('scheduled-class-offerings'), true);
+  assert.equal(registry.has('missing-metric-id'), false);
+  assert.ok(registry.get('fill-rate').shortDefinition);
+  assert.ok(Object.isFrozen(registry.get('fill-rate')));
+  assert.ok(Object.isFrozen(registry.all()[0].dataSources));
+  assert.equal(typeof registry.register, 'undefined');
+  assert.equal(typeof registry.get('fill-rate').calculation, 'string');
+
+  assert.match(app, /window\.MetricHelpProvider\?\.attach\?\.\(pill, label/);
+  assert.match(app, /window\.MetricHelpProvider\?\.attach\?\.\(pill, metricId\)/);
+  assert.match(analytics, /window\.MetricHelpProvider\?\.attach\?\.\(card, metricId\)/);
+  [
+    /'scheduled-class-offerings'/,
+    /'instructional-meetings'/,
+    /'full-time-faculty'/,
+    /'part-time-faculty'/,
+    /'seats-offered'/,
+    /'hidden-demand'/,
+    /'oversupply'/,
+    /'choice-diversity-index'/,
+    /'demand-pressure-score'/,
+    /'lhe'/
+  ].forEach(pattern => assert.match(analytics + app, pattern));
+
+  assert.match(index, /id="avail-search-panel"/);
+  assert.match(index, /id="avail-results"/);
+  assert.doesNotMatch(index, /MetricHelpProvider[\s\S]*avail-results/);
+  assert.doesNotMatch(app + analytics, /MetricDefinitionRegistry\.get/);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8'), /read-only presentation layer used to explain metrics/);
 });
 
 test('collapsible sections are wired across reports without changing Room Availability ids', () => {
@@ -3381,6 +3502,8 @@ test('index owns enrollment analytics script order', () => {
     'js/core/faculty-model.js',
     'js/core/faculty-parser.js',
     'js/core/section-model.js',
+    'js/core/metric-definitions.js',
+    'js/core/metric-help.js',
     'js/shared/utils.js',
     'js/admin.js',
     'js/availability.js',

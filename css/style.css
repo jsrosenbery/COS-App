@@ -966,17 +966,122 @@ button:hover,
 .utilization-summary {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.75rem;
   margin: 1rem 0;
 }
 
+.utilization-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.utilization-filter-action {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--brand);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.utilization-filter-action:hover,
+.utilization-filter-action:focus-visible {
+  border-color: var(--accent);
+  background: #fff7ed;
+  color: #9a3412;
+  outline: none;
+}
+
 .utilization-pill {
+  position: relative;
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: #fff;
   color: var(--brand);
   font-weight: 800;
+}
+
+.metric-card-label {
+  min-width: 0;
+}
+
+.metric-help-card {
+  position: relative;
+}
+
+.metric-help-trigger {
+  display: inline-grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  min-width: 1.15rem;
+  min-height: 1.15rem;
+  padding: 0;
+  border: 1px solid rgba(0, 51, 102, 0.24);
+  border-radius: 999px;
+  background: #f8fbff;
+  color: var(--brand);
+  box-shadow: none;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.metric-help-trigger:hover,
+.metric-help-trigger:focus-visible {
+  transform: none;
+  filter: none;
+  border-color: var(--accent);
+  background: #fff7ed;
+  color: #9a3412;
+  box-shadow: 0 0 0 3px rgba(245, 124, 32, 0.16);
+  outline: none;
+}
+
+.metric-help-popover {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  left: 0;
+  z-index: 60;
+  display: grid;
+  gap: 0.45rem;
+  width: min(340px, calc(100vw - 2rem));
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(32, 66, 96, 0.18);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 16px 34px rgba(16, 32, 51, 0.18);
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.38;
+  text-align: left;
+  white-space: normal;
+}
+
+.metric-help-popover[hidden] {
+  display: none;
+}
+
+.metric-help-popover strong {
+  color: var(--brand);
+  font-size: 0.95rem;
+}
+
+.metric-help-popover span {
+  display: block;
+}
+
+.metric-help-popover b {
+  color: var(--brand);
 }
 
 .heatmap-wrap {
@@ -1072,6 +1177,10 @@ button:hover,
 
 .utilization-pill-filter {
   cursor: pointer;
+}
+
+.utilization-pill-info {
+  cursor: default;
 }
 
 .utilization-pill-filter:hover,
@@ -1220,6 +1329,10 @@ button:hover,
 }
 
 .modality-pill {
+  position: relative;
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--line);
   border-radius: 999px;
