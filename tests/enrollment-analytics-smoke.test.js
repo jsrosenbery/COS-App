@@ -1902,6 +1902,7 @@ test('demand forecast is scoped to selected demand uploads and archives', () => 
 
 test('enrollment planning forecast exposes population toggles sections and metadata', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
 
   assert.match(text, /Enrollment Planning Forecast/);
   assert.match(text, /id="demIncludePhysicalCampuses"/);
@@ -1923,6 +1924,18 @@ test('enrollment planning forecast exposes population toggles sections and metad
   assert.match(text, /Dual Enrollment FTES/);
   assert.match(text, /Work Experience FTES/);
   assert.match(text, /enrollment-planning-forecast-/);
+  assert.match(text, /data-collapsible-id="demand-executive-summary" data-collapsible-default-open="true"/);
+  assert.match(text, /data-collapsible-id="demand-ftes-analysis" data-collapsible-default-open="true"/);
+  assert.match(text, /data-collapsible-id="demand-enrollment-analysis" data-collapsible-default-open="true"/);
+  assert.match(text, /data-collapsible-id="demand-schedule-supply" data-collapsible-default-open="true"/);
+  assert.match(text, /data-collapsible-id="demand-recommendation-engine" data-collapsible-default-open="false"/);
+  assert.match(text, /data-collapsible-id="demand-diagnostics-methodology" data-collapsible-default-open="false"/);
+  assert.match(text, /#demandInsights\.analytics-insights\{display:flex;flex-direction:column/);
+  assert.match(text, /#demandInsights \.collapsible-section-title\{overflow:visible;text-overflow:clip;white-space:normal\}/);
+  assert.match(text, /#demandInsights \.analytics-chart-panel,#demandInsights \.analytics-line-chart/);
+  assert.match(css, /#demandInsights\.analytics-insights \{[\s\S]*?flex-direction: column;/);
+  assert.match(css, /#demandInsights \.collapsible-section-title \{[\s\S]*?white-space: normal;/);
+  assert.match(css, /#demandInsights \.demand-waterfall-panel[\s\S]*?width: 100%;/);
 });
 
 test('enrollment planning population summary reconciles instructional dual and work experience totals', () => {

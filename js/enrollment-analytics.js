@@ -10530,7 +10530,7 @@
         ${demandPatternPanel('Highest Demand Day/Time Patterns', highPatterns)}
         ${demandPatternPanel('Lowest Demand Day/Time Patterns', lowPatterns)}
       </section>
-      <section class="demand-report-section" data-collapsible-title="Recommendation Engine" data-collapsible-id="demand-recommendation-engine" data-collapsible-default-open="true">
+      <section class="demand-report-section" data-collapsible-title="Recommendation Engine" data-collapsible-id="demand-recommendation-engine" data-collapsible-default-open="false">
         <h3>Recommendation Engine</h3>
         ${demandFindingsPanel(findings)}
         <section data-collapsible-title="Show All Recommendations" data-collapsible-id="demand-full-recommendations" data-collapsible-default-open="false">
@@ -12915,6 +12915,11 @@
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
       .analytics-insights ul{margin:0;padding-left:18px;color:#334862}
       .analytics-insights li{margin:4px 0;line-height:1.3}
+      #demandInsights.analytics-insights{display:flex;flex-direction:column;align-items:stretch;gap:16px;width:100%}
+      #demandInsights.analytics-insights>.collapsible-section,#demandInsights.analytics-insights>.demand-report-section{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:visible}
+      #demandInsights .collapsible-section-title{overflow:visible;text-overflow:clip;white-space:normal}
+      #demandInsights .collapsible-section-body,#demandInsights .collapsible-section-body>.demand-report-section,#demandInsights .demand-report-section{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:visible}
+      #demandInsights .analytics-chart-panel,#demandInsights .analytics-line-chart,#demandInsights .demand-composition-panel,#demandInsights .demand-waterfall-panel,#demandInsights .demand-supply-panel,#demandInsights .demand-breakdown-panel{width:100%;max-width:100%;box-sizing:border-box}
       .presence-curve{grid-column:1/-1}
       .presence-curve p{margin:0 0 10px;color:#51657c;font-size:13px}
       .presence-curve .heatmap-wrap{width:100%;max-width:100%;overflow-x:auto;overflow-y:visible;margin:0;padding:0}

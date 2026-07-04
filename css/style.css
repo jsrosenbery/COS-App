@@ -1331,6 +1331,55 @@ button:hover,
   font-weight: 900;
 }
 
+#demandInsights.analytics-insights {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+  width: 100%;
+}
+
+#demandInsights.analytics-insights > .collapsible-section,
+#demandInsights.analytics-insights > .demand-report-section {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+#demandInsights .collapsible-section-title {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+#demandInsights .collapsible-section-body,
+#demandInsights .collapsible-section-body > .demand-report-section,
+#demandInsights .demand-report-section {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+#demandInsights .analytics-chart-panel,
+#demandInsights .analytics-line-chart,
+#demandInsights .demand-composition-panel,
+#demandInsights .demand-waterfall-panel,
+#demandInsights .demand-supply-panel {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+#demandInsights .demand-breakdown-panel {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .heatmap-wrap {
   width: 100%;
   max-width: 100%;
