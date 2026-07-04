@@ -2705,7 +2705,7 @@
     if (unique.includes(previous)) select.value = previous;
   }
 
-  function facultyFilterSourceRows() {
+  function facultyFilterSourceRows(options = {}) {
     const rows = reportableFacultyRows(state.facultyHeatmapRows);
     const scoped = rows.filter(row => {
       const term = document.getElementById('fhTerm')?.value || '';
@@ -2719,7 +2719,7 @@
       if (!facultyHasUsablePhysicalInterval(row)) return false;
       if (!facultyMatchesSelectedModality(row, 'fhModality', PHYSICAL_MODALITY_LABELS)) return false;
       if (term && facultyTerm(row) !== term) return false;
-      if (facultyType && row.facultyType !== facultyType) return false;
+      if (options.includeFacultyType !== false && facultyType && row.facultyType !== facultyType) return false;
       if (meetingType && row.meetingType !== meetingType) return false;
       if (campus && row.campus !== campus) return false;
       if (division && row.divisionId !== division) return false;
@@ -2783,7 +2783,7 @@
   function buildFacultyHeatmapBuckets(rows, metricName, options = {}) {
     const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
     const dayNames = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
-    const slots = facultyHeatmapSlots(rows, options);
+    const slots = options.slots || facultyHeatmapSlots(rows, options);
     const cellMap = new Map();
     dayKeys.forEach(day => {
       slots.forEach(minutes => {
@@ -2845,10 +2845,62 @@
     return peakFacultyHeatmapCell(built.rows, 'sections');
   }
 
+  function renderFacultyHeatmapTableHtml(built, metricName, maxValue) {
+    const cellByKey = new Map(built.rows.map(row => [row.key, row]));
+    const headers = built.slots.map(minutes => `<th class="heatmap-time-header">${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
+    const body = built.dayKeys.map(day => {
+      const cells = built.slots.map(minutes => {
+        const cell = cellByKey.get(`${day}|${minutes}`);
+        const value = cell?.metricValue || 0;
+        const heat = maxValue ? value / maxValue : 0;
+        const level = value <= 0 ? 'empty' : heat >= 0.67 ? 'high' : heat >= 0.34 ? 'medium' : 'low';
+        const display = metricName === 'lhe' && value ? value.toFixed(1) : Math.round(value);
+        const tooltip = analyticsTooltip([
+          ['Day', built.dayNames[day]],
+          ['Time', formatPresenceHourLabel(minutes / 60)],
+          [metricDisplayLabel(metricName), display],
+          ['Sections', cell?.sections || 0],
+          ['Seats', cell?.seats || 0],
+          ['Enrollment', cell?.enrollment || 0],
+          ['Faculty Count', cell?.facultyCount || 0],
+          ['LHE', cell?.lhe ? cell.lhe.toFixed(1) : 0],
+          ['Modality scope', selectedModalityScopeLabel('fhModality')],
+          ['Campus', selectedFilterLabel('fhCampus')],
+          ['Faculty type', 'Panel-specific'],
+          ['Meeting type', selectedFilterLabel('fhMeetingType')]
+        ]);
+        return `<td class="heatmap-cell heatmap-value-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
+      }).join('');
+      return `<tr><th class="heatmap-day-cell">${built.dayNames[day]}</th>${cells}</tr>`;
+    }).join('');
+    return `
+      <div class="heatmap-wrap">
+        <table class="heatmap heatmap-table">
+          <thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function facultyHeatmapPanelHtml(panel) {
+    return `
+      <section class="faculty-heatmap-panel demand-report-section" data-collapsible-title="${escapeAttr(panel.title)}" data-collapsible-id="${escapeAttr(panel.id)}" data-collapsible-default-open="true">
+        <h3>${escapeAttr(panel.title)}</h3>
+        <p class="analytics-chart-note">Shared axis and color scale. Metric: ${escapeAttr(metricDisplayLabel(panel.metricName))}. Shared scale max: ${escapeAttr(panel.maxValue || 0)}.</p>
+        <div id="${escapeAttr(panel.id)}" class="faculty-heatmap-panel-body">
+          ${renderFacultyHeatmapTableHtml(panel.built, panel.metricName, panel.maxValue)}
+        </div>
+      </section>`;
+  }
+
+  function facultyHeatmapDistinctFaculty(rows) {
+    return new Set((rows || []).map(row => row.facultyId || row.facultyName || row.instructor || '').filter(Boolean)).size;
+  }
+
   function renderFacultyScheduleHeatmap() {
     const status = document.getElementById('facultyScheduleHeatmapStatus');
     const sourceRows = state.facultyHeatmapRows || [];
-    const rows = facultyFilterSourceRows();
+    const rows = facultyFilterSourceRows({ includeFacultyType: false });
     const metricName = document.getElementById('fhMetric')?.value || 'sections';
     if (!sourceRows.length) {
       if (status) status.textContent = 'No faculty schedule rows loaded.';
@@ -2870,75 +2922,60 @@
       const terms = [...new Set(sourceRows.map(facultyTerm))].sort().join(', ');
       status.textContent = `Loaded ${sourceRows.length} deduped meeting row(s). Terms: ${terms || 'Unspecified'}.`;
     }
-    const built = buildFacultyHeatmapBuckets(rows, metricName, { includeOnline: includeOnlineFromSelect('fhModality') });
-    state.facultyHeatmapBucketRows = built.rows;
-    const maxValue = Math.max(0, ...built.rows.map(row => row.metricValue || 0));
-    const cellByKey = new Map(built.rows.map(row => [row.key, row]));
-    const headers = built.slots.map(minutes => `<th class="heatmap-time-header">${formatHeatmapTimeHeader(minutes / 60)}</th>`).join('');
-    const body = built.dayKeys.map(day => {
-      const cells = built.slots.map(minutes => {
-        const cell = cellByKey.get(`${day}|${minutes}`);
-        const value = cell?.metricValue || 0;
-        const heat = maxValue ? value / maxValue : 0;
-        const level = value <= 0 ? 'empty' : heat >= 0.67 ? 'high' : heat >= 0.34 ? 'medium' : 'low';
-        const display = metricName === 'lhe' && value ? value.toFixed(1) : Math.round(value);
-        const tooltip = analyticsTooltip([
-          ['Day', built.dayNames[day]],
-          ['Time', formatPresenceHourLabel(minutes / 60)],
-          [metricDisplayLabel(metricName), display],
-          ['Sections', cell?.sections || 0],
-          ['Seats', cell?.seats || 0],
-          ['Enrollment', cell?.enrollment || 0],
-          ['Faculty Count', cell?.facultyCount || 0],
-          ['LHE', cell?.lhe ? cell.lhe.toFixed(1) : 0],
-          ['Modality scope', selectedModalityScopeLabel('fhModality')],
-          ['Campus', selectedFilterLabel('fhCampus')],
-          ['Faculty type', selectedFilterLabel('fhFacultyType')],
-          ['Meeting type', selectedFilterLabel('fhMeetingType')]
-        ]);
-        return `<td class="heatmap-cell heatmap-value-cell heatmap-${level}" style="--heat:${heat.toFixed(3)}" title="${escapeAttr(tooltip)}">${value ? display : ''}</td>`;
-      }).join('');
-      return `<tr><th class="heatmap-day-cell">${built.dayNames[day]}</th>${cells}</tr>`;
-    }).join('');
-    document.getElementById('facultyHeatmapContainer').innerHTML = `
-      <div class="heatmap-wrap">
-        <table class="heatmap heatmap-table">
-          <thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead>
-          <tbody>${body}</tbody>
-        </table>
-      </div>
-    `;
-    attachHeatmapExportToolbar('facultyHeatmapContainer', built.rows, {
-      title: 'Faculty Schedule Heatmap',
+    const includeOnline = includeOnlineFromSelect('fhModality');
+    const overallRows = rows.filter(row => row.facultyType === 'FULL_TIME' || row.facultyType === 'PART_TIME');
+    const fullTimeRows = rows.filter(row => row.facultyType === 'FULL_TIME');
+    const partTimeRows = rows.filter(row => row.facultyType === 'PART_TIME');
+    const sharedSlots = facultyHeatmapSlots(overallRows, { includeOnline });
+    const builtOverall = buildFacultyHeatmapBuckets(overallRows, metricName, { includeOnline, slots: sharedSlots });
+    const builtFullTime = buildFacultyHeatmapBuckets(fullTimeRows, metricName, { includeOnline, slots: sharedSlots });
+    const builtPartTime = buildFacultyHeatmapBuckets(partTimeRows, metricName, { includeOnline, slots: sharedSlots });
+    const maxValue = Math.max(0, ...[builtOverall, builtFullTime, builtPartTime].flatMap(built => built.rows.map(row => row.metricValue || 0)));
+    state.facultyHeatmapBucketRows = builtOverall.rows;
+    const panels = [
+      { id: 'facultyHeatmapOverall', title: 'Overall Faculty Schedule Heatmap', built: builtOverall, metricName, maxValue },
+      { id: 'facultyHeatmapFullTime', title: 'Full-Time Faculty Schedule Heatmap', built: builtFullTime, metricName, maxValue },
+      { id: 'facultyHeatmapPartTime', title: 'Part-Time Faculty Schedule Heatmap', built: builtPartTime, metricName, maxValue }
+    ];
+    document.getElementById('facultyHeatmapContainer').innerHTML = panels.map(facultyHeatmapPanelHtml).join('');
+    refreshGeneratedCollapsibleSections(document.getElementById('facultyHeatmapContainer'));
+    panels.forEach(panel => attachHeatmapExportToolbar(panel.id, panel.built.rows, {
+      title: panel.title,
       term: document.getElementById('fhTerm')?.value || 'All terms',
-      filters: heatmapScopeFilters('fh'),
+      filters: [...heatmapScopeFilters('fh'), `Faculty type: ${panel.title.startsWith('Overall') ? 'Full-Time + Part-Time' : panel.title.startsWith('Full-Time') ? 'FT/TE' : 'JP'}`],
       metric: metricDisplayLabel(metricName),
       metricKey: metricName,
       modalityScope: selectedModalityScopeLabel('fhModality'),
-      filename: 'faculty-schedule-heatmap.png'
-    });
-    const peakTeaching = peakFacultyHeatmapCell(built.rows, 'sections');
-    const peakEnrollment = peakFacultyHeatmapCell(built.rows, 'enrollment');
-    const peakLhe = peakFacultyHeatmapCell(built.rows, 'lhe');
-    const peakFt = facultyHeatmapPeakByType(rows, 'FULL_TIME');
-    const peakPt = facultyHeatmapPeakByType(rows, 'PART_TIME');
-    const dayTotals = built.dayKeys.map(day => ({
-      day: built.dayNames[day],
-      sections: built.rows.filter(row => row.day === day).reduce((total, row) => total + row.sections, 0)
+      filename: `${panel.id}.png`
+    }));
+    const peakTeaching = peakFacultyHeatmapCell(builtOverall.rows, 'sections');
+    const peakEnrollment = peakFacultyHeatmapCell(builtOverall.rows, 'enrollment');
+    const peakLhe = peakFacultyHeatmapCell(builtOverall.rows, 'lhe');
+    const peakFt = peakFacultyHeatmapCell(builtFullTime.rows, 'sections');
+    const peakPt = peakFacultyHeatmapCell(builtPartTime.rows, 'sections');
+    const dayTotals = builtOverall.dayKeys.map(day => ({
+      day: builtOverall.dayNames[day],
+      sections: builtOverall.rows.filter(row => row.day === day).reduce((total, row) => total + row.sections, 0)
     }));
     const mostActiveDay = dayTotals.slice().sort((a, b) => b.sections - a.sections)[0];
     const leastActiveDay = dayTotals.slice().sort((a, b) => a.sections - b.sections)[0];
     const cellLabel = (cell, metric = 'sections') => cell ? `${cell.dayName} ${cell.time} (${metric === 'lhe' ? (cell[metric] || 0).toFixed(1) : Math.round(cell[metric] || 0)})` : 'N/A';
+    const fullTimeFaculty = facultyHeatmapDistinctFaculty(fullTimeRows);
+    const partTimeFaculty = facultyHeatmapDistinctFaculty(partTimeRows);
     metric('facultyHeatmapMetrics', [
-      ['Peak teaching time', cellLabel(peakTeaching, 'sections')],
-      ['Peak FT teaching', cellLabel(peakFt, 'sections'), 'full-time-faculty'],
-      ['Peak PT teaching', cellLabel(peakPt, 'sections'), 'part-time-faculty'],
+      ['Total Faculty Scheduled', facultyHeatmapDistinctFaculty(overallRows), 'faculty-count'],
+      ['Full-Time Faculty Scheduled', fullTimeFaculty, 'full-time-faculty'],
+      ['Part-Time Faculty Scheduled', partTimeFaculty, 'part-time-faculty'],
+      ['FT/PT Ratio', partTimeFaculty ? `${round1(fullTimeFaculty / partTimeFaculty)}:1` : (fullTimeFaculty ? 'All FT' : 'N/A')],
+      ['Peak Concurrent Overall', cellLabel(peakTeaching, 'sections')],
+      ['Peak Concurrent Full-Time', cellLabel(peakFt, 'sections'), 'full-time-faculty'],
+      ['Peak Concurrent Part-Time', cellLabel(peakPt, 'sections'), 'part-time-faculty'],
       ['Peak enrollment', cellLabel(peakEnrollment, 'enrollment'), 'enrollment'],
       ['Peak LHE', cellLabel(peakLhe, 'lhe'), 'lhe'],
       ['Most active day', mostActiveDay ? `${mostActiveDay.day} (${mostActiveDay.sections})` : 'N/A'],
       ['Least active day', leastActiveDay ? `${leastActiveDay.day} (${leastActiveDay.sections})` : 'N/A']
     ]);
-    const nonEmpty = built.rows
+    const nonEmpty = builtOverall.rows
       .filter(row => row.sections || row.facultyCount || row.enrollment || row.seats || row.lhe)
       .map(row => ({
         day: row.dayName,

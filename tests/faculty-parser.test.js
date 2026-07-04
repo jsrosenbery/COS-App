@@ -205,6 +205,31 @@ test('Faculty Heatmap calculation omits AE and X faculty rows', () => {
   assert.equal(mondayNine.lhe, 5);
 });
 
+test('Faculty Heatmap full-time and part-time buckets reconcile to overall', () => {
+  const rows = [
+    ...omittedFacultyRows(),
+    facultyParser.parseFacultyScheduleCsv([
+      '"FACULTYID","FacultyName","FCNT_CODE","DIVISIONID","DEPARTMENTID","SUBJ_COURSE","COURSE","CRN","DAYS","CAMPUS","BUILDING","ROOM","STARTTIME","ENDTIME","SCHD_CODE_SSRMEET","ActualEnroll","MaxEnroll","INSM_CODE_SSBSECT","LHE","XLIST"',
+      '@TE001,"Temp, Full",TE,SCI,BIOL,"BIOL 020","Biology",30005,MW,COS,SCI,105,9:00AM,10:00AM,02,18,25,IP,3,'
+    ].join('\n')).meetings[0]
+  ];
+  const reportable = facultyModel.reportableFacultyRows(rows);
+  const overallRows = reportable.filter(row => row.facultyType === 'FULL_TIME' || row.facultyType === 'PART_TIME');
+  const fullTimeRows = overallRows.filter(row => row.facultyType === 'FULL_TIME');
+  const partTimeRows = overallRows.filter(row => row.facultyType === 'PART_TIME');
+  const slots = [9 * 60];
+  const overall = facultyModel.buildFacultyHeatmapBuckets(overallRows, 'sections', slots).find(row => row.day === 'MO' && row.minutes === 9 * 60);
+  const fullTime = facultyModel.buildFacultyHeatmapBuckets(fullTimeRows, 'sections', slots).find(row => row.day === 'MO' && row.minutes === 9 * 60);
+  const partTime = facultyModel.buildFacultyHeatmapBuckets(partTimeRows, 'sections', slots).find(row => row.day === 'MO' && row.minutes === 9 * 60);
+
+  assert.equal(rows.filter(row => row.fcntCode === 'AE' || row.fcntCode === 'X').every(row => row.facultyType === 'OMIT'), true);
+  assert.equal(fullTimeRows.every(row => row.fcntCode === 'FT' || row.fcntCode === 'TE'), true);
+  assert.equal(partTimeRows.every(row => row.fcntCode === 'JP'), true);
+  assert.equal(overall.sections, fullTime.sections + partTime.sections);
+  assert.equal(overall.facultyCount, fullTime.facultyCount + partTime.facultyCount);
+  assert.equal(overall.enrollment, fullTime.enrollment + partTime.enrollment);
+});
+
 test('Faculty Modality calculation omits AE and X faculty rows', () => {
   const rows = omittedFacultyRows();
   const modalityRows = facultyModel.buildFacultyModalityRows(rows);
