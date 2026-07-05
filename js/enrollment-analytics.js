@@ -1682,14 +1682,6 @@
                 <option value="lhe">LHE</option>
               </select>
             </label>
-            <label>Faculty Type
-              <select id="fhFacultyType">
-                <option value="">All</option>
-                <option value="FULL_TIME">Full-Time</option>
-                <option value="PART_TIME">Part-Time</option>
-                <option value="UNKNOWN">Unknown</option>
-              </select>
-            </label>
             <label>Meeting Type
               <select id="fhMeetingType">
                 <option value="">All</option>
@@ -2955,13 +2947,77 @@
       </div>`;
   }
 
+  function facultyHeatmapPanelSummaryRows(panel) {
+    const rows = panel.sourceRows || [];
+    const bucketRows = panel.built?.rows || [];
+    const peak = peakFacultyHeatmapCell(bucketRows, panel.metricName);
+    const nonEmpty = bucketRows.filter(row => row.sections || row.facultyCount || row.enrollment || row.seats || row.lhe);
+    const totalMeetings = nonEmpty.reduce((total, row) => total + (row.sections || 0), 0);
+    const totalEnrollment = nonEmpty.reduce((total, row) => total + (row.enrollment || 0), 0);
+    const totalSeats = nonEmpty.reduce((total, row) => total + (row.seats || 0), 0);
+    const totalLhe = nonEmpty.reduce((total, row) => total + (row.lhe || 0), 0);
+    return [
+      ['Faculty Scheduled', facultyHeatmapDistinctFaculty(rows)],
+      ['Meeting Rows Included', rows.length],
+      ['Instructional Meetings', totalMeetings],
+      ['Enrollment Supported', totalEnrollment],
+      ['Seats Supported', totalSeats],
+      ['LHE', totalLhe.toFixed(1)],
+      ['Peak Time', peak ? `${peak.dayName} ${peak.time}` : 'N/A'],
+      ['Peak Value', peak ? (panel.metricName === 'lhe' ? (peak.metricValue || 0).toFixed(1) : Math.round(peak.metricValue || 0)) : 'N/A']
+    ];
+  }
+
+  function facultyHeatmapPanelSummaryHtml(panel) {
+    return `<div class="faculty-heatmap-panel-summary analytics-metrics">${facultyHeatmapPanelSummaryRows(panel).map(([labelText, value]) => `
+      <div><strong>${escapeAttr(value)}</strong><span>${escapeAttr(labelText)}</span></div>
+    `).join('')}</div>`;
+  }
+
+  function facultyHeatmapPanelDetailRows(panel) {
+    return (panel.built?.rows || [])
+      .filter(row => row.sections || row.facultyCount || row.enrollment || row.seats || row.lhe)
+      .map(row => ({
+        facultyGroup: panel.groupLabel,
+        day: row.dayName,
+        time: row.time,
+        sections: row.sections,
+        facultyCount: row.facultyCount,
+        enrollment: row.enrollment,
+        seats: row.seats,
+        lhe: Number(row.lhe.toFixed(2))
+      }));
+  }
+
+  function facultyHeatmapPanelDetailTableHtml(panel) {
+    const rows = facultyHeatmapPanelDetailRows(panel).slice(0, 200);
+    if (!rows.length) return '<p class="analytics-empty">No active faculty meeting intervals match this grouping.</p>';
+    const columns = ['day', 'time', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe'];
+    return `<div class="dashboard-table-wrap faculty-heatmap-detail-table"><table class="dashboard-mini-table">
+      <thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>${facultyHeatmapPanelDetailRows(panel).length > rows.length ? `<p class="analytics-note">Showing first ${rows.length} active intervals for ${escapeAttr(panel.groupLabel)}.</p>` : ''}</div>`;
+  }
+
+  function facultyHeatmapPanelMethodologyHtml(panel) {
+    return `<details class="faculty-heatmap-panel-methodology" open>
+      <summary>Methodology</summary>
+      <p>${escapeAttr(panel.groupLabel)} uses the same selected term, campus, division, department, discipline, course, modality, meeting type, metric, time scale, color scale, cell sizing, and legend as the other Faculty Schedule Heatmap views.</p>
+      <p>Rows are normalized by the Faculty Schedule parser and deduplicated by CRN, day pattern, start/end time, meeting type, and instructor. Each meeting contributes to every overlapping 30-minute active meeting interval on every scheduled day.</p>
+      <p>Faculty Type maps FCNT_CODE values. FT and TE are Full-Time, JP is Part-Time, and AE/X omitted rows are excluded before these calculations. This report uses Faculty Schedule Data only and does not affect Room Availability.</p>
+    </details>`;
+  }
+
   function facultyHeatmapPanelHtml(panel) {
     return `
       <section class="faculty-heatmap-panel demand-report-section" data-collapsible-title="${escapeAttr(panel.title)}" data-collapsible-id="${escapeAttr(panel.id)}" data-collapsible-default-open="true">
         <h3>${escapeAttr(panel.title)}</h3>
         <p class="analytics-chart-note">Shared axis and color scale. Metric: ${escapeAttr(metricDisplayLabel(panel.metricName))}. Shared scale max: ${escapeAttr(panel.maxValue || 0)}.</p>
         <div id="${escapeAttr(panel.id)}" class="faculty-heatmap-panel-body">
+          ${facultyHeatmapPanelSummaryHtml(panel)}
           ${renderFacultyHeatmapTableHtml(panel, panel.comparisonMap)}
+          ${facultyHeatmapPanelDetailTableHtml(panel)}
+          ${facultyHeatmapPanelMethodologyHtml(panel)}
         </div>
       </section>`;
   }
@@ -3107,15 +3163,16 @@
         const exportKey = button.dataset.facultyExport;
         const panel = panels.find(item => item.key === exportKey);
         const target = exportKey === 'all' ? container : document.getElementById(panel?.id || '');
-        const title = exportKey === 'all' ? 'Faculty Schedule Heatmaps - Overall, Full-Time, and Part-Time' : panel.title;
+        const title = exportKey === 'all' ? 'Faculty Schedule Heatmaps - All Faculty, Full-Time Faculty, and Part-Time Faculty' : panel.title;
+        const exportSlug = exportKey === 'all' ? 'AllThree' : panel.exportSlug;
         window.COSUtils.exportVisualizationPng(target, {
           title,
           term: options.term,
           filters: options.filters,
           metric: options.metric,
           modalityScope: options.modalityScope,
-          legend: 'Shared legend and color scale across Overall, Full-Time, and Part-Time faculty heatmaps. Darker cells indicate higher values. Blank cells indicate zero or unavailable values.',
-          filename: exportKey === 'all' ? 'faculty-schedule-heatmaps-all.png' : `${panel.id}.png`
+          legend: 'Shared legend and color scale across All Faculty, Full-Time Faculty, and Part-Time Faculty heatmaps. Darker cells indicate higher values. Blank cells indicate zero or unavailable values.',
+          filename: `FacultyScheduleHeatmap_${exportSlug}.png`
         }).then(() => setStatus(`${title} exported.`)).catch(err => setStatus(err.message || 'Export failed.', false));
       });
     });
@@ -3345,9 +3402,9 @@
     const maxValue = Math.max(0, ...[builtOverall, builtFullTime, builtPartTime].flatMap(built => built.rows.map(row => row.metricValue || 0)));
     state.facultyHeatmapBucketRows = builtOverall.rows;
     const panels = [
-      { key: 'overall', id: 'facultyHeatmapOverall', title: 'Overall Faculty Schedule Heatmap', built: builtOverall, metricName, maxValue },
-      { key: 'fullTime', id: 'facultyHeatmapFullTime', title: 'Full-Time Faculty Schedule Heatmap', built: builtFullTime, metricName, maxValue },
-      { key: 'partTime', id: 'facultyHeatmapPartTime', title: 'Part-Time Faculty Schedule Heatmap', built: builtPartTime, metricName, maxValue }
+      { key: 'overall', id: 'facultyHeatmapOverall', title: 'Faculty Schedule Heatmap (All Faculty)', groupLabel: 'All Faculty', exportSlug: 'All', sourceRows: overallRows, built: builtOverall, metricName, maxValue },
+      { key: 'fullTime', id: 'facultyHeatmapFullTime', title: 'Faculty Schedule Heatmap (Full-Time Faculty)', groupLabel: 'Full-Time Faculty', exportSlug: 'FullTime', sourceRows: fullTimeRows, built: builtFullTime, metricName, maxValue },
+      { key: 'partTime', id: 'facultyHeatmapPartTime', title: 'Faculty Schedule Heatmap (Part-Time Faculty)', groupLabel: 'Part-Time Faculty', exportSlug: 'PartTime', sourceRows: partTimeRows, built: builtPartTime, metricName, maxValue }
     ];
     const comparisonMap = facultyHeatmapCellValueMap(panels);
     panels.forEach(panel => { panel.comparisonMap = comparisonMap; });
@@ -3361,13 +3418,16 @@
       modalityScope: selectedModalityScopeLabel('fhModality')
     });
     panels.forEach(panel => attachHeatmapExportToolbar(panel.id, panel.built.rows, {
-      title: panel.title,
+      title: `${panel.title} - ${panel.groupLabel}`,
       term: document.getElementById('fhTerm')?.value || 'All terms',
-      filters: [...heatmapScopeFilters('fh'), `Faculty type: ${panel.title.startsWith('Overall') ? 'Full-Time + Part-Time' : panel.title.startsWith('Full-Time') ? 'FT/TE' : 'JP'}`],
+      filters: [...heatmapScopeFilters('fh'), `Faculty grouping: ${panel.groupLabel}`, `Faculty type source: ${panel.key === 'overall' ? 'FT/TE + JP' : panel.key === 'fullTime' ? 'FT/TE' : 'JP'}`],
       metric: metricDisplayLabel(metricName),
       metricKey: metricName,
+      facultyGroup: panel.groupLabel,
       modalityScope: selectedModalityScopeLabel('fhModality'),
-      filename: `${panel.id}.png`
+      filename: `FacultyScheduleHeatmap_${panel.exportSlug}.png`,
+      csvFilename: `FacultyScheduleHeatmap_${panel.exportSlug}.csv`,
+      pdfFilename: `FacultyScheduleHeatmap_${panel.exportSlug}.pdf`
     }));
     table('facultyHeatmapComparisonTable', facultyHeatmapComparisonRows(panels), ['metric', 'overall', 'fullTime', 'partTime']);
     const distributionRows = facultyHeatmapDistributionRows(builtFullTime, builtPartTime, metricName);
@@ -3401,18 +3461,8 @@
       ['Most active day', mostActiveDay ? `${mostActiveDay.day} (${mostActiveDay.sections})` : 'N/A'],
       ['Least active day', leastActiveDay ? `${leastActiveDay.day} (${leastActiveDay.sections})` : 'N/A']
     ]);
-    const nonEmpty = builtOverall.rows
-      .filter(row => row.sections || row.facultyCount || row.enrollment || row.seats || row.lhe)
-      .map(row => ({
-        day: row.dayName,
-        time: row.time,
-        sections: row.sections,
-        facultyCount: row.facultyCount,
-        enrollment: row.enrollment,
-        seats: row.seats,
-        lhe: Number(row.lhe.toFixed(2))
-      }));
-    table('facultyHeatmapTable', nonEmpty, ['day', 'time', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe']);
+    const nonEmpty = panels.flatMap(facultyHeatmapPanelDetailRows);
+    table('facultyHeatmapTable', nonEmpty, ['facultyGroup', 'day', 'time', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe']);
     renderMethodologyPanel(document.getElementById('facultyHeatmapLegend'), {
       title: 'Faculty Schedule Heatmap Methodology & Data Dictionary',
       purpose: 'Shows when faculty instructional activity is concentrated by half-hour interval using Faculty Schedule CSV data.',
@@ -8217,6 +8267,7 @@
         termSource: options.term || '',
         selectedFilters: (options.filters || []).join('; '),
         metric: options.metric || '',
+        facultyGroup: row.facultyGroup || options.facultyGroup || '',
         day: row.dayName || row.day || '',
         timeBlock: row.time || row.timeBlock || '',
         visibleWindowStart: row.visibleWindowStart == null ? '' : formatPresenceHourLabel(row.visibleWindowStart / 60),
@@ -8250,7 +8301,9 @@
         metric: options.metric || '',
         modalityScope: options.modalityScope || '',
         legend: options.legend || 'Darker cells indicate higher values. Blank cells indicate zero or unavailable values.',
-        filename: options.filename
+        filename: options.filename,
+        csvFilename: options.csvFilename,
+        pdfFilename: options.pdfFilename
       })
     });
   }
@@ -12466,6 +12519,7 @@
       censusEnrollment: 'Census Enrollment',
       day: 'Overlap Day',
       timeOverlap: 'Time Overlap',
+      facultyGroup: 'Faculty Group',
       meetingDays1: 'Meeting Days 1',
       crn1: 'CRN 1',
       course1: 'Course 1',
