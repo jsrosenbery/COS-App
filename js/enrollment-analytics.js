@@ -368,6 +368,31 @@
     return Math.round((value || 0) * 10) / 10;
   }
 
+  function formatWholeNumber(value) {
+    const numeric = Number(value) || 0;
+    return Math.round(numeric).toLocaleString('en-US');
+  }
+
+  function formatDecimal(value, digits = 1) {
+    const numeric = Number(value) || 0;
+    return numeric.toLocaleString('en-US', {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+  }
+
+  function formatPercent(value, digits = 1) {
+    return `${formatDecimal((Number(value) || 0) * 100, digits)}%`;
+  }
+
+  function formatFactor(value) {
+    return formatDecimal(value, 2);
+  }
+
+  function formatPresenceValue(value) {
+    return formatWholeNumber(value);
+  }
+
   function canon(value) {
     return String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
   }
@@ -7893,30 +7918,46 @@
 
   function renderStudentPresenceReport(report) {
     const metrics = report.metrics || {};
+    const rows = report.rows || [];
+    const presenceModeLabel = metrics.presenceMode === 'expected' ? 'Expected Physical Presence' : 'Nominal Scheduled Presence';
+    const presenceValueLabel = metrics.presenceMode === 'expected' ? 'expected student-presence' : 'nominal student-presence';
+    const expectedPresence = metrics.totalExpectedStudents || 0;
+    const nominalPresence = metrics.totalNominalStudents || 0;
+    const activePresence = metrics.presenceMode === 'expected' ? expectedPresence : nominalPresence;
+    const adjustmentImpact = nominalPresence > 0 && Math.abs(nominalPresence - expectedPresence) > 0.5
+      ? `${formatPercent((nominalPresence - expectedPresence) / nominalPresence)} lower than nominal`
+      : 'No adjustment applied';
+    const peakDay = studentPresencePeakBy(rows, row => row.day || 'N/A');
+    const capacityUtilization = metrics.totalSeats ? activePresence / metrics.totalSeats : 0;
     state.studentPresenceReport = report;
     metric('studentPresenceMetrics', [
+      ['Data Scope', '', 'group-label'],
       ['Focus Term', studentPresenceFocusTerm() || 'N/A'],
-      ['Presence Mode', metrics.presenceMode === 'expected' ? 'Expected Physical Presence' : 'Nominal Scheduled Presence'],
-      ['Students Present', metrics.totalStudents || 0],
-      ['Total Nominal Student Presence', round1(metrics.totalNominalStudents || 0)],
-      ['Total Expected Student Presence', round1(metrics.totalExpectedStudents || 0)],
-      ['Average Meeting Frequency Factor', round1(metrics.averageMeetingFrequencyFactor || 0)],
-      ['Rows With Unknown Frequency', metrics.unknownFrequencyRows || 0],
-      ['Hybrid Rows Frequency-Adjusted', metrics.hybridRowsFrequencyAdjusted || 0],
-      ['Sections Active', metrics.totalSections || 0],
-      ['Distinct CRNs Included', metrics.distinctCrns || 0],
-      ['Meeting Rows Included', metrics.meetingRowsIncluded || 0],
-      ['Tutoring/Open Lab Rows Excluded', metrics.tutoringOpenLabRowsExcluded || 0],
-      ['Seats Scheduled', metrics.totalSeats || 0],
-      ['Available Capacity', metrics.totalOpen || 0],
-      ['Average Fill Rate', pct(metrics.averageFillRate || 0)],
-      ['Peak Hour', presenceMetricLabel(metrics.peakHour)],
-      ['Lightest Hour', presenceMetricLabel(metrics.lightestHour)],
-      ['Peak Campus', presenceMetricLabel(metrics.peakCampus)],
-      ['Peak Building', presenceMetricLabel(metrics.peakBuilding)],
-      ['Peak Room', presenceMetricLabel(metrics.peakRoom)]
+      ['Presence Mode', presenceModeLabel],
+      ['Sections / CRNs Included', formatWholeNumber(metrics.distinctCrns || metrics.totalSections || 0), 'scheduled-class-offerings'],
+      ['Meeting Rows Included', formatWholeNumber(metrics.meetingRowsIncluded || 0), 'instructional-meetings'],
+      ['Hybrid Rows Frequency-Adjusted', formatWholeNumber(metrics.hybridRowsFrequencyAdjusted || 0)],
+      ['Rows With Unknown Frequency', formatWholeNumber(metrics.unknownFrequencyRows || 0)],
+      ['Overall Presence', '', 'group-label'],
+      ['Expected Student Presence', formatPresenceValue(expectedPresence), 'student-presence'],
+      ['Nominal Student Presence', formatPresenceValue(nominalPresence), 'student-presence'],
+      ['Frequency Adjustment Impact', adjustmentImpact],
+      ['Average Meeting Frequency Factor', formatFactor(metrics.averageMeetingFrequencyFactor || 0)],
+      ['Average Fill Rate', formatPercent(metrics.averageFillRate || 0), 'fill-rate'],
+      ['Capacity', '', 'group-label'],
+      ['Seats Scheduled', formatWholeNumber(metrics.totalSeats || 0), 'seats-offered'],
+      ['Available Capacity', formatWholeNumber(metrics.totalOpen || 0)],
+      ['Capacity Utilization', formatPercent(capacityUtilization), 'fill-rate'],
+      ['Remaining Capacity', `${formatWholeNumber(metrics.totalOpen || 0)} seats`],
+      ['Peak Activity', '', 'group-label'],
+      ['Peak Day', presenceMetricLabel(peakDay, presenceValueLabel)],
+      ['Peak Hour', presenceMetricLabel(metrics.peakHour, presenceValueLabel)],
+      ['Lightest Hour', presenceMetricLabel(metrics.lightestHour, presenceValueLabel)],
+      ['Peak Campus', presenceMetricLabel(metrics.peakCampus, presenceValueLabel)],
+      ['Peak Building', presenceMetricLabel(metrics.peakBuilding, presenceValueLabel)],
+      ['Peak Room', presenceMetricLabel(metrics.peakRoom, presenceValueLabel)]
     ]);
-    renderPresenceHeatmap(report.rows || []);
+    renderPresenceHeatmap(rows);
     renderStudentPresenceCurve(state.studentPresenceGraphRows || []);
     renderStudentPresenceChartFilterNote();
     if (state.studentPresenceChartFilter) {
@@ -8053,8 +8094,20 @@
     });
   }
 
-  function presenceMetricLabel(item) {
-    return item ? `${item.group} (${item.studentsPresent})` : 'N/A';
+  function studentPresencePeakBy(rows, keyer) {
+    const totals = new Map();
+    (rows || []).forEach(row => {
+      const key = keyer(row);
+      if (!key) return;
+      totals.set(key, (totals.get(key) || 0) + (row.studentsPresent || 0));
+    });
+    return [...totals.entries()]
+      .map(([group, studentsPresent]) => ({ group, studentsPresent }))
+      .sort((a, b) => b.studentsPresent - a.studentsPresent)[0] || null;
+  }
+
+  function presenceMetricLabel(item, unitLabel = 'student-presence') {
+    return item ? `${item.group} (${formatPresenceValue(item.studentsPresent)} ${unitLabel})` : 'N/A';
   }
 
   function renderPresenceHeatmap(rows) {
@@ -8064,11 +8117,11 @@
       <section>
         <h3>${escapeAttr(row.group)}</h3>
         <ul>
-          <li>Students: ${row.studentsPresent}</li>
-          <li>Sections: ${row.sectionsActive}</li>
-          <li>Distinct CRNs: ${row.distinctCrns || row.sectionsActive || 0}</li>
-          <li>Meeting rows: ${row.meetingRowsIncluded || row.sectionsActive || 0}</li>
-          <li>Open capacity: ${row.availableRoomCapacity}</li>
+          <li>Students: ${formatPresenceValue(row.studentsPresent)}</li>
+          <li>Sections: ${formatWholeNumber(row.sectionsActive)}</li>
+          <li>Distinct CRNs: ${formatWholeNumber(row.distinctCrns || row.sectionsActive || 0)}</li>
+          <li>Meeting rows: ${formatWholeNumber(row.meetingRowsIncluded || row.sectionsActive || 0)}</li>
+          <li>Open capacity: ${formatWholeNumber(row.availableRoomCapacity)}</li>
         </ul>
       </section>`).join('');
     node.innerHTML = cells || '<p class="analytics-empty">No fixed in-person or hybrid presence rows match the selected filters.</p>';
@@ -8303,7 +8356,7 @@
                 return `${dataset.presenceDay || dataset.label || ''} ${item.label || ''}`.trim();
               },
               label: ctx => [
-                `Estimated Students Present: ${ctx.parsed.y || 0}`,
+                `Estimated Students Present: ${formatPresenceValue(ctx.parsed.y || 0)}`,
                 `Term/source: ${ctx.dataset.presenceTerm || 'Selected terms'}`,
                 `Campus: ${selectedFilterLabel('spCampusScope', 'All COS/HAC/TCC')}`,
                 `Modality scope: ${document.getElementById('spIncludeOtherModalities')?.checked ? 'In-Person, Hybrid, Other selected modalities' : 'In-Person, Hybrid'}`
@@ -8354,7 +8407,7 @@
     renderMethodologyPanel(legend, {
       title: 'Student Presence Analytics Methodology & Data Dictionary',
       purpose: 'Estimates physical student presence from loaded scheduled sections and enrollment for the selected focus term.',
-      methodology: 'Rows are included by default only when they are in-person or hybrid, have fixed meeting days and times, use physical COS/TCC/HAC campus codes or their local aliases, and do not use online, web, virtual, or TBA campus values. Dual Enrollment is excluded by default and can be included with the report toggle. Students present uses census enrollment when available and current enrollment otherwise. Nominal Scheduled Presence counts every scheduled physical meeting at full enrollment. Expected Physical Presence adjusts hybrid or irregular meetings by a Meeting Frequency Factor so classes meeting only part of the term contribute proportionally less to average campus presence. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct instructional meeting block.',
+      methodology: 'Rows are included by default only when they are in-person or hybrid, have fixed meeting days and times, use physical COS/TCC/HAC campus codes or their local aliases, and do not use online, web, virtual, or TBA campus values. Dual Enrollment is excluded by default and can be included with the report toggle. Students present uses census enrollment when available and current enrollment otherwise. Nominal Scheduled Presence counts every scheduled physical meeting at full enrollment. Expected Physical Presence adjusts hybrid or irregular meetings by a Meeting Frequency Factor so classes meeting only part of the term contribute proportionally less to average campus presence; expected presence may therefore be lower than nominal presence. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct instructional meeting block.',
       assumptions: 'Available room capacity is scheduled seats minus enrollment for the included active meeting intervals. A multi-day or long-duration section contributes to each applicable 30-minute interval, but Scheduled Class Offerings still count unique CRNs across the selected scope. Comparison curves use the same filters and inclusion toggles for each selected term.',
       limitations: 'This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.',
       items: [
@@ -11661,6 +11714,14 @@
     node.replaceChildren();
     items.forEach(([labelText, value, metricId]) => {
       const card = document.createElement('div');
+      if (metricId === 'group-label') {
+        card.className = 'demand-metric-group-label analytics-metric-group-label';
+        const labelNode = document.createElement('span');
+        labelNode.textContent = labelText ?? '';
+        card.append(labelNode);
+        node.appendChild(card);
+        return;
+      }
       const strong = document.createElement('strong');
       const labelNode = document.createElement('span');
       strong.textContent = value ?? '';
@@ -12854,6 +12915,8 @@
       .analytics-metrics div{border:1px solid #d8e1ec;border-radius:8px;padding:12px;background:#f8fbff}
       .analytics-metrics strong{display:block;font-size:22px;color:#002b5c}
       .analytics-metrics span{font-size:12px;color:#51657c;text-transform:uppercase}
+      .analytics-metrics .analytics-metric-group-label{grid-column:1/-1;background:#eef5f9;border-color:#cdddea;padding:8px 10px}
+      .analytics-metrics .analytics-metric-group-label span{font-size:13px;color:#123367;text-transform:none;font-weight:900}
       .demand-metric-groups{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
       .demand-metric-groups .demand-metric-group-label{grid-column:1/-1;background:#eef5f9;border-color:#cdddea;padding:8px 10px}
       .demand-metric-groups .demand-metric-group-label span{font-size:13px;color:#123367;text-transform:none;font-weight:900}

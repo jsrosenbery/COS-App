@@ -1786,8 +1786,31 @@ test('student presence UI and exports expose meeting frequency fields', () => {
   assert.match(text, /meetingFrequencyFactor/);
   assert.match(text, /frequencySource/);
   assert.match(text, /frequencyWarning/);
-  assert.match(text, /Total Nominal Student Presence/);
-  assert.match(text, /Total Expected Student Presence/);
+  assert.match(text, /function formatWholeNumber/);
+  assert.match(text, /function formatPercent/);
+  assert.match(text, /function formatFactor/);
+  assert.match(text, /function formatPresenceValue/);
+  assert.match(text, /\['Data Scope', '', 'group-label'\]/);
+  assert.match(text, /Sections \/ CRNs Included/);
+  assert.match(text, /Meeting Rows Included/);
+  assert.match(text, /\['Overall Presence', '', 'group-label'\]/);
+  assert.match(text, /Expected Student Presence/);
+  assert.match(text, /Nominal Student Presence/);
+  assert.match(text, /Frequency Adjustment Impact/);
+  assert.match(text, /No adjustment applied/);
+  assert.match(text, /lower than nominal/);
+  assert.match(text, /Average Meeting Frequency Factor', formatFactor/);
+  assert.match(text, /Average Fill Rate', formatPercent/);
+  assert.match(text, /\['Capacity', '', 'group-label'\]/);
+  assert.match(text, /Capacity Utilization/);
+  assert.match(text, /Remaining Capacity/);
+  assert.match(text, /\['Peak Activity', '', 'group-label'\]/);
+  assert.match(text, /Peak Day/);
+  assert.match(text, /presenceMetricLabel\(metrics\.peakCampus, presenceValueLabel\)/);
+  assert.match(text, /formatPresenceValue\(item\.studentsPresent\)} \$\{unitLabel\}/);
+  assert.doesNotMatch(text, /\['Students Present', metrics\.totalStudents/);
+  assert.doesNotMatch(text, /Total Nominal Student Presence/);
+  assert.doesNotMatch(text, /Total Expected Student Presence/);
 });
 
 test('shared report context renders filters exclusions rows and export metadata', () => {
@@ -4024,7 +4047,7 @@ test('development report visuals expose concise hover tooltips', () => {
   assert.match(text, /Meeting type/);
   assert.match(text, /title="\$\{escapeAttr\(tooltip\)\}"/);
   assert.match(text, /<title>\$\{escapeAttr\(point\.tooltip\)\}<\/title>/);
-  assert.match(text, /Estimated Students Present: \$\{ctx\.parsed\.y \|\| 0\}/);
+  assert.match(text, /Estimated Students Present: \$\{formatPresenceValue\(ctx\.parsed\.y \|\| 0\)\}/);
   assert.match(text, /Campus: \$\{selectedFilterLabel\('spCampusScope'/);
 });
 
