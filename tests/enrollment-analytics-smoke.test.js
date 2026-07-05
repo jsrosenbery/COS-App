@@ -2239,9 +2239,13 @@ test('demand redesign sections and metric definitions are wired', () => {
   assert.match(text, /demand-zero-track/);
   assert.match(text, /Below Expected/);
   assert.match(text, /Above Expected/);
-  ['current-enrollment', 'projected-final-enrollment', 'historical-expected-enrollment', 'historical-baseline', 'year-over-year-growth', 'recency-weighted-growth', 'trend-projection', 'schedule-adjusted-projection', 'final-expected-projection', 'expected-range', 'current-variance', 'projected-variance', 'forecast-confidence', 'forecast-gap', 'ftes-cap-position', 'expanding-demand', 'softening-demand', 'demand-above-expected', 'demand-below-expected'].forEach(id => {
+  ['current-enrollment', 'projected-final-enrollment', 'historical-expected-enrollment', 'historical-baseline', 'year-over-year-growth', 'recency-weighted-growth', 'trend-projection', 'schedule-adjusted-projection', 'final-expected-projection', 'expected-range', 'expected-ftes-range', 'current-variance', 'projected-variance', 'forecast-confidence', 'forecast-gap', 'ftes-cap-position', 'expanding-demand', 'softening-demand', 'demand-above-expected', 'demand-below-expected'].forEach(id => {
     assert.ok(registry.get(id), `${id} definition missing`);
   });
+  assert.match(text, /Expected FTES Range/);
+  assert.match(text, /expectedFtesRangeDisplay/);
+  assert.match(text, /expectedFtesRangeLow/);
+  assert.match(text, /expectedFtesRangeHigh/);
 });
 
 test('trend projection engine replaces simple historical average for planning forecasts', () => {
@@ -2265,6 +2269,42 @@ test('trend projection engine replaces simple historical average for planning fo
   assert.equal(upProjection.confidence, 'High');
   assert.ok(upProjection.expectedRange.low < upProjection.expectedRange.mostLikely);
   assert.ok(upProjection.expectedRange.high > upProjection.expectedRange.mostLikely);
+  assert.ok(upProjection.expectedFtesRange.low < upProjection.expectedFtesRange.mostLikely);
+  assert.ok(upProjection.expectedFtesRange.high > upProjection.expectedFtesRange.mostLikely);
+});
+
+test('demand expected FTES range mirrors projection range behavior and export fields', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const engine = require('../js/enrollment/trend-projection.js');
+  const stable = engine.buildProjection({
+    termTotals: [
+      { term: 'FALL 2022', enrollment: 100, ftes: 30 },
+      { term: 'FALL 2023', enrollment: 105, ftes: 31 },
+      { term: 'FALL 2024', enrollment: 110, ftes: 32 },
+      { term: 'FALL 2025', enrollment: 115, ftes: 33 }
+    ]
+  });
+  const volatile = engine.buildProjection({
+    termTotals: [
+      { term: 'FALL 2022', enrollment: 100, ftes: 20 },
+      { term: 'FALL 2023', enrollment: 105, ftes: 42 },
+      { term: 'FALL 2024', enrollment: 110, ftes: 24 },
+      { term: 'FALL 2025', enrollment: 115, ftes: 52 }
+    ]
+  });
+  const stableWidth = stable.expectedFtesRange.high - stable.expectedFtesRange.low;
+  const volatileWidth = volatile.expectedFtesRange.high - volatile.expectedFtesRange.low;
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.ok(stable.expectedRange.low < stable.expectedRange.high);
+  assert.ok(stable.expectedFtesRange.low < stable.expectedFtesRange.high);
+  assert.ok(volatileWidth > stableWidth, 'FTES range should widen when FTES volatility increases');
+  assert.match(COSEnrollmentAnalytics.formatDemandFtesRange(4480, 4760), /^4480\.0–4760\.0$/);
+  assert.match(source, /\['Expected FTES Range', formatDemandFtesRange/);
+  assert.match(source, /expectedFtesRangeDisplay/);
+  assert.match(source, /expectedFtesRangeLow/);
+  assert.match(source, /expectedFtesRangeHigh/);
+  assert.match(source, /Expected FTES Range', value: 'Uses the same trend projection confidence\/range method/);
 });
 
 test('trend projection engine adjusts for current schedule supply', () => {

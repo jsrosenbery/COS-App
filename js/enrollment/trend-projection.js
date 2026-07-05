@@ -188,6 +188,11 @@
         mostLikely: finalExpectedEnrollment,
         high: enrollment.expectedRange.high * adjustment.combinedFactor * (1 + growthModifier)
       },
+      expectedFtesRange: {
+        low: Math.max(0, ftes.expectedRange.low * adjustment.combinedFactor * (1 + growthModifier)),
+        mostLikely: finalExpectedFtes,
+        high: ftes.expectedRange.high * adjustment.combinedFactor * (1 + growthModifier)
+      },
       confidence,
       currentVariance: num(config.currentTotals?.enrollment) - enrollment.trendProjection,
       projectedVariance: finalExpectedEnrollment - enrollment.trendProjection

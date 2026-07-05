@@ -9999,6 +9999,7 @@
         ['Projected Enrollment', Math.round(summary.projected || collegeRow.expectedEnrollmentNextTerm || 0), 'projected-final-enrollment'],
         ['Current Enrollment', Math.round(summary.current || 0), 'current-enrollment'],
         ['Projected FTES', round1(config.forecastFtes || 0), 'ftes'],
+        ['Expected FTES Range', formatDemandFtesRange(collegeRow.expectedFtesRangeLow ?? config.forecastFtes ?? 0, collegeRow.expectedFtesRangeHigh ?? config.forecastFtes ?? 0), 'expected-ftes-range'],
         ['FTES Cap', config.ftesCapDelta == null ? 'No cap entered' : round1(Number(document.getElementById('demFtesCap')?.value || 0)), 'ftes'],
         ['FTES Over/Under Cap', config.ftesCapDelta == null ? 'No cap entered' : (config.ftesCapDelta >= 0 ? `${round1(config.ftesCapDelta)} under` : `${round1(Math.abs(config.ftesCapDelta))} over`), 'ftes-cap-position'],
         ['Expected Fill Rate', pct(collegeRow.expectedFillRate || 0), 'fill-rate'],
@@ -10066,13 +10067,22 @@
         { label: 'Forecast scope', value: document.getElementById('demForecastScope')?.value === 'year' ? 'Academic year' : 'Single term' },
         { label: 'Enrollment basis', value: 'Census preferred, actual/current fallback' },
         { label: 'Scheduled Class Offerings', value: 'Unique CRNs' },
-        { label: 'FTES composition', value: 'Instructional + Dual Enrollment + Work Experience = Total' }
+        { label: 'FTES composition', value: 'Instructional + Dual Enrollment + Work Experience = Total' },
+        { label: 'Expected FTES Range', value: 'Uses the same trend projection confidence/range method as Expected Projection Range, applied to FTES history.' }
       ],
       notes: [
         config.executiveSummary?.explanation || '',
         `Population selections: ${demandPopulationSelectionLabel(selections)}`
       ].filter(Boolean)
     };
+  }
+
+  function formatDemandFtesRange(low, high) {
+    const lowValue = Number(low);
+    const highValue = Number(high);
+    const normalizedLow = Number.isFinite(lowValue) ? lowValue : 0;
+    const normalizedHigh = Number.isFinite(highValue) ? highValue : normalizedLow;
+    return `${round1(normalizedLow).toFixed(1)}–${round1(normalizedHigh).toFixed(1)}`;
   }
 
   function collectDemandSourceTerms(rows) {
@@ -10266,7 +10276,7 @@
   }
 
   function demandColumns() {
-    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'recencyWeightedGrowth', 'adjustedForecastGrowth', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeHigh', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'recencyWeightedGrowth', 'adjustedForecastGrowth', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
   }
 
   function demandForecastRowsForLevels(rows, context, modifierGrowth = 0) {
@@ -10328,6 +10338,11 @@
     });
     const expectedEnrollmentNextTerm = Math.max(0, Math.round(trendModel?.finalExpectedProjection?.enrollment ?? (avgCensusEnrollment * (1 + blendedGrowth))));
     const expectedFtesNextTerm = Math.max(0, trendModel?.finalExpectedProjection?.ftes ?? (avgFtes * (1 + blendedGrowth)));
+    const expectedFtesRange = trendModel?.expectedFtesRange || {
+      low: expectedFtesNextTerm,
+      mostLikely: expectedFtesNextTerm,
+      high: expectedFtesNextTerm
+    };
     const adjustedForecastGrowth = safeDiv(expectedEnrollmentNextTerm, avgCensusEnrollment) - 1;
     const expectedFillRate = safeDiv(expectedEnrollmentNextTerm, avgCapacity);
     const expectedSectionsNeeded = Math.max(1, Math.ceil((expectedEnrollmentNextTerm + avgWaitlistCount) / avgCapPerSection));
@@ -10364,6 +10379,9 @@
       avgFtes,
       trendProjectionFtes: trendModel?.trendProjection?.ftes ?? expectedFtesNextTerm,
       scheduleAdjustedProjectionFtes: trendModel?.scheduleAdjustedProjection?.ftes ?? expectedFtesNextTerm,
+      expectedFtesRangeLow: expectedFtesRange.low,
+      expectedFtesRangeHigh: expectedFtesRange.high,
+      expectedFtesRangeDisplay: formatDemandFtesRange(expectedFtesRange.low, expectedFtesRange.high),
       avgFillRate,
       avgFinalFillRate,
       avgAttritionCount,
@@ -10384,6 +10402,7 @@
       forecastConfidence: trendModel?.confidence || forecastConfidence,
       forecastMethod: trendModel?.method || 'Trend Projection',
       expectedRange: trendModel?.expectedRange || null,
+      expectedFtesRange,
       yearOverYearGrowth: trendModel?.yearOverYearGrowth || [],
       recencyWeights: trendModel?.recencyWeights || [],
       scheduleAdjustment: trendModel?.scheduleAdjustment || null,
@@ -12010,7 +12029,7 @@
       ['Projection Method', 'Weighted historical projection with trend and schedule adjustment. Existing forecast calculations are preserved while the report displays population, FTES, enrollment, supply, and recommendation context.'],
       ['Trend Projection', 'Historical same-season or academic-year trend projected forward with recency weighting, growth modifiers, expected range, and schedule adjustment when available.'],
       ['Schedule Adjustment', 'Adjustment from historical baseline toward the expected projection based on schedule construction signals such as class offerings, seats, and modality mix.'],
-      ['Expected Projection', 'Projected enrollment or FTES after trend projection and schedule adjustment. Expected Projection Range shows low and high range when available.'],
+      ['Expected Projection', 'Projected enrollment or FTES after trend projection and schedule adjustment. Expected Projection Range shows low and high enrollment range when available. Expected FTES Range applies the same range method to FTES history and displays low/high FTES bounds.'],
       ['Forecast Confidence', 'High, Moderate, or Low confidence based on available history, forecast stability, and visible forecast row confidence labels.'],
       ['Terms Included', 'Metric card. Number of selected historical terms included after filters and the Analysis window are applied.'],
       ['Forecast Target', 'Metric card and controls. The future term or academic year being forecast. This does not require an uploaded section seating report. Forecast year uses the trailing FY/AY convention: FY/AY 2027 includes Summer 2026, Fall 2026, and Spring 2027, so FY/AY 2027 + Fall targets Fall 2026 / Banner term 202710. Rows from this target and later terms are excluded from historical calculations because in-progress enrollment is not a finalized baseline.'],
@@ -12417,6 +12436,9 @@
       adjustedForecastGrowth: 'Forecast Growth',
       expectedEnrollmentNextTerm: 'Census-Based Expected Enrollment',
       expectedFtesNextTerm: 'Forecast FTES',
+      expectedFtesRangeDisplay: 'Expected FTES Range',
+      expectedFtesRangeLow: 'Expected FTES Range Low',
+      expectedFtesRangeHigh: 'Expected FTES Range High',
       expectedFillRate: 'Expected Census Fill Rate',
       expectedSectionsNeeded: 'Forecast Sections Needed',
       suggestedSectionCount: 'Suggested Section Count',
@@ -13596,6 +13618,7 @@
     demandRowsForPopulationSelections,
     demandPopulationSummary,
     demandPlanningBreakdowns,
+    formatDemandFtesRange,
     parseDemandPattern,
     buildEnrollmentTrendChartData,
     buildFtesTrendChartData,
