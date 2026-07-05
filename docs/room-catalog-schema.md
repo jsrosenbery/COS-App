@@ -10,6 +10,15 @@ Room catalog data may be imported as CSV or JSON. The backend stores normalized 
 | `buildingRoom` | Derived | string | Normalized as `building-room`. |
 | `type` | No | string | Room type such as classroom, lab, lecture, office, or specialty space. |
 | `capacity` | No | number/null | Seat capacity. Non-numeric values become `null`. |
-| `priority` | No | string | Room priority division/area. Missing or blank values normalize to `Unassigned`. |
+| `priorityDivision1` | No | string | First scheduling preference division. Missing or blank values normalize to `Unassigned`. |
+| `priorityDivision2` | No | string | Secondary scheduling preference division. Missing or blank values normalize to `None`. |
+| `rawPriorityDivision1` | Derived | string | Original imported value for the first priority field, preserved for diagnostics. |
+| `rawPriorityDivision2` | Derived | string | Original imported value for the second priority field, preserved for diagnostics. |
 
-CSV aliases include `Campus`, `Building`, `Room`, `Capacity`, `Room Type`, `Type`, `Cap`, `roomType`, `Room Priority`, `Priority Division`, `Priority Area`, `Primary Division`, `Dean Area`, `Assigned Division`, and `Preferred Division`.
+CSV aliases include `Campus`, `Building`, `Room`, `Capacity`, `Room Type`, `Type`, `Cap`, and `roomType`.
+
+Priority Division 1 aliases include `Priority Division 1`, `Priority Division`, `Room Priority`, `Primary Division`, `Assigned Division`, `Preferred Division`, `Dean Area`, and `Priority Area`.
+
+Priority Division 2 aliases include `Priority Division 2`, `Secondary Division`, `Secondary Priority`, `Priority 2`, and `Room Priority 2`.
+
+`Administration` is treated as shared/general-use instructional space, not as an exclusive division preference. Priority fields currently provide metadata for future schedule optimization recommendations and do not change Room Availability behavior.

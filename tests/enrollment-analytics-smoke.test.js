@@ -3412,37 +3412,62 @@ test('modality balance counts unduplicated CRN offerings and census-first enroll
   assert.equal(summary[0].totalClassOfferings, 3);
 });
 
-test('room catalog import and export supports optional room priority', () => {
+test('room catalog import and export supports two optional room priority divisions', () => {
   const hooks = loadScheduleAppRuntime().roomCatalogTestHooks;
   const fiveColumn = hooks.normalizeRoomCatalog([
     { Campus: 'COS', Building: 'CEDAR', Room: '421', Capacity: '28', 'Room Type': 'Computer Lab' }
   ]);
-  const explicitPriority = hooks.normalizeRoomCatalog([
+  const onePriority = hooks.normalizeRoomCatalog([
     { Campus: 'TCC', Building: 'TULARE', Room: 'A101', Capacity: '42', 'Room Type': 'Classroom', 'Room Priority': 'Business' }
+  ]);
+  const normalizedFromKnownDivision = hooks.normalizeRoomCatalog([
+    { Campus: 'TCC', Building: 'TULARE', Room: 'A100', Capacity: '40', 'Room Type': 'Classroom', 'Room Priority': 'science' }
+  ], ['Science']);
+  const twoPriority = hooks.normalizeRoomCatalog([
+    { Campus: 'TCC', Building: 'TULARE', Room: 'A102', Capacity: '44', 'Room Type': 'Classroom', 'Priority Division 1': 'Science', 'Priority Division 2': 'Math' }
   ]);
   const alternatePriorityRows = [
     { Building: 'A', Room: '1', Capacity: '10', 'Room Type': 'Lab', 'Priority Division': 'Science' },
-    { Building: 'A', Room: '2', Capacity: '11', 'Room Type': 'Classroom', 'Priority Area': 'Arts' },
+    { Building: 'A', Room: '2', Capacity: '11', 'Room Type': 'Classroom', 'Secondary Division': 'Arts' },
     { Building: 'A', Room: '3', Capacity: '12', 'Room Type': 'Lecture', 'Primary Division': 'Math' },
     { Building: 'A', Room: '4', Capacity: '13', 'Room Type': 'Office', 'Dean Area': 'Health' },
     { Building: 'A', Room: '5', Capacity: '14', 'Room Type': 'Specialty', 'Assigned Division': 'CTE' },
-    { Building: 'A', Room: '6', Capacity: '15', 'Room Type': 'Studio', 'Preferred Division': 'Language' }
+    { Building: 'A', Room: '6', Capacity: '15', 'Room Type': 'Studio', 'Preferred Division': 'Language', 'Room Priority 2': 'Arts' }
   ];
   const alternatePriority = hooks.normalizeRoomCatalog(alternatePriorityRows);
-  const exported = JSON.parse(hooks.roomCatalogToCsv(fiveColumn));
+  const warnings = hooks.roomPriorityWarnings([
+    { Building: 'B', Room: '1', 'Priority Division': 'Bogus Area', 'Priority Division 2': 'Science' }
+  ], ['Science', 'Math', 'Business', 'Arts']);
+  const adminRoom = hooks.normalizeRoomCatalog([{ Building: 'ADM', Room: '1', 'Priority Division': 'Administration' }])[0];
+  const scienceRoom = hooks.normalizeRoomCatalog([{ Building: 'SCI', Room: '1', 'Priority Division': 'Science' }])[0];
+  const exported = JSON.parse(hooks.roomCatalogToCsv(twoPriority));
 
   assert.equal(fiveColumn.length, 1);
   assert.equal(fiveColumn[0].capacity, 28);
   assert.equal(fiveColumn[0].type, 'Computer Lab');
-  assert.equal(fiveColumn[0].priority, 'Unassigned');
-  assert.equal(explicitPriority[0].priority, 'Business');
-  assert.equal(JSON.stringify(alternatePriority.map(room => room.priority)), JSON.stringify(['Science', 'Arts', 'Math', 'Health', 'CTE', 'Language']));
-  assert.equal(exported[0].Campus, 'COS');
-  assert.equal(exported[0].Building, 'CEDAR');
-  assert.equal(exported[0].Room, '421');
-  assert.equal(exported[0].Capacity, 28);
-  assert.equal(exported[0]['Room Type'], 'Computer Lab');
-  assert.equal(exported[0]['Room Priority'], 'Unassigned');
+  assert.equal(fiveColumn[0].priorityDivision1, 'Unassigned');
+  assert.equal(fiveColumn[0].priorityDivision2, 'None');
+  assert.equal(onePriority[0].priorityDivision1, 'Business');
+  assert.equal(onePriority[0].priorityDivision2, 'None');
+  assert.equal(normalizedFromKnownDivision[0].priorityDivision1, 'Science');
+  assert.equal(twoPriority[0].rawPriorityDivision1, 'Science');
+  assert.equal(twoPriority[0].rawPriorityDivision2, 'Math');
+  assert.equal(twoPriority[0].priorityDivision1, 'Science');
+  assert.equal(twoPriority[0].priorityDivision2, 'Math');
+  assert.equal(JSON.stringify(alternatePriority.map(room => room.priorityDivision1)), JSON.stringify(['Science', 'Unassigned', 'Math', 'Health', 'CTE', 'Language']));
+  assert.equal(JSON.stringify(alternatePriority.map(room => room.priorityDivision2)), JSON.stringify(['None', 'Arts', 'None', 'None', 'None', 'Arts']));
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].warning, 'Unknown Priority Division');
+  assert.equal(hooks.roomPriorityScore(adminRoom, 'Science'), 0);
+  assert.equal(hooks.roomPriorityScore(scienceRoom, 'Science'), 2);
+  assert.equal(hooks.roomPriorityScore(scienceRoom, 'Arts'), -1);
+  assert.equal(exported[0].Campus, 'TCC');
+  assert.equal(exported[0].Building, 'TULARE');
+  assert.equal(exported[0].Room, 'A102');
+  assert.equal(exported[0].Capacity, 44);
+  assert.equal(exported[0]['Room Type'], 'Classroom');
+  assert.equal(exported[0]['Priority Division 1'], 'Science');
+  assert.equal(exported[0]['Priority Division 2'], 'Math');
 });
 
 test('modality comparison rows include class offering counts and shares', () => {

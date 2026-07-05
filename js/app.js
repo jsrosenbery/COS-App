@@ -468,32 +468,99 @@ function setCurriculumCrosswalk(crosswalk) {
 
 setCurriculumCrosswalk(window.CURRICULUM_CROSSWALK || []);
 
-function normalizeRoomCatalog(rawRooms) {
+function normalizeRoomCatalog(rawRooms, knownDivisions = []) {
   return (rawRooms || [])
-    .map(room => ({
-      campus: String(room.campus || room.Campus || '').trim(),
-      building: String(room.building || room.Building || '').trim(),
-      room: String(room.room || room.Room || '').trim(),
-      buildingRoom: String(room.buildingRoom || room['Building-Room'] || room.BuildingRoom || `${room.building || room.Building || ''}-${room.room || room.Room || ''}`).trim(),
-      type: String(room.type || room.Type || room.roomType || room['Room Type'] || '').trim(),
-      capacity: Number.isFinite(Number(room.capacity ?? room.Capacity ?? room.cap)) ? Number(room.capacity ?? room.Capacity ?? room.cap) : null,
-      priority: normalizeRoomPriority(room)
-    }))
+    .map(room => {
+      const rawPriorityDivision1 = roomPriorityRawValue(room, [
+        'rawPriorityDivision1',
+        'priorityDivision1',
+        'Priority Division 1',
+        'Priority Division',
+        'Room Priority',
+        'Primary Division',
+        'Assigned Division',
+        'Preferred Division',
+        'Dean Area',
+        'Priority Area',
+        'priority',
+        'roomPriority'
+      ]);
+      const rawPriorityDivision2 = roomPriorityRawValue(room, [
+        'rawPriorityDivision2',
+        'priorityDivision2',
+        'Priority Division 2',
+        'Secondary Division',
+        'Secondary Priority',
+        'Priority 2',
+        'Room Priority 2'
+      ]);
+      const priorityDivision1 = normalizeRoomPriorityDivision(rawPriorityDivision1, 'Unassigned', knownDivisions);
+      const priorityDivision2 = normalizeRoomPriorityDivision(rawPriorityDivision2, 'None', knownDivisions);
+      return {
+        campus: String(room.campus || room.Campus || '').trim(),
+        building: String(room.building || room.Building || '').trim(),
+        room: String(room.room || room.Room || '').trim(),
+        buildingRoom: String(room.buildingRoom || room['Building-Room'] || room.BuildingRoom || `${room.building || room.Building || ''}-${room.room || room.Room || ''}`).trim(),
+        type: String(room.type || room.Type || room.roomType || room['Room Type'] || '').trim(),
+        capacity: Number.isFinite(Number(room.capacity ?? room.Capacity ?? room.cap)) ? Number(room.capacity ?? room.Capacity ?? room.cap) : null,
+        rawPriorityDivision1: String(rawPriorityDivision1 || '').trim(),
+        rawPriorityDivision2: String(rawPriorityDivision2 || '').trim(),
+        priorityDivision1,
+        priorityDivision2,
+        priority: priorityDivision1
+      };
+    })
     .filter(room => room.building && room.room && room.buildingRoom);
 }
 
-function normalizeRoomPriority(room) {
-  const value = room?.priority
-    ?? room?.roomPriority
-    ?? room?.['Room Priority']
-    ?? room?.['Priority Division']
-    ?? room?.['Priority Area']
-    ?? room?.['Primary Division']
-    ?? room?.['Dean Area']
-    ?? room?.['Assigned Division']
-    ?? room?.['Preferred Division'];
-  const text = String(value || '').trim();
-  return text || 'Unassigned';
+function roomPriorityRawValue(room, names) {
+  for (const name of names) {
+    const value = room?.[name];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return '';
+}
+
+function normalizeRoomPriorityDivision(value, blankValue = 'Unassigned', knownDivisions = []) {
+  const text = normalizeFilterLabel(value);
+  if (!text) return blankValue;
+  if (normalizeFilterKey(text) === 'ADMINISTRATION') return 'Administration';
+  const match = (knownDivisions || []).find(division => normalizeFilterKey(division) === normalizeFilterKey(text));
+  return match || text;
+}
+
+function currentRoomPriorityDivisions() {
+  return [];
+}
+
+function roomPriorityWarnings(rooms, knownDivisions = []) {
+  const knownKeys = new Set((knownDivisions || []).map(normalizeFilterKey));
+  if (!knownKeys.size) return [];
+  const warnings = [];
+  normalizeRoomCatalog(rooms, knownDivisions).forEach(room => {
+    [
+      ['Priority Division 1', room.priorityDivision1],
+      ['Priority Division 2', room.priorityDivision2]
+    ].forEach(([field, value]) => {
+      const key = normalizeFilterKey(value);
+      if (!key || key === 'UNASSIGNED' || key === 'NONE' || key === 'ADMINISTRATION') return;
+      if (!knownKeys.has(key)) warnings.push({ buildingRoom: room.buildingRoom, field, value, warning: 'Unknown Priority Division' });
+    });
+  });
+  return warnings;
+}
+
+function roomPriorityScore(room, division) {
+  const divisionKey = normalizeFilterKey(division);
+  if (!divisionKey) return 0;
+  const first = normalizeFilterKey(room?.priorityDivision1 || room?.priority);
+  const second = normalizeFilterKey(room?.priorityDivision2);
+  if (first === divisionKey) return 2;
+  if (second === divisionKey) return 1;
+  if ([first, second].includes('ADMINISTRATION')) return 0;
+  const assigned = [first, second].filter(value => value && value !== 'UNASSIGNED' && value !== 'NONE');
+  if (!assigned.length) return 0;
+  return -1;
 }
 
 let roomCatalog = normalizeRoomCatalog(window.ROOM_CATALOG || []);
@@ -942,7 +1009,9 @@ document.addEventListener('DOMContentLoaded', () => {
     filterRoomUtilizationRowsByCategory,
     roomCatalogTestHooks: {
       normalizeRoomCatalog,
-      normalizeRoomPriority,
+      normalizeRoomPriorityDivision,
+      roomPriorityWarnings,
+      roomPriorityScore,
       roomCatalogToCsv
     },
     modalityBalanceTestHooks: {
@@ -1194,6 +1263,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
     const stamp = lastUpdated ? ` Updated ${new Date(lastUpdated).toLocaleString()}.` : '';
     setRoomCatalogStatus(`${roomCatalog.length} rooms loaded.${stamp}`);
+    renderRoomCatalogPreview();
   }
 
   function loadRoomCatalogFromBackend() {
@@ -1261,7 +1331,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     status.className = 'room-catalog-status';
     status.textContent = `${roomCatalog.length} rooms loaded.`;
 
-    roomCatalogAdminDiv.append(title, exportBtn, exportJsonBtn, importLabel, status);
+    const preview = document.createElement('div');
+    preview.id = 'room-catalog-preview';
+    preview.className = 'room-catalog-preview';
+
+    roomCatalogAdminDiv.append(title, exportBtn, exportJsonBtn, importLabel, status, preview);
+    renderRoomCatalogPreview();
     appendModalityDefinitionsAdmin();
 
     exportBtn.addEventListener('click', () => exportRoomCatalog('csv'));
@@ -1273,6 +1348,46 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         e.target.value = '';
       });
     });
+  }
+
+  function renderRoomCatalogPreview() {
+    const preview = document.getElementById('room-catalog-preview');
+    if (!preview) return;
+    const rooms = getRoomCatalogEntries();
+    const display = rooms.slice(0, 25);
+    if (!display.length) {
+      preview.innerHTML = '<p>No room catalog rows loaded.</p>';
+      return;
+    }
+    const rows = display.map(room => `
+      <tr>
+        <td>${escapeHTML(room.campus || '')}</td>
+        <td>${escapeHTML(room.building || '')}</td>
+        <td>${escapeHTML(room.room || '')}</td>
+        <td>${escapeHTML(room.capacity == null ? '' : room.capacity)}</td>
+        <td>${escapeHTML(room.type || '')}</td>
+        <td>${escapeHTML(room.priorityDivision1 || 'Unassigned')}</td>
+        <td>${escapeHTML(room.priorityDivision2 && room.priorityDivision2 !== 'None' ? room.priorityDivision2 : '-')}</td>
+      </tr>
+    `).join('');
+    preview.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Campus</th>
+            <th>Building</th>
+            <th>Room</th>
+            <th>Capacity</th>
+            <th>Room Type</th>
+            <th>Priority Division 1</th>
+            <th>Priority Division 2</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${rooms.length > display.length ? `<p>Showing first ${display.length} of ${rooms.length} rooms.</p>` : ''}
+      <p><strong>Priority Division 1</strong> is the division with first scheduling preference. <strong>Priority Division 2</strong> is a secondary scheduling preference. <strong>Administration</strong> means shared instructional space available to all divisions. <strong>Unassigned</strong> means no preferred division has been assigned. These fields are metadata for future schedule optimization recommendations.</p>
+    `;
   }
 
   function appendModalityDefinitionsAdmin() {
@@ -1483,7 +1598,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       Room: room.room,
       Capacity: room.capacity == null ? '' : room.capacity,
       'Room Type': room.type,
-      'Room Priority': room.priority
+      'Priority Division 1': room.priorityDivision1 || 'Unassigned',
+      'Priority Division 2': room.priorityDivision2 || 'None'
     }));
     return Papa.unparse(rows);
   }
@@ -2137,10 +2253,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!password) return;
     try {
       const parsedRooms = await parseRoomCatalogFile(file);
-      const rooms = normalizeRoomCatalog(parsedRooms);
+      const knownPriorityDivisions = uniqueFilterOptions(currentData.map(getDivision));
+      const rooms = normalizeRoomCatalog(parsedRooms, knownPriorityDivisions);
       if (!rooms.length) {
         throw new Error('No valid rooms found. Include Building and Room columns.');
       }
+      const priorityWarnings = roomPriorityWarnings(parsedRooms, knownPriorityDivisions);
       const res = await fetch(`${BACKEND_BASE_URL}/api/rooms/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2151,7 +2269,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       setRoomCatalog(payload.data || rooms);
       saveRoomCatalogBackup(payload.data || rooms, payload.lastUpdated);
       refreshRoomCatalogViews(payload.lastUpdated);
-      alert(`Imported ${payload.count || rooms.length} rooms.`);
+      if (priorityWarnings.length) {
+        setRoomCatalogStatus(`Imported ${payload.count || rooms.length} rooms. Unknown Priority Division warning for ${priorityWarnings.length} value(s).`, true);
+      }
+      alert(`Imported ${payload.count || rooms.length} rooms.${priorityWarnings.length ? ` ${priorityWarnings.length} Unknown Priority Division warning(s).` : ''}`);
     } catch (err) {
       alert('Room catalog import failed: ' + err.message);
       setRoomCatalogStatus('Room catalog import failed.', true);

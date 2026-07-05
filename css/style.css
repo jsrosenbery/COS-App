@@ -445,6 +445,41 @@ button:hover,
   font-size: 0.92rem;
 }
 
+.room-catalog-preview {
+  grid-column: 1 / -1;
+  width: 100%;
+  overflow-x: auto;
+}
+
+.room-catalog-preview table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.room-catalog-preview th,
+.room-catalog-preview td {
+  border-top: 1px solid rgba(32, 66, 96, 0.14);
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.room-catalog-preview th {
+  color: var(--ink);
+  background: rgba(31, 122, 168, 0.08);
+  font-weight: 800;
+}
+
+.room-catalog-preview p {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
 .modality-admin {
   margin: 0;
 }
