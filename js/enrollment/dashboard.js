@@ -27,6 +27,37 @@
     return censusEnrollment(row);
   }
 
+  function ftes(row) {
+    return Number(row?.ftes) || 0;
+  }
+
+  function canon(value) {
+    return String(value || '').trim().toUpperCase();
+  }
+
+  function hasValidScheduledMeetingTime(row) {
+    const start = String(row?.start || '').trim();
+    const end = String(row?.end || '').trim();
+    const timeBlock = canon(row?.timeBlock);
+    const dayPattern = canon(row?.dayPattern);
+    const days = Array.isArray(row?.days) ? row.days.filter(Boolean) : [];
+    if (!start || !end || !days.length) return false;
+    if (timeBlock === 'ONLINE/TBA' || dayPattern === 'TBA') return false;
+    if (start === '00:00' || end === '00:00') return false;
+    if (start >= '00:00' && start <= '00:59') return false;
+    if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return false;
+    return true;
+  }
+
+  function asyncTbaCategory(row) {
+    const modality = canon(row?.modality);
+    const timeBlock = canon(row?.timeBlock);
+    const dayPattern = canon(row?.dayPattern);
+    if (modality === 'ONLINE' && !hasValidScheduledMeetingTime(row)) return 'Online (Asynchronous)';
+    if (modality === 'TBA' || dayPattern === 'TBA' || timeBlock === 'ONLINE/TBA') return 'TBA';
+    return 'Unknown Meeting Time';
+  }
+
   function rowField(row, names) {
     const source = row?.raw && typeof row.raw === 'object' ? { ...row.raw, ...row } : row || {};
     const normalize = value => String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
@@ -179,17 +210,20 @@
   }
 
   function registrationPace(rows, historicalRows = []) {
+    const scheduledRows = (rows || []).filter(hasValidScheduledMeetingTime);
+    const historicalScheduledRows = (historicalRows || []).filter(hasValidScheduledMeetingTime);
+    const asyncRows = (rows || []).filter(row => !hasValidScheduledMeetingTime(row));
+    const historicalAsyncRows = (historicalRows || []).filter(row => !hasValidScheduledMeetingTime(row));
     const dimensions = [
-      ['Course', courseKey],
-      ['Division', row => row.division || 'UNKNOWN'],
-      ['Modality', row => row.modality || 'UNKNOWN'],
       ['Campus', row => row.campus || 'UNKNOWN'],
+      ['Modality', row => row.modality || 'UNKNOWN'],
+      ['Time Block', row => row.timeBlock || 'UNKNOWN', scheduledRows, historicalScheduledRows],
       ['Day Pattern', row => row.dayPattern || 'TBA'],
-      ['Time Block', row => row.timeBlock || 'ONLINE/TBA']
+      ['Division', row => row.division || 'UNKNOWN'],
+      ['Asynchronous/TBA', asyncTbaCategory, asyncRows, historicalAsyncRows]
     ];
-    return dimensions.flatMap(([dimension, keyer]) => paceRowsForDimension(rows, historicalRows, dimension, keyer))
-      .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
-      .slice(0, 12);
+    return dimensions.flatMap(([dimension, keyer, currentScope = rows, historicalScope = historicalRows]) => paceRowsForDimension(currentScope, historicalScope, dimension, keyer))
+      .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
   }
 
   function paceRowsForDimension(rows, historicalRows, dimension, keyer) {
@@ -200,6 +234,9 @@
       const expectedEnrollment = historical.get(name) ?? null;
       const variance = expectedEnrollment == null ? null : currentEnrollment - expectedEnrollment;
       const variancePct = expectedEnrollment ? variance / expectedEnrollment : null;
+      const currentFtes = groupRows.reduce((total, row) => total + ftes(row), 0);
+      const expectedFtes = expectedByGroup(historicalRows, keyer, ftes, false).get(name) ?? null;
+      const estimatedFtesImpact = expectedFtes == null ? null : currentFtes - expectedFtes;
       return {
         dimension,
         name,
@@ -207,22 +244,26 @@
         expectedEnrollment,
         variance,
         variancePct,
+        estimatedFtesImpact,
         status: paceStatus(variancePct)
       };
     });
   }
 
-  function expectedByGroup(rows, keyer) {
+  function expectedByGroup(rows, keyer, valueGetter = enrollment, roundValues = true) {
     const byTerm = group(rows, row => row.term || 'UNKNOWN');
     const samples = new Map();
     byTerm.forEach(termRows => {
       group(termRows, keyer).forEach((groupRows, key) => {
         if (!samples.has(key)) samples.set(key, []);
-        samples.get(key).push(groupRows.reduce((total, row) => total + enrollment(row), 0));
+        samples.get(key).push(groupRows.reduce((total, row) => total + valueGetter(row), 0));
       });
     });
     const out = new Map();
-    samples.forEach((values, key) => out.set(key, Math.round(average(values))));
+    samples.forEach((values, key) => {
+      const expected = average(values);
+      out.set(key, roundValues ? Math.round(expected) : expected);
+    });
     return out;
   }
 

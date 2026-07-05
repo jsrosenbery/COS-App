@@ -7195,7 +7195,7 @@
     const presence = summary.presence || { rows: [] };
     const structure = summary.structure || { modality: [] };
     document.getElementById('dashboardInsights').innerHTML = [
-      dashboardPanel('Registration Pace Monitor', miniTable(summary.pace || [], ['dimension', 'name', 'currentEnrollment', 'expectedEnrollment', 'variance', 'variancePct', 'status'], 'pace')),
+      dashboardPanel('Registration Pace Monitor', registrationPaceMonitorHtml(summary.pace || [])),
       dashboardPanel('Growth Opportunities', miniTable(summary.growth || [], ['course', 'waitlist', 'openSeats', 'viableOpenSeats', 'sameModalitySeats', 'onlineSeats', 'sameCampusSeats', 'timeWindowSeats', 'fillRate', 'recommendation'], 'growth')),
       dashboardPanel('Reduction Opportunities', `${miniTable(summary.reduction || [], ['type', 'course', 'potentialSectionsRemoved', 'availableReceivingCapacity', 'recommendation'], 'reduction')}<button type="button" data-report-target="${REPORTS.consolidation}">Open Consolidation Report</button>`),
       dashboardPanel('Student Presence Analytics', `${presenceExtremes(presence)}${miniTable(presence.rows || [], ['campus', 'day', 'hour', 'studentsPresent', 'sectionsActive', 'availableRoomCapacity'], 'presence')}<button type="button" data-report-target="${REPORTS.studentPresence}">Open Student Presence Report</button>`),
@@ -7221,6 +7221,22 @@
 
   function dashboardPanel(title, body) {
     return `<section class="dashboard-panel" data-collapsible-title="${escapeAttr(title)}" data-collapsible-id="dashboard-${escapeAttr(slugify(title))}"><h3>${escapeAttr(title)}</h3>${body}</section>`;
+  }
+
+  function registrationPaceMonitorHtml(rows) {
+    const columns = ['name', 'currentEnrollment', 'expectedEnrollment', 'variance', 'variancePct', 'estimatedFtesImpact', 'status'];
+    const sections = [
+      ['Registration Pace by Campus', 'Campus'],
+      ['Registration Pace by Modality', 'Modality'],
+      ['Registration Pace by Time Block', 'Time Block'],
+      ['Registration Pace by Day Pattern', 'Day Pattern'],
+      ['Registration Pace by Division', 'Division'],
+      ['Asynchronous/TBA', 'Asynchronous/TBA']
+    ];
+    return sections.map(([title, dimension]) => {
+      const dimensionRows = (rows || []).filter(row => row.dimension === dimension);
+      return `<section class="dashboard-pace-section"><h4>${escapeAttr(title)}</h4>${miniTable(dimensionRows, columns, 'pace')}</section>`;
+    }).join('');
   }
 
   async function saveSnapshotBatch() {
@@ -7317,7 +7333,7 @@
   function miniTable(rows, columns, tableType = '') {
     const display = (rows || []).slice(0, 12);
     if (!display.length) return '<p class="analytics-empty">No rows match the selected criteria.</p>';
-    return `<div class="dashboard-table-wrap"><table class="dashboard-mini-table dashboard-mini-table-${escapeAttr(tableType)}"><thead><tr>${columns.map(column => dashboardMiniHeader(column, tableType)).join('')}</tr></thead><tbody>${display.map(row => `<tr>${columns.map(column => `<td class="${dashboardCellClass(column)}">${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    return `<div class="dashboard-table-wrap"><table class="dashboard-mini-table dashboard-mini-table-${escapeAttr(tableType)}"><thead><tr>${columns.map(column => dashboardMiniHeader(column, tableType)).join('')}</tr></thead><tbody>${display.map(row => `<tr>${columns.map(column => `<td class="${dashboardCellClass(column)}">${dashboardCellHtml(row, column, tableType)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
 
   function dashboardMiniHeader(column, tableType) {
@@ -7335,6 +7351,7 @@
         expectedEnrollment: 'Expected',
         variance: 'Var.',
         variancePct: 'Var. %',
+        estimatedFtesImpact: 'FTES Impact',
         status: 'Status'
       },
       growth: {
@@ -7375,6 +7392,24 @@
 
   function dashboardCellClass(column) {
     return column === 'recommendation' || column === 'status' ? 'dashboard-cell-text' : '';
+  }
+
+  function dashboardCellHtml(row, column, tableType = '') {
+    if (tableType === 'pace' && column === 'status') return paceStatusBadge(row[column]);
+    if (tableType === 'pace' && column === 'estimatedFtesImpact' && row[column] == null) return 'N/A';
+    return escapeAttr(format(row[column], column));
+  }
+
+  function paceStatusBadge(status) {
+    const labelMap = {
+      'Ahead of Pace': 'Ahead',
+      'On Pace': 'Near Target',
+      'Behind Pace': 'Behind',
+      'N/A': 'N/A'
+    };
+    const labelText = labelMap[status] || status || 'N/A';
+    const classKey = String(labelText).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    return `<span class="dashboard-status-badge dashboard-status-${escapeAttr(classKey)}">${escapeAttr(labelText)}</span>`;
   }
 
   function presenceExtremes(presence) {
@@ -11826,7 +11861,7 @@
         ['Enrollment Health', 'Current enrollment, expected enrollment, variance, courses reviewed, sections reviewed, FTES, and available lifecycle milestones for the selected filters.'],
         ['Work Experience Rows Included', 'Metric card. Count of separate Work Experience Enrollment Upload rows included in the dashboard because the include Work Experience toggle is on. These rows contribute to enrollment and FTES summaries, but not physical room/time reports.'],
         ['Work Experience FTES Warnings', 'Metric card. Count of included Work Experience rows where FTES was not directly provided and could not be estimated from available units/contact-hour fields.'],
-        ['Registration Pace Monitor', 'Current focus-term enrollment versus average expected enrollment from comparable same-season historical terms by Course, Division, Modality, Campus, Day Pattern, and Time Block. The selected focus term and future terms are excluded. Status is Ahead of Pace, On Pace, Behind Pace, or N/A.'],
+        ['Registration Pace Monitor', 'Current focus-term enrollment versus average expected enrollment from comparable same-season historical terms by Campus, Modality, scheduled Time Block, scheduled Day Pattern, Division, and separate Asynchronous/TBA categories. The selected focus term and future terms are excluded. Status badges display Ahead, Near Target, Behind, or N/A. Time Block analyses only evaluate sections with valid scheduled meeting times. Asynchronous Online and TBA sections are analyzed separately because they have no fixed meeting schedule.'],
         ['Growth Opportunities', 'Courses with waitlist pressure or very high fill. Added capacity is considered only when viable open seats appear insufficient after reviewing same modality, online, same campus, time-window, and compatible-day seats.'],
         ['Reduction Opportunities', 'Top rows from the existing consolidation report output. Open the consolidation report for the full methodology and candidate details.'],
         ['Student Presence Analytics', 'In-person and hybrid student load by campus, day, and hour. Online rows are excluded.'],
@@ -13025,8 +13060,11 @@
       .dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px;margin-bottom:14px}
       .dashboard-panel{min-width:0;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;padding:12px;overflow:hidden}
       .dashboard-panel h3{margin:0 0 8px;color:#123367;font-size:15px}
+      .dashboard-pace-section{margin:0 0 14px}
+      .dashboard-pace-section h4{margin:0 0 6px;color:#123367;font-size:13px;font-weight:900}
       .dashboard-table-wrap{overflow-x:auto;overflow-y:auto;max-height:460px}
       .dashboard-panel table{width:100%;min-width:520px;border-collapse:collapse;background:#fff}
+      .dashboard-mini-table-pace{min-width:760px}
       .dashboard-mini-table-growth{min-width:760px}
       .dashboard-mini-table-reduction{min-width:680px}
       .dashboard-mini-table-presence{min-width:560px}
@@ -13034,6 +13072,11 @@
       .dashboard-panel th span{white-space:nowrap}
       .dashboard-panel td{border-top:1px solid #e6edf5;padding:7px;font-size:12px;vertical-align:top;word-break:normal;overflow-wrap:normal}
       .dashboard-panel td.dashboard-cell-text{white-space:normal;overflow-wrap:break-word;min-width:120px}
+      .dashboard-status-badge{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:900;line-height:1.3;white-space:nowrap;border:1px solid transparent}
+      .dashboard-status-ahead{background:#e8f5e9;color:#146c2e;border-color:#b9dfc1}
+      .dashboard-status-near-target{background:#fff7e0;color:#8a5a00;border-color:#f1d48a}
+      .dashboard-status-behind{background:#fdecec;color:#9b1c1c;border-color:#f4b4b4}
+      .dashboard-status-n-a{background:#eef2f7;color:#51657c;border-color:#d6e1ec}
       .dashboard-note{margin:0 0 8px;color:#334862;font-size:13px;line-height:1.35}
       .analytics-chart-panel{grid-column:1/-1;background:#fff}
       .analytics-line-chart{display:block;width:100%;height:auto;min-height:240px;background:#fff;border:1px solid #e2eaf3;border-radius:8px}

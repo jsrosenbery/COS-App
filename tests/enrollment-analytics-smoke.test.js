@@ -1048,12 +1048,12 @@ test('dashboard focus term scopes current metrics and excludes focus from histor
   assert.equal(summary.health.coursesReviewed, 1);
   assert.equal(summary.health.ftes, 0);
   assert.equal(summary.health.expectedEnrollment, 90);
-  const coursePace = summary.pace.find(row => row.dimension === 'Course' && row.name === 'BUS 050');
-  assert.equal(coursePace.currentEnrollment, 0);
-  assert.equal(coursePace.expectedEnrollment, 90);
-  assert.equal(coursePace.variance, -90);
-  assert.equal(coursePace.variancePct, -1);
-  assert.equal(coursePace.status, 'Behind Pace');
+  const campusPace = summary.pace.find(row => row.dimension === 'Campus' && row.name === 'VIS');
+  assert.equal(campusPace.currentEnrollment, 0);
+  assert.equal(campusPace.expectedEnrollment, 90);
+  assert.equal(campusPace.variance, -90);
+  assert.equal(campusPace.variancePct, -1);
+  assert.equal(campusPace.status, 'Behind Pace');
   assert.equal(historicalRows.some(row => row.term === 'SPRING 2027'), false);
   assert.equal(historicalRows.some(row => row.term === 'FALL 2026'), false);
 });
@@ -1068,14 +1068,43 @@ test('dashboard expected enrollment is N/A without comparable same-season histor
   const currentRows = COSEnrollmentAnalytics.dashboardCurrentRows(rows, 'SPRING 2027');
   const historicalRows = COSEnrollmentAnalytics.dashboardHistoricalRows(rows, 'SPRING 2027');
   const summary = COSEnrollmentDashboard.dashboardSummary(currentRows, historicalRows, []);
-  const coursePace = summary.pace.find(row => row.dimension === 'Course' && row.name === 'BUS 050');
+  const campusPace = summary.pace.find(row => row.dimension === 'Campus' && row.name === 'VIS');
 
   assert.equal(historicalRows.length, 0);
   assert.equal(summary.health.expectedEnrollment, null);
-  assert.equal(coursePace.expectedEnrollment, null);
-  assert.equal(coursePace.variance, null);
-  assert.equal(coursePace.variancePct, null);
-  assert.equal(coursePace.status, 'N/A');
+  assert.equal(campusPace.expectedEnrollment, null);
+  assert.equal(campusPace.variance, null);
+  assert.equal(campusPace.variancePct, null);
+  assert.equal(campusPace.status, 'N/A');
+});
+
+test('registration pace separates scheduled time blocks from asynchronous and TBA rows', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2027', crn: 'S1', modality: 'IN PERSON', campus: 'VIS', division: 'Arts', days: ['MO'], dayPattern: 'M', start: '09:00', end: '10:00', timeBlock: '09:00-09:59', census: 20, ftes: 2 }),
+    section({ term: 'FALL 2027', crn: 'O1', modality: 'ONLINE', campus: 'ONLINE', division: 'Arts', days: ['MO'], dayPattern: 'M', start: '00:00', end: '19:00', timeBlock: '00:00-00:59', census: 30, ftes: 3 }),
+    section({ term: 'FALL 2027', crn: 'T1', modality: 'TBA', campus: 'VIS', division: 'Arts', days: [], dayPattern: 'TBA', start: '', end: '', timeBlock: 'ONLINE/TBA', census: 10, ftes: 1 }),
+    section({ term: 'FALL 2027', crn: 'U1', modality: 'IN PERSON', campus: 'VIS', division: 'Arts', days: [], dayPattern: 'M', start: '', end: '', timeBlock: '', census: 5, ftes: 0.5 })
+  ];
+  const historicalRows = [
+    section({ term: 'FALL 2026', crn: 'HS1', modality: 'IN PERSON', campus: 'VIS', division: 'Arts', days: ['MO'], dayPattern: 'M', start: '09:00', end: '10:00', timeBlock: '09:00-09:59', census: 15, ftes: 1.5 }),
+    section({ term: 'FALL 2026', crn: 'HO1', modality: 'ONLINE', campus: 'ONLINE', division: 'Arts', days: ['MO'], dayPattern: 'M', start: '00:00', end: '19:00', timeBlock: '00:00-00:59', census: 25, ftes: 2.5 }),
+    section({ term: 'FALL 2026', crn: 'HT1', modality: 'TBA', campus: 'VIS', division: 'Arts', days: [], dayPattern: 'TBA', start: '', end: '', timeBlock: 'ONLINE/TBA', census: 8, ftes: 0.8 }),
+    section({ term: 'FALL 2026', crn: 'HU1', modality: 'IN PERSON', campus: 'VIS', division: 'Arts', days: [], dayPattern: 'M', start: '', end: '', timeBlock: '', census: 4, ftes: 0.4 })
+  ];
+  const summary = COSEnrollmentDashboard.dashboardSummary(rows, historicalRows, []);
+  const timeRows = summary.pace.filter(row => row.dimension === 'Time Block');
+  const asyncRows = summary.pace.filter(row => row.dimension === 'Asynchronous/TBA');
+
+  assert.equal(JSON.stringify(timeRows.map(row => row.name)), JSON.stringify(['09:00-09:59']));
+  assert.equal(timeRows.some(row => row.name === '00:00-00:59' || row.name === 'ONLINE/TBA'), false);
+  assert.equal(asyncRows.find(row => row.name === 'Online (Asynchronous)').currentEnrollment, 30);
+  assert.equal(asyncRows.find(row => row.name === 'TBA').currentEnrollment, 10);
+  assert.equal(asyncRows.find(row => row.name === 'Unknown Meeting Time').currentEnrollment, 5);
+  assert.equal(timeRows.reduce((total, row) => total + row.currentEnrollment, 0) + asyncRows.reduce((total, row) => total + row.currentEnrollment, 0), summary.health.currentEnrollment);
+  assert.equal(summary.pace.find(row => row.dimension === 'Campus' && row.name === 'VIS').currentEnrollment, 35);
+  assert.equal(summary.pace.find(row => row.dimension === 'Time Block' && row.name === '09:00-09:59').status, 'Ahead of Pace');
+  assert.equal(Number(summary.pace.find(row => row.dimension === 'Time Block' && row.name === '09:00-09:59').estimatedFtesImpact.toFixed(1)), 0.5);
 });
 
 test('dashboard all loaded terms is explicit gross-total mode', () => {
@@ -4128,6 +4157,19 @@ test('dashboard compact tables use short headers and nowrap CSS', () => {
 
   assert.match(text, /currentEnrollment: 'Current'/);
   assert.match(text, /expectedEnrollment: 'Expected'/);
+  assert.match(text, /estimatedFtesImpact: 'FTES Impact'/);
+  assert.match(text, /function registrationPaceMonitorHtml/);
+  assert.match(text, /Registration Pace by Campus/);
+  assert.match(text, /Registration Pace by Modality/);
+  assert.match(text, /Registration Pace by Time Block/);
+  assert.match(text, /Registration Pace by Day Pattern/);
+  assert.match(text, /Registration Pace by Division/);
+  assert.match(text, /Asynchronous\/TBA/);
+  assert.match(text, /function paceStatusBadge/);
+  assert.match(text, /'Ahead of Pace': 'Ahead'/);
+  assert.match(text, /'On Pace': 'Near Target'/);
+  assert.match(text, /'Behind Pace': 'Behind'/);
+  assert.match(text, /dashboard-status-badge/);
   assert.match(text, /sameModalitySeats: 'Same Mod\.'/);
   assert.match(text, /availableReceivingCapacity: 'Receiving Cap\.'/);
   assert.match(text, /studentsPresent: 'Students'/);
