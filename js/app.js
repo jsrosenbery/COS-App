@@ -494,8 +494,21 @@ function normalizeRoomCatalog(rawRooms, knownDivisions = []) {
         'Priority 2',
         'Room Priority 2'
       ]);
+      const rawRoomFeatures = roomPriorityRawValue(room, [
+        'rawRoomFeatures',
+        'roomFeaturesText',
+        'roomFeatures',
+        'Room Features',
+        'Features',
+        'Preferred Room Features',
+        'Technology Features',
+        'Instructional Features',
+        'Equipment',
+        'Notes'
+      ]);
       const priorityDivision1 = normalizeRoomPriorityDivision(rawPriorityDivision1, 'Unassigned', knownDivisions);
       const priorityDivision2 = normalizeRoomPriorityDivision(rawPriorityDivision2, 'None', knownDivisions);
+      const roomFeatures = normalizeRoomFeatures(rawRoomFeatures);
       return {
         campus: String(room.campus || room.Campus || '').trim(),
         building: String(room.building || room.Building || '').trim(),
@@ -507,7 +520,10 @@ function normalizeRoomCatalog(rawRooms, knownDivisions = []) {
         rawPriorityDivision2: String(rawPriorityDivision2 || '').trim(),
         priorityDivision1,
         priorityDivision2,
-        priority: priorityDivision1
+        priority: priorityDivision1,
+        rawRoomFeatures: String(rawRoomFeatures || '').trim(),
+        roomFeatures,
+        roomFeaturesText: roomFeatures.join('; ')
       };
     })
     .filter(room => room.building && room.room && room.buildingRoom);
@@ -527,6 +543,14 @@ function normalizeRoomPriorityDivision(value, blankValue = 'Unassigned', knownDi
   if (normalizeFilterKey(text) === 'ADMINISTRATION') return 'Administration';
   const match = (knownDivisions || []).find(division => normalizeFilterKey(division) === normalizeFilterKey(text));
   return match || text;
+}
+
+function normalizeRoomFeatures(value) {
+  const text = Array.isArray(value) ? value.join('; ') : String(value || '');
+  return text
+    .split(/[;,]/)
+    .map(item => normalizeFilterLabel(item))
+    .filter(Boolean);
 }
 
 function currentRoomPriorityDivisions() {
@@ -1010,6 +1034,7 @@ document.addEventListener('DOMContentLoaded', () => {
     roomCatalogTestHooks: {
       normalizeRoomCatalog,
       normalizeRoomPriorityDivision,
+      normalizeRoomFeatures,
       roomPriorityWarnings,
       roomPriorityScore,
       roomCatalogToCsv
@@ -1368,6 +1393,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         <td>${escapeHTML(room.type || '')}</td>
         <td>${escapeHTML(room.priorityDivision1 || 'Unassigned')}</td>
         <td>${escapeHTML(room.priorityDivision2 && room.priorityDivision2 !== 'None' ? room.priorityDivision2 : '-')}</td>
+        <td>${escapeHTML(room.roomFeaturesText || '')}</td>
       </tr>
     `).join('');
     preview.innerHTML = `
@@ -1381,12 +1407,13 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
             <th>Room Type</th>
             <th>Priority Division 1</th>
             <th>Priority Division 2</th>
+            <th>Room Features</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
       ${rooms.length > display.length ? `<p>Showing first ${display.length} of ${rooms.length} rooms.</p>` : ''}
-      <p><strong>Priority Division 1</strong> is the division with first scheduling preference. <strong>Priority Division 2</strong> is a secondary scheduling preference. <strong>Administration</strong> means shared instructional space available to all divisions. <strong>Unassigned</strong> means no preferred division has been assigned. These fields are metadata for future schedule optimization recommendations.</p>
+      <p><strong>Priority Division 1</strong> is the division with first scheduling preference. <strong>Priority Division 2</strong> is a secondary scheduling preference. <strong>Administration</strong> means shared instructional space available to all divisions. <strong>Unassigned</strong> means no preferred division has been assigned. <strong>Room Features</strong> are optional room attributes intended for future room-matching and schedule-optimization tools. They do not currently restrict Room Availability results.</p>
     `;
   }
 
@@ -1599,7 +1626,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       Capacity: room.capacity == null ? '' : room.capacity,
       'Room Type': room.type,
       'Priority Division 1': room.priorityDivision1 || 'Unassigned',
-      'Priority Division 2': room.priorityDivision2 || 'None'
+      'Priority Division 2': room.priorityDivision2 || 'None',
+      'Room Features': room.roomFeaturesText || ''
     }));
     return Papa.unparse(rows);
   }
