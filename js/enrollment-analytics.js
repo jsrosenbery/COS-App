@@ -3368,25 +3368,22 @@
     const sourceRows = state.facultyHeatmapRows || [];
     const rows = facultyFilterSourceRows({ includeFacultyType: false });
     const metricName = document.getElementById('fhMetric')?.value || 'sections';
+    const clearLegacyFacultyHeatmapSlots = () => {
+      ['facultyHeatmapMetrics', 'facultyHeatmapTable', 'facultyHeatmapLegend'].forEach(id => {
+        const node = document.getElementById(id);
+        if (node) node.innerHTML = '';
+      });
+    };
     if (!sourceRows.length) {
       if (status) status.textContent = 'No faculty schedule rows loaded.';
-      metric('facultyHeatmapMetrics', [
-        ['Peak teaching time', 'N/A'],
-        ['Peak FT teaching', 'N/A'],
-        ['Peak PT teaching', 'N/A'],
-        ['Peak enrollment', 'N/A', 'enrollment'],
-        ['Peak LHE', 'N/A', 'lhe'],
-        ['Most active day', 'N/A'],
-        ['Least active day', 'N/A']
-      ]);
+      clearLegacyFacultyHeatmapSlots();
       document.getElementById('facultyHeatmapContainer').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Schedule.</p>';
       document.getElementById('facultyHeatmapComparisonTable').innerHTML = '<p class="analytics-empty">No faculty schedule data loaded.</p>';
       document.getElementById('facultyHeatmapDistributionChart').innerHTML = '';
       document.getElementById('facultyHeatmapRatioHeatmap').innerHTML = '';
-      document.getElementById('facultyHeatmapTable').innerHTML = '<p class="analytics-empty">No faculty schedule data loaded.</p>';
-      document.getElementById('facultyHeatmapLegend').innerHTML = '';
       return;
     }
+    clearLegacyFacultyHeatmapSlots();
     if (status) {
       const terms = [...new Set(sourceRows.map(facultyTerm))].sort().join(', ');
       status.textContent = `Loaded ${sourceRows.length} deduped meeting row(s). Terms: ${terms || 'Unspecified'}.`;
@@ -3434,48 +3431,6 @@
     renderFacultyHeatmapDistributionChart(distributionRows, metricName);
     const ratioRows = facultyHeatmapRatioRows(builtFullTime, builtPartTime, metricName);
     renderFacultyHeatmapRatioHeatmap(ratioRows, builtOverall, metricName);
-    const peakTeaching = peakFacultyHeatmapCell(builtOverall.rows, 'sections');
-    const peakEnrollment = peakFacultyHeatmapCell(builtOverall.rows, 'enrollment');
-    const peakLhe = peakFacultyHeatmapCell(builtOverall.rows, 'lhe');
-    const peakFt = peakFacultyHeatmapCell(builtFullTime.rows, 'sections');
-    const peakPt = peakFacultyHeatmapCell(builtPartTime.rows, 'sections');
-    const dayTotals = builtOverall.dayKeys.map(day => ({
-      day: builtOverall.dayNames[day],
-      sections: builtOverall.rows.filter(row => row.day === day).reduce((total, row) => total + row.sections, 0)
-    }));
-    const mostActiveDay = dayTotals.slice().sort((a, b) => b.sections - a.sections)[0];
-    const leastActiveDay = dayTotals.slice().sort((a, b) => a.sections - b.sections)[0];
-    const cellLabel = (cell, metric = 'sections') => cell ? `${cell.dayName} ${cell.time} (${metric === 'lhe' ? (cell[metric] || 0).toFixed(1) : Math.round(cell[metric] || 0)})` : 'N/A';
-    const fullTimeFaculty = facultyHeatmapDistinctFaculty(fullTimeRows);
-    const partTimeFaculty = facultyHeatmapDistinctFaculty(partTimeRows);
-    metric('facultyHeatmapMetrics', [
-      ['Total Faculty Scheduled', facultyHeatmapDistinctFaculty(overallRows), 'faculty-count'],
-      ['Full-Time Faculty Scheduled', fullTimeFaculty, 'full-time-faculty'],
-      ['Part-Time Faculty Scheduled', partTimeFaculty, 'part-time-faculty'],
-      ['FT/PT Ratio', partTimeFaculty ? `${round1(fullTimeFaculty / partTimeFaculty)}:1` : (fullTimeFaculty ? 'All FT' : 'N/A')],
-      ['Peak Concurrent Overall', cellLabel(peakTeaching, 'sections')],
-      ['Peak Concurrent Full-Time', cellLabel(peakFt, 'sections'), 'full-time-faculty'],
-      ['Peak Concurrent Part-Time', cellLabel(peakPt, 'sections'), 'part-time-faculty'],
-      ['Peak enrollment', cellLabel(peakEnrollment, 'enrollment'), 'enrollment'],
-      ['Peak LHE', cellLabel(peakLhe, 'lhe'), 'lhe'],
-      ['Most active day', mostActiveDay ? `${mostActiveDay.day} (${mostActiveDay.sections})` : 'N/A'],
-      ['Least active day', leastActiveDay ? `${leastActiveDay.day} (${leastActiveDay.sections})` : 'N/A']
-    ]);
-    const nonEmpty = panels.flatMap(facultyHeatmapPanelDetailRows);
-    table('facultyHeatmapTable', nonEmpty, ['facultyGroup', 'day', 'time', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe']);
-    renderMethodologyPanel(document.getElementById('facultyHeatmapLegend'), {
-      title: 'Faculty Schedule Heatmap Methodology & Data Dictionary',
-      purpose: 'Shows when faculty instructional activity is concentrated by half-hour interval using Faculty Schedule CSV data.',
-      metricsUsed: ['Sections Active', 'Faculty Count', 'Enrollment Present', 'Seats Offered', 'LHE', 'Faculty Type', 'Meeting Type'],
-      calculationRules: 'Rows are normalized by the Faculty Schedule parser and deduplicated by CRN, day pattern, start/end time, meeting type, and instructor. Each meeting contributes to every overlapping 30-minute active meeting interval on every scheduled day.',
-      assumptions: 'Faculty Type maps FCNT_CODE values. Meeting Type maps SCHD_CODE_SSRMEET values. Omitted faculty types are excluded before calculations.',
-      limitations: 'This report reflects only manual or saved Faculty Schedule Data rows. Faculty Schedule Data is stored separately from Section Seating / Schedule Data and does not affect Room Availability. It does not include workload rules, reassigned time, non-instructional duties, or unuploaded assignments.',
-      items: [
-        ['Faculty Type', 'FCNT_CODE mapping: FT and TE are Full-Time, JP is Part-Time, unknown codes are Unknown, and AE/X omitted rows are excluded.'],
-        ['Meeting Type', 'SCHD_CODE_SSRMEET mapping: 2 is Lecture, 4 is Lab, XX is Activity, and all other codes are Other.']
-      ],
-      version: 'Methodology v1.0'
-    });
     state.facultyHeatmapRan = true;
   }
 
@@ -12302,11 +12257,7 @@
       { selector: '#demandCharts', id: 'demand-forecast-charts', title: 'Enrollment Planning Forecast Charts' },
       { selector: '#demandTable', id: 'demand-detail-table', title: 'Enrollment Planning Forecast Detail Table' },
       { selector: '#demandLegend', id: 'demand-methodology', title: 'Enrollment Planning Forecast Methodology and Definitions' },
-      { selector: '#facultyHeatmapMetrics', id: 'faculty-heatmap-summary-cards', title: 'Faculty Schedule Heatmap Summary Cards' },
-      { selector: '#facultyHeatmapContainer', id: 'faculty-heatmap', title: 'Faculty Schedule Heatmap' },
       { selector: '#facultyHeatmapComparisonTable', id: 'faculty-heatmap-comparison-table', title: 'Faculty Schedule Heatmap Comparison Table' },
-      { selector: '#facultyHeatmapTable', id: 'faculty-heatmap-table', title: 'Faculty Schedule Detail Table' },
-      { selector: '#facultyHeatmapLegend', id: 'faculty-heatmap-methodology', title: 'Faculty Heatmap Methodology' },
       { selector: '#facultyModalityChart', id: 'faculty-modality-chart', title: 'Faculty Modality Chart' },
       { selector: '#facultyModalityTable', id: 'faculty-modality-table', title: 'Faculty Modality Detail Table' },
       { selector: '#facultyModalityLegend', id: 'faculty-modality-methodology', title: 'Faculty Modality Methodology' },

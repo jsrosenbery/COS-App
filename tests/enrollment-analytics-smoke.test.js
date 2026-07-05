@@ -2929,6 +2929,11 @@ test('faculty schedule heatmap is a standalone Development report', () => {
   assert.match(text, /facultyHeatmapPanelDetailTableHtml/);
   assert.match(text, /facultyHeatmapPanelMethodologyHtml/);
   assert.match(text, /data-collapsible-default-open="true"/);
+  assert.doesNotMatch(text, /selector: '#facultyHeatmapContainer'/);
+  assert.doesNotMatch(text, /selector: '#facultyHeatmapMetrics'/);
+  assert.doesNotMatch(text, /selector: '#facultyHeatmapTable'/);
+  assert.doesNotMatch(text, /selector: '#facultyHeatmapLegend'/);
+  assert.doesNotMatch(text, /table\('facultyHeatmapTable'/);
   assert.match(text, /const sharedSlots = facultyHeatmapSlots\(overallRows/);
   assert.match(text, /const maxValue = Math\.max\(0, \.\.\.\[builtOverall, builtFullTime, builtPartTime\]/);
   assert.match(text, /function facultyHeatmapComparisonRows/);
@@ -2984,17 +2989,13 @@ test('faculty schedule heatmap is a standalone Development report', () => {
   assert.match(text, /FacultyScheduleHeatmap_\$\{panel\.exportSlug\}\.pdf/);
   assert.match(text, /FacultyScheduleHeatmap_\$\{exportSlug\}\.png/);
   assert.match(text, /facultyGroup: panel\.groupLabel/);
-  assert.match(text, /Total Faculty Scheduled/);
-  assert.match(text, /Full-Time Faculty Scheduled/);
-  assert.match(text, /Part-Time Faculty Scheduled/);
-  assert.match(text, /FT\/PT Ratio/);
-  assert.match(text, /Peak Concurrent Overall/);
-  assert.match(text, /Peak Concurrent Full-Time/);
-  assert.match(text, /Peak Concurrent Part-Time/);
-  assert.match(text, /Peak enrollment/);
-  assert.match(text, /Peak LHE/);
-  assert.match(text, /Most active day/);
-  assert.match(text, /Least active day/);
+  assert.match(text, /Faculty Scheduled/);
+  assert.match(text, /Meeting Rows Included/);
+  assert.match(text, /Instructional Meetings/);
+  assert.match(text, /Enrollment Supported/);
+  assert.match(text, /Seats Supported/);
+  assert.match(text, /Peak Time/);
+  assert.match(text, /Peak Value/);
 });
 
 test('faculty modality is a standalone Development report using INSM codes', () => {
