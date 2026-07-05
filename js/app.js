@@ -1044,6 +1044,7 @@ document.addEventListener('DOMContentLoaded', () => {
       normalizeRoomFeatures,
       roomPriorityWarnings,
       roomPriorityScore,
+      getRoomCatalogEntries,
       roomCatalogToCsv,
       setupRoomCatalogAdmin
     },

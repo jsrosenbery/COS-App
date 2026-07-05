@@ -2713,6 +2713,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
     'REPORTS.studentChoiceOpportunity',
     'REPORTS.busyTimeDashboard',
     'REPORTS.recommendationEngine',
+    'REPORTS.scheduleOptimizationLab',
     'REPORTS.instructionalMethodValidation',
     'REPORTS.archiveInspection',
     'REPORTS.snapshotManager',
@@ -3477,6 +3478,40 @@ test('modality balance uses shared modality category normalization and diagnosti
   assert.match(app, /modalityBalanceTestHooks/);
   assert.match(app, /normalizeTermLabel\(canonical\.term\)/);
   assert.match(app, /CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL/);
+});
+
+test('schedule optimization lab is a standalone Development planning tool', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const moduleText = fs.readFileSync(path.join(__dirname, '..', 'js/core/schedule-optimization.js'), 'utf8');
+
+  assert.match(index, /js\/core\/schedule-optimization\.js/);
+  assert.match(text, /scheduleOptimizationLab: 'schedule-optimization-lab'/);
+  assert.match(text, /\[REPORTS\.scheduleOptimizationLab\]: 'development'/);
+  assert.match(text, /\[REPORTS\.scheduleOptimizationLab\]: 'Schedule Optimization Lab'/);
+  assert.match(text, /id="scheduleOptimizationLabReport"/);
+  assert.match(text, /Room priority behavior/);
+  assert.match(text, /Advisory only/);
+  assert.match(text, /Prefer priority match/);
+  assert.match(text, /Strict priority match/);
+  assert.match(text, /Allowed time shift/);
+  assert.match(text, /Room Move Recommendations/);
+  assert.match(text, /Time Shift Recommendations/);
+  assert.match(text, /Add-a-Class Placement/);
+  assert.match(text, /Room Priority Audit/);
+  assert.match(text, /runScheduleOptimizationLab/);
+  assert.match(text, /exportOptimizationRows/);
+  assert.match(text, /setReportDisplay\(REPORTS\.scheduleOptimizationLab, 'scheduleOptimizationLabReport'\)/);
+  assert.match(text, /optimization-room-move-recommendations/);
+  assert.match(text, /optimization-room-priority-audit', title: 'Room Priority Audit', defaultOpen: false/);
+  assert.match(moduleText, /function normalizeRoomPriority/);
+  assert.match(moduleText, /function roomFitScore/);
+  assert.match(moduleText, /function generateRoomMoveRecommendations/);
+  assert.match(moduleText, /function generateTimeShiftRecommendations/);
+  assert.match(moduleText, /function addClassPlacement/);
+  assert.match(moduleText, /function roomPriorityAudit/);
+  assert.match(moduleText, /Room too small for historical cap/);
+  assert.match(moduleText, /behavior === 'strict'/);
 });
 
 test('modality balance counts unduplicated CRN offerings and census-first enrollment', () => {

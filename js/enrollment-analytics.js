@@ -22,6 +22,7 @@
     busyTimeDashboard: 'busy-time-dashboard',
     studentChoiceOpportunity: 'student-choice-opportunity',
     recommendationEngine: 'scheduling-recommendation-engine',
+    scheduleOptimizationLab: 'schedule-optimization-lab',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
@@ -63,6 +64,7 @@
     [REPORTS.busyTimeDashboard]: 'development',
     [REPORTS.studentChoiceOpportunity]: 'development',
     [REPORTS.recommendationEngine]: 'development',
+    [REPORTS.scheduleOptimizationLab]: 'development',
     [REPORTS.facultyHeatmap]: 'development'
   };
   const REPORT_LABEL = {
@@ -87,6 +89,7 @@
     [REPORTS.busyTimeDashboard]: 'Busy Time Dashboard',
     [REPORTS.studentChoiceOpportunity]: 'Schedule Opportunity Analysis',
     [REPORTS.recommendationEngine]: 'Scheduling Recommendation Engine',
+    [REPORTS.scheduleOptimizationLab]: 'Schedule Optimization Lab',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
@@ -110,6 +113,7 @@
     REPORTS.studentChoiceOpportunity,
     REPORTS.busyTimeDashboard,
     REPORTS.recommendationEngine,
+    REPORTS.scheduleOptimizationLab,
     REPORTS.instructionalMethodValidation,
     REPORTS.archiveInspection,
     REPORTS.snapshotManager,
@@ -150,7 +154,8 @@
         REPORTS.supplyDemand,
         REPORTS.studentChoiceOpportunity,
         REPORTS.busyTimeDashboard,
-        REPORTS.recommendationEngine
+        REPORTS.recommendationEngine,
+        REPORTS.scheduleOptimizationLab
       ]
     },
     {
@@ -235,6 +240,12 @@
     recommendationFacultyRows: [],
     recommendationOutputRows: [],
     recommendationRan: false,
+    optimizationMoves: [],
+    optimizationShifts: [],
+    optimizationPlacements: [],
+    optimizationAudit: [],
+    optimizationContext: {},
+    optimizationRan: false,
     conflictRows: [],
     conflictInput: [],
     conflictTerms: [],
@@ -2181,6 +2192,78 @@
           <div id="recommendationPriorityList" class="analytics-legend"></div>
           <div id="recommendationTable" class="analytics-table"></div>
           <div id="recommendationLegend" class="analytics-legend"></div>
+        </div>
+        <div id="scheduleOptimizationLabReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Schedule Optimization Lab</h2>
+            <p>Recommends room moves, small time shifts, and add-a-class placement options using the existing Room Catalog and uploaded schedule data. Recommendations are planning suggestions only and never change source schedule rows.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>Planning Use</h3>
+                <ul>
+                  <li>Use this lab to identify possible same-time room moves, small time adjustments, and placement options for new sections.</li>
+                  <li>Room Catalog is the primary room inventory source, including capacity, room type, priority divisions, and optional room features.</li>
+                  <li>Every recommendation includes score components, priority alignment, reason, confidence, and tradeoffs for review.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Safety</h3>
+                <ul>
+                  <li>This tool does not alter Room Availability, uploaded schedule data, archives, or analytics calculations.</li>
+                  <li>Asynchronous Online/TBA rows are excluded from time-based optimization so they do not create artificial room conflicts.</li>
+                  <li>Strict priority mode blocks mismatched priority recommendations; advisory mode allows them with warnings.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Active term <select id="optimizationTerm"></select></label>
+            <label>Room priority behavior
+              <select id="optimizationPriorityBehavior">
+                <option value="advisory">Advisory only</option>
+                <option value="prefer" selected>Prefer priority match</option>
+                <option value="strict">Strict priority match</option>
+              </select>
+            </label>
+            <label>Allowed time shift
+              <select id="optimizationAllowedShift">
+                <option value="0">None</option>
+                <option value="30">±30 minutes</option>
+                <option value="60">±1 hour</option>
+                <option value="120">±2 hours</option>
+              </select>
+            </label>
+            <button id="runScheduleOptimizationLab" type="button">Run Optimization Lab</button>
+            <button id="exportOptimizationMoves" type="button">Export Room Moves</button>
+            <button id="exportOptimizationShifts" type="button">Export Time Shifts</button>
+            <button id="exportOptimizationPlacements" type="button">Export Placements</button>
+            <button id="exportOptimizationAudit" type="button">Export Priority Audit</button>
+          </div>
+          <div id="optimizationContext" class="analytics-legend"></div>
+          <div id="optimizationMetrics" class="analytics-metrics"></div>
+          <div id="optimizationSettingsPanel" class="analytics-legend"></div>
+          <div id="optimizationInventoryStatus" class="analytics-legend"></div>
+          <div id="optimizationMoveTable" class="analytics-table"></div>
+          <div id="optimizationShiftTable" class="analytics-table"></div>
+          <section id="optimizationAddClassPanel" class="demand-report-section">
+            <h3>Add-a-Class Placement</h3>
+            <div class="analytics-toolbar">
+              <label>Course <input id="optimizationAddCourse" type="text" placeholder="ENGL C1000"></label>
+              <label>Expected enrollment <input id="optimizationAddEnrollment" type="number" min="1" value="35"></label>
+              <label>Campus <input id="optimizationAddCampus" type="text" placeholder="COS"></label>
+              <label>Modality <input id="optimizationAddModality" type="text" value="In-Person"></label>
+              <label>Room type <input id="optimizationAddRoomType" type="text" value="Classroom"></label>
+              <label>Day pattern <input id="optimizationAddDays" type="text" value="MW"></label>
+              <label>Start <input id="optimizationAddStart" type="time" value="09:00" step="1800"></label>
+              <label>Duration minutes <input id="optimizationAddDuration" type="number" min="30" step="15" value="75"></label>
+              <label>Division / priority <input id="optimizationAddDivision" type="text"></label>
+              <label class="analytics-check"><input id="optimizationAddIncludeHistory" type="checkbox" checked> Include historical demand</label>
+              <button id="runOptimizationPlacement" type="button">Rank Placement Options</button>
+            </div>
+            <div id="optimizationPlacementTable" class="analytics-table"></div>
+          </section>
+          <div id="optimizationPriorityAudit" class="analytics-table"></div>
+          <div id="optimizationMethodology" class="analytics-legend"></div>
         </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -6313,6 +6396,181 @@
     const pageHeight = pdf.internal.pageSize.getHeight() - 40;
     pdf.addImage(imgData, 'PNG', 20, 20, pageWidth, Math.min(pageHeight, canvas.height * pageWidth / canvas.width));
     pdf.save('scheduling-recommendations.pdf');
+  }
+
+  function optimizationEngine() {
+    if (!window.COSScheduleOptimization) throw new Error('Schedule Optimization engine is not loaded.');
+    return window.COSScheduleOptimization;
+  }
+
+  function optimizationRoomCatalog() {
+    const rooms = window.COSScheduleApp?.roomCatalogTestHooks?.getRoomCatalogEntries?.() || window.ROOM_CATALOG || [];
+    return optimizationEngine().normalizeRoomCatalog(rooms);
+  }
+
+  function updateOptimizationTermOptions() {
+    const select = document.getElementById('optimizationTerm');
+    if (!select) return;
+    const selected = select.value;
+    const terms = [...new Set((state.enrollment || []).map(row => normalizeTermLabel(row.term)).filter(Boolean))]
+      .sort((a, b) => termSortValue(a) - termSortValue(b));
+    resetSelect(select, terms, terms.length ? 'Latest loaded term' : 'No loaded terms', '');
+    select.value = selected && terms.includes(selected) ? selected : (terms[terms.length - 1] || '');
+  }
+
+  function optimizationActiveRows() {
+    const term = document.getElementById('optimizationTerm')?.value || '';
+    const rows = (state.enrollment || []).map(normalize);
+    return term ? rows.filter(row => normalizeTermLabel(row.term) === term) : rows;
+  }
+
+  function optimizationExcludedRows(rows) {
+    const engine = optimizationEngine();
+    const all = rows.map(engine.normalizeSection);
+    const usable = all.filter(engine.isTimeBasedSection || (() => false));
+    return {
+      total: all.length,
+      usable: usable.length,
+      excluded: all.length - usable.length,
+      reasons: [
+        ['Asynchronous Online/TBA or missing fixed time', all.filter(row => !engine.isTimeBasedSection(row)).length]
+      ].filter(([, count]) => count > 0)
+    };
+  }
+
+  function optimizationAddClassInput() {
+    return {
+      course: document.getElementById('optimizationAddCourse')?.value || '',
+      expectedEnrollment: document.getElementById('optimizationAddEnrollment')?.value || '',
+      campus: document.getElementById('optimizationAddCampus')?.value || '',
+      modality: document.getElementById('optimizationAddModality')?.value || 'In-Person',
+      roomType: document.getElementById('optimizationAddRoomType')?.value || '',
+      preferredDayPattern: document.getElementById('optimizationAddDays')?.value || 'MW',
+      preferredStart: document.getElementById('optimizationAddStart')?.value || '09:00',
+      durationMinutes: document.getElementById('optimizationAddDuration')?.value || 75,
+      division: document.getElementById('optimizationAddDivision')?.value || '',
+      includeHistory: document.getElementById('optimizationAddIncludeHistory')?.checked !== false
+    };
+  }
+
+  function scoreComponentsText(components = {}) {
+    return Object.entries(components).map(([key, value]) => `${label(key)}: ${value}`).join('; ');
+  }
+
+  function flattenOptimizationRows(rows = []) {
+    return rows.map(row => ({
+      ...row,
+      scoreComponents: typeof row.scoreComponents === 'string' ? row.scoreComponents : scoreComponentsText(row.scoreComponents)
+    }));
+  }
+
+  function renderOptimizationMethodology() {
+    renderMethodologyPanel(document.getElementById('optimizationMethodology'), {
+      title: 'Schedule Optimization Lab Methodology & Data Dictionary',
+      purpose: 'Recommends possible room moves, small time shifts, and add-a-class placements for executive planning review.',
+      methodology: 'Room fit compares assigned room capacity, section cap, current enrollment, historical average/peak enrollment, historical cap, room type, campus, and room priority. Historical cap risk is flagged when the room fits current enrollment but is smaller than historical or normal cap expectations. Room priority affects scoring according to the selected behavior: Advisory only, Prefer priority match, or Strict priority match. Time shifts are constrained to the selected tolerance and preserve day pattern and duration. Add-a-class placement ranks available rooms and day/time options using the same transparent score components.',
+      assumptions: 'Recommendations are advisory and do not automatically change schedules, archives, Room Availability, Room Catalog, or uploaded data. Room Catalog is treated as the primary room inventory source.',
+      limitations: 'The lab does not model instructor contracts, student conflicts across courses, travel time, program sequencing, room setup time, equipment needs beyond room type/features, or leadership decisions. Strict priority mode blocks mismatched priority recommendations; other modes surface priority warnings for review.',
+      items: [
+        ['Capacity Fit', 'Rewards rooms close to expected enrollment, section cap, and historical cap/peak demand.'],
+        ['Historical Cap Risk', 'Flags sections placed in rooms smaller than historical cap, historical peak enrollment, or normal section cap.'],
+        ['Room Priority', 'Raw room priority is preserved and normalized into primary and secondary priority areas.'],
+        ['Time Shift', 'Only considers shifts within the selected tolerance and excludes asynchronous Online/TBA rows.'],
+        ['Add-a-Class Placement', 'Ranks available rooms for a hypothetical new section based on capacity, room type, priority, and conflicts.'],
+        ['What this tool does not do', 'It does not automatically edit schedules or replace manual review by deans, schedulers, faculty, or facilities.']
+      ],
+      version: 'Methodology v1.0'
+    });
+  }
+
+  function renderScheduleOptimizationLab() {
+    const engine = optimizationEngine();
+    updateOptimizationTermOptions();
+    const rooms = optimizationRoomCatalog();
+    const activeRows = optimizationActiveRows();
+    const allRows = (state.enrollment || []).map(normalize);
+    const priorityBehavior = document.getElementById('optimizationPriorityBehavior')?.value || 'prefer';
+    const allowedShiftMinutes = Number(document.getElementById('optimizationAllowedShift')?.value || 0);
+    const exclusions = optimizationExcludedRows(activeRows);
+    const options = { priorityBehavior, allowedShiftMinutes, includeHistory: true, historyRows: allRows };
+    const moves = engine.generateRoomMoveRecommendations(activeRows, rooms, options);
+    const shifts = engine.generateTimeShiftRecommendations(activeRows, rooms, options);
+    const placements = engine.addClassPlacement(optimizationAddClassInput(), allRows, rooms, {
+      priorityBehavior,
+      includeHistory: document.getElementById('optimizationAddIncludeHistory')?.checked !== false
+    });
+    const audit = engine.roomPriorityAudit(rooms);
+    state.optimizationMoves = flattenOptimizationRows(moves);
+    state.optimizationShifts = flattenOptimizationRows(shifts);
+    state.optimizationPlacements = flattenOptimizationRows(placements);
+    state.optimizationAudit = audit;
+    state.optimizationContext = {
+      activeTerm: document.getElementById('optimizationTerm')?.value || 'All loaded terms',
+      historyTerms: [...new Set(allRows.map(row => normalizeTermLabel(row.term)).filter(term => term && term !== document.getElementById('optimizationTerm')?.value))].join(', '),
+      roomCatalogStatus: rooms.length ? `${rooms.length} rooms available` : 'No room catalog loaded',
+      scheduledSectionsAnalyzed: exclusions.usable,
+      sectionsExcluded: exclusions.excluded,
+      exclusionReasons: exclusions.reasons.map(([reason, count]) => `${reason}: ${count}`).join('; ') || 'None',
+      activeFilters: 'Uses loaded schedule rows for selected active term.',
+      priorityBehavior,
+      allowedShiftMinutes
+    };
+    renderReportContext(REPORTS.scheduleOptimizationLab, {
+      selectedTerm: state.optimizationContext.activeTerm,
+      rowsIncluded: exclusions.usable,
+      exclusions: state.optimizationContext.exclusionReasons,
+      filters: [
+        { label: 'Room priority behavior', value: priorityBehavior },
+        { label: 'Allowed time shift', value: `${allowedShiftMinutes} minutes` }
+      ],
+      notes: [
+        { label: 'Room catalog', value: state.optimizationContext.roomCatalogStatus },
+        { label: 'History terms', value: state.optimizationContext.historyTerms || 'None' }
+      ]
+    });
+    document.getElementById('optimizationContext').innerHTML = `
+      <strong>Report Context</strong>
+      <dl class="report-context-list">
+        ${Object.entries(state.optimizationContext).map(([key, value]) => `<div><dt>${escapeAttr(label(key))}</dt><dd>${escapeAttr(value)}</dd></div>`).join('')}
+      </dl>
+    `;
+    metric('optimizationMetrics', [
+      ['Rooms Available', rooms.length],
+      ['Scheduled Sections Analyzed', exclusions.usable],
+      ['Sections Excluded', exclusions.excluded],
+      ['Room Move Recommendations', state.optimizationMoves.length],
+      ['Time Shift Recommendations', state.optimizationShifts.length],
+      ['Add-a-Class Options', state.optimizationPlacements.length],
+      ['Priority Audit Rows', state.optimizationAudit.length]
+    ]);
+    document.getElementById('optimizationSettingsPanel').innerHTML = `<strong>Optimization Settings</strong><p>Priority behavior: ${escapeAttr(priorityBehavior)}. Allowed time shift: ${escapeAttr(allowedShiftMinutes)} minutes. Recommendations remain advisory and do not update source data.</p>`;
+    document.getElementById('optimizationInventoryStatus').innerHTML = `<strong>Room Inventory Status</strong><p>${escapeAttr(rooms.length ? `${rooms.length} normalized Room Catalog rows loaded as primary inventory source.` : 'No Room Catalog rows are available. Import Room Catalog before relying on recommendations.')}</p>`;
+    table('optimizationMoveTable', state.optimizationMoves, ['crn', 'course', 'section', 'currentRoom', 'suggestedRoom', 'currentCapacity', 'suggestedCapacity', 'currentEnrollment', 'sectionCap', 'historicalAverageEnrollment', 'historicalPeakEnrollment', 'roomTypeComparison', 'roomPriorityComparison', 'reason', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
+    table('optimizationShiftTable', state.optimizationShifts, ['crn', 'course', 'currentDayTime', 'suggestedDayTime', 'currentRoom', 'suggestedRoom', 'timeShiftAmount', 'improvementReason', 'conflictsAvoided', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
+    table('optimizationPlacementTable', state.optimizationPlacements, ['course', 'bestRoom', 'bestDayTime', 'capacity', 'expectedEnrollment', 'expectedFillRate', 'historicalDemandSupport', 'roomFit', 'priorityAlignment', 'utilizationImpact', 'primeTimePressure', 'score', 'scoreComponents', 'why']);
+    table('optimizationPriorityAudit', state.optimizationAudit, ['campus', 'building', 'room', 'roomKey', 'capacity', 'roomType', 'rawRoomPriority', 'primaryPriorityArea', 'secondaryPriorityArea', 'priorityNotes', 'matchConfidence', 'matchMethod', 'matchNote']);
+    renderOptimizationMethodology();
+    refreshGeneratedCollapsibleSections(document.getElementById('scheduleOptimizationLabReport'));
+    state.optimizationRan = true;
+  }
+
+  function runScheduleOptimizationLab() {
+    renderScheduleOptimizationLab();
+  }
+
+  function runOptimizationPlacement() {
+    renderScheduleOptimizationLab();
+  }
+
+  function exportOptimizationRows(kind) {
+    const map = {
+      moves: [state.optimizationMoves, 'schedule-optimization-room-moves.csv'],
+      shifts: [state.optimizationShifts, 'schedule-optimization-time-shifts.csv'],
+      placements: [state.optimizationPlacements, 'schedule-optimization-add-class-placement.csv'],
+      audit: [state.optimizationAudit, 'schedule-optimization-room-priority-audit.csv']
+    };
+    const [rows, filename] = map[kind] || [[], 'schedule-optimization.csv'];
+    exportRows(rows, filename);
   }
 
   async function loadWorkExperienceRows() {
@@ -11537,6 +11795,7 @@
     [REPORTS.studentChoiceOpportunity]: 'studentChoiceReport',
     [REPORTS.recommendationEngine]: 'recommendationReport',
     [REPORTS.facultyHeatmap]: 'facultyHeatmapReport',
+    [REPORTS.scheduleOptimizationLab]: 'scheduleOptimizationLabReport',
     [REPORTS.workExperience]: 'workExperienceReport'
   };
 
@@ -11554,7 +11813,8 @@
     [REPORTS.primeTimeAnalysis]: 'primeTime',
     [REPORTS.supplyDemand]: 'supplyDemand',
     [REPORTS.studentChoiceOpportunity]: 'studentChoice',
-    [REPORTS.recommendationEngine]: 'recommendation'
+    [REPORTS.recommendationEngine]: 'recommendation',
+    [REPORTS.scheduleOptimizationLab]: 'optimization'
   };
 
   const METRIC_REPORT_MAP = {
@@ -11570,6 +11830,7 @@
     busyTimeMetrics: REPORTS.busyTimeDashboard,
     studentChoiceMetrics: REPORTS.studentChoiceOpportunity,
     recommendationMetrics: REPORTS.recommendationEngine,
+    optimizationMetrics: REPORTS.scheduleOptimizationLab,
     modalityMetrics: REPORTS.modality,
     roomFitReportMetrics: REPORTS.roomFit
   };
@@ -12247,6 +12508,14 @@
       { selector: '#recommendationPriorityList', id: 'recommendation-priority-list', title: 'Filterable Priority List' },
       { selector: '#recommendationTable', id: 'recommendation-detail-table', title: 'Recommendation Detail Table' },
       { selector: '#recommendationLegend', id: 'recommendation-diagnostics-methodology', title: 'Recommendation Diagnostics and Methodology' },
+      { selector: '#optimizationContext', id: 'optimization-report-context', title: 'Report Context' },
+      { selector: '#optimizationSettingsPanel', id: 'optimization-settings', title: 'Optimization Settings' },
+      { selector: '#optimizationInventoryStatus', id: 'optimization-room-inventory-status', title: 'Room Inventory Status' },
+      { selector: '#optimizationMoveTable', id: 'optimization-room-move-recommendations', title: 'Room Move Recommendations' },
+      { selector: '#optimizationShiftTable', id: 'optimization-time-shift-recommendations', title: 'Time Shift Recommendations' },
+      { selector: '#optimizationAddClassPanel', id: 'optimization-add-class-placement', title: 'Add-a-Class Placement' },
+      { selector: '#optimizationPriorityAudit', id: 'optimization-room-priority-audit', title: 'Room Priority Audit', defaultOpen: false },
+      { selector: '#optimizationMethodology', id: 'optimization-methodology', title: 'Methodology', defaultOpen: false },
       { selector: '#attritionMetrics', id: 'attrition-summary-cards', title: 'Attrition Summary Cards' },
       { selector: '#attritionCharts', id: 'attrition-charts', title: 'Attrition Charts' },
       { selector: '#attritionDiagnostics', id: 'attrition-diagnostics', title: 'Attrition Diagnostics' },
@@ -12822,6 +13091,7 @@
     setReportDisplay(REPORTS.studentChoiceOpportunity, 'studentChoiceOpportunityReport');
     setReportDisplay(REPORTS.recommendationEngine, 'recommendationEngineReport');
     setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
+    setReportDisplay(REPORTS.scheduleOptimizationLab, 'scheduleOptimizationLabReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
     const heatmapTool = document.getElementById('heatmap-tool');
@@ -12919,6 +13189,13 @@
     if (selected === REPORTS.recommendationEngine && !state.recommendationRan) {
       updateRecommendationFilterOptions();
       document.getElementById('recommendationTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
+    }
+    if (selected === REPORTS.scheduleOptimizationLab && !state.optimizationRan) {
+      updateOptimizationTermOptions();
+      renderOptimizationMethodology();
+      document.getElementById('optimizationMoveTable').innerHTML = '<p class="analytics-empty">Load schedule data and click Run Optimization Lab.</p>';
+      document.getElementById('optimizationShiftTable').innerHTML = '<p class="analytics-empty">Select an allowed time shift and click Run Optimization Lab.</p>';
+      document.getElementById('optimizationPlacementTable').innerHTML = '<p class="analytics-empty">Enter add-a-class details and click Rank Placement Options.</p>';
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -13492,6 +13769,22 @@
     document.getElementById('clearRecommendationEngine')?.addEventListener('click', clearRecommendationEngine);
     document.getElementById('exportRecommendationCsv')?.addEventListener('click', () => exportRowsWithoutMethodology(state.recommendationOutputRows, 'scheduling-recommendations.csv'));
     document.getElementById('exportRecommendationPdf')?.addEventListener('click', () => exportRecommendationPdf().catch(err => alert(err.message || 'PDF export failed.')));
+    document.getElementById('runScheduleOptimizationLab')?.addEventListener('click', () => {
+      try { runScheduleOptimizationLab(); } catch (err) { alert(err.message || 'Schedule Optimization Lab failed.'); }
+    });
+    document.getElementById('runOptimizationPlacement')?.addEventListener('click', () => {
+      try { runOptimizationPlacement(); } catch (err) { alert(err.message || 'Add-a-class placement failed.'); }
+    });
+    ['optimizationTerm', 'optimizationPriorityBehavior', 'optimizationAllowedShift'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => { if (state.optimizationRan) renderScheduleOptimizationLab(); });
+    });
+    ['optimizationAddCourse', 'optimizationAddEnrollment', 'optimizationAddCampus', 'optimizationAddModality', 'optimizationAddRoomType', 'optimizationAddDays', 'optimizationAddStart', 'optimizationAddDuration', 'optimizationAddDivision', 'optimizationAddIncludeHistory'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => { if (state.optimizationRan) renderScheduleOptimizationLab(); });
+    });
+    document.getElementById('exportOptimizationMoves')?.addEventListener('click', () => exportOptimizationRows('moves'));
+    document.getElementById('exportOptimizationShifts')?.addEventListener('click', () => exportOptimizationRows('shifts'));
+    document.getElementById('exportOptimizationPlacements')?.addEventListener('click', () => exportOptimizationRows('placements'));
+    document.getElementById('exportOptimizationAudit')?.addEventListener('click', () => exportOptimizationRows('audit'));
     document.getElementById('saveFacultyScheduleArchive')?.addEventListener('click', () => saveFacultyScheduleArchive().catch(err => alert(err.message || 'Faculty Schedule save failed.')));
     document.getElementById('loadSavedFacultyScheduleHeatmap')?.addEventListener('click', () => loadSavedFacultyScheduleHeatmap().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
