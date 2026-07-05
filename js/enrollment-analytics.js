@@ -1617,7 +1617,7 @@
                 <ul>
                   <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor. Saved Faculty Schedule archives are stored separately from Section Seating / Schedule Data.</li>
                   <li>A meeting contributes to every half-hour interval it overlaps on each scheduled day.</li>
-                  <li>Sections counts instructional meeting rows once per day/time bucket. Faculty Count counts distinct faculty in each bucket. Enrollment uses ActualEnroll, Seats uses MaxEnroll, and LHE uses the uploaded LHE value.</li>
+                  <li>Sections counts instructional meeting rows once per day/time block. Faculty Count counts distinct faculty in each day/time block. Enrollment uses ActualEnroll, Seats uses MaxEnroll, and LHE uses the uploaded LHE value.</li>
                   <li>Faculty Type maps FCNT_CODE values: FT and TE are Full-Time, JP is Part-Time, unknown codes are Unknown, and omitted faculty types are excluded from this report.</li>
                   <li>Meeting Type maps SCHD_CODE_SSRMEET values: 2 is Lecture, 4 is Lab, XX is Activity, and all other codes are Other.</li>
                 </ul>
@@ -1845,8 +1845,8 @@
               <div>
                 <h3>Methodology</h3>
                 <ul>
-                  <li>Only rows with fixed meeting days and start/end times contribute to the half-hour grid. Online/TBA/no-time rows are not placed into physical time buckets.</li>
-                  <li>Each section contributes to every half-hour interval it overlaps on every scheduled day. Duplicate rows for the same CRN/day/start/end are counted once per bucket.</li>
+                  <li>Only rows with fixed meeting days and start/end times contribute to the half-hour grid. Online/TBA/no-time rows are not placed into physical day/time blocks.</li>
+                  <li>Each section contributes to every 30-minute interval it overlaps on every scheduled day. Duplicate rows for the same CRN/day/start/end are counted once per active meeting interval.</li>
                   <li>Student Presence uses census enrollment when available and current enrollment otherwise. Fill Rate = enrollment / seats offered. Empty Seats = seats offered - enrollment.</li>
                   <li>Interpretation labels compare supply and demand indicators. They are planning prompts, not proof of student preference or automatic scheduling decisions.</li>
                 </ul>
@@ -1912,7 +1912,7 @@
               <div>
                 <h3>Methodology</h3>
                 <ul>
-                  <li>Half-hour buckets count each CRN/day/start/end once, then add enrollment, seats, and room usage to every interval the class overlaps.</li>
+                  <li>Each 30-minute interval counts each CRN/day/start/end once, then adds enrollment, seats, and room usage to every interval the class overlaps.</li>
                   <li>Prime time defaults to Monday-Thursday, 9:00 AM-3:00 PM.</li>
                   <li>Observations describe alignment or contrast among supply, demand, faculty concentration, student concentration, and room utilization. They are not scheduling recommendations.</li>
                 </ul>
@@ -3376,7 +3376,7 @@
       title: 'Faculty Schedule Heatmap Methodology & Data Dictionary',
       purpose: 'Shows when faculty instructional activity is concentrated by half-hour interval using Faculty Schedule CSV data.',
       metricsUsed: ['Sections Active', 'Faculty Count', 'Enrollment Present', 'Seats Offered', 'LHE', 'Faculty Type', 'Meeting Type'],
-      calculationRules: 'Rows are normalized by the Faculty Schedule parser and deduplicated by CRN, day pattern, start/end time, meeting type, and instructor. Each meeting contributes to every overlapping half-hour bucket on every scheduled day.',
+      calculationRules: 'Rows are normalized by the Faculty Schedule parser and deduplicated by CRN, day pattern, start/end time, meeting type, and instructor. Each meeting contributes to every overlapping 30-minute active meeting interval on every scheduled day.',
       assumptions: 'Faculty Type maps FCNT_CODE values. Meeting Type maps SCHD_CODE_SSRMEET values. Omitted faculty types are excluded before calculations.',
       limitations: 'This report reflects only manual or saved Faculty Schedule Data rows. Faculty Schedule Data is stored separately from Section Seating / Schedule Data and does not affect Room Availability. It does not include workload rules, reassigned time, non-instructional duties, or unuploaded assignments.',
       items: [
@@ -4484,9 +4484,9 @@
       ['Enrollment', totalEnrollment, 'enrollment'],
       ['Fill Rate', `${(safeDiv(totalEnrollment, totalSeats) * 100).toFixed(1)}%`, 'fill-rate'],
       ['Waitlist', totalWaitlist, 'waitlist'],
-      ['High Demand Buckets', highDemand],
-      ['Hidden Demand Buckets', hiddenDemand, 'hidden-demand'],
-      ['Oversupplied Buckets', oversupplied, 'oversupply']
+      ['High Demand Blocks', highDemand],
+      ['Hidden Demand Blocks', hiddenDemand, 'hidden-demand'],
+      ['Oversupplied Blocks', oversupplied, 'oversupply']
     ]);
   }
 
@@ -4520,9 +4520,9 @@
       assumptions: 'Enrollment alone cannot demonstrate student preference because students can only enroll in sections that were offered at available times, campuses, and modalities.',
       limitations: 'Interpretation labels are planning prompts. They do not prove preference or recommend schedule changes by themselves.',
       items: [
-        ['High Demand', 'A bucket with strong fill or waitlist indicators relative to offered seats.'],
-        ['Balanced', 'A bucket where supply and enrollment pressure appear reasonably aligned.'],
-        ['Low Activity', 'A bucket with little or no section activity after filters.']
+        ['High Demand', 'A day/time block with strong fill or waitlist indicators relative to offered seats.'],
+        ['Balanced', 'A day/time block where supply and enrollment pressure appear reasonably aligned.'],
+        ['Low Activity', 'A day/time block with little or no section activity after filters.']
       ],
       version: 'Methodology v1.0'
     });
@@ -4938,7 +4938,7 @@
       title: 'Busy Time Dashboard Methodology & Data Dictionary',
       purpose: 'Summarizes busy-time patterns by combining student presence, course duration, faculty concentration, supply/demand, prime time, and room utilization signals.',
       metricsUsed: ['Historical Aggregation Mode', 'Student Presence', 'Scheduled Class Offerings, Unique CRNs', 'Instructional Meetings', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Choice Diversity Index', 'Faculty Count', 'Prime-Time Concentration'],
-      calculationRules: 'Student Presence and Supply vs Demand use half-hour buckets from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by half-hour bucket. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Historical Aggregation defaults to Average per Selected Term for planning comparisons.',
+      calculationRules: 'Student Presence and Supply vs Demand use 30-minute intervals from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by 30-minute interval. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Historical Aggregation defaults to Average per Selected Term for planning comparisons.',
       assumptions: 'Dashboard observations are descriptive summaries only. They are intended to show alignment or contrast among supply, demand, faculty concentration, student concentration, and room utilization.',
       limitations: 'This dashboard does not make scheduling recommendations and does not include every operational constraint, such as budget, program sequencing, instructor availability, or room setup requirements.',
       items: [
@@ -4951,11 +4951,11 @@
         ['Summer Weighting', 'Summer terms are weighted lower when planning Fall or Spring because Summer has different scheduling patterns, compressed calendars, student availability, and section mix. Summer receives full or near-full weight when planning another Summer term.'],
         ['Scheduled Class Offerings, Unique CRNs', 'Distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN count once.'],
         ['Instructional Meetings', 'Distinct meeting components. Same CRN may count more than once for distinct day/time/component records.'],
-        ['Faculty Concentration', 'Share of included faculty bucket activity occurring in the busiest faculty time bucket.'],
-        ['Student Concentration', 'Share of included student presence occurring in the busiest student-presence bucket.'],
-        ['Seat Supply', 'Total seats offered across included fixed meeting buckets.'],
+        ['Faculty Concentration', 'Share of included faculty activity occurring in the busiest faculty 30-minute interval.'],
+        ['Student Concentration', 'Share of included student presence occurring in the busiest student-presence interval.'],
+        ['Seat Supply', 'Total seats offered across included fixed meeting intervals.'],
         ['Demand Pressure', '(Enrollment + waitlist) divided by seats offered.'],
-        ['Choice Diversity Index', '0-100 index. Formula blends course breadth, subject breadth, GE breadth, and a concentration penalty based on the largest single-course share of active sections in the bucket.']
+        ['Choice Diversity Index', '0-100 index. Formula blends course breadth, subject breadth, GE breadth, and a concentration penalty based on the largest single-course share of active sections in the day/time block.']
       ],
       version: 'Methodology v1.0'
     });
@@ -5741,9 +5741,9 @@
       assumptions: 'Students can only enroll in sections that exist. Future terms without enrollment should be evaluated against historical demand. Historical projections are planning estimates, not guarantees.',
       limitations: 'Opportunity metrics do not include every operational constraint, such as budget, program sequencing, instructor availability, room setup, commute constraints, or course substitution rules not represented in the source data.',
       items: [
-        ['Unique Courses', 'Distinct discipline + course combinations available in a time bucket.'],
-        ['Unique Subjects', 'Distinct subject/discipline codes available in a time bucket.'],
-        ['Unique CAL-GETC Courses', 'Distinct courses in the bucket that map to configured CAL-GETC areas.'],
+        ['Unique Courses', 'Distinct discipline + course combinations available in a day/time block.'],
+        ['Unique Subjects', 'Distinct subject/discipline codes available in a day/time block.'],
+        ['Unique CAL-GETC Courses', 'Distinct courses in the day/time block that map to configured CAL-GETC areas.'],
         ['Scheduled Class Offerings', 'Distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN are counted once in summary metrics.'],
         ['Instructional Meetings', 'Distinct meeting components. A CRN may count more than once when it has distinct lecture, lab, activity, day, or time records.'],
         ['Historical Aggregation Mode', 'Controls how selected historical terms are summarized: Average per Selected Term, Total Across Selected Terms, Most Recent Comparable Term, or Weighted Historical Average.'],
@@ -5754,13 +5754,13 @@
         ['Summer Weighting', 'Summer terms are weighted lower when planning Fall or Spring because Summer has different scheduling patterns, compressed calendars, student availability, and section mix. Summer receives full or near-full weight when planning another Summer term.'],
         ['Historical Opportunity Gap', 'Current planned schedule metric minus the selected historical average metric.'],
         ['Planning Window', 'Active expansion recommendations use the default recommended start window of 7:00 AM through 7:00 PM. Late-night findings are suppressed from active recommendations and may appear as diagnostics in recommendation tooling.'],
-        ['Physical Scheduling Only', 'Default time-based mode. Counts in-person and hybrid scheduled meeting intervals only. Asynchronous online sections are excluded from time buckets because they do not consume a specific day/time block.'],
+        ['Physical Scheduling Only', 'Default time-based mode. Counts in-person and hybrid scheduled meeting intervals only. Asynchronous online sections are excluded from day/time blocks because they do not consume a specific day/time block.'],
         ['Scheduled Online', 'Includes synchronous online rows only when they have real scheduled days and start/end times. They contribute only to the intervals they overlap.'],
-        ['All Online', 'Includes online rows that have usable scheduled meeting intervals in time-based buckets. Asynchronous or placeholder online rows still do not populate overnight or full-day activity.'],
+        ['All Online', 'Includes online rows that have usable scheduled meeting intervals in time-based day/time blocks. Asynchronous or placeholder online rows still do not populate overnight or full-day activity.'],
         ['Show inactive hours', 'When unchecked, the heatmap crops to the earliest and latest active instructional interval after filters. When checked, it exports and displays the complete full-day axis.'],
-        ['Choice Diversity Index', '0-100 index. Formula blends course breadth, subject breadth, GE breadth, and a concentration penalty based on the largest single-course share of active sections in the bucket.'],
-        ['High choice / high demand', 'A bucket with broad choice and strong enrollment/fill indicators.'],
-        ['Low choice / high demand', 'A bucket with limited choice and strong enrollment/fill indicators.']
+        ['Choice Diversity Index', '0-100 index. Formula blends course breadth, subject breadth, GE breadth, and a concentration penalty based on the largest single-course share of active sections in the day/time block.'],
+        ['High choice / high demand', 'A day/time block with broad choice and strong enrollment/fill indicators.'],
+        ['Low choice / high demand', 'A day/time block with limited choice and strong enrollment/fill indicators.']
       ],
       version: 'Methodology v2.0'
     });
@@ -6026,7 +6026,7 @@
         affectedTermSource: document.getElementById('recommendationTerm')?.value || 'Multiple/filtered',
         dayTimeBlock: `${concentrated.day} ${formatPresenceHourLabel(concentrated.minutes / 60)}`,
         facultyType,
-        evidenceSummary: `${concentrated.total} faculty meeting rows in this prime-time bucket; ${Math.max(concentrated.fullTime, concentrated.partTime)} are ${facultyType}.`,
+        evidenceSummary: `${concentrated.total} faculty meeting rows in this prime-time 30-minute interval; ${Math.max(concentrated.fullTime, concentrated.partTime)} are ${facultyType}.`,
         metricsUsed: 'faculty assignment pattern; prime-time analysis; student demand distribution',
         whyThisMatters: 'Faculty assignment concentration can differ from student demand concentration and should be visible before interpreting schedule balance.',
         suggestedAction: 'Review faculty assignment distribution against student demand patterns.',
@@ -8355,10 +8355,10 @@
       title: 'Student Presence Analytics Methodology & Data Dictionary',
       purpose: 'Estimates physical student presence from loaded scheduled sections and enrollment for the selected focus term.',
       methodology: 'Rows are included by default only when they are in-person or hybrid, have fixed meeting days and times, use physical COS/TCC/HAC campus codes or their local aliases, and do not use online, web, virtual, or TBA campus values. Dual Enrollment is excluded by default and can be included with the report toggle. Students present uses census enrollment when available and current enrollment otherwise. Nominal Scheduled Presence counts every scheduled physical meeting at full enrollment. Expected Physical Presence adjusts hybrid or irregular meetings by a Meeting Frequency Factor so classes meeting only part of the term contribute proportionally less to average campus presence. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct instructional meeting block.',
-      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included meeting buckets. A multi-day or long-duration section contributes to each applicable half-hour bucket, but Scheduled Class Offerings still count unique CRNs across the selected scope. Comparison curves use the same filters and inclusion toggles for each selected term.',
+      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included active meeting intervals. A multi-day or long-duration section contributes to each applicable 30-minute interval, but Scheduled Class Offerings still count unique CRNs across the selected scope. Comparison curves use the same filters and inclusion toggles for each selected term.',
       limitations: 'This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.',
       items: [
-        ['Students Present', 'Sum of census/current enrollment once per distinct CRN/day/start/end block in the selected physical presence bucket.'],
+        ['Students Present', 'Sum of census/current enrollment once per distinct CRN/day/start/end block in the selected active meeting interval.'],
         ['Nominal Scheduled Presence', 'Current/default behavior. Every valid physical meeting block contributes full census/current enrollment to each active half-hour interval.'],
         ['Expected Physical Presence', 'Enrollment multiplied by a Meeting Frequency Factor so hybrid, short-term, or irregular meetings contribute proportionally to typical campus presence.'],
         ['Meeting Frequency Factor', 'A 0.00-1.00 multiplier. Full-term weekly meetings use 1.00; partial-term meetings use meeting weeks divided by full-term weeks, exact meeting count divided by expected full-term weekly meetings, or meeting date span divided by term date span.'],
@@ -8366,17 +8366,17 @@
         ['Scheduled Class Offerings', 'Unique CRNs after filters are applied.'],
         ['Instructional Meetings', 'Distinct CRN/day/start/end/component blocks. The same CRN may count more than once when it has distinct lecture, lab, activity, day, or time records.'],
         ['Course Duration', 'Active distinct CRN/day/start/end blocks across overlapping half-hour intervals.'],
-        ['Sections Active', 'Distinct instructional meeting blocks active in the selected bucket.'],
+        ['Sections Active', 'Distinct instructional meeting blocks active in the selected 30-minute interval.'],
         ['Distinct CRNs Included', 'Overall count of unique CRNs included after filters and physical-presence exclusions.'],
         ['Meeting Rows Included', 'Raw included meeting rows after filters. This can be higher than distinct CRNs when a section has multiple meeting rows.'],
         ['Half-Hour Physical Presence Curve', 'Compares selected terms across half-hour intervals. A section contributes to every half-hour interval overlapped by its meeting time, and duplicate rows for the same CRN/day/start/end block are counted once.'],
         ['Include Dual Enrollment', 'Optional control. Default OFF. When enabled, Dual Enrollment rows with physical campus/day/time data may be included.'],
         ['Include Other Modalities', 'Optional control. Default OFF. When enabled, fixed-time non-online rows outside In-Person/Hybrid can be reviewed. Hide Online can then be used to remove online rows from that expanded scope.'],
         ['Campus Scope', 'Limits Student Presence Analytics to COS, HAC, and TCC only. All includes those three campus codes; selecting COS, HAC, or TCC narrows the report to that campus. Other campus codes are omitted from this report.'],
-        ['Available Room Capacity', 'Scheduled capacity minus enrollment for the bucket, floored at zero.'],
-        ['Seats Scheduled', 'Total scheduled section capacity in the bucket.'],
+        ['Available Room Capacity', 'Scheduled capacity minus enrollment for the 30-minute interval, floored at zero.'],
+        ['Seats Scheduled', 'Total scheduled section capacity in the 30-minute interval.'],
         ['Average Fill Rate', 'Students Present divided by Seats Scheduled.'],
-        ['Peak/Lightest', 'Highest and lowest physical presence buckets after filters are applied.']
+        ['Peak/Lightest', 'Highest and lowest physical presence intervals after filters are applied.']
       ],
       version: 'Methodology v1.0'
     });
@@ -11979,21 +11979,21 @@
   }
 
   const COMMON_ANALYTICS_DEFINITIONS = window.COSUtils?.commonAnalyticsDefinitions || [
-    ['Campus Choice Count', 'Number of distinct campus codes represented in a day/time bucket after filters and exclusions are applied.'],
-    ['Course Choice Count', 'Number of distinct discipline + course combinations available in a day/time bucket after CRN/day/time deduplication.'],
-    ['GE Choice Count', 'Number of distinct CAL-GETC mapped courses available in a day/time bucket after filters are applied.'],
-    ['Subject Breadth Count', 'Number of distinct subject/discipline codes represented in a day/time bucket.'],
-    ['Seat Choice Count', 'Total section capacity offered in a day/time bucket. This measures the quantity of seats available, not the number of distinct courses.'],
-    ['Modality Choice Count', 'Number of distinct reportable modality categories represented in a bucket. User-facing categories are In-Person, Hybrid, and Online.'],
+    ['Campus Choice Count', 'Number of distinct campus codes represented in a day/time block after filters and exclusions are applied.'],
+    ['Course Choice Count', 'Number of distinct discipline + course combinations available in a day/time block after CRN/day/time deduplication.'],
+    ['GE Choice Count', 'Number of distinct CAL-GETC mapped courses available in a day/time block after filters are applied.'],
+    ['Subject Breadth Count', 'Number of distinct subject/discipline codes represented in a day/time block.'],
+    ['Seat Choice Count', 'Total section capacity offered in a day/time block. This measures the quantity of seats available, not the number of distinct courses.'],
+    ['Modality Choice Count', 'Number of distinct reportable modality categories represented in a day/time block. User-facing categories are In-Person, Hybrid, and Online.'],
     ['Choice Diversity Index', '0-100 index that increases when a time block has more unique courses, more unique subjects, more CAL-GETC/GE choices, and less concentration in only one or two courses. High diversity means many different courses/subjects are available. Low diversity means many seats or sections may be concentrated in a small number of courses.'],
-    ['Student Presence', 'Estimated students physically scheduled in a time block. Uses census enrollment when available, otherwise actual/current enrollment, and adds that enrollment to each half-hour interval the section overlaps.'],
-    ['Sections Active', 'Distinct CRNs active in a day/time bucket. Duplicate meeting rows for the same CRN/day/start/end are counted once.'],
-    ['Seats Offered', 'Total section capacity available in the selected scope or time bucket.'],
-    ['Enrollment Present', 'Enrollment represented in a selected time bucket, using census enrollment when available and actual/current enrollment when census is unavailable.'],
+    ['Student Presence', 'Estimated students present during each active 30-minute meeting interval. Uses census enrollment when available, otherwise actual/current enrollment, and adds that enrollment to each 30-minute interval the section overlaps.'],
+    ['Sections Active', 'Distinct CRNs active in a day/time block. Duplicate meeting rows for the same CRN/day/start/end are counted once.'],
+    ['Seats Offered', 'Total section capacity available in the selected scope or day/time block.'],
+    ['Enrollment Present', 'Enrollment represented in a selected day/time block, using census enrollment when available and actual/current enrollment when census is unavailable.'],
     ['Fill Rate', 'Enrollment divided by seats offered. Census enrollment is preferred; actual/current enrollment is used when census is unavailable.'],
     ['Waitlist Pressure', 'Waitlist count relative to seat supply and fill rate. Used as an indicator that observed enrollment may understate demand when sections are full or near full.'],
     ['Empty Seats', 'Seats offered minus enrollment, floored at zero unless a report explicitly displays over-capacity context.'],
-    ['Faculty Count', 'Distinct faculty represented in a bucket after omitting faculty rows marked as omitted.'],
+    ['Faculty Count', 'Distinct faculty represented in a day/time block after omitting faculty rows marked as omitted.'],
     ['LHE', 'Lecture Hour Equivalent value from the Faculty Schedule source. LHE is summed across included instructional meeting rows after deduplication.'],
     ['Prime-Time Concentration', 'Share of the selected metric occurring during the configured prime-time window. Default prime time is Monday-Thursday, 9:00 AM-3:00 PM.'],
     ['Choice Gap', 'A planning pattern where student choice is limited relative to enrollment pressure or fill behavior. It is an evidence-informed prompt, not proof of unmet preference.'],

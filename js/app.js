@@ -699,15 +699,15 @@ function renderSchedulingAnalysisMethodologyPanels() {
   if (!renderPanel) return;
   renderPanel(document.getElementById('heatmap-standard-methodology'), {
     title: 'Heatmap Analytics Methodology & Data Dictionary',
-    purpose: 'Shows when classes begin by day and half-hour start-time bucket, with optional enrollment, capacity, and fill-rate metric views.',
+    purpose: 'Shows when classes begin by day and 30-minute scheduled start time, with optional enrollment, capacity, and fill-rate metric views.',
     metricsUsed: ['Sections Active', 'Enrollment Present', 'Seats Offered', 'Fill Rate', 'Student Presence', 'Empty Seats'],
-    calculationRules: 'A section is placed in the day/start-time bucket for each meeting day it uses. Repeated rows for the same CRN/day/start bucket are counted once. Enrollment-weighted mode sums census enrollment when available and actual/current enrollment otherwise. Seat capacity mode sums section capacity. Fill-rate mode divides enrollment by capacity after deduplication.',
+    calculationRules: 'A section is placed in the day/time block for each scheduled start time and meeting day it uses. Repeated rows for the same CRN/day/scheduled start time are counted once. Enrollment Heatmap mode sums census enrollment when available and actual/current enrollment otherwise. Seat Capacity Heatmap mode sums section capacity. Fill Rate Heatmap mode divides enrollment by capacity after deduplication.',
     assumptions: 'Heatmap Analytics is a start-time view. It complements Course Duration because starts and active classroom load answer different questions.',
-    limitations: 'A busy start-time bucket does not prove student preference. It reflects the schedule that was offered and does not include constraints outside the uploaded data.',
+    limitations: 'A busy scheduled start time does not prove student preference. It reflects the schedule that was offered and does not include constraints outside the uploaded data.',
     items: [
-      ['Section Count Heatmap', 'Counts distinct CRNs that start in each day/half-hour bucket.'],
-      ['Enrollment-Weighted Heatmap', 'Sums enrollment for distinct CRNs starting in each bucket.'],
-      ['Seat Capacity Heatmap', 'Sums seats offered for distinct CRNs starting in each bucket.']
+      ['Section Count Heatmap', 'Counts distinct CRNs beginning in each 30-minute day/time block.'],
+      ['Enrollment Heatmap', 'Sums enrollment for distinct CRNs beginning in each 30-minute day/time block.'],
+      ['Seat Capacity Heatmap', 'Sums seats offered for distinct CRNs beginning in each 30-minute day/time block.']
     ]
   });
   renderPanel(document.getElementById('utilization-standard-methodology'), {
@@ -4736,11 +4736,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function heatmapMetricLabel(metric = heatmapMetricMode()) {
     return {
-      sections: 'section start',
-      enrollment: 'enrolled student',
-      capacity: 'seat capacity',
-      fillRate: 'average fill rate'
-    }[metric] || 'section start';
+      sections: 'Section Count Heatmap',
+      enrollment: 'Enrollment Heatmap',
+      capacity: 'Seat Capacity Heatmap',
+      fillRate: 'Fill Rate Heatmap'
+    }[metric] || 'Section Count Heatmap';
   }
 
   function formatHeatmapCardValue(item, metric = 'sections') {
@@ -5056,7 +5056,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const op=maxC?value/maxC:0;
         const level = op >= 0.8 ? 'high' : op >= 0.45 ? 'medium' : op > 0 ? 'low' : 'empty';
         const selected = heatmapCellFilter && heatmapCellFilter.day === d && heatmapCellFilter.hour === h ? ' is-selected' : '';
-        const title = `${d} ${formatHourLabel(h)}: ${formatHeatmapValue(value, metric) || 0} ${heatmapMetricLabel(metric)}${metric === 'sections' && value === 1 ? '' : 's'}; ${cell.sections} section${cell.sections === 1 ? '' : 's'}, ${cell.enrollment} enrolled, ${cell.capacity} seats`;
+        const title = `${d} ${formatHourLabel(h)} scheduled start time: ${formatHeatmapValue(value, metric) || 0} ${heatmapMetricLabel(metric)}; ${cell.sections} section${cell.sections === 1 ? '' : 's'}, ${cell.enrollment} enrolled, ${cell.capacity} seats`;
         html+=`<td class="heatmap-cell heatmap-value-cell heatmap-${level}${selected}" data-day="${escapeHTML(d)}" data-hour="${h}" title="${escapeHTML(title)}" style="--heat:${op.toFixed(3)}">${formatHeatmapValue(value, metric)}</td>`;
       });
       html+='</tr>';
@@ -5075,7 +5075,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       window.COSUtils.renderHeatmapExportToolbar(document.getElementById('heatmapContainer'), {
         container: () => document.getElementById('heatmapContainer'),
         rows: () => allCells.map(cell => ({
-          reportName: 'Heatmap Analytics',
+          reportName: `${heatmapMetricLabel(metric)} - Heatmap Analytics`,
           termSource: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
           selectedFilters: filters.join('; '),
           metric: heatmapMetricLabel(metric),
@@ -5090,7 +5090,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
           modalityScope: 'Physical start-time rows'
         })),
         options: () => ({
-          title: 'Heatmap Analytics',
+          title: `${heatmapMetricLabel(metric)} - Heatmap Analytics`,
           term: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
           filters,
           metric: heatmapMetricLabel(metric),

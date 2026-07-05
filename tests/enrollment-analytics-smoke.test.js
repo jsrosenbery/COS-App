@@ -3643,9 +3643,10 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
 
   assert.match(index, /heatmap-metric-select/);
-  assert.match(index, /Enrollment-weighted/);
-  assert.match(index, /Seat capacity/);
-  assert.match(index, /Fill-rate/);
+  assert.doesNotMatch(index, /Enrollment-weighted|Enrollment-Weighted|Enrollment Weighted/);
+  assert.match(index, /Enrollment Heatmap/);
+  assert.match(index, /Seat Capacity Heatmap/);
+  assert.match(index, /Fill Rate Heatmap/);
   assert.match(index, /heatmap-prime-only/);
   assert.match(index, /heatmap-underutilized-only/);
   assert.match(index, /heatmap-summary-cards/);
@@ -3653,6 +3654,10 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(index, /00:00-00:59 placeholder/);
   assert.match(app, /heatmapMetricMode/);
   assert.match(app, /renderHeatmapSummaryCards/);
+  assert.match(app, /sections: 'Section Count Heatmap'/);
+  assert.match(app, /enrollment: 'Enrollment Heatmap'/);
+  assert.match(app, /title: `\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
+  assert.match(app, /reportName: `\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
   assert.match(app, /isPrimeHeatmapSlot/);
   assert.match(app, /isUnderutilizedHeatmapRow/);
   assert.match(app, /rowEnrollment/);
@@ -3675,6 +3680,28 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(css, /\.visualization-export-toolbar/);
   assert.match(css, /\.visualization-export-dropdown/);
   assert.doesNotMatch(css, /\.heatmap th,[\s\S]*?overflow-wrap: anywhere;/);
+});
+
+test('heatmap terminology distinguishes aggregation from true weighting', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const definitions = fs.readFileSync(path.join(__dirname, '..', 'js/core/metric-definitions.js'), 'utf8');
+  const shared = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
+  const heatmapText = [index, app, analytics, definitions, shared].join('\n');
+
+  assert.doesNotMatch(heatmapText, /Enrollment-weighted|Enrollment-Weighted|Enrollment Weighted/);
+  assert.match(index, /<option value="enrollment">Enrollment Heatmap<\/option>/);
+  assert.match(app, /\['Enrollment Heatmap', 'Sums enrollment for distinct CRNs beginning in each 30-minute day\/time block\.'\]/);
+  assert.match(definitions, /\['enrollment-heatmap', 'Enrollment Heatmap'/);
+  assert.match(definitions, /This is enrollment aggregation by scheduled start time, not weighting\./);
+  assert.match(definitions, /\['student-presence-heatmap', 'Student Presence Heatmap'/);
+  assert.match(definitions, /\['frequency-weighted-student-presence', 'Frequency-Weighted Student Presence'/);
+  assert.match(analytics, /Nominal Scheduled Presence/);
+  assert.match(analytics, /Expected Physical Presence/);
+  assert.match(analytics, /Meeting Frequency Factor/);
+  assert.match(app, /metric: heatmapMetricLabel\(metric\)/);
+  assert.match(app, /title: `\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
 });
 
 test('heatmap table layout keeps day labels readable and time headers two-line', () => {
