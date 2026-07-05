@@ -218,8 +218,9 @@ function loadScheduleAppRuntime() {
   const elements = new Map();
   function element(id = '') {
     if (elements.has(id)) return elements.get(id);
+    const classValues = new Set();
     const el = {
-      id,
+      _id: id,
       value: '',
       checked: false,
       multiple: false,
@@ -227,13 +228,31 @@ function loadScheduleAppRuntime() {
       options: [],
       style: {},
       dataset: {},
-      classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-      appendChild(child) { this.children = this.children || []; this.children.push(child); return child; },
-      append(...children) { this.children = [...(this.children || []), ...children]; },
+      eventHandlers: {},
+      hidden: false,
+      classList: {
+        add(...values) { values.forEach(value => classValues.add(value)); },
+        remove(...values) { values.forEach(value => classValues.delete(value)); },
+        toggle(value, force) {
+          const shouldAdd = force === undefined ? !classValues.has(value) : Boolean(force);
+          if (shouldAdd) classValues.add(value);
+          else classValues.delete(value);
+          return shouldAdd;
+        },
+        contains(value) { return classValues.has(value); }
+      },
+      appendChild(child) {
+        this.children = this.children || [];
+        if (child && typeof child === 'object') child.parentElement = this;
+        this.children.push(child);
+        return child;
+      },
+      append(...children) { children.forEach(child => this.appendChild(child)); },
       replaceChildren(...children) { this.children = children; },
       insertRow() { const row = element(`${id}:row:${Math.random()}`); row.insertCell = () => element(`${id}:cell:${Math.random()}`); return row; },
       insertCell() { return element(`${id}:cell:${Math.random()}`); },
-      addEventListener() {},
+      addEventListener(event, handler) { this.eventHandlers[event] = handler; },
+      click() { this.eventHandlers.click?.({ target: this }); },
       removeEventListener() {},
       remove() {},
       querySelector() { return element(`${id}:query`); },
@@ -245,6 +264,20 @@ function loadScheduleAppRuntime() {
       textContent: '',
       innerHTML: ''
     };
+    Object.defineProperty(el, 'id', {
+      get() { return this._id; },
+      set(value) {
+        this._id = String(value || '');
+        elements.set(this._id, this);
+      }
+    });
+    Object.defineProperty(el, 'className', {
+      get() { return [...classValues].join(' '); },
+      set(value) {
+        classValues.clear();
+        String(value || '').split(/\s+/).filter(Boolean).forEach(className => classValues.add(className));
+      }
+    });
     elements.set(id, el);
     return el;
   }
@@ -314,7 +347,8 @@ function loadScheduleAppRuntime() {
     vm.runInContext(source, context, { filename: file });
   });
   return Object.assign(context.window.COSScheduleApp.modalityBalanceTestHooks, {
-    roomCatalogTestHooks: context.window.COSScheduleApp.roomCatalogTestHooks
+    roomCatalogTestHooks: context.window.COSScheduleApp.roomCatalogTestHooks,
+    testDocument: context.document
   });
 }
 
@@ -3540,6 +3574,47 @@ test('room catalog import and export supports two optional room priority divisio
   assert.match(backend, /priorityDivision1/);
   assert.match(backend, /priorityDivision2/);
   assert.match(backend, /roomFeaturesText/);
+});
+
+test('room catalog table is collapsed separately from import export controls', () => {
+  const runtime = loadScheduleAppRuntime();
+  const hooks = runtime.roomCatalogTestHooks;
+  const document = runtime.testDocument;
+  hooks.setupRoomCatalogAdmin();
+
+  const admin = document.getElementById('room-catalog-admin');
+  const tableSection = document.getElementById('room-catalog-table-section');
+  const toggle = document.getElementById('room-catalog-table-toggle');
+  const title = document.getElementById('room-catalog-table-title');
+  const preview = document.getElementById('room-catalog-preview');
+  const status = document.getElementById('room-catalog-status');
+  const textOf = node => {
+    if (typeof node === 'string') return node;
+    return [node?.textContent || '', ...(node?.children || []).map(textOf)].join(' ');
+  };
+  const topLevelText = textOf(admin);
+
+  assert.ok(tableSection);
+  assert.ok(toggle);
+  assert.ok(preview);
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(preview.hidden, true);
+  assert.match(title.textContent, /^Room Catalog Table — \d+ rooms$/);
+  assert.match(status.textContent, /\d+ rooms loaded\./);
+  assert.match(topLevelText, /Room Catalog/);
+  assert.match(topLevelText, /Export Rooms CSV/);
+  assert.match(topLevelText, /Export Rooms JSON/);
+  assert.match(topLevelText, /Import Rooms:/);
+
+  toggle.click();
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(preview.hidden, false);
+  assert.equal(tableSection.classList.contains('is-collapsed'), false);
+
+  toggle.click();
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(preview.hidden, true);
+  assert.equal(tableSection.classList.contains('is-collapsed'), true);
 });
 
 test('modality comparison rows include class offering counts and shares', () => {

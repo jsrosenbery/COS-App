@@ -1044,7 +1044,8 @@ document.addEventListener('DOMContentLoaded', () => {
       normalizeRoomFeatures,
       roomPriorityWarnings,
       roomPriorityScore,
-      roomCatalogToCsv
+      roomCatalogToCsv,
+      setupRoomCatalogAdmin
     },
     modalityBalanceTestHooks: {
       normalizeTermLabel,
@@ -1369,7 +1370,38 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     preview.id = 'room-catalog-preview';
     preview.className = 'room-catalog-preview';
 
-    roomCatalogAdminDiv.append(title, exportBtn, exportJsonBtn, importLabel, status, preview);
+    const tableSection = document.createElement('section');
+    tableSection.id = 'room-catalog-table-section';
+    tableSection.className = 'room-catalog-table-section collapsible-section is-collapsed';
+
+    const tableHeader = document.createElement('button');
+    tableHeader.id = 'room-catalog-table-toggle';
+    tableHeader.type = 'button';
+    tableHeader.className = 'collapsible-section-header room-catalog-table-toggle';
+    tableHeader.setAttribute('aria-expanded', 'false');
+    tableHeader.setAttribute('aria-controls', 'room-catalog-preview');
+
+    const tableTitle = document.createElement('span');
+    tableTitle.id = 'room-catalog-table-title';
+    tableTitle.textContent = `Room Catalog Table — ${roomCatalog.length} rooms`;
+    const tableChevron = document.createElement('span');
+    tableChevron.className = 'collapsible-section-chevron';
+    tableChevron.setAttribute('aria-hidden', 'true');
+    tableChevron.textContent = '>';
+    tableHeader.append(tableTitle, tableChevron);
+
+    preview.hidden = true;
+    tableSection.append(tableHeader, preview);
+
+    tableHeader.addEventListener('click', () => {
+      const expanded = tableHeader.getAttribute('aria-expanded') === 'true';
+      tableHeader.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      tableChevron.textContent = expanded ? '>' : 'v';
+      preview.hidden = expanded;
+      tableSection.classList.toggle('is-collapsed', expanded);
+    });
+
+    roomCatalogAdminDiv.append(title, exportBtn, exportJsonBtn, importLabel, status, tableSection);
     renderRoomCatalogPreview();
     appendModalityDefinitionsAdmin();
 
@@ -1388,6 +1420,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const preview = document.getElementById('room-catalog-preview');
     if (!preview) return;
     const rooms = getRoomCatalogEntries();
+    const tableTitle = document.getElementById('room-catalog-table-title');
+    if (tableTitle) tableTitle.textContent = `Room Catalog Table — ${rooms.length} rooms`;
     const display = rooms.slice(0, 25);
     if (!display.length) {
       preview.innerHTML = '<p>No room catalog rows loaded.</p>';
