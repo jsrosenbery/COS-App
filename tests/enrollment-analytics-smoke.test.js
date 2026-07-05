@@ -3414,6 +3414,7 @@ test('modality balance counts unduplicated CRN offerings and census-first enroll
 
 test('room catalog import and export supports two optional room priority divisions', () => {
   const hooks = loadScheduleAppRuntime().roomCatalogTestHooks;
+  const backend = fs.readFileSync(path.join(__dirname, '..', '..', 'App-Backend', 'server.js'), 'utf8');
   const fiveColumn = hooks.normalizeRoomCatalog([
     { Campus: 'COS', Building: 'CEDAR', Room: '421', Capacity: '28', 'Room Type': 'Computer Lab' }
   ]);
@@ -3495,6 +3496,10 @@ test('room catalog import and export supports two optional room priority divisio
   assert.equal(attachedExport[0]['Priority Division 2'], 'None');
   assert.equal(attachedExport[1]['Priority Division 1'], 'Science');
   assert.equal(attachedExport[1]['Priority Division 2'], 'Industry and Technology');
+  assert.match(backend, /'Room Priority_2'/);
+  assert.match(backend, /priorityDivision1/);
+  assert.match(backend, /priorityDivision2/);
+  assert.match(backend, /roomFeaturesText/);
 });
 
 test('modality comparison rows include class offering counts and shares', () => {
