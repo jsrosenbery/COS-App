@@ -164,6 +164,12 @@
       ]
     }
   ];
+  const REPORT_GROUP_SUBTITLES = {
+    'schedule-analysis': 'Primary Audience: Dean / Division Chair',
+    'enrollment-management': 'Primary Audience: Enrollment Management',
+    development: 'Status: In Development',
+    admin: 'Primary Audience: Administrator'
+  };
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
   const ROLE_STORAGE_KEY = 'cos-access-role';
   const ROLE_TOKEN_KEY = 'cos-role-token';
@@ -1192,11 +1198,12 @@
   function reportGroupsHtml() {
     return REPORT_WORKFLOW_GROUPS.map(group => {
       const reports = group.reports.filter(report => REPORT_ORDER.includes(report));
+      const subtitle = reportSubtitleForGroup(group.key);
       const buttons = reports.length
         ? reports.map(report => `
-            <button type="button" class="em-report-button" data-report-target="${report}" data-required-role="${REPORT_ACCESS[report] || 'general'}">
+            <button type="button" class="em-report-button" data-report-target="${report}" data-report-group="${group.key}" data-required-role="${REPORT_ACCESS[report] || 'general'}">
               <span>${escapeAttr(lockedReportLabel(report))}</span>
-              <small>${canAccess(report) ? escapeAttr(ROLE_LABEL[REPORT_ACCESS[report] || 'general']) : 'Locked - unlock to view name'}</small>
+              <small>${escapeAttr(subtitle)}</small>
             </button>
           `).join('')
         : '<p class="em-report-empty">No reports assigned.</p>';
@@ -1207,6 +1214,15 @@
         </section>
       `;
     }).join('');
+  }
+
+  function reportSubtitleForGroup(groupKey) {
+    return REPORT_GROUP_SUBTITLES[groupKey] || '';
+  }
+
+  function reportSubtitleForReport(report) {
+    const group = REPORT_WORKFLOW_GROUPS.find(item => item.reports.includes(report));
+    return reportSubtitleForGroup(group?.key);
   }
 
   function buildUi() {
@@ -12673,7 +12689,6 @@
     });
     document.querySelectorAll('.em-report-button[data-report-target]').forEach(button => {
       const report = button.dataset.reportTarget || '';
-      const requiredRole = REPORT_ACCESS[report] || 'general';
       const locked = !canAccess(report);
       button.classList.toggle('is-active', report === selected);
       button.classList.toggle('is-locked', locked);
@@ -12682,7 +12697,7 @@
       const label = button.querySelector('span');
       if (label) label.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
       const note = button.querySelector('small');
-      if (note) note.textContent = locked ? 'Locked - unlock to view name' : ROLE_LABEL[requiredRole];
+      if (note) note.textContent = reportSubtitleForGroup(button.dataset.reportGroup) || reportSubtitleForReport(report);
     });
   }
 

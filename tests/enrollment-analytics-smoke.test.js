@@ -2574,10 +2574,19 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(text, /label: 'Development'/);
   assert.match(text, /label: 'Admin'/);
   assert.match(text, /function reportGroupsHtml/);
+  assert.match(text, /const REPORT_GROUP_SUBTITLES = \{/);
+  assert.match(text, /'schedule-analysis': 'Primary Audience: Dean \/ Division Chair'/);
+  assert.match(text, /'enrollment-management': 'Primary Audience: Enrollment Management'/);
+  assert.match(text, /development: 'Status: In Development'/);
+  assert.match(text, /admin: 'Primary Audience: Administrator'/);
+  assert.match(text, /function reportSubtitleForGroup/);
+  assert.match(text, /function reportSubtitleForReport/);
   assert.match(text, /class="em-report-groups"/);
   assert.match(text, /class="em-report-button"/);
   assert.match(text, /data-report-role="\$\{group\.key\}"/);
+  assert.match(text, /data-report-group="\$\{group\.key\}"/);
   assert.match(text, /data-required-role="\$\{REPORT_ACCESS\[report\] \|\| 'general'\}"/);
+  assert.match(text, /<small>\$\{escapeAttr\(subtitle\)\}<\/small>/);
   assert.match(text, /id="emReportSelect" hidden/);
   [
     'REPORTS.heatmap',
@@ -2646,6 +2655,26 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(text, /physicalCampusCodes = \['COS', 'TCC', 'HAC'\]/);
 });
 
+test('report tiles use standardized category subtitles without changing navigation targets', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  [
+    ["'schedule-analysis'", "'Primary Audience: Dean / Division Chair'"],
+    ["'enrollment-management'", "'Primary Audience: Enrollment Management'"],
+    ['development', "'Status: In Development'"],
+    ['admin', "'Primary Audience: Administrator'"]
+  ].forEach(([key, subtitle]) => {
+    assert.ok(text.includes(`${key}: ${subtitle}`), `${key} should map to ${subtitle}`);
+  });
+  assert.match(text, /const subtitle = reportSubtitleForGroup\(group\.key\)/);
+  assert.match(text, /data-report-target="\$\{report\}"/);
+  assert.match(text, /data-report-group="\$\{group\.key\}"/);
+  assert.match(text, /<small>\$\{escapeAttr\(subtitle\)\}<\/small>/);
+  assert.match(text, /note\.textContent = reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
+  assert.doesNotMatch(text, /<small>\$\{canAccess\(report\)/);
+  assert.doesNotMatch(text, /Locked - unlock to view name/);
+});
+
 test('TIMBER role-based access is centralized and report scoped', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const backend = fs.readFileSync(path.join(__dirname, '..', '..', 'App-Backend', 'server.js'), 'utf8');
@@ -2666,7 +2695,8 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /Lock Reports/);
   assert.match(text, /function lockedReportLabel/);
   assert.match(text, /Locked report ••••••••/);
-  assert.match(text, /Locked - unlock to view name/);
+  assert.doesNotMatch(text, /Locked - unlock to view name/);
+  assert.match(text, /note\.textContent = reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
   assert.match(text, /the selected locked report/);
   assert.match(text, /A locked report requires/);
   assert.doesNotMatch(text, /\[Locked\] \$\{escapeAttr\(REPORT_LABEL/);
