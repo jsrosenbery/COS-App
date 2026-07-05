@@ -3444,9 +3444,14 @@ test('room catalog import and export supports two optional room priority divisio
   const warnings = hooks.roomPriorityWarnings([
     { Building: 'B', Room: '1', 'Priority Division': 'Bogus Area', 'Priority Division 2': 'Science' }
   ], ['Science', 'Math', 'Business', 'Arts']);
+  const attachedHeaderRows = hooks.normalizeRoomCatalog([
+    { Campus: 'HAC', Building: 'HACEDU', Room: 'E37', Capacity: '72', 'Room Type': 'Classroom', 'Room Priority': 'Administration', 'Room Priority_2': '' },
+    { Campus: 'COS', Building: 'SCI', Room: '101', Capacity: '36', 'Room Type': 'Science Lab', 'Room Priority': 'Science', 'Room Priority_2': 'Industry and Technology' }
+  ]);
   const adminRoom = hooks.normalizeRoomCatalog([{ Building: 'ADM', Room: '1', 'Priority Division': 'Administration' }])[0];
   const scienceRoom = hooks.normalizeRoomCatalog([{ Building: 'SCI', Room: '1', 'Priority Division': 'Science' }])[0];
   const exported = JSON.parse(hooks.roomCatalogToCsv(twoPriority));
+  const attachedExport = JSON.parse(hooks.roomCatalogToCsv(attachedHeaderRows));
 
   assert.equal(fiveColumn.length, 1);
   assert.equal(fiveColumn[0].capacity, 28);
@@ -3469,6 +3474,10 @@ test('room catalog import and export supports two optional room priority divisio
   assert.equal(JSON.stringify(notesFeatures[0].roomFeatures), JSON.stringify(['Shop', 'Art Studio']));
   assert.equal(JSON.stringify(alternatePriority.map(room => room.priorityDivision1)), JSON.stringify(['Science', 'Unassigned', 'Math', 'Health', 'CTE', 'Language']));
   assert.equal(JSON.stringify(alternatePriority.map(room => room.priorityDivision2)), JSON.stringify(['None', 'Arts', 'None', 'None', 'None', 'Arts']));
+  assert.equal(attachedHeaderRows[0].priorityDivision1, 'Administration');
+  assert.equal(attachedHeaderRows[0].priorityDivision2, 'None');
+  assert.equal(attachedHeaderRows[1].priorityDivision1, 'Science');
+  assert.equal(attachedHeaderRows[1].priorityDivision2, 'Industry and Technology');
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0].warning, 'Unknown Priority Division');
   assert.equal(hooks.roomPriorityScore(adminRoom, 'Science'), 0);
@@ -3482,6 +3491,10 @@ test('room catalog import and export supports two optional room priority divisio
   assert.equal(exported[0]['Priority Division 1'], 'Science');
   assert.equal(exported[0]['Priority Division 2'], 'Math');
   assert.equal(exported[0]['Room Features'], 'Smart Classroom; HyFlex Equipment');
+  assert.equal(attachedExport[0]['Priority Division 1'], 'Administration');
+  assert.equal(attachedExport[0]['Priority Division 2'], 'None');
+  assert.equal(attachedExport[1]['Priority Division 1'], 'Science');
+  assert.equal(attachedExport[1]['Priority Division 2'], 'Industry and Technology');
 });
 
 test('modality comparison rows include class offering counts and shares', () => {

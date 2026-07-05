@@ -492,7 +492,8 @@ function normalizeRoomCatalog(rawRooms, knownDivisions = []) {
         'Secondary Division',
         'Secondary Priority',
         'Priority 2',
-        'Room Priority 2'
+        'Room Priority 2',
+        'Room Priority_2'
       ]);
       const rawRoomFeatures = roomPriorityRawValue(room, [
         'rawRoomFeatures',
@@ -533,6 +534,11 @@ function roomPriorityRawValue(room, names) {
   for (const name of names) {
     const value = room?.[name];
     if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  const normalizeKey = value => String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const aliases = new Set(names.map(normalizeKey));
+  for (const [key, value] of Object.entries(room || {})) {
+    if (aliases.has(normalizeKey(key)) && value !== undefined && value !== null && String(value).trim() !== '') return value;
   }
   return '';
 }

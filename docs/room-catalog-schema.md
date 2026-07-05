@@ -21,7 +21,7 @@ CSV aliases include `Campus`, `Building`, `Room`, `Capacity`, `Room Type`, `Type
 
 Priority Division 1 aliases include `Priority Division 1`, `Priority Division`, `Room Priority`, `Primary Division`, `Assigned Division`, `Preferred Division`, `Dean Area`, and `Priority Area`.
 
-Priority Division 2 aliases include `Priority Division 2`, `Secondary Division`, `Secondary Priority`, `Priority 2`, and `Room Priority 2`.
+Priority Division 2 aliases include `Priority Division 2`, `Secondary Division`, `Secondary Priority`, `Priority 2`, `Room Priority 2`, and `Room Priority_2`.
 
 Room Features aliases include `Room Features`, `Features`, `Preferred Room Features`, `Technology Features`, `Instructional Features`, `Equipment`, and `Notes`.
 
