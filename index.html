@@ -421,14 +421,14 @@
       <label>CAL-GETC:
         <select id="modality-calgetc-select"></select>
       </label>
-      <label class="modality-de-toggle"><input id="modality-include-de" type="checkbox"> Include Dual Enrollment</label>
+      <label class="modality-de-toggle"><input id="modality-include-de" type="checkbox" checked> Include Dual Enrollment in totals</label>
       <label><input id="modality-exclude-tutoring-openlab" type="checkbox" checked> Exclude Tutoring/Open Lab Sections</label>
       <button id="modality-clear-btn" type="button">Clear</button>
       <button id="modality-export-btn" type="button">Export CSV</button>
       <button id="modality-export-excel-btn" type="button">Export Excel</button>
     </div>
     <div class="modality-note">
-      This view uses the Instructional Method column from the uploaded CSV and counts Total Class Offerings as distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN are counted once unless the report is explicitly analyzing meeting components. Total Class Offerings and enrollment are shown as separate comparison views because a modality can have a similar number of offerings but materially different student enrollment. Dual Enrollment is excluded by default because it can materially change modality balance; use the checkbox to include it intentionally.
+      This view counts Total Class Offerings as distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN are counted once unless the report is explicitly analyzing meeting components. Dual Enrollment is shown as its own planning category rather than blended into In-Person, Hybrid, or Online. Use the totals toggle to include or exclude Dual Enrollment from total/share calculations while keeping the Dual Enrollment reference line visible.
     </div>
     <div id="modality-standard-methodology" class="analysis-explainer"></div>
     <div id="modality-summary" class="modality-summary"></div>
@@ -437,9 +437,10 @@
     <table id="modality-table" class="modality-table">
       <thead>
         <tr>
-          <th>Modality</th>
+          <th>Modality Balance Category</th>
           <th>Total Class Offerings</th>
           <th>Enrollment</th>
+          <th>Enrollment per Offering</th>
           <th>% of Class Offerings</th>
           <th>% of Enrollment</th>
           <th>Class Offerings Visual Share</th>

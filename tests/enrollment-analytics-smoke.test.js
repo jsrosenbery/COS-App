@@ -3314,24 +3314,27 @@ test('snapshot manager defaults first day as primary manual snapshot', () => {
   assert.match(text, /Census 1, Census 2, and Final are already present in Banner source exports/);
 });
 
-test('modality balance uses shared three-category modality normalization and diagnostics', () => {
+test('modality balance uses shared modality category normalization and diagnostics', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
 
   assert.match(index, /modality-include-de/);
-  assert.match(index, /Dual Enrollment is excluded by default/);
+  assert.match(index, /Include Dual Enrollment in totals/);
+  assert.match(index, /Dual Enrollment is shown as its own planning category/);
   ['modality-campus-select', 'modality-division-select', 'modality-discipline-select', 'modality-department-select', 'modality-course-select', 'modality-modality-select'].forEach(id => {
     assert.match(index, new RegExp(`id="${id}"[^>]*multiple`));
   });
   assert.match(index, /% of Class Offerings/);
   assert.match(index, /% of Enrollment/);
-  assert.match(index, /Total Class Offerings and enrollment are shown as separate comparison views/);
+  assert.match(index, /Use the totals toggle to include or exclude Dual Enrollment from total\/share calculations/);
   assert.match(index, /modality-source-status/);
   assert.match(index, /modality-export-btn/);
   assert.match(index, /modality-export-excel-btn/);
   assert.match(index, /modality-course-comparison-table/);
   assert.match(index, /Course-Level Term Differences/);
-  assert.match(app, /includeDualEnrollment/);
+  assert.match(app, /includeDualEnrollmentInTotals/);
+  assert.match(app, /getModalityBalanceCategory/);
+  assert.match(app, /isModalityDualEnrollmentSection/);
   assert.match(app, /COSModalityNormalizer\.normalize/);
   assert.match(app, /renderModalityDiagnostics/);
   assert.match(app, /Modality Filter Diagnostics/);
@@ -3363,8 +3366,9 @@ test('modality balance uses shared three-category modality normalization and dia
   assert.match(app, /function modalityCourseComparisonRows/);
   assert.match(app, /function renderModalityCourseComparisonTable/);
   assert.match(app, /function modalityCourseComparisonExportRows/);
-  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Class Offerings by Modality`/);
-  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Enrollment by Modality`/);
+  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Class Offerings by Category`/);
+  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Enrollment by Category`/);
+  assert.match(app, /modalityPieCard\(`\$\{modalityTermLabel\(\)\} Enrollment per Offering by Category`/);
   assert.match(app, /function modalityMixGraphData/);
   assert.match(app, /function modalityChartData/);
   assert.match(app, /className = 'modality-mix-bars'/);
@@ -3377,12 +3381,13 @@ test('modality balance uses shared three-category modality normalization and dia
   assert.match(app, /Comparison Results/);
   assert.match(app, /Total Class Offerings Term Comparison/);
   assert.match(app, /Net Offerings vs/);
-  assert.match(app, /All Modalities/);
+  assert.match(app, /All Included Categories/);
   assert.match(app, /modalityTotalClassOfferingComparisonRows/);
   assert.match(app, /modality-balance-\$\{slug\}\.csv/);
   assert.match(app, /modality-balance-\$\{slug\}\.xls/);
-  assert.match(app, /Class Offerings by Modality/);
-  assert.match(app, /Enrollment by Modality/);
+  assert.match(app, /Class Offerings by Category/);
+  assert.match(app, /Enrollment by Category/);
+  assert.match(app, /Enrollment per Offering by Category/);
   assert.match(app, /Course-Level Term Differences/);
   assert.match(app, /Focus term minus comparison term by Total Class Offerings \(unique CRN course\/modality grouping\)/);
   assert.match(app, /signedPctChange/);
@@ -3410,6 +3415,41 @@ test('modality balance counts unduplicated CRN offerings and census-first enroll
   assert.equal(byModality.get('Online').enrollment, 15);
   assert.equal(byModality.get('Hybrid').classOfferings, 1);
   assert.equal(summary[0].totalClassOfferings, 3);
+});
+
+test('modality balance treats dual enrollment as distinct category with optional totals inclusion', () => {
+  const hooks = loadScheduleAppRuntime();
+  const rows = [
+    { Term: 'FALL 2026', CRN: '20001', Subject: 'ENGL', Course: '001', 'Instructional Method': 'IP', 'Dual Enrollment': 'Yes', CENSUS_ENROLL: '25' },
+    { Term: 'FALL 2026', CRN: '20002', Subject: 'HIST', Course: '020', 'Instructional Method': 'ONL', 'Dual Enrollment': 'Yes', CENSUS_ENROLL: '30' },
+    { Term: 'FALL 2026', CRN: '20003', Subject: 'MATH', Course: '010', 'Instructional Method': 'ONL', CENSUS_ENROLL: '18' },
+    { Term: 'FALL 2026', CRN: '20004', Subject: 'BIOL', Course: '011', 'Instructional Method': 'HYB', CENSUS_ENROLL: '22' }
+  ];
+  const includedItems = hooks.modalityBalanceItemsFromSections(rows, { includeDualEnrollmentInTotals: true });
+  const excludedItems = hooks.modalityBalanceItemsFromSections(rows, { includeDualEnrollmentInTotals: false });
+  const includedSummary = hooks.calculateModalityBalanceFromItems(includedItems);
+  const excludedSummary = hooks.calculateModalityBalanceFromItems(excludedItems);
+  const includedByCategory = new Map(includedSummary.map(row => [row.category, row]));
+  const excludedByCategory = new Map(excludedSummary.map(row => [row.category, row]));
+
+  assert.equal(includedByCategory.get('Dual Enrollment').classOfferings, 2);
+  assert.equal(includedByCategory.get('Dual Enrollment').enrollment, 55);
+  assert.equal(includedByCategory.get('In-Person').classOfferings, 0);
+  assert.equal(includedByCategory.get('Online').classOfferings, 1);
+  assert.equal(includedByCategory.get('Hybrid').classOfferings, 1);
+  assert.equal(includedSummary[0].totalClassOfferings, 4);
+  assert.equal(excludedSummary[0].totalClassOfferings, 2);
+  assert.equal(excludedByCategory.get('Dual Enrollment').classOfferings, 2);
+  assert.equal(excludedByCategory.get('Dual Enrollment').referenceOnly, true);
+  assert.equal(excludedByCategory.get('Dual Enrollment').classOfferingShare, 0);
+
+  const exportRows = hooks.modalityExportRowsForData(includedSummary, []);
+  const dualExport = exportRows.find(row => row.ModalityBalanceCategory === 'Dual Enrollment' && row.Section === 'Focus Results');
+  assert.equal(dualExport.DualEnrollmentFlag, 'Yes');
+  assert.match(dualExport.UnderlyingInstructionalMethod, /IP \(1\)/);
+  assert.match(dualExport.UnderlyingInstructionalMethod, /ONL \(1\)/);
+  assert.equal(dualExport.Enrollment, 55);
+  assert.equal(dualExport.EnrollmentPerOffering, '27.50');
 });
 
 test('room catalog import and export supports two optional room priority divisions', () => {
