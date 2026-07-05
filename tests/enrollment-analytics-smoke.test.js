@@ -3993,8 +3993,21 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(app, /renderHeatmapSummaryCards/);
   assert.match(app, /sections: 'Section Count Heatmap'/);
   assert.match(app, /enrollment: 'Enrollment Heatmap'/);
-  assert.match(app, /title: `\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
-  assert.match(app, /reportName: `\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
+  assert.match(app, /function heatmapHasFacultyTypeRows/);
+  assert.match(app, /function buildHeatmapCells/);
+  assert.match(app, /function renderHeatmapTableMarkup/);
+  assert.match(app, /function heatmapExportRows/);
+  assert.match(app, /function heatmapExportOptions/);
+  assert.match(app, /title: `\$\{groupLabel\}\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
+  assert.match(app, /reportName: `\$\{facultyType \? `\$\{facultyHeatmapGroupLabel\(facultyType\)\} - ` : ''\}\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
+  assert.match(app, /Faculty Heatmap \(All Faculty\)/);
+  assert.match(app, /Faculty Heatmap \(Full-Time Faculty\)/);
+  assert.match(app, /Faculty Heatmap \(Part-Time Faculty\)/);
+  assert.match(app, /Faculty Type', visible: false/);
+  assert.match(app, /FacultyType: facultyType/);
+  assert.match(app, /if \(r\.FacultyType === 'OMIT'\) return false/);
+  assert.match(app, /data-faculty-type="\$\{escapeHTML\(facultyType\)\}"/);
+  assert.match(app, /const sharedMax = Math\.max\(0, \.\.\.builtPanels\.flatMap/);
   assert.match(app, /isPrimeHeatmapSlot/);
   assert.match(app, /isUnderutilizedHeatmapRow/);
   assert.match(app, /rowEnrollment/);
@@ -4016,6 +4029,7 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(css, /\.visualization-body > \.heatmap-wrap,/);
   assert.match(css, /\.visualization-export-toolbar/);
   assert.match(css, /\.visualization-export-dropdown/);
+  assert.match(css, /\.heatmap-faculty-panel/);
   assert.doesNotMatch(css, /\.heatmap th,[\s\S]*?overflow-wrap: anywhere;/);
 });
 
@@ -4038,7 +4052,7 @@ test('heatmap terminology distinguishes aggregation from true weighting', () => 
   assert.match(analytics, /Expected Physical Presence/);
   assert.match(analytics, /Meeting Frequency Factor/);
   assert.match(app, /metric: heatmapMetricLabel\(metric\)/);
-  assert.match(app, /title: `\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
+  assert.match(app, /title: `\$\{groupLabel\}\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
 });
 
 test('heatmap table layout keeps day labels readable and time headers two-line', () => {
@@ -4100,10 +4114,12 @@ test('heatmap visual exports are wired for full heatmap capture and metadata CSV
   assert.match(utils, /section\.append\(toolbar, body\)/);
   assert.doesNotMatch(utils, /host\.insertBefore\(toolbar, anchor\)/);
   assert.match(app, /renderHeatmapExportToolbar\(document\.getElementById\('heatmapContainer'\)/);
+  assert.match(app, /renderHeatmapExportToolbar\(document\.getElementById\(`heatmapFacultyPanel_\$\{panel\.key\}`\)/);
   assert.match(app, /renderModalityChartExportMenu/);
   assert.match(app, /renderVisualizationExportMenu\(modalityChart/);
   assert.match(app, /anchor: '\.modality-pie-grid'/);
-  assert.match(app, /allCells\.map\(cell =>/);
+  assert.match(app, /heatmapExportRows\(panel\.built\.allCells/);
+  assert.match(app, /heatmapExportRows\(baseHeatmap\.allCells/);
   assert.match(analytics, /panels\.forEach\(panel => attachHeatmapExportToolbar\(panel\.id/);
   assert.match(analytics, /attachHeatmapExportToolbar\('supplyDemandHeatmap'/);
   assert.match(analytics, /attachHeatmapExportToolbar\('studentChoiceHeatmap'/);

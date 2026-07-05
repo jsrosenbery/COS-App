@@ -4964,7 +4964,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         { title: 'Discipline', visible: false },
         { title: 'Campus', visible: false },
         { title: 'Term', visible: false },
-        { title: 'Modality', visible: false }
+        { title: 'Modality', visible: false },
+        { title: 'Faculty Type', visible: false }
       ],
       destroy: true,
       searching: true
@@ -4986,7 +4987,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       return;
     }
     note.hidden = false;
-    note.textContent = `Table filtered to ${heatmapCellFilter.day} starts at ${formatHourLabel(heatmapCellFilter.hour)}. Use Clear to reset.`;
+    const facultyScope = heatmapCellFilter.facultyType ? `${facultyHeatmapGroupLabel(heatmapCellFilter.facultyType)} ` : '';
+    note.textContent = `Table filtered to ${facultyScope}${heatmapCellFilter.day} starts at ${formatHourLabel(heatmapCellFilter.hour)}. Use Clear to reset.`;
   }
 
   function clearHeatmapCellFilter(redraw = true) {
@@ -4998,6 +5000,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function rowMatchesHeatmapCell(row, filter) {
     if (!filter) return true;
+    if (filter.facultyType && row[13] !== filter.facultyType) return false;
     const days = normalizeMeetingDays(row[4]);
     if (!days.includes(filter.day)) return false;
     const startTime = row[5]?.split('-')[0]?.trim();
@@ -5040,6 +5043,23 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (crns.length) return crns.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(',');
     if (Array.isArray(row)) return [row[10], row[0], row[4], row[5], fallback].filter(Boolean).join('|');
     return [row?.Term, row?.key, row?.Days?.join(','), row?.Start_Time, fallback].filter(Boolean).join('|');
+  }
+
+  function facultyTypeForHeatmapRow(row) {
+    const rawCode = extractField(row, ['FCNT_CODE', 'FCNT CODE', 'Faculty Type Code', 'fcntCode', 'Faculty Type']);
+    if (!rawCode) return '';
+    if (window.COSFacultyUtils?.facultyTypeFromFcnt) return window.COSFacultyUtils.facultyTypeFromFcnt(rawCode);
+    const code = String(rawCode || '').trim().toUpperCase();
+    if (code === 'FT' || code === 'TE') return 'FULL_TIME';
+    if (code === 'JP') return 'PART_TIME';
+    if (code === 'AE' || code === 'X') return 'OMIT';
+    return 'UNKNOWN';
+  }
+
+  function facultyHeatmapGroupLabel(type) {
+    if (type === 'FULL_TIME') return 'Full-Time Faculty';
+    if (type === 'PART_TIME') return 'Part-Time Faculty';
+    return 'All Faculty';
   }
 
   function isOnlineTbaHeatmapRow(row) {
@@ -5139,7 +5159,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       cell.addEventListener('click', () => {
         heatmapCellFilter = {
           day: cell.dataset.day,
-          hour: Number(cell.dataset.hour)
+          hour: Number(cell.dataset.hour),
+          facultyType: cell.dataset.facultyType || ''
         };
         document.querySelectorAll('.heatmap-cell.is-selected').forEach(el => el.classList.remove('is-selected'));
         cell.classList.add('is-selected');
@@ -5192,6 +5213,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
       const building = canonical?.building || extractField(r, ['Building', 'BUILDING', 'building', 'Bldg', 'Building Code']);
       const room = canonical?.roomOnly || extractField(r, ['Room', 'ROOM', 'roomOnly', 'room', 'Room Number']);
+      const facultyType = facultyTypeForHeatmapRow(r);
 
       let startTime = canonical?.start || extractField(r, ['Start_Time', 'Start Time', 'start', 'Start']) || '';
       let endTime = canonical?.end || extractField(r, ['End_Time', 'End Time', 'end', 'End']) || '';
@@ -5224,9 +5246,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         Division: canonical?.division || getDivision(r),
         Discipline: canonical?.subject || getCourseParts(r).discipline,
         Modality: instructionalMethod,
-        ModalityCategory: modalityCategory
+        ModalityCategory: modalityCategory,
+        FacultyType: facultyType
       };
     }).filter(r => {
+      if (r.FacultyType === 'OMIT') return false;
       if (!isReportableModalityCategory(r.ModalityCategory)) return false;
       // Omit if room is blank, N/A, LIVE, ONLINE
       if (!isValidRoom(r.Building, r.Room)) return false;
@@ -5341,7 +5365,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       r.Discipline || '',
       r.Campus || '',
       r.Term || '',
-      r.ModalityCategory || r.Modality || ''
+      r.ModalityCategory || r.Modality || '',
+      r.FacultyType || ''
     ]);
     hmTable.clear().rows.add(rows).draw();
   }
@@ -5369,22 +5394,16 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     ].join('');
   }
 
-  function updateHeatmap() {
-    const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
-    const metric = heatmapMetricMode();
-    const startHours = filtered
-      .map(row => parseHour(row[5]?.split('-')[0]?.trim()))
-      .filter(hour => Number.isFinite(hour));
-    let minHour = startHours.length ? Math.floor(Math.min(...startHours) * 2) / 2 : 6;
-    let maxHour = startHours.length ? (Math.ceil(Math.max(...startHours) * 2) / 2) + 0.5 : 22;
-    if (minHour >= maxHour) { minHour = 6; maxHour = 22; }
-    const hours = buildHalfHourSlots(minHour, maxHour);
+  function heatmapHasFacultyTypeRows(rows) {
+    return (rows || []).some(row => row[13] === 'FULL_TIME' || row[13] === 'PART_TIME');
+  }
+
+  function buildHeatmapCells(rows, hours, metric) {
     const cells = {};
     hmDays.forEach(d => cells[d] = hours.map(() => ({ sections: 0, enrollment: 0, capacity: 0, crns: new Set() })));
-    filtered.forEach((row, rowIndex) => {
-      const [ course, crns, bld, room, daysStr, timeStr ] = row;
-      const dayList = normalizeMeetingDays(daysStr);
-      const timeParts = timeStr.split('-');
+    rows.forEach((row, rowIndex) => {
+      const dayList = normalizeMeetingDays(row[4]);
+      const timeParts = String(row[5] || '').split('-');
       const st = timeParts[0]?.trim();
       const en = timeParts[1]?.trim();
       if (!st || !en) return;
@@ -5413,65 +5432,128 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     Object.entries(cells).forEach(([day, row]) => {
       row.forEach((cell, index) => allCells.push({ ...cell, day, hour: hours[index], value: cellValue(cell) }));
     });
-    const nonEmptyCells = allCells.filter(cell => cell.sections > 0);
-    const maxC = Math.max(0, ...nonEmptyCells.map(cell => cell.value));
-    renderHeatmapSummaryCards(nonEmptyCells);
+    return { cells, allCells, nonEmptyCells: allCells.filter(cell => cell.sections > 0) };
+  }
+
+  function renderHeatmapTableMarkup({ cells, hours, metric, maxValue, facultyType = '' }) {
     let html = '<div class="heatmap-wrap"><table class="heatmap heatmap-table">';
     html += '<thead><tr><th class="heatmap-day-header">Day</th>';
-    hours.forEach(h=>{
-      html+=`<th class="heatmap-time-header">${formatHeatmapTimeHeader(h)}</th>`;
+    hours.forEach(h => {
+      html += `<th class="heatmap-time-header">${formatHeatmapTimeHeader(h)}</th>`;
     });
-    html+='</tr></thead><tbody>';
-    hmDays.forEach(d=>{
-      html+=`<tr><th class="heatmap-day-cell">${d}</th>`;
-      cells[d].forEach((cell, i)=>{
+    html += '</tr></thead><tbody>';
+    hmDays.forEach(d => {
+      html += `<tr><th class="heatmap-day-cell">${d}</th>`;
+      cells[d].forEach((cell, i) => {
         const h = hours[i];
-        const value = cellValue(cell);
-        const op=maxC?value/maxC:0;
+        const value = cell.value;
+        const op = maxValue ? value / maxValue : 0;
         const level = op >= 0.8 ? 'high' : op >= 0.45 ? 'medium' : op > 0 ? 'low' : 'empty';
-        const selected = heatmapCellFilter && heatmapCellFilter.day === d && heatmapCellFilter.hour === h ? ' is-selected' : '';
-        const title = `${d} ${formatHourLabel(h)} scheduled start time: ${formatHeatmapValue(value, metric) || 0} ${heatmapMetricLabel(metric)}; ${cell.sections} section${cell.sections === 1 ? '' : 's'}, ${cell.enrollment} enrolled, ${cell.capacity} seats`;
-        html+=`<td class="heatmap-cell heatmap-value-cell heatmap-${level}${selected}" data-day="${escapeHTML(d)}" data-hour="${h}" title="${escapeHTML(title)}" style="--heat:${op.toFixed(3)}">${formatHeatmapValue(value, metric)}</td>`;
+        const selected = heatmapCellFilter && heatmapCellFilter.day === d && heatmapCellFilter.hour === h && (heatmapCellFilter.facultyType || '') === facultyType ? ' is-selected' : '';
+        const titlePrefix = facultyType ? `${facultyHeatmapGroupLabel(facultyType)}; ` : '';
+        const title = `${titlePrefix}${d} ${formatHourLabel(h)} scheduled start time: ${formatHeatmapValue(value, metric) || 0} ${heatmapMetricLabel(metric)}; ${cell.sections} section${cell.sections === 1 ? '' : 's'}, ${cell.enrollment} enrolled, ${cell.capacity} seats`;
+        html += `<td class="heatmap-cell heatmap-value-cell heatmap-${level}${selected}" data-day="${escapeHTML(d)}" data-hour="${h}" data-faculty-type="${escapeHTML(facultyType)}" title="${escapeHTML(title)}" style="--heat:${op.toFixed(3)}">${formatHeatmapValue(value, metric)}</td>`;
       });
-      html+='</tr>';
+      html += '</tr>';
     });
-    html+='</tbody></table></div>';
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function heatmapExportRows(cells, metric, filters, facultyType = '') {
+    return cells.map(cell => ({
+      reportName: `${facultyType ? `${facultyHeatmapGroupLabel(facultyType)} - ` : ''}${heatmapMetricLabel(metric)} - Heatmap Analytics`,
+      termSource: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
+      selectedFilters: filters.concat(facultyType ? [`Faculty group: ${facultyHeatmapGroupLabel(facultyType)}`] : []).join('; '),
+      metric: heatmapMetricLabel(metric),
+      day: cell.day,
+      timeBlock: formatHourLabel(cell.hour),
+      value: formatHeatmapValue(cell.value, metric),
+      sections: cell.sections,
+      seats: cell.capacity,
+      enrollment: cell.enrollment,
+      fillRate: cell.capacity ? `${((cell.enrollment / cell.capacity) * 100).toFixed(1)}%` : '',
+      waitlist: '',
+      modalityScope: facultyType ? `Faculty Schedule rows - ${facultyHeatmapGroupLabel(facultyType)}` : 'Physical start-time rows'
+    }));
+  }
+
+  function heatmapExportOptions(metric, filters, facultyType = '') {
+    const groupLabel = facultyType ? `${facultyHeatmapGroupLabel(facultyType)} - ` : '';
+    return {
+      title: `${groupLabel}${heatmapMetricLabel(metric)} - Heatmap Analytics`,
+      term: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
+      filters: filters.concat(facultyType ? [`Faculty group: ${facultyHeatmapGroupLabel(facultyType)}`] : []),
+      metric: heatmapMetricLabel(metric),
+      modalityScope: facultyType ? `Faculty Schedule rows - ${facultyHeatmapGroupLabel(facultyType)}` : 'Physical start-time rows',
+      filename: facultyType ? `faculty-${facultyType.toLowerCase().replace('_', '-')}-heatmap-analytics.png` : 'heatmap-analytics.png'
+    };
+  }
+
+  function updateHeatmap() {
+    const filtered = hmTable.rows({ search: 'applied' }).data().toArray();
+    const metric = heatmapMetricMode();
+    const startHours = filtered
+      .map(row => parseHour(row[5]?.split('-')[0]?.trim()))
+      .filter(hour => Number.isFinite(hour));
+    let minHour = startHours.length ? Math.floor(Math.min(...startHours) * 2) / 2 : 6;
+    let maxHour = startHours.length ? (Math.ceil(Math.max(...startHours) * 2) / 2) + 0.5 : 22;
+    if (minHour >= maxHour) { minHour = 6; maxHour = 22; }
+    const hours = buildHalfHourSlots(minHour, maxHour);
+    const baseHeatmap = buildHeatmapCells(filtered, hours, metric);
+    const nonEmptyCells = baseHeatmap.nonEmptyCells;
+    const maxC = Math.max(0, ...nonEmptyCells.map(cell => cell.value));
+    renderHeatmapSummaryCards(nonEmptyCells);
+    const filters = [
+      `Campus: ${document.getElementById('heatmap-campus-select')?.value || 'All'}`,
+      `Division: ${document.getElementById('heatmap-division-select')?.value || 'All'}`,
+      `Discipline: ${document.getElementById('heatmap-discipline-select')?.value || 'All'}`,
+      `CAL-GETC: ${document.getElementById('heatmap-calgetc-select')?.value || 'All'}`,
+      document.getElementById('heatmap-prime-only')?.checked ? 'Prime time only' : '',
+      document.getElementById('heatmap-underutilized-only')?.checked ? 'Underutilized only' : ''
+    ].filter(Boolean);
+    const hasFacultyGroups = heatmapHasFacultyTypeRows(filtered);
+    let html = '';
+    const renderedPanels = [];
+    if (hasFacultyGroups) {
+      const panelConfigs = [
+        { key: 'all', title: 'Faculty Heatmap (All Faculty)', facultyType: '', rows: filtered.filter(row => row[13] === 'FULL_TIME' || row[13] === 'PART_TIME' || row[13] === 'UNKNOWN') },
+        { key: 'full-time', title: 'Faculty Heatmap (Full-Time Faculty)', facultyType: 'FULL_TIME', rows: filtered.filter(row => row[13] === 'FULL_TIME') },
+        { key: 'part-time', title: 'Faculty Heatmap (Part-Time Faculty)', facultyType: 'PART_TIME', rows: filtered.filter(row => row[13] === 'PART_TIME') }
+      ];
+      const builtPanels = panelConfigs.map(panel => ({ ...panel, built: buildHeatmapCells(panel.rows, hours, metric) }));
+      const sharedMax = Math.max(0, ...builtPanels.flatMap(panel => panel.built.nonEmptyCells.map(cell => cell.value)));
+      html = builtPanels.map(panel => {
+        renderedPanels.push(panel);
+        const detail = `${panel.rows.length.toLocaleString()} matching faculty meeting row${panel.rows.length === 1 ? '' : 's'}. Shared time axis and color scale.`;
+        return `<section class="heatmap-faculty-panel demand-report-section" data-faculty-heatmap-panel="${escapeHTML(panel.key)}">
+          <h3>${escapeHTML(panel.title)}</h3>
+          <p class="analytics-chart-note">${escapeHTML(detail)}</p>
+          <div id="heatmapFacultyPanel_${escapeHTML(panel.key)}">
+            ${renderHeatmapTableMarkup({ cells: panel.built.cells, hours, metric, maxValue: sharedMax, facultyType: panel.facultyType })}
+          </div>
+        </section>`;
+      }).join('');
+    } else {
+      html = renderHeatmapTableMarkup({ cells: baseHeatmap.cells, hours, metric, maxValue: maxC });
+    }
     document.getElementById('heatmapContainer').innerHTML = html;
     if (window.COSUtils?.renderHeatmapExportToolbar) {
-      const filters = [
-        `Campus: ${document.getElementById('heatmap-campus-select')?.value || 'All'}`,
-        `Division: ${document.getElementById('heatmap-division-select')?.value || 'All'}`,
-        `Discipline: ${document.getElementById('heatmap-discipline-select')?.value || 'All'}`,
-        `CAL-GETC: ${document.getElementById('heatmap-calgetc-select')?.value || 'All'}`,
-        document.getElementById('heatmap-prime-only')?.checked ? 'Prime time only' : '',
-        document.getElementById('heatmap-underutilized-only')?.checked ? 'Underutilized only' : ''
-      ].filter(Boolean);
-      window.COSUtils.renderHeatmapExportToolbar(document.getElementById('heatmapContainer'), {
-        container: () => document.getElementById('heatmapContainer'),
-        rows: () => allCells.map(cell => ({
-          reportName: `${heatmapMetricLabel(metric)} - Heatmap Analytics`,
-          termSource: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
-          selectedFilters: filters.join('; '),
-          metric: heatmapMetricLabel(metric),
-          day: cell.day,
-          timeBlock: formatHourLabel(cell.hour),
-          value: formatHeatmapValue(cell.value, metric),
-          sections: cell.sections,
-          seats: cell.capacity,
-          enrollment: cell.enrollment,
-          fillRate: cell.capacity ? `${((cell.enrollment / cell.capacity) * 100).toFixed(1)}%` : '',
-          waitlist: '',
-          modalityScope: 'Physical start-time rows'
-        })),
-        options: () => ({
-          title: `${heatmapMetricLabel(metric)} - Heatmap Analytics`,
-          term: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
-          filters,
-          metric: heatmapMetricLabel(metric),
-          modalityScope: 'Physical start-time rows',
-          filename: 'heatmap-analytics.png'
-        })
-      });
+      if (hasFacultyGroups) {
+        renderedPanels.forEach(panel => {
+          window.COSUtils.renderHeatmapExportToolbar(document.getElementById(`heatmapFacultyPanel_${panel.key}`), {
+            container: () => document.getElementById(`heatmapFacultyPanel_${panel.key}`),
+            rows: () => heatmapExportRows(panel.built.allCells, metric, filters, panel.facultyType),
+            options: () => heatmapExportOptions(metric, filters, panel.facultyType)
+          });
+        });
+      } else {
+        window.COSUtils.renderHeatmapExportToolbar(document.getElementById('heatmapContainer'), {
+          container: () => document.getElementById('heatmapContainer'),
+          rows: () => heatmapExportRows(baseHeatmap.allCells, metric, filters),
+          options: () => heatmapExportOptions(metric, filters)
+        });
+      }
     }
     attachHeatmapCellHandlers();
     setHeatmapCellFilterNote();
