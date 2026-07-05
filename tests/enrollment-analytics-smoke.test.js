@@ -313,7 +313,9 @@ function loadScheduleAppRuntime() {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
-  return context.window.COSScheduleApp.modalityBalanceTestHooks;
+  return Object.assign(context.window.COSScheduleApp.modalityBalanceTestHooks, {
+    roomCatalogTestHooks: context.window.COSScheduleApp.roomCatalogTestHooks
+  });
 }
 
 function loadConfigModule() {
@@ -3408,6 +3410,39 @@ test('modality balance counts unduplicated CRN offerings and census-first enroll
   assert.equal(byModality.get('Online').enrollment, 15);
   assert.equal(byModality.get('Hybrid').classOfferings, 1);
   assert.equal(summary[0].totalClassOfferings, 3);
+});
+
+test('room catalog import and export supports optional room priority', () => {
+  const hooks = loadScheduleAppRuntime().roomCatalogTestHooks;
+  const fiveColumn = hooks.normalizeRoomCatalog([
+    { Campus: 'COS', Building: 'CEDAR', Room: '421', Capacity: '28', 'Room Type': 'Computer Lab' }
+  ]);
+  const explicitPriority = hooks.normalizeRoomCatalog([
+    { Campus: 'TCC', Building: 'TULARE', Room: 'A101', Capacity: '42', 'Room Type': 'Classroom', 'Room Priority': 'Business' }
+  ]);
+  const alternatePriorityRows = [
+    { Building: 'A', Room: '1', Capacity: '10', 'Room Type': 'Lab', 'Priority Division': 'Science' },
+    { Building: 'A', Room: '2', Capacity: '11', 'Room Type': 'Classroom', 'Priority Area': 'Arts' },
+    { Building: 'A', Room: '3', Capacity: '12', 'Room Type': 'Lecture', 'Primary Division': 'Math' },
+    { Building: 'A', Room: '4', Capacity: '13', 'Room Type': 'Office', 'Dean Area': 'Health' },
+    { Building: 'A', Room: '5', Capacity: '14', 'Room Type': 'Specialty', 'Assigned Division': 'CTE' },
+    { Building: 'A', Room: '6', Capacity: '15', 'Room Type': 'Studio', 'Preferred Division': 'Language' }
+  ];
+  const alternatePriority = hooks.normalizeRoomCatalog(alternatePriorityRows);
+  const exported = JSON.parse(hooks.roomCatalogToCsv(fiveColumn));
+
+  assert.equal(fiveColumn.length, 1);
+  assert.equal(fiveColumn[0].capacity, 28);
+  assert.equal(fiveColumn[0].type, 'Computer Lab');
+  assert.equal(fiveColumn[0].priority, 'Unassigned');
+  assert.equal(explicitPriority[0].priority, 'Business');
+  assert.equal(JSON.stringify(alternatePriority.map(room => room.priority)), JSON.stringify(['Science', 'Arts', 'Math', 'Health', 'CTE', 'Language']));
+  assert.equal(exported[0].Campus, 'COS');
+  assert.equal(exported[0].Building, 'CEDAR');
+  assert.equal(exported[0].Room, '421');
+  assert.equal(exported[0].Capacity, 28);
+  assert.equal(exported[0]['Room Type'], 'Computer Lab');
+  assert.equal(exported[0]['Room Priority'], 'Unassigned');
 });
 
 test('modality comparison rows include class offering counts and shares', () => {

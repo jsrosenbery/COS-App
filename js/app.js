@@ -476,9 +476,24 @@ function normalizeRoomCatalog(rawRooms) {
       room: String(room.room || room.Room || '').trim(),
       buildingRoom: String(room.buildingRoom || room['Building-Room'] || room.BuildingRoom || `${room.building || room.Building || ''}-${room.room || room.Room || ''}`).trim(),
       type: String(room.type || room.Type || room.roomType || room['Room Type'] || '').trim(),
-      capacity: Number.isFinite(Number(room.capacity ?? room.Capacity ?? room.cap)) ? Number(room.capacity ?? room.Capacity ?? room.cap) : null
+      capacity: Number.isFinite(Number(room.capacity ?? room.Capacity ?? room.cap)) ? Number(room.capacity ?? room.Capacity ?? room.cap) : null,
+      priority: normalizeRoomPriority(room)
     }))
     .filter(room => room.building && room.room && room.buildingRoom);
+}
+
+function normalizeRoomPriority(room) {
+  const value = room?.priority
+    ?? room?.roomPriority
+    ?? room?.['Room Priority']
+    ?? room?.['Priority Division']
+    ?? room?.['Priority Area']
+    ?? room?.['Primary Division']
+    ?? room?.['Dean Area']
+    ?? room?.['Assigned Division']
+    ?? room?.['Preferred Division'];
+  const text = String(value || '').trim();
+  return text || 'Unassigned';
 }
 
 let roomCatalog = normalizeRoomCatalog(window.ROOM_CATALOG || []);
@@ -925,6 +940,11 @@ document.addEventListener('DOMContentLoaded', () => {
     roomUtilizationCategoryLabels: () => [...utilizationCategoryLabels],
     roomMatchesUtilizationCategory,
     filterRoomUtilizationRowsByCategory,
+    roomCatalogTestHooks: {
+      normalizeRoomCatalog,
+      normalizeRoomPriority,
+      roomCatalogToCsv
+    },
     modalityBalanceTestHooks: {
       normalizeTermLabel,
       termMatches,
@@ -1462,7 +1482,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       Building: room.building,
       Room: room.room,
       Capacity: room.capacity == null ? '' : room.capacity,
-      'Room Type': room.type
+      'Room Type': room.type,
+      'Room Priority': room.priority
     }));
     return Papa.unparse(rows);
   }
