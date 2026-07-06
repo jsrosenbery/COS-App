@@ -15,6 +15,59 @@
     };
   }
 
+  async function fetchJson(url, options = {}) {
+    const response = await fetch(url, options);
+    const text = await response.text();
+    let payload = null;
+    if (text) {
+      try {
+        payload = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`Backend returned non-JSON response (${response.status}).`);
+      }
+    }
+    if (!response.ok) {
+      const message = payload?.error || payload?.message || response.statusText || `Request failed (${response.status})`;
+      throw new Error(message);
+    }
+    return payload ?? {};
+  }
+
+  function ensureNotificationRegion() {
+    let region = document.getElementById('cos-notification-region');
+    if (region) return region;
+    region = document.createElement('div');
+    region.id = 'cos-notification-region';
+    region.className = 'cos-notification-region';
+    region.setAttribute('role', 'status');
+    region.setAttribute('aria-live', 'polite');
+    const style = document.createElement('style');
+    style.textContent = `
+      .cos-notification-region{position:fixed;right:16px;bottom:16px;display:grid;gap:8px;z-index:9999;max-width:min(420px,calc(100vw - 32px))}
+      .cos-notification{border:1px solid #cbd5e1;border-left-width:5px;border-radius:8px;background:#fff;color:#123367;box-shadow:0 8px 22px rgba(15,23,42,.16);padding:10px 12px;font:13px/1.35 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+      .cos-notification-success{border-left-color:#148f62}
+      .cos-notification-warning{border-left-color:#d97706}
+      .cos-notification-error{border-left-color:#b91c1c}
+    `;
+    document.head?.appendChild(style);
+    document.body?.appendChild(region);
+    return region;
+  }
+
+  function notify(message, type = 'info', options = {}) {
+    const text = String(message || '').trim();
+    if (!text) return null;
+    const region = ensureNotificationRegion();
+    const item = document.createElement('div');
+    const normalizedType = ['success', 'warning', 'error'].includes(type) ? type : 'info';
+    item.className = `cos-notification cos-notification-${normalizedType}`;
+    item.textContent = text;
+    region.appendChild(item);
+    const timeout = Number(options.timeoutMs ?? (normalizedType === 'error' ? 8000 : 4500));
+    if (timeout > 0) window.setTimeout?.(() => item.remove(), timeout);
+    return item;
+  }
+
   const commonAnalyticsDefinitions = [
     ['Campus Choice Count', 'Number of distinct campus codes represented in a day/time block after filters and exclusions are applied.'],
     ['Course Choice Count', 'Number of distinct discipline + course combinations available in a day/time block after CRN/day/time deduplication.'],
@@ -529,6 +582,8 @@
     backendBaseUrl,
     featureEnabled,
     jsonHeaders,
+    fetchJson,
+    notify,
     commonAnalyticsDefinitions,
     standardAnalyticsAssumptions,
     MetricDefinitionRegistry: window.MetricDefinitionRegistry,

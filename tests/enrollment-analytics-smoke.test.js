@@ -4306,6 +4306,24 @@ test('visualization export menu uses full-width toolbar and body wrapper', () =>
   assert.doesNotMatch(css, /\.visualization-section \{[^}]*flex-direction: row/);
 });
 
+test('shared api utilities provide checked JSON fetch and non-blocking notifications', () => {
+  const utils = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  assert.match(utils, /async function fetchJson/);
+  assert.match(utils, /if \(!response\.ok\)/);
+  assert.match(utils, /Backend returned non-JSON response/);
+  assert.match(utils, /function notify/);
+  assert.match(utils, /cos-notification-region/);
+  assert.match(utils, /aria-live', 'polite'/);
+  assert.match(utils, /COSUtils = \{[\s\S]*fetchJson,[\s\S]*notify,/);
+  assert.match(app, /const fetchJson = window\.COSUtils\?\.fetchJson/);
+  assert.match(app, /async function loadScheduleFromBackend/);
+  assert.match(app, /Could not load \$\{term\}/);
+  assert.match(app, /async function uploadScheduleToBackend/);
+  assert.match(app, /Uploaded \$\{term\} schedule successfully\./);
+});
+
 test('collapsible section helper defaults open toggles aria and persists state', () => {
   const { utils, document, storage } = loadCollapsibleUtilsRuntime();
   const target = document.createElement('div');

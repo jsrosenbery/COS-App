@@ -1384,7 +1384,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
     const tableTitle = document.createElement('span');
     tableTitle.id = 'room-catalog-table-title';
-    tableTitle.textContent = `Room Catalog Table — ${roomCatalog.length} rooms`;
+    tableTitle.textContent = `Room Catalog Table ? ${roomCatalog.length} rooms`;
     const tableChevron = document.createElement('span');
     tableChevron.className = 'collapsible-section-chevron';
     tableChevron.setAttribute('aria-hidden', 'true');
@@ -1422,7 +1422,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!preview) return;
     const rooms = getRoomCatalogEntries();
     const tableTitle = document.getElementById('room-catalog-table-title');
-    if (tableTitle) tableTitle.textContent = `Room Catalog Table — ${rooms.length} rooms`;
+    if (tableTitle) tableTitle.textContent = `Room Catalog Table ? ${rooms.length} rooms`;
     const display = rooms.slice(0, 25);
     if (!display.length) {
       preview.innerHTML = '<p>No room catalog rows loaded.</p>';
@@ -2352,46 +2352,67 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   // --- Backend fetch instead of localStorage ---
-  function loadScheduleFromBackend(term) {
-    fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`)
-      .then(res => res.json())
-      .then(({ data, lastUpdated }) => {
-        // PATCH: Normalize backend data fields to frontend expectations
-        currentData = (data || []).map(normalizeRow);
-        tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
-        buildRoomDropdowns();
-        renderSchedule();
-        feedHeatmapTool(getScheduleAnalysisRows());
-        initUtilizationFilters();
-        initModalityFilters();
-        if (isUtilizationViewActive()) {
-          renderUtilizationMap();
-        }
-        if (document.getElementById('viewSelect').value === 'modality') {
-          renderModalityTool();
-        }
-        if (document.getElementById('viewSelect').value === 'fullcalendar') {
-          renderFullCalendar();
-        }
-      });
+  async function loadScheduleFromBackend(term) {
+    const notify = window.COSUtils?.notify;
+    const fetchJson = window.COSUtils?.fetchJson;
+    try {
+      const payload = fetchJson
+        ? await fetchJson(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`)
+        : await fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`).then(res => {
+            if (!res.ok) throw new Error('Schedule fetch failed');
+            return res.json();
+          });
+      const { data, lastUpdated } = payload || {};
+      // PATCH: Normalize backend data fields to frontend expectations
+      currentData = (data || []).map(normalizeRow);
+      tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
+      buildRoomDropdowns();
+      renderSchedule();
+      feedHeatmapTool(getScheduleAnalysisRows());
+      initUtilizationFilters();
+      initModalityFilters();
+      if (isUtilizationViewActive()) {
+        renderUtilizationMap();
+      }
+      if (document.getElementById('viewSelect').value === 'modality') {
+        renderModalityTool();
+      }
+      if (document.getElementById('viewSelect').value === 'fullcalendar') {
+        renderFullCalendar();
+      }
+    } catch (err) {
+      currentData = [];
+      clearSchedule();
+      tsDiv.textContent = `Could not load ${term}: ${err.message || 'backend request failed'}`;
+      notify?.(`Could not load ${term}. ${err.message || 'Backend request failed.'}`, 'error');
+    }
   }
 
   // --- POST CSV to backend, not localStorage ---
-  function uploadScheduleToBackend(term, csvString, password) {
-    fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csv: csvString, password })
-    })
-      .then(res => {
+  async function uploadScheduleToBackend(term, csvString, password) {
+    const notify = window.COSUtils?.notify;
+    const fetchJson = window.COSUtils?.fetchJson;
+    try {
+      if (fetchJson) {
+        await fetchJson(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ csv: csvString, password })
+        });
+      } else {
+        const res = await fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ csv: csvString, password })
+        });
         if (!res.ok) throw new Error('Upload failed');
-        return res.json();
-      })
-      .then(() => {
-        alert('Upload successful!');
-        loadScheduleFromBackend(term);
-      })
-      .catch(err => alert('Upload failed: ' + err.message));
+      }
+      notify?.(`Uploaded ${term} schedule successfully.`, 'success');
+      await loadScheduleFromBackend(term);
+    } catch (err) {
+      notify?.(`Upload failed. ${err.message || 'Backend request failed.'}`, 'error');
+      alert('Upload failed: ' + (err.message || 'Backend request failed.'));
+    }
   }
 
   function selectTerm(term, tabElem) {
