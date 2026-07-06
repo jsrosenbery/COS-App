@@ -242,6 +242,28 @@ test('Faculty Modality calculation omits AE and X faculty rows', () => {
   assert.equal(inPersonRows.reduce((total, row) => total + row.lhe, 0), 5);
 });
 
+test('Faculty Modality counts class offerings by distinct CRN, not meeting rows', () => {
+  const csv = [
+    '"FACULTYID","FacultyName","FCNT_CODE","DIVISIONID","DEPARTMENTID","SUBJ_COURSE","COURSE","CRN","DAYS","CAMPUS","BUILDING","ROOM","STARTTIME","ENDTIME","SCHD_CODE_SSRMEET","ActualEnroll","MaxEnroll","INSM_CODE_SSBSECT","LHE","XLIST"',
+    '@FT001,"Full, Faculty",FT,SCI,BIOL,"BIOL 010","Biology",40001,M,COS,SCI,101,8:00AM,9:00AM,02,30,40,IP,3,',
+    '@FT001,"Full, Faculty",FT,SCI,BIOL,"BIOL 010","Biology",40001,M,COS,SCI,101,9:00AM,10:00AM,04,30,40,IP,1,',
+    '@FT001,"Full, Faculty",FT,SCI,BIOL,"BIOL 010","Biology",40001,M,COS,SCI,101,9:00AM,10:00AM,04,30,40,IP,1,',
+    '@PT001,"Part, Faculty",JP,ART,ART,"ART 001","Art",40002,T,COS,ART,102,10:00AM,11:00AM,02,20,25,ONL,2,'
+  ].join('\n');
+  const rows = facultyParser.parseFacultyScheduleCsv(csv, { term: 'FALL 2026' }).meetings;
+  const modalityRows = facultyModel.buildFacultyModalityRows(rows);
+  const fullTimeInPerson = modalityRows.find(row => row.facultyType === 'FULL_TIME' && row.modality === 'In-Person');
+  const partTimeOnline = modalityRows.find(row => row.facultyType === 'PART_TIME' && row.modality === 'Online');
+
+  assert.equal(rows.filter(row => row.crn === '40001').length, 2);
+  assert.equal(fullTimeInPerson.classOfferings, 1);
+  assert.equal(fullTimeInPerson.sections, 1);
+  assert.equal(fullTimeInPerson.instructionalMeetingRows, 2);
+  assert.equal(fullTimeInPerson.enrollment, 30);
+  assert.equal(fullTimeInPerson.seats, 40);
+  assert.equal(partTimeOnline.classOfferings, 1);
+});
+
 test('Prime Time Analysis calculation omits AE and X faculty rows', () => {
   const rows = omittedFacultyRows();
   const primeRows = facultyModel.buildPrimeTimeRows(rows, {

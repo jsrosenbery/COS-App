@@ -176,23 +176,53 @@
     const buckets = new Map();
     ['FULL_TIME', 'PART_TIME', 'UNKNOWN'].forEach(facultyType => {
       ['In-Person', 'Hybrid', 'Online'].forEach(modality => {
-        buckets.set(`${facultyType}|${modality}`, { facultyType, modality, sections: 0, enrollment: 0, seats: 0, lhe: 0 });
+        buckets.set(`${facultyType}|${modality}`, {
+          facultyType,
+          modality,
+          classOfferings: new Set(),
+          instructionalMeetingRows: 0,
+          enrollmentByOffering: new Map(),
+          seatsByOffering: new Map(),
+          lhe: 0
+        });
       });
     });
     const modalityFor = row => {
       const category = modalityNormalizer?.normalize ? modalityNormalizer.normalize(row.insmCode || '', { INSM_CODE_SSBSECT: row.insmCode || '' }) : 'UNKNOWN';
       return modalityNormalizer?.displayLabel ? modalityNormalizer.displayLabel(category) : ({ 'IN PERSON': 'In-Person', HYBRID: 'Hybrid', ONLINE: 'Online' }[category] || 'Unknown');
     };
+    const offeringKeyFor = row => {
+      const crn = String(row?.crn || '').trim().toUpperCase();
+      if (crn) return `${String(row?.sourceTerm || 'UNKNOWN').trim().toUpperCase() || 'UNKNOWN'}|${crn}`;
+      return String(row?.deduplicationKey || [
+        row?.sourceTerm || 'UNKNOWN',
+        row?.courseCode || '',
+        row?.facultyId || row?.facultyName || '',
+        row?.startTime || row?.start || '',
+        row?.endTime || row?.end || ''
+      ].join('|')).trim().toUpperCase();
+    };
     reportableFacultyRows(rows).forEach(row => {
       const key = `${row.facultyType}|${modalityFor(row)}`;
       const bucket = buckets.get(key);
       if (!bucket) return;
-      bucket.sections += 1;
-      bucket.enrollment += row.actualEnroll || 0;
-      bucket.seats += row.maxEnroll || 0;
+      const offeringKey = offeringKeyFor(row);
+      bucket.classOfferings.add(offeringKey);
+      bucket.instructionalMeetingRows += 1;
+      bucket.enrollmentByOffering.set(offeringKey, Math.max(bucket.enrollmentByOffering.get(offeringKey) || 0, row.actualEnroll || 0));
+      bucket.seatsByOffering.set(offeringKey, Math.max(bucket.seatsByOffering.get(offeringKey) || 0, row.maxEnroll || 0));
       bucket.lhe += row.lhe || 0;
     });
-    return [...buckets.values()];
+    return [...buckets.values()].map(bucket => ({
+      facultyType: bucket.facultyType,
+      modality: bucket.modality,
+      classOfferings: bucket.classOfferings.size,
+      sections: bucket.classOfferings.size,
+      instructionalMeetingRows: bucket.instructionalMeetingRows,
+      enrollment: [...bucket.enrollmentByOffering.values()].reduce((total, value) => total + value, 0),
+      seats: [...bucket.seatsByOffering.values()].reduce((total, value) => total + value, 0),
+      lhe: bucket.lhe
+    }));
   }
 
   function buildPrimeTimeRows(rows, definition = {}) {

@@ -1213,7 +1213,7 @@
   }
 
   function lockedReportLabel(report) {
-    return canAccess(report) ? REPORT_LABEL[report] || report : 'Locked report ••••••••';
+    return canAccess(report) ? REPORT_LABEL[report] || report : 'Locked report ????????';
   }
 
   function reportGroupsHtml() {
@@ -2261,9 +2261,9 @@
             <label>Allowed time shift
               <select id="optimizationAllowedShift">
                 <option value="0">None</option>
-                <option value="30">±30 minutes</option>
-                <option value="60">±1 hour</option>
-                <option value="120">±2 hours</option>
+                <option value="30">?30 minutes</option>
+                <option value="60">?1 hour</option>
+                <option value="120">?2 hours</option>
               </select>
             </label>
             <label>Maximum candidate rooms per section
@@ -3665,6 +3665,50 @@
     setModalitySelectOptions('fmModality', REPORTABLE_MODALITY_LABELS);
   }
 
+  function facultyModalityClassOfferingKey(row) {
+    const crn = String(row?.crn || row?.CRN || row?.raw?.CRN || '').trim().toUpperCase();
+    if (crn) return `${facultyTerm(row) || 'UNKNOWN'}|${crn}`;
+    return String(row?.deduplicationKey || [
+      facultyTerm(row) || 'UNKNOWN',
+      facultyCourseValue(row) || '',
+      row?.section || row?.raw?.Section || row?.raw?.SECTION || '',
+      row?.facultyId || row?.facultyName || row?.instructor || '',
+      row?.startTime || row?.start || '',
+      row?.endTime || row?.end || ''
+    ].join('|')).trim().toUpperCase();
+  }
+
+  function facultyModalityClassOfferingSummary(rows) {
+    const summary = {
+      total: new Set(),
+      byType: {
+        'Full-Time': new Set(),
+        'Part-Time': new Set(),
+        Unknown: new Set()
+      },
+      byModality: {
+        'In-Person': new Set(),
+        Hybrid: new Set(),
+        Online: new Set()
+      }
+    };
+    reportableFacultyRows(rows).forEach(row => {
+      const modality = facultyInstructionModality(row);
+      if (!['In-Person', 'Hybrid', 'Online'].includes(modality)) return;
+      const key = facultyModalityClassOfferingKey(row);
+      if (!key) return;
+      const typeLabel = row.facultyType === 'FULL_TIME'
+        ? 'Full-Time'
+        : row.facultyType === 'PART_TIME'
+          ? 'Part-Time'
+          : 'Unknown';
+      summary.total.add(key);
+      summary.byType[typeLabel]?.add(key);
+      summary.byModality[modality]?.add(key);
+    });
+    return summary;
+  }
+
   function buildFacultyModalityRows(rows) {
     const facultyTypes = [
       ['FULL_TIME', 'Full-Time'],
@@ -3678,13 +3722,15 @@
         buckets.set(`${label}|${modality}`, {
           facultyType: label,
           modality,
-          sections: 0,
+          classOfferings: new Set(),
+          instructionalMeetingRows: 0,
           facultyCount: 0,
           enrollment: 0,
           seats: 0,
           lhe: 0,
           faculty: new Set(),
-          sourceCodes: new Set()
+          sourceCodes: new Set(),
+          classOfferingValues: new Map()
         });
       });
     });
@@ -3695,24 +3741,37 @@
       if (!['In-Person', 'Hybrid', 'Online'].includes(modality)) return;
       const bucket = buckets.get(`${facultyType}|${modality}`);
       if (!bucket) return;
-      bucket.sections += 1;
-      bucket.enrollment += row.actualEnroll || 0;
-      bucket.seats += row.maxEnroll || 0;
+      const offeringKey = facultyModalityClassOfferingKey(row);
+      bucket.instructionalMeetingRows += 1;
+      bucket.classOfferings.add(offeringKey);
+      if (!bucket.classOfferingValues.has(offeringKey)) {
+        bucket.classOfferingValues.set(offeringKey, {
+          enrollment: row.actualEnroll || 0,
+          seats: row.maxEnroll || 0
+        });
+      } else {
+        const existing = bucket.classOfferingValues.get(offeringKey);
+        existing.enrollment = Math.max(existing.enrollment || 0, row.actualEnroll || 0);
+        existing.seats = Math.max(existing.seats || 0, row.maxEnroll || 0);
+      }
       bucket.lhe += row.lhe || 0;
       bucket.faculty.add(row.facultyId || row.facultyName || row.instructor || 'Unknown');
       bucket.facultyCount = bucket.faculty.size;
       if (row.insmCode) bucket.sourceCodes.add(row.insmCode);
     });
-    const totalSections = [...buckets.values()].reduce((total, row) => total + row.sections, 0);
+    const totalClassOfferings = [...buckets.values()].reduce((total, row) => total + row.classOfferings.size, 0);
     return [...buckets.values()].map(row => ({
       facultyType: row.facultyType,
       modality: row.modality,
-      sections: row.sections,
+      classOfferings: row.classOfferings.size,
+      sections: row.classOfferings.size,
+      instructionalMeetingRows: row.instructionalMeetingRows,
       facultyCount: row.facultyCount,
-      enrollment: row.enrollment,
-      seats: row.seats,
+      enrollment: [...row.classOfferingValues.values()].reduce((total, item) => total + (item.enrollment || 0), 0),
+      seats: [...row.classOfferingValues.values()].reduce((total, item) => total + (item.seats || 0), 0),
       lhe: Number(row.lhe.toFixed(2)),
-      sectionShare: totalSections ? `${((row.sections / totalSections) * 100).toFixed(1)}%` : '0%',
+      classOfferingShare: totalClassOfferings ? `${((row.classOfferings.size / totalClassOfferings) * 100).toFixed(1)}%` : '0%',
+      sectionShare: totalClassOfferings ? `${((row.classOfferings.size / totalClassOfferings) * 100).toFixed(1)}%` : '0%',
       sourceCodes: [...row.sourceCodes].sort().join(', ') || 'N/A'
     }));
   }
@@ -3779,11 +3838,12 @@
   function renderFacultyModalityChart(rows) {
     const node = document.getElementById('facultyModalityChart');
     if (!node) return;
+    const offeringValue = row => row.classOfferings ?? row.sections ?? 0;
     const focusRows = rows.filter(row => row.facultyType === 'Full-Time' || row.facultyType === 'Part-Time');
-    const byFacultyType = type => focusRows.filter(row => row.facultyType === type).reduce((total, row) => total + (row.sections || 0), 0);
+    const byFacultyType = type => focusRows.filter(row => row.facultyType === type).reduce((total, row) => total + offeringValue(row), 0);
     const byFacultyAndModality = (type, modality) => focusRows
       .filter(row => row.facultyType === type && row.modality === modality)
-      .reduce((total, row) => total + (row.sections || 0), 0);
+      .reduce((total, row) => total + offeringValue(row), 0);
     const modalities = ['In-Person', 'Hybrid', 'Online'];
     const ftPtRows = [
       { label: 'Full-Time', value: byFacultyType('Full-Time') },
@@ -3797,19 +3857,20 @@
         ${renderFacultyModalityPieCard('Full-Time Modality Share', fullTimeRows)}
         ${renderFacultyModalityPieCard('Part-Time Modality Share', partTimeRows)}
       </div>`;
-    const maxSections = Math.max(1, ...rows.map(row => row.sections || 0));
+    const maxSections = Math.max(1, ...rows.map(row => offeringValue(row)));
     const facultyTypes = ['Full-Time', 'Part-Time', 'Unknown'];
     const barCards = facultyTypes.map(type => {
       const typeRows = rows.filter(row => row.facultyType === type);
       const bars = typeRows.map(row => {
-        const width = Math.max(2, ((row.sections || 0) / maxSections) * 100);
+        const value = offeringValue(row);
+        const width = Math.max(2, (value / maxSections) * 100);
         return `
           <div class="faculty-modality-bar-row">
             <span>${escapeAttr(row.modality)}</span>
             <div class="faculty-modality-bar-track">
               <div class="faculty-modality-bar faculty-modality-${row.modality.toLowerCase().replace(/\s+/g, '-')}" style="width:${width.toFixed(1)}%"></div>
             </div>
-            <strong>${row.sections}</strong>
+            <strong>${value}</strong>
           </div>`;
       }).join('');
       return `<section class="faculty-modality-card"><h3>${escapeAttr(type)}</h3>${bars}</section>`;
@@ -3823,13 +3884,14 @@
     if (!sourceRows.length) {
       if (status) status.textContent = 'No faculty schedule rows loaded.';
       metric('facultyModalityMetrics', [
-        ['Total sections', 0],
-        ['Full-Time sections', 0],
-        ['Part-Time sections', 0],
-        ['Unknown sections', 0],
-        ['In-Person sections', 0],
-        ['Hybrid sections', 0],
-        ['Online sections', 0],
+        ['Total class offerings', 0],
+        ['Full-Time class offerings', 0],
+        ['Part-Time class offerings', 0],
+        ['Unknown class offerings', 0],
+        ['In-Person class offerings', 0],
+        ['Hybrid class offerings', 0],
+        ['Online class offerings', 0],
+        ['Instructional meeting rows', 0],
         ['Unknown/Omitted rows excluded', reportableFacultyRows(sourceRows).filter(row => !['In-Person', 'Hybrid', 'Online'].includes(facultyInstructionModality(row))).length]
       ]);
       document.getElementById('facultyModalityChart').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Modality.</p>';
@@ -3844,29 +3906,29 @@
     const rows = facultyModalityFilterRows();
     const tableRows = buildFacultyModalityRows(rows);
     state.facultyModalityTableRows = tableRows;
-    const byType = type => tableRows.filter(row => row.facultyType === type).reduce((total, row) => total + row.sections, 0);
-    const byModality = modality => tableRows.filter(row => row.modality === modality).reduce((total, row) => total + row.sections, 0);
+    const classOfferingSummary = facultyModalityClassOfferingSummary(rows);
     metric('facultyModalityMetrics', [
-      ['Total sections', tableRows.reduce((total, row) => total + row.sections, 0)],
-      ['Full-Time sections', byType('Full-Time')],
-      ['Part-Time sections', byType('Part-Time')],
-      ['Unknown sections', byType('Unknown')],
-      ['In-Person sections', byModality('In-Person')],
-      ['Hybrid sections', byModality('Hybrid')],
-      ['Online sections', byModality('Online')],
+      ['Total class offerings', classOfferingSummary.total.size],
+      ['Full-Time class offerings', classOfferingSummary.byType['Full-Time'].size],
+      ['Part-Time class offerings', classOfferingSummary.byType['Part-Time'].size],
+      ['Unknown class offerings', classOfferingSummary.byType.Unknown.size],
+      ['In-Person class offerings', classOfferingSummary.byModality['In-Person'].size],
+      ['Hybrid class offerings', classOfferingSummary.byModality.Hybrid.size],
+      ['Online class offerings', classOfferingSummary.byModality.Online.size],
+      ['Instructional meeting rows', rows.length],
       ['Unknown/Omitted rows excluded', sourceRows.filter(row => !['In-Person', 'Hybrid', 'Online'].includes(facultyInstructionModality(row))).length]
     ]);
     renderFacultyModalityChart(tableRows);
-    table('facultyModalityTable', tableRows, ['facultyType', 'modality', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe', 'sectionShare', 'sourceCodes']);
+    table('facultyModalityTable', tableRows, ['facultyType', 'modality', 'classOfferings', 'instructionalMeetingRows', 'facultyCount', 'enrollment', 'seats', 'lhe', 'classOfferingShare', 'sourceCodes']);
     renderMethodologyPanel(document.getElementById('facultyModalityLegend'), {
       title: 'Faculty Modality Methodology & Data Dictionary',
       purpose: 'Summarizes teaching modality by faculty type from Faculty Schedule CSV rows.',
-      metricsUsed: ['Sections Active', 'Faculty Count', 'Enrollment Present', 'Seats Offered', 'LHE', 'Modality Choice Count'],
-      calculationRules: 'Modality is mapped from INSM_CODE_SSBSECT with the shared TIMBER modality normalizer. Sections are grouped by faculty type and modality after reportable faculty rows are filtered and deduplicated.',
+      metricsUsed: ['Scheduled Class Offerings', 'Instructional Meetings', 'Faculty Count', 'Enrollment Present', 'Seats Offered', 'LHE', 'Modality Choice Count'],
+      calculationRules: 'Modality is mapped from INSM_CODE_SSBSECT with the shared TIMBER modality normalizer. Class offerings count distinct term + CRN values after filters. Instructional meeting rows count deduplicated CRN + day/time/component/instructor records and can exceed class offerings when one CRN has multiple meeting components.',
       assumptions: 'User-facing modality results display only In-Person, Hybrid, and Online. Unknown or omitted codes are excluded from standard analytics and should be reviewed in diagnostics/validation outputs.',
       limitations: 'This report does not infer faculty preference, load eligibility, or assignment policy. It only summarizes uploaded schedule rows.',
       items: [
-        ['Section Share', 'Sections in the faculty type/modality row divided by all included sections after filters.'],
+        ['Class Offering Share', 'Distinct CRNs in the faculty type/modality row divided by all included displayed class offering rows after filters.'],
         ['FT/PT Share of Class Offerings', 'Pie chart showing Full-Time versus Part-Time share of included class offerings. Unknown faculty rows remain in the table but are not included in the FT/PT pie.'],
         ['Faculty Type Modality Share', 'Pie charts showing each faculty type split across In-Person, Hybrid, and Online class offerings.'],
         ['Source Codes', 'Original INSM_CODE_SSBSECT values that mapped into the displayed modality row.']
@@ -11047,7 +11109,7 @@
     const highValue = Number(high);
     const normalizedLow = Number.isFinite(lowValue) ? lowValue : 0;
     const normalizedHigh = Number.isFinite(highValue) ? highValue : normalizedLow;
-    return `${round1(normalizedLow).toFixed(1)}–${round1(normalizedHigh).toFixed(1)}`;
+    return `${round1(normalizedLow).toFixed(1)}?${round1(normalizedHigh).toFixed(1)}`;
   }
 
   function collectDemandSourceTerms(rows) {
@@ -13586,6 +13648,9 @@
       normalizedModality: 'Normalized Modality',
       rowCount: 'Rows',
       crnCount: 'Distinct CRNs',
+      classOfferings: 'Class Offerings',
+      instructionalMeetingRows: 'Instructional Meeting Rows',
+      classOfferingShare: 'Class Offering Share',
       exampleCourses: 'Example Courses',
       exampleCrns: 'Example CRNs',
       includedByDefaultInPhysicalTimeAnalysis: 'Included by Default in Physical Time Analysis',
@@ -14051,7 +14116,7 @@
       const locked = !canAccess(report);
       option.dataset.requiredRole = requiredRole;
       option.dataset.locked = locked ? 'true' : 'false';
-      option.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
+      option.textContent = locked ? 'Locked report ????????' : (REPORT_LABEL[report] || report);
     });
     document.querySelectorAll('.em-report-button[data-report-target]').forEach(button => {
       const report = button.dataset.reportTarget || '';
@@ -14061,7 +14126,7 @@
       button.setAttribute('aria-current', report === selected ? 'page' : 'false');
       button.setAttribute('aria-disabled', locked ? 'true' : 'false');
       const label = button.querySelector('span');
-      if (label) label.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
+      if (label) label.textContent = locked ? 'Locked report ????????' : (REPORT_LABEL[report] || report);
       const note = button.querySelector('small');
       if (note) note.textContent = reportSubtitleForGroup(button.dataset.reportGroup) || reportSubtitleForReport(report);
     });
@@ -14078,7 +14143,7 @@
     const requiredRole = REPORT_ACCESS[reportName] || 'general';
     panel.hidden = false;
     panel.innerHTML = `
-      <h3>Locked report ••••••••</h3>
+      <h3>Locked report ????????</h3>
       <p>This report requires <strong>${escapeAttr(ROLE_LABEL[requiredRole])}</strong> access or higher.</p>
       <button type="button" data-unlock-report="${escapeAttr(reportName)}">Unlock This Report</button>
     `;
