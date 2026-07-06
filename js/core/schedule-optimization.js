@@ -265,6 +265,99 @@
     return a.startMinutes < b.endMinutes && b.startMinutes < a.endMinutes;
   }
 
+  function normalizedSections(rows = []) {
+    return (rows || []).map(row => row && Array.isArray(row.days) && row.startMinutes != null ? row : normalizeSection(row));
+  }
+
+  function mapPush(map, key, value) {
+    const safeKey = key || '';
+    if (!map.has(safeKey)) map.set(safeKey, []);
+    map.get(safeKey).push(value);
+  }
+
+  function buildRoomIndexes(roomsInput = []) {
+    const rooms = normalizeRoomCatalog(roomsInput);
+    const byCampus = new Map();
+    const byType = new Map();
+    const byPriorityArea = new Map();
+    rooms.forEach(room => {
+      mapPush(byCampus, canon(room.campus), room);
+      mapPush(byType, canon(room.roomType), room);
+      [room.primaryPriorityArea, room.secondaryPriorityArea].filter(Boolean).forEach(area => mapPush(byPriorityArea, canon(area), room));
+    });
+    return { rooms, byCampus, byType, byPriorityArea };
+  }
+
+  function buildAvailabilityIndex(sectionsInput = []) {
+    const sections = normalizedSections(sectionsInput).filter(isTimeBasedSection);
+    const byRoom = new Map();
+    const byInstructor = new Map();
+    sections.forEach(section => {
+      if (section.roomKey) mapPush(byRoom, section.roomKey, section);
+      const instructor = compact(section.instructor || section.instructorName || section.source?.instructor || section.source?.Instructor);
+      if (instructor) mapPush(byInstructor, canon(instructor), section);
+    });
+    return { sections, byRoom, byInstructor };
+  }
+
+  function buildHistoricalDemandIndex(rowsInput = []) {
+    const rows = normalizedSections(rowsInput);
+    const byCourse = new Map();
+    const byCourseTime = new Map();
+    rows.forEach(row => {
+      const courseKey = canon(row.courseCode);
+      if (!courseKey) return;
+      mapPush(byCourse, courseKey, row);
+      if (isTimeBasedSection(row)) mapPush(byCourseTime, `${courseKey}|${row.days.join('')}|${row.startMinutes}`, row);
+    });
+    const summarize = matches => {
+      const caps = matches.map(row => row.sectionCap).filter(Boolean);
+      const enrollments = matches.map(row => row.enrollment).filter(Boolean);
+      const avg = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+      const fillRates = matches
+        .filter(row => row.sectionCap)
+        .map(row => row.enrollment / row.sectionCap)
+        .filter(value => Number.isFinite(value));
+      return {
+        rows: matches,
+        terms: [...new Set(matches.map(row => row.term).filter(Boolean))],
+        historicalAverageEnrollment: avg(enrollments),
+        historicalPeakEnrollment: Math.max(0, ...enrollments),
+        historicalAverageCap: avg(caps),
+        historicalPeakCap: Math.max(0, ...caps),
+        historicalFillRate: avg(fillRates)
+      };
+    };
+    const courseMetrics = new Map([...byCourse.entries()].map(([key, matches]) => [key, summarize(matches)]));
+    const courseTimeMetrics = new Map([...byCourseTime.entries()].map(([key, matches]) => [key, summarize(matches)]));
+    return { rows, byCourse, byCourseTime, courseMetrics, courseTimeMetrics };
+  }
+
+  function buildOptimizationIndexes({ activeRows = [], historyRows = [], rooms = [] } = {}) {
+    const activeSections = normalizedSections(activeRows).filter(isTimeBasedSection);
+    const historicalDemand = buildHistoricalDemandIndex(historyRows);
+    const roomIndexes = buildRoomIndexes(rooms);
+    const availability = buildAvailabilityIndex(activeSections);
+    return {
+      activeSections,
+      historicalRows: historicalDemand.rows,
+      rooms: roomIndexes.rooms,
+      roomIndexes,
+      availability,
+      historicalDemand,
+      warnings: []
+    };
+  }
+
+  function historyForSectionIndexed(section, historicalDemand) {
+    const target = normalizeSection(section);
+    const metrics = historicalDemand?.courseMetrics?.get(canon(target.courseCode));
+    if (!metrics) return null;
+    const matches = metrics.rows.filter(row => row.term !== target.term);
+    if (matches.length === metrics.rows.length) return metrics;
+    return buildHistoricalDemandIndex(matches).courseMetrics.get(canon(target.courseCode)) || null;
+  }
+
   function historyForSection(section, allSections = []) {
     const target = normalizeSection(section);
     const matches = (allSections || [])
@@ -358,21 +451,21 @@
   }
 
   function demandEvidence(candidate, historyRows = []) {
-    const history = historyForSection(candidate, historyRows);
-    const fillRates = (historyRows || []).map(normalizeSection)
-      .filter(row => row.courseCode && row.courseCode === normalizeSection(candidate).courseCode && row.sectionCap)
-      .map(row => row.enrollment / row.sectionCap)
-      .filter(value => Number.isFinite(value));
-    const avgFill = fillRates.length ? fillRates.reduce((sum, value) => sum + value, 0) / fillRates.length : 0;
+    const target = normalizeSection(candidate);
+    const historicalDemand = historyRows?.courseMetrics ? historyRows : null;
+    const history = historicalDemand ? (historyForSectionIndexed(target, historicalDemand) || historyForSection(target, [])) : historyForSection(target, historyRows);
+    const avgFill = history.historicalFillRate || 0;
+    const hasHistory = Boolean(history.terms?.length);
     return {
       ...history,
       historicalFillRate: avgFill,
-      demandGapIndicator: avgFill >= 0.9 ? 'High unmet-demand signal' : (avgFill >= 0.75 ? 'Moderate demand signal' : (fillRates.length ? 'Limited demand pressure' : 'Limited history'))
+      demandGapIndicator: avgFill >= 0.9 ? 'High unmet-demand signal' : (avgFill >= 0.75 ? 'Moderate demand signal' : (hasHistory ? 'Limited demand pressure' : 'Limited history'))
     };
   }
 
   function evaluateProposedTime(input = {}, sectionsInput = [], roomsInput = [], options = {}) {
-    const historyRows = options.historyRows || sectionsInput;
+    const indexes = options.indexes || null;
+    const historyRows = options.historicalDemand || indexes?.historicalDemand || options.historyRows || sectionsInput;
     const start = minutesFromTime(input.proposedStart || input.preferredStart || input.start || '09:00') ?? 9 * 60;
     const end = minutesFromTime(input.proposedEnd || input.end || '') ?? (start + (num(input.durationMinutes || input.duration || 75) || 75));
     const proposed = normalizeSection({
@@ -390,17 +483,18 @@
       end: timeLabel(end),
       modality: input.modality || 'In-Person'
     });
-    const rooms = normalizeRoomCatalog(roomsInput)
-      .filter(room => !proposed.campus || !room.campus || canon(room.campus) === canon(proposed.campus));
-    const roomOptions = rooms
-      .map(room => ({ room, fit: roomFitScore(proposed, room, historyRows, options) }))
+    const rooms = indexes?.rooms || normalizeRoomCatalog(roomsInput);
+    const availability = indexes?.availability || buildAvailabilityIndex(sectionsInput);
+    const scopedOptions = { ...options, availability, historicalDemand: indexes?.historicalDemand || options.historicalDemand, roomIndexes: indexes?.roomIndexes };
+    const prefilteredRooms = candidateRoomsForSection(proposed, rooms, scopedOptions);
+    const roomOptions = prefilteredRooms
+      .map(room => ({ room, fit: roomFitScore(proposed, room, historyRows, scopedOptions) }))
       .filter(candidate => !candidate.fit.priority.blocks)
-      .filter(candidate => isRoomAvailable(candidate.room, { ...proposed, roomKey: candidate.room.roomKey }, sectionsInput))
       .sort((a, b) => b.fit.score - a.fit.score);
     const evidence = demandEvidence(proposed, historyRows);
     const competing = countCompetingSections(proposed, sectionsInput);
     const prime = proposed.startMinutes >= 9 * 60 && proposed.startMinutes < 15 * 60;
-    const bestFit = roomOptions[0]?.fit || roomFitScore(proposed, rooms[0] || {}, historyRows, options);
+    const bestFit = roomOptions[0]?.fit || roomFitScore(proposed, rooms[0] || {}, historyRows, scopedOptions);
     const score = Math.round((bestFit.score || 0) + (evidence.historicalFillRate * 20) - (competing * 4) - (prime && competing >= 2 ? 8 : 0));
     return {
       course: proposed.courseCode,
@@ -500,8 +594,8 @@
 
   function roomFitScore(sectionInput, roomInput, allSections = [], options = {}) {
     const section = normalizeSection(sectionInput);
-    const room = normalizeRoomCatalog([roomInput])[0] || roomInput;
-    const history = options.history || historyForSection(section, allSections);
+    const room = roomInput?.roomKey && roomInput?.capacity != null ? roomInput : (normalizeRoomCatalog([roomInput])[0] || roomInput);
+    const history = options.history || historyForSectionIndexed(section, options.historicalDemand) || historyForSection(section, allSections);
     const expected = Math.max(section.enrollment, history.historicalAverageEnrollment || 0);
     const capTarget = Math.max(section.sectionCap || 0, history.historicalPeakCap || 0, history.historicalPeakEnrollment || 0, expected);
     const capacity = room.capacity || 0;
@@ -548,11 +642,38 @@
   function isRoomAvailable(room, sectionInput, scheduledSections = [], ignoreCrn = '') {
     const section = normalizeSection(sectionInput);
     if (!isTimeBasedSection(section)) return false;
-    return !(scheduledSections || []).map(normalizeSection).some(other => {
+    const indexed = scheduledSections?.byRoom ? scheduledSections.byRoom.get(room.roomKey) || [] : scheduledSections;
+    return !(indexed || []).map(normalizeSection).some(other => {
       if (ignoreCrn && other.crn && other.crn === ignoreCrn) return false;
       if (other.roomKey !== room.roomKey || !isTimeBasedSection(other)) return false;
       return overlaps(section, other);
     });
+  }
+
+  function candidateRoomsForSection(sectionInput, roomsInput = [], options = {}) {
+    const section = normalizeSection(sectionInput);
+    const maxCandidates = Math.max(1, Number(options.maxCandidateRoomsPerSection || 10));
+    const rooms = options.roomIndexes?.rooms || normalizeRoomCatalog(roomsInput);
+    const campusKey = canon(section.campus);
+    let candidates = options.allowCrossCampusMoves ? rooms : (options.roomIndexes?.byCampus?.get(campusKey) || rooms.filter(room => !section.campus || !room.campus || canon(room.campus) === campusKey));
+    if (!options.flexibleRoomType) {
+      candidates = candidates.filter(room => roomTypeMatches(room, section));
+    }
+    const needed = Math.max(section.enrollment || 0, section.sectionCap || 0);
+    if (needed && !options.evaluateCapacityRisk) {
+      candidates = candidates.filter(room => room.capacity >= needed);
+    }
+    const rightSized = needed ? candidates.filter(room => room.capacity <= Math.max(needed * 1.75, needed + 20)) : candidates;
+    if (rightSized.length) candidates = rightSized;
+    return candidates
+      .filter(room => room.roomKey !== section.roomKey)
+      .filter(room => isRoomAvailable(room, { ...section, roomKey: room.roomKey }, options.availability || options.sections || [], section.crn))
+      .sort((a, b) => {
+        const aGap = needed ? Math.abs(a.capacity - needed) : 0;
+        const bGap = needed ? Math.abs(b.capacity - needed) : 0;
+        return aGap - bGap || a.roomKey.localeCompare(b.roomKey);
+      })
+      .slice(0, maxCandidates);
   }
 
   function recommendationBase(section, currentRoom, suggestedRoom, currentFit, suggestedFit) {
@@ -580,23 +701,32 @@
   }
 
   function generateRoomMoveRecommendations(sectionsInput = [], roomsInput = [], options = {}) {
-    const sections = sectionsInput.map(normalizeSection).filter(isTimeBasedSection);
+    const indexes = options.indexes || null;
+    const sections = indexes?.activeSections || sectionsInput.map(normalizeSection).filter(isTimeBasedSection);
     const historyRows = options.historyRows || sectionsInput;
-    const rooms = normalizeRoomCatalog(roomsInput);
+    const rooms = indexes?.rooms || normalizeRoomCatalog(roomsInput);
+    const availability = indexes?.availability || buildAvailabilityIndex(sections);
+    const historicalDemand = options.historicalDemand || indexes?.historicalDemand;
     const recommendations = [];
+    let candidateRoomsEvaluated = 0;
     sections.forEach(section => {
       const currentRoom = rooms.find(room => room.roomKey === section.roomKey) || { roomKey: section.roomKey, capacity: 0, roomType: '' };
-      const currentFit = roomFitScore(section, currentRoom, historyRows, options);
-      const candidates = rooms
-        .filter(room => room.roomKey !== section.roomKey)
-        .filter(room => !section.campus || !room.campus || canon(room.campus) === canon(section.campus))
-        .map(room => ({ room, fit: roomFitScore(section, room, historyRows, options) }))
+      const scopedOptions = { ...options, availability, historicalDemand, roomIndexes: indexes?.roomIndexes };
+      const currentFit = roomFitScore(section, currentRoom, historyRows, scopedOptions);
+      const prefiltered = candidateRoomsForSection(section, rooms, scopedOptions);
+      candidateRoomsEvaluated += prefiltered.length;
+      const candidates = prefiltered
+        .map(room => ({ room, fit: roomFitScore(section, room, historyRows, scopedOptions) }))
         .filter(candidate => !candidate.fit.priority.blocks)
-        .filter(candidate => isRoomAvailable(candidate.room, section, sections, section.crn))
         .filter(candidate => candidate.fit.score > currentFit.score + 8)
         .sort((a, b) => b.fit.score - a.fit.score);
       if (candidates[0]) recommendations.push(recommendationBase(section, currentRoom, candidates[0].room, currentFit, candidates[0].fit));
     });
+    if (options.stats) {
+      options.stats.sectionsEvaluated = sections.length;
+      options.stats.candidateRoomsEvaluated = (options.stats.candidateRoomsEvaluated || 0) + candidateRoomsEvaluated;
+      options.stats.roomMoveRecommendations = recommendations.length;
+    }
     return recommendations.sort((a, b) => b.score - a.score).slice(0, options.limit || 100);
   }
 
@@ -617,18 +747,22 @@
     for (let offset = -allowed; offset <= allowed; offset += 30) {
       if (offset) steps.push(offset);
     }
-    const sections = sectionsInput.map(normalizeSection).filter(isTimeBasedSection);
+    const indexes = options.indexes || null;
+    const sections = indexes?.activeSections || sectionsInput.map(normalizeSection).filter(isTimeBasedSection);
     const historyRows = options.historyRows || sectionsInput;
-    const rooms = normalizeRoomCatalog(roomsInput);
+    const rooms = indexes?.rooms || normalizeRoomCatalog(roomsInput);
+    const availability = indexes?.availability || buildAvailabilityIndex(sections);
     const recs = [];
+    let candidateTimeShiftsEvaluated = 0;
     sections.forEach(section => {
       const currentRoom = rooms.find(room => room.roomKey === section.roomKey);
       if (!currentRoom) return;
-      const currentFit = roomFitScore(section, currentRoom, historyRows, options);
+      const currentFit = roomFitScore(section, currentRoom, historyRows, { ...options, historicalDemand: indexes?.historicalDemand });
       const best = steps.map(offset => {
+        candidateTimeShiftsEvaluated += 1;
         const shifted = shiftedSection(section, offset);
         if (shifted.startMinutes < 6 * 60 || shifted.endMinutes > 22 * 60) return null;
-        if (!isRoomAvailable(currentRoom, shifted, sections, section.crn)) return null;
+        if (!isRoomAvailable(currentRoom, shifted, availability, section.crn)) return null;
         const fit = { ...currentFit, score: currentFit.score + Math.max(0, 12 - Math.abs(offset) / 10), scoreComponents: { ...currentFit.scoreComponents, timeShiftSize: -Math.round(Math.abs(offset) / 10), conflictRisk: 15 } };
         return { offset, shifted, fit };
       }).filter(Boolean).sort((a, b) => b.fit.score - a.fit.score)[0];
@@ -650,11 +784,16 @@
         });
       }
     });
+    if (options.stats) {
+      options.stats.candidateTimeShiftsEvaluated = (options.stats.candidateTimeShiftsEvaluated || 0) + candidateTimeShiftsEvaluated;
+      options.stats.timeShiftRecommendations = recs.length;
+    }
     return recs.sort((a, b) => b.score - a.score).slice(0, options.limit || 100);
   }
 
   function addClassPlacement(input = {}, sectionsInput = [], roomsInput = [], options = {}) {
-    const rooms = normalizeRoomCatalog(roomsInput);
+    const indexes = options.indexes || null;
+    const rooms = indexes?.rooms || normalizeRoomCatalog(roomsInput);
     const days = normalizeDays(input.preferredDayPattern || input.days || 'MW');
     const start = minutesFromTime(input.preferredStart || input.start || '09:00 AM') ?? 9 * 60;
     const duration = num(input.durationMinutes || input.duration || 75) || 75;
@@ -672,11 +811,13 @@
       end: timeLabel(start + duration),
       modality: input.modality || 'In-Person'
     });
-    return rooms
-      .filter(room => !candidateSection.campus || !room.campus || canon(room.campus) === canon(candidateSection.campus))
-      .map(room => ({ room, fit: roomFitScore(candidateSection, room, sectionsInput, options) }))
+    const availability = indexes?.availability || buildAvailabilityIndex(sectionsInput);
+    const scopedOptions = { ...options, availability, historicalDemand: indexes?.historicalDemand, roomIndexes: indexes?.roomIndexes };
+    const candidateRooms = candidateRoomsForSection(candidateSection, rooms, scopedOptions);
+    if (options.stats) options.stats.addClassCandidateRoomsEvaluated = (options.stats.addClassCandidateRoomsEvaluated || 0) + candidateRooms.length;
+    return candidateRooms
+      .map(room => ({ room, fit: roomFitScore(candidateSection, room, sectionsInput, scopedOptions) }))
       .filter(candidate => !candidate.fit.priority.blocks)
-      .filter(candidate => isRoomAvailable(candidate.room, { ...candidateSection, roomKey: candidate.room.roomKey }, sectionsInput))
       .map(candidate => ({
         course: candidateSection.courseCode,
         bestRoom: candidate.room.roomKey,
@@ -724,6 +865,11 @@
     isTimeBasedSection,
     minutesFromTime,
     timeLabel,
+    buildRoomIndexes,
+    buildAvailabilityIndex,
+    buildHistoricalDemandIndex,
+    buildOptimizationIndexes,
+    candidateRoomsForSection,
     historyForSection,
     priorityComparison,
     roomFitScore,

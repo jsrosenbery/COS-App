@@ -250,6 +250,10 @@
     optimizationRows: [],
     optimizationFacultyRows: [],
     optimizationArchiveLoad: { rows: [], results: [] },
+    optimizationCache: { key: '', indexes: null, profilesKey: '', profiles: [] },
+    optimizationPerformance: { timings: [], counts: {}, warnings: [], status: 'Not run' },
+    optimizationRunning: false,
+    optimizationDirty: false,
     optimizationRan: false,
     conflictRows: [],
     conflictInput: [],
@@ -2255,7 +2259,16 @@
                 <option value="120">±2 hours</option>
               </select>
             </label>
-            <button id="runScheduleOptimizationLab" type="button">Run Optimization Lab</button>
+            <label>Maximum candidate rooms per section
+              <select id="optimizationMaxCandidateRooms">
+                <option value="5">5</option>
+                <option value="10" selected>10</option>
+                <option value="20">20</option>
+              </select>
+            </label>
+            <button id="runScheduleOptimizationLab" type="button">Run Optimization</button>
+            <button id="clearOptimizationResults" type="button">Clear Results</button>
+            <span id="optimizationRunStatus" class="analytics-note">Ready. Settings changes will not rerun optimization until you click Run Optimization.</span>
             <button id="exportOptimizationMoves" type="button">Export Room Moves</button>
             <button id="exportOptimizationShifts" type="button">Export Time Shifts</button>
             <button id="exportOptimizationPlacements" type="button">Export Placements</button>
@@ -2266,6 +2279,7 @@
           <div id="optimizationContext" class="analytics-legend"></div>
           <div id="optimizationMetrics" class="analytics-metrics"></div>
           <div id="optimizationSettingsPanel" class="analytics-legend"></div>
+          <div id="optimizationPerformanceDetails" class="analytics-legend"></div>
           <div id="optimizationInventoryStatus" class="analytics-legend"></div>
           <div id="optimizationMoveTable" class="analytics-table"></div>
           <div id="optimizationShiftTable" class="analytics-table"></div>
@@ -6676,126 +6690,272 @@
     });
   }
 
-  async function renderScheduleOptimizationLab() {
-    const engine = optimizationEngine();
-    await loadOptimizationRows();
-    await loadOptimizationFacultyArchiveRows();
-    updateOptimizationTermOptions();
-    updateOptimizationCourseControls();
-    const rooms = optimizationRoomCatalog();
-    const activeRows = optimizationActiveRows();
-    const allRows = optimizationAllRows();
-    const activeTerm = document.getElementById('optimizationTerm')?.value || '';
-    const historyRows = optimizationHistoryRows(activeTerm);
-    const priorityBehavior = document.getElementById('optimizationPriorityBehavior')?.value || 'prefer';
-    const allowedShiftMinutes = Number(document.getElementById('optimizationAllowedShift')?.value || 0);
-    const exclusions = optimizationExcludedRows(activeRows);
-    const options = { priorityBehavior, allowedShiftMinutes, includeHistory: true, historyRows };
-    const moves = engine.generateRoomMoveRecommendations(activeRows, rooms, options);
-    const shifts = engine.generateTimeShiftRecommendations(activeRows, rooms, options);
-    const addInput = optimizationAddClassInput();
-    const placements = engine.addClassPlacement(addInput, activeRows, rooms, {
-      priorityBehavior,
-      includeHistory: document.getElementById('optimizationAddIncludeHistory')?.checked !== false,
-      historyRows
+  function optimizationNextFrame() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  function setOptimizationRunStatus(message, options = {}) {
+    const node = document.getElementById('optimizationRunStatus');
+    if (node) node.textContent = message;
+    state.optimizationPerformance.status = message;
+    const button = document.getElementById('runScheduleOptimizationLab');
+    if (button) button.disabled = Boolean(options.running);
+  }
+
+  function markOptimizationDirty(reason = 'Settings changed. Run optimization again to refresh results.') {
+    state.optimizationDirty = true;
+    if (state.optimizationRunning) return;
+    setOptimizationRunStatus(reason);
+  }
+
+  function invalidateOptimizationCache(reason) {
+    state.optimizationCache = { key: '', indexes: null, profilesKey: '', profiles: [] };
+    markOptimizationDirty(reason);
+  }
+
+  function optimizationCacheKey({ activeTerm, activeRows, historyRows, rooms, settings }) {
+    return JSON.stringify({
+      activeTerm,
+      activeRows: activeRows.length,
+      activeTerms: collectRowTerms(activeRows),
+      historyRows: historyRows.length,
+      historyTerms: collectRowTerms(historyRows),
+      rooms: rooms.map(room => `${room.roomKey || room.buildingRoom || ''}:${room.capacity || ''}:${room.roomType || ''}:${room.primaryPriorityArea || room.priorityDivision1 || ''}`).sort(),
+      settings
     });
-    const proposed = engine.evaluateProposedTime(addInput, activeRows, rooms, { priorityBehavior, historyRows });
-    const betterTimes = engine.recommendBetterTimes(addInput, activeRows, rooms, { priorityBehavior, historyRows });
-    const audit = engine.roomPriorityAudit(rooms);
-    state.optimizationMoves = flattenOptimizationRows(moves);
-    state.optimizationShifts = flattenOptimizationRows(shifts);
-    state.optimizationPlacements = flattenOptimizationRows(placements);
-    state.optimizationProposedEvaluation = [{
-      course: proposed.course,
-      proposedDayTime: proposed.proposedDayTime,
-      proposedTimeScore: proposed.proposedTimeScore,
-      availableRoomCount: proposed.availableRoomCount,
-      bestRoomFit: proposed.bestRoomFit,
-      expectedFillDemandSupport: proposed.expectedFillDemandSupport,
-      historicalFillRate: proposed.historicalFillRate,
-      competingSections: proposed.competingSections,
-      primeTimePressure: proposed.primeTimePressure,
-      roomFitQuality: proposed.roomFitQuality,
-      historicalPerformance: proposed.historicalPerformance,
-      saturatedPattern: proposed.saturatedPattern,
-      scheduleGapFit: proposed.scheduleGapFit
-    }];
-    state.optimizationBetterTimes = betterTimes.map(row => ({
-      ...row,
-      historicalFillRateAtProposedTime: row.historicalFillRateAtProposedTime,
-      historicalFillRateAtRecommendedTime: row.historicalFillRateAtRecommendedTime
-    }));
-    state.optimizationAudit = audit;
-    const loadedTerms = collectRowTerms(allRows);
-    const historyTerms = collectRowTerms(historyRows);
-    const selectedArchivedTerms = state.optimizationArchiveLoad?.selectedTerms || optimizationSelectedTerms('optimizationArchiveTerms');
-    const selectedFacultyArchiveTerms = getSelectedValues('optimizationFacultyArchiveTerms').map(normalizeTermLabel).filter(Boolean);
-    const failedArchives = (state.optimizationArchiveLoad?.results || []).filter(result => result.failed);
-    state.optimizationContext = {
-      activeOptimizationTerm: activeTerm || 'No active term selected',
-      historicalComparisonTerms: optimizationSelectedTerms('optimizationHistoryTerms').join(', ') || 'None selected',
-      demandTermsUsed: historyTerms.join(', ') || 'None selected',
-      loadedScheduleTerms: loadedTerms.join(', ') || 'None loaded',
-      selectedArchivedTerms: selectedArchivedTerms.join(', ') || 'None selected',
-      selectedFacultyScheduleTerms: selectedFacultyArchiveTerms.join(', ') || 'None selected',
-      facultyScheduleRowsLoaded: state.optimizationFacultyRows.length,
-      failedArchiveLoads: failedArchives.map(result => `${result.term}: ${result.error}`).join('; ') || 'None',
-      roomCatalogStatus: rooms.length ? `${rooms.length} rooms available` : 'No room catalog loaded',
-      activeTermSectionsAnalyzed: exclusions.usable,
-      historicalSectionsUsed: historyRows.length,
-      sectionsExcluded: exclusions.excluded,
-      exclusionReasons: exclusions.reasons.map(([reason, count]) => `${reason}: ${count}`).join('; ') || 'None',
-      activeFilters: 'Uses loaded schedule rows for selected active optimization term; historical rows support demand/fill evidence only.',
-      priorityBehavior,
-      allowedShiftMinutes
-    };
-    renderReportContext(REPORTS.scheduleOptimizationLab, {
-      focusTerm: state.optimizationContext.activeOptimizationTerm,
-      historicalTerms: historyTerms,
-      archivedTerms: selectedArchivedTerms,
-      rowsLoaded: allRows.length,
-      rowsIncluded: exclusions.usable,
-      rowsExcluded: exclusions.excluded,
-      exclusions: state.optimizationContext.exclusionReasons,
-      activeFilters: [
-        { label: 'Room priority behavior', value: priorityBehavior },
-        { label: 'Allowed time shift', value: `${allowedShiftMinutes} minutes` },
-        { label: 'Historical comparison terms', value: state.optimizationContext.historicalComparisonTerms },
-        { label: 'Demand terms', value: state.optimizationContext.demandTermsUsed }
-      ],
-      notes: [
-        { label: 'Room catalog', value: state.optimizationContext.roomCatalogStatus },
-        { label: 'History rows', value: `${historyRows.length} historical section row(s) used as evidence` },
-        { label: 'Faculty Schedule rows', value: `${state.optimizationFacultyRows.length} saved Faculty Schedule row(s) loaded for context` },
-        { label: 'Assumption', value: 'No source schedule data is changed automatically.' }
-      ]
-    });
-    document.getElementById('optimizationContext').innerHTML = `
-      <strong>Report Context</strong>
+  }
+
+  async function optimizationStage(timings, name, fn) {
+    setOptimizationRunStatus(name, { running: true });
+    await optimizationNextFrame();
+    const start = performance.now();
+    const value = await fn();
+    const ms = Math.round((performance.now() - start) * 10) / 10;
+    timings.push({ stage: name, ms });
+    return value;
+  }
+
+  function renderOptimizationPerformanceDetails() {
+    const node = document.getElementById('optimizationPerformanceDetails');
+    if (!node) return;
+    const perf = state.optimizationPerformance || { timings: [], counts: {}, warnings: [] };
+    const timings = perf.timings || [];
+    const counts = perf.counts || {};
+    const warnings = perf.warnings || [];
+    node.innerHTML = `
+      <strong>Performance Details</strong>
       <dl class="report-context-list">
-        ${Object.entries(state.optimizationContext).map(([key, value]) => `<div><dt>${escapeAttr(label(key))}</dt><dd>${escapeAttr(value)}</dd></div>`).join('')}
+        ${timings.map(row => `<div><dt>${escapeAttr(row.stage)}</dt><dd>${escapeAttr(row.ms)} ms</dd></div>`).join('')}
+        ${Object.entries(counts).map(([key, value]) => `<div><dt>${escapeAttr(label(key))}</dt><dd>${escapeAttr(value)}</dd></div>`).join('')}
       </dl>
+      ${warnings.length ? `<div class="dashboard-scope-warnings">${warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('')}</div>` : '<p class="analytics-empty">No performance warnings.</p>'}
     `;
-    metric('optimizationMetrics', [
-      ['Rooms Available', rooms.length],
-      ['Scheduled Sections Analyzed', exclusions.usable],
-      ['Sections Excluded', exclusions.excluded],
-      ['Room Move Recommendations', state.optimizationMoves.length],
-      ['Time Shift Recommendations', state.optimizationShifts.length],
-      ['Add-a-Class Options', state.optimizationPlacements.length],
-      ['Priority Audit Rows', state.optimizationAudit.length]
-    ]);
-    document.getElementById('optimizationSettingsPanel').innerHTML = `<strong>Optimization Settings</strong><p>Priority behavior: ${escapeAttr(priorityBehavior)}. Allowed time shift: ${escapeAttr(allowedShiftMinutes)} minutes. Recommendations remain advisory and do not update source data.</p>`;
-    document.getElementById('optimizationInventoryStatus').innerHTML = `<strong>Room Inventory Status</strong><p>${escapeAttr(rooms.length ? `${rooms.length} normalized Room Catalog rows loaded as primary inventory source.` : 'No Room Catalog rows are available. Import Room Catalog before relying on recommendations.')}</p>`;
-    table('optimizationMoveTable', state.optimizationMoves, ['crn', 'course', 'section', 'currentRoom', 'suggestedRoom', 'currentCapacity', 'suggestedCapacity', 'currentEnrollment', 'sectionCap', 'historicalAverageEnrollment', 'historicalPeakEnrollment', 'roomTypeComparison', 'roomPriorityComparison', 'reason', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
-    table('optimizationShiftTable', state.optimizationShifts, ['crn', 'course', 'currentDayTime', 'suggestedDayTime', 'currentRoom', 'suggestedRoom', 'timeShiftAmount', 'improvementReason', 'conflictsAvoided', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
-    table('optimizationProposedEvaluation', state.optimizationProposedEvaluation, ['course', 'proposedDayTime', 'proposedTimeScore', 'availableRoomCount', 'bestRoomFit', 'expectedFillDemandSupport', 'historicalFillRate', 'competingSections', 'primeTimePressure', 'roomFitQuality', 'historicalPerformance', 'saturatedPattern', 'scheduleGapFit']);
-    table('optimizationBetterTimes', state.optimizationBetterTimes, ['suggestedDayTime', 'suggestedRoom', 'proposedTimeScore', 'recommendedTimeScore', 'historicalFillRateAtProposedTime', 'historicalFillRateAtRecommendedTime', 'competingSectionsNearProposedTime', 'competingSectionsNearRecommendedTime', 'availableRoomCount', 'bestRoomFit', 'demandGapIndicator', 'primeTimeImpact', 'studentPresenceAlignment', 'confidence', 'whyThisIsBetter']);
-    table('optimizationPlacementTable', state.optimizationPlacements, ['course', 'bestRoom', 'bestDayTime', 'capacity', 'expectedEnrollment', 'expectedFillRate', 'historicalDemandSupport', 'roomFit', 'priorityAlignment', 'utilizationImpact', 'primeTimePressure', 'score', 'scoreComponents', 'why']);
-    table('optimizationPriorityAudit', state.optimizationAudit, ['campus', 'building', 'room', 'roomKey', 'capacity', 'roomType', 'rawRoomPriority', 'primaryPriorityArea', 'secondaryPriorityArea', 'priorityNotes', 'matchConfidence', 'matchMethod', 'matchNote']);
-    renderOptimizationMethodology();
-    refreshGeneratedCollapsibleSections(document.getElementById('scheduleOptimizationLabReport'));
-    state.optimizationRan = true;
+  }
+
+  function clearOptimizationResults() {
+    state.optimizationMoves = [];
+    state.optimizationShifts = [];
+    state.optimizationPlacements = [];
+    state.optimizationProposedEvaluation = [];
+    state.optimizationBetterTimes = [];
+    state.optimizationAudit = [];
+    state.optimizationPerformance = { timings: [], counts: {}, warnings: [], status: 'Cleared' };
+    state.optimizationRan = false;
+    state.optimizationDirty = false;
+    ['optimizationMetrics', 'optimizationMoveTable', 'optimizationShiftTable', 'optimizationProposedEvaluation', 'optimizationBetterTimes', 'optimizationPlacementTable', 'optimizationPriorityAudit'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.innerHTML = '<p class="analytics-empty">Results cleared. Click Run Optimization when ready.</p>';
+    });
+    renderOptimizationPerformanceDetails();
+    setOptimizationRunStatus('Results cleared. Click Run Optimization when ready.');
+  }
+
+  async function renderScheduleOptimizationLab() {
+    if (state.optimizationRunning) return;
+    state.optimizationRunning = true;
+    const timings = [];
+    const counts = {};
+    const warnings = [];
+    const engine = optimizationEngine();
+    try {
+      const runStarted = performance.now();
+      setOptimizationRunStatus('Preparing data', { running: true });
+      const priorityBehavior = document.getElementById('optimizationPriorityBehavior')?.value || 'prefer';
+      const allowedShiftMinutes = Number(document.getElementById('optimizationAllowedShift')?.value || 0);
+      const maxCandidateRoomsPerSection = Number(document.getElementById('optimizationMaxCandidateRooms')?.value || 10);
+      await optimizationStage(timings, 'Load active term', async () => {
+        await loadOptimizationRows();
+        await loadOptimizationFacultyArchiveRows();
+        updateOptimizationTermOptions();
+        updateOptimizationCourseControls();
+      });
+      const allRows = optimizationAllRows();
+      const activeTerm = document.getElementById('optimizationTerm')?.value || '';
+      const activeRows = await optimizationStage(timings, 'Normalize schedule rows', async () => optimizationActiveRows().map(engine.normalizeSection));
+      const historyRows = await optimizationStage(timings, 'Load historical terms', async () => optimizationHistoryRows(activeTerm).map(engine.normalizeSection));
+      const rooms = await optimizationStage(timings, 'Normalize room catalog', async () => optimizationRoomCatalog());
+      const settings = { priorityBehavior, allowedShiftMinutes, maxCandidateRoomsPerSection };
+      const cacheKey = optimizationCacheKey({ activeTerm, activeRows, historyRows, rooms, settings });
+      let indexes = state.optimizationCache.key === cacheKey ? state.optimizationCache.indexes : null;
+      if (indexes) {
+        timings.push({ stage: 'Use cached normalized data and indexes', ms: 0 });
+      } else {
+        const historicalDemand = await optimizationStage(timings, 'Build historical demand index', async () => engine.buildHistoricalDemandIndex(historyRows));
+        const roomIndexes = await optimizationStage(timings, 'Build room fit candidates', async () => engine.buildRoomIndexes(rooms));
+        const availability = await optimizationStage(timings, 'Build room availability index', async () => engine.buildAvailabilityIndex(activeRows));
+        indexes = {
+          activeSections: activeRows.filter(engine.isTimeBasedSection),
+          historicalRows: historicalDemand.rows,
+          rooms: roomIndexes.rooms,
+          roomIndexes,
+          availability,
+          historicalDemand,
+          warnings: []
+        };
+        state.optimizationCache = { ...state.optimizationCache, key: cacheKey, indexes };
+      }
+      const exclusions = optimizationExcludedRows(activeRows);
+      const estimatedRoomCandidates = indexes.activeSections.length * maxCandidateRoomsPerSection;
+      if (estimatedRoomCandidates > 10000) warnings.push(`Estimated candidate room evaluations (${estimatedRoomCandidates.toLocaleString()}) are high. Reduce candidate rooms, narrow the term, or reduce shift tolerance if the run feels slow.`);
+      const stats = {
+        sectionsEvaluated: indexes.activeSections.length,
+        historicalSectionsUsed: historyRows.length,
+        roomsAvailable: rooms.length
+      };
+      const options = {
+        priorityBehavior,
+        allowedShiftMinutes,
+        includeHistory: true,
+        historyRows,
+        indexes,
+        historicalDemand: indexes.historicalDemand,
+        maxCandidateRoomsPerSection,
+        stats
+      };
+      const moves = await optimizationStage(timings, 'Score room move recommendations', async () => engine.generateRoomMoveRecommendations(activeRows, rooms, options));
+      const shifts = await optimizationStage(timings, 'Score time shift recommendations', async () => engine.generateTimeShiftRecommendations(activeRows, rooms, options));
+      const addInput = optimizationAddClassInput();
+      const placements = await optimizationStage(timings, 'Score add-a-class recommendations', async () => engine.addClassPlacement(addInput, activeRows, rooms, {
+        ...options,
+        includeHistory: document.getElementById('optimizationAddIncludeHistory')?.checked !== false
+      }));
+      const proposed = engine.evaluateProposedTime(addInput, activeRows, rooms, options);
+      const betterTimes = engine.recommendBetterTimes(addInput, activeRows, rooms, options);
+      const audit = engine.roomPriorityAudit(rooms);
+      await optimizationStage(timings, 'Render results', async () => {
+        state.optimizationMoves = flattenOptimizationRows(moves);
+        state.optimizationShifts = flattenOptimizationRows(shifts);
+        state.optimizationPlacements = flattenOptimizationRows(placements);
+        state.optimizationProposedEvaluation = [{
+          course: proposed.course,
+          proposedDayTime: proposed.proposedDayTime,
+          proposedTimeScore: proposed.proposedTimeScore,
+          availableRoomCount: proposed.availableRoomCount,
+          bestRoomFit: proposed.bestRoomFit,
+          expectedFillDemandSupport: proposed.expectedFillDemandSupport,
+          historicalFillRate: proposed.historicalFillRate,
+          competingSections: proposed.competingSections,
+          primeTimePressure: proposed.primeTimePressure,
+          roomFitQuality: proposed.roomFitQuality,
+          historicalPerformance: proposed.historicalPerformance,
+          saturatedPattern: proposed.saturatedPattern,
+          scheduleGapFit: proposed.scheduleGapFit
+        }];
+        state.optimizationBetterTimes = betterTimes.map(row => ({
+          ...row,
+          historicalFillRateAtProposedTime: row.historicalFillRateAtProposedTime,
+          historicalFillRateAtRecommendedTime: row.historicalFillRateAtRecommendedTime
+        }));
+        state.optimizationAudit = audit;
+        const loadedTerms = collectRowTerms(allRows);
+        const historyTerms = collectRowTerms(historyRows);
+        const selectedArchivedTerms = state.optimizationArchiveLoad?.selectedTerms || optimizationSelectedTerms('optimizationArchiveTerms');
+        const selectedFacultyArchiveTerms = getSelectedValues('optimizationFacultyArchiveTerms').map(normalizeTermLabel).filter(Boolean);
+        const failedArchives = (state.optimizationArchiveLoad?.results || []).filter(result => result.failed);
+        state.optimizationContext = {
+          activeOptimizationTerm: activeTerm || 'No active term selected',
+          historicalComparisonTerms: optimizationSelectedTerms('optimizationHistoryTerms').join(', ') || 'None selected',
+          demandTermsUsed: historyTerms.join(', ') || 'None selected',
+          loadedScheduleTerms: loadedTerms.join(', ') || 'None loaded',
+          selectedArchivedTerms: selectedArchivedTerms.join(', ') || 'None selected',
+          selectedFacultyScheduleTerms: selectedFacultyArchiveTerms.join(', ') || 'None selected',
+          facultyScheduleRowsLoaded: state.optimizationFacultyRows.length,
+          failedArchiveLoads: failedArchives.map(result => `${result.term}: ${result.error}`).join('; ') || 'None',
+          roomCatalogStatus: rooms.length ? `${rooms.length} rooms available` : 'No room catalog loaded',
+          activeTermSectionsAnalyzed: exclusions.usable,
+          historicalSectionsUsed: historyRows.length,
+          sectionsExcluded: exclusions.excluded,
+          exclusionReasons: exclusions.reasons.map(([reason, count]) => `${reason}: ${count}`).join('; ') || 'None',
+          activeFilters: 'Uses loaded schedule rows for selected active optimization term; historical rows support demand/fill evidence only.',
+          priorityBehavior,
+          allowedShiftMinutes,
+          maxCandidateRoomsPerSection
+        };
+        renderReportContext(REPORTS.scheduleOptimizationLab, {
+          focusTerm: state.optimizationContext.activeOptimizationTerm,
+          historicalTerms: historyTerms,
+          archivedTerms: selectedArchivedTerms,
+          rowsLoaded: allRows.length,
+          rowsIncluded: exclusions.usable,
+          rowsExcluded: exclusions.excluded,
+          exclusions: state.optimizationContext.exclusionReasons,
+          activeFilters: [
+            { label: 'Room priority behavior', value: priorityBehavior },
+            { label: 'Allowed time shift', value: `${allowedShiftMinutes} minutes` },
+            { label: 'Maximum candidate rooms per section', value: maxCandidateRoomsPerSection },
+            { label: 'Historical comparison terms', value: state.optimizationContext.historicalComparisonTerms },
+            { label: 'Demand terms', value: state.optimizationContext.demandTermsUsed }
+          ],
+          notes: [
+            { label: 'Room catalog', value: state.optimizationContext.roomCatalogStatus },
+            { label: 'History rows', value: `${historyRows.length} historical section row(s) used as evidence` },
+            { label: 'Faculty Schedule rows', value: `${state.optimizationFacultyRows.length} saved Faculty Schedule row(s) loaded for context` },
+            { label: 'Assumption', value: 'No source schedule data is changed automatically.' }
+          ]
+        });
+        document.getElementById('optimizationContext').innerHTML = `
+          <strong>Report Context</strong>
+          <dl class="report-context-list">
+            ${Object.entries(state.optimizationContext).map(([key, value]) => `<div><dt>${escapeAttr(label(key))}</dt><dd>${escapeAttr(value)}</dd></div>`).join('')}
+          </dl>
+        `;
+        metric('optimizationMetrics', [
+          ['Rooms Available', rooms.length],
+          ['Scheduled Sections Analyzed', exclusions.usable],
+          ['Candidate Rooms Evaluated', stats.candidateRoomsEvaluated || 0],
+          ['Candidate Time Shifts Evaluated', stats.candidateTimeShiftsEvaluated || 0],
+          ['Room Move Recommendations', state.optimizationMoves.length],
+          ['Time Shift Recommendations', state.optimizationShifts.length],
+          ['Add-a-Class Options', state.optimizationPlacements.length],
+          ['Priority Audit Rows', state.optimizationAudit.length]
+        ]);
+        document.getElementById('optimizationSettingsPanel').innerHTML = `<strong>Optimization Settings</strong><p>Priority behavior: ${escapeAttr(priorityBehavior)}. Allowed time shift: ${escapeAttr(allowedShiftMinutes)} minutes. Maximum candidate rooms per section: ${escapeAttr(maxCandidateRoomsPerSection)}. Recommendations remain advisory and do not update source data.</p>`;
+        document.getElementById('optimizationInventoryStatus').innerHTML = `<strong>Room Inventory Status</strong><p>${escapeAttr(rooms.length ? `${rooms.length} normalized Room Catalog rows loaded as primary inventory source.` : 'No Room Catalog rows are available. Import Room Catalog before relying on recommendations.')}</p>`;
+        table('optimizationMoveTable', state.optimizationMoves, ['crn', 'course', 'section', 'currentRoom', 'suggestedRoom', 'currentCapacity', 'suggestedCapacity', 'currentEnrollment', 'sectionCap', 'historicalAverageEnrollment', 'historicalPeakEnrollment', 'roomTypeComparison', 'roomPriorityComparison', 'reason', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
+        table('optimizationShiftTable', state.optimizationShifts, ['crn', 'course', 'currentDayTime', 'suggestedDayTime', 'currentRoom', 'suggestedRoom', 'timeShiftAmount', 'improvementReason', 'conflictsAvoided', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
+        table('optimizationProposedEvaluation', state.optimizationProposedEvaluation, ['course', 'proposedDayTime', 'proposedTimeScore', 'availableRoomCount', 'bestRoomFit', 'expectedFillDemandSupport', 'historicalFillRate', 'competingSections', 'primeTimePressure', 'roomFitQuality', 'historicalPerformance', 'saturatedPattern', 'scheduleGapFit']);
+        table('optimizationBetterTimes', state.optimizationBetterTimes, ['suggestedDayTime', 'suggestedRoom', 'proposedTimeScore', 'recommendedTimeScore', 'historicalFillRateAtProposedTime', 'historicalFillRateAtRecommendedTime', 'competingSectionsNearProposedTime', 'competingSectionsNearRecommendedTime', 'availableRoomCount', 'bestRoomFit', 'demandGapIndicator', 'primeTimeImpact', 'studentPresenceAlignment', 'confidence', 'whyThisIsBetter']);
+        table('optimizationPlacementTable', state.optimizationPlacements, ['course', 'bestRoom', 'bestDayTime', 'capacity', 'expectedEnrollment', 'expectedFillRate', 'historicalDemandSupport', 'roomFit', 'priorityAlignment', 'utilizationImpact', 'primeTimePressure', 'score', 'scoreComponents', 'why']);
+        table('optimizationPriorityAudit', state.optimizationAudit, ['campus', 'building', 'room', 'roomKey', 'capacity', 'roomType', 'rawRoomPriority', 'primaryPriorityArea', 'secondaryPriorityArea', 'priorityNotes', 'matchConfidence', 'matchMethod', 'matchNote']);
+      });
+      const totalRuntimeMs = Math.round((performance.now() - runStarted) * 10) / 10;
+      counts.totalRuntimeMs = totalRuntimeMs;
+      counts.sectionsEvaluated = stats.sectionsEvaluated || indexes.activeSections.length;
+      counts.candidateRoomsEvaluated = stats.candidateRoomsEvaluated || 0;
+      counts.candidateTimeShiftsEvaluated = stats.candidateTimeShiftsEvaluated || 0;
+      counts.recommendationsGenerated = state.optimizationMoves.length + state.optimizationShifts.length + state.optimizationPlacements.length + state.optimizationBetterTimes.length;
+      state.optimizationPerformance = { timings, counts, warnings, status: 'Complete' };
+      renderOptimizationPerformanceDetails();
+      renderOptimizationMethodology();
+      refreshGeneratedCollapsibleSections(document.getElementById('scheduleOptimizationLabReport'));
+      state.optimizationRan = true;
+      state.optimizationDirty = false;
+      setOptimizationRunStatus(`Complete. ${counts.sectionsEvaluated} sections evaluated, ${counts.recommendationsGenerated} recommendations generated, ${totalRuntimeMs} ms total.`);
+    } finally {
+      state.optimizationRunning = false;
+      const button = document.getElementById('runScheduleOptimizationLab');
+      if (button) button.disabled = false;
+    }
   }
 
   async function runScheduleOptimizationLab() {
@@ -12802,6 +12962,7 @@
       { selector: '#recommendationLegend', id: 'recommendation-diagnostics-methodology', title: 'Recommendation Diagnostics and Methodology' },
       { selector: '#optimizationContext', id: 'optimization-report-context', title: 'Report Context' },
       { selector: '#optimizationSettingsPanel', id: 'optimization-settings', title: 'Optimization Settings' },
+      { selector: '#optimizationPerformanceDetails', id: 'optimization-performance-details', title: 'Performance Details', defaultOpen: false },
       { selector: '#optimizationInventoryStatus', id: 'optimization-room-inventory-status', title: 'Room Inventory Status' },
       { selector: '#optimizationMoveTable', id: 'optimization-room-move-recommendations', title: 'Room Move Recommendations' },
       { selector: '#optimizationShiftTable', id: 'optimization-time-shift-recommendations', title: 'Time Shift Recommendations' },
@@ -13493,8 +13654,9 @@
       updateOptimizationTermOptions();
       updateOptimizationCourseControls();
       renderOptimizationMethodology();
-      document.getElementById('optimizationMoveTable').innerHTML = '<p class="analytics-empty">Load schedule data and click Run Optimization Lab.</p>';
-      document.getElementById('optimizationShiftTable').innerHTML = '<p class="analytics-empty">Select an allowed time shift and click Run Optimization Lab.</p>';
+      document.getElementById('optimizationMoveTable').innerHTML = '<p class="analytics-empty">Load schedule data and click Run Optimization.</p>';
+      document.getElementById('optimizationShiftTable').innerHTML = '<p class="analytics-empty">Select an allowed time shift and click Run Optimization.</p>';
+      renderOptimizationPerformanceDetails();
       document.getElementById('optimizationProposedEvaluation').innerHTML = '<p class="analytics-empty">Enter a proposed faculty time and click Rank Placement Options.</p>';
       document.getElementById('optimizationBetterTimes').innerHTML = '<p class="analytics-empty">Better-time recommendations appear when data supports a higher-scoring alternative.</p>';
       document.getElementById('optimizationPlacementTable').innerHTML = '<p class="analytics-empty">Enter add-a-class details and click Rank Placement Options.</p>';
@@ -14078,11 +14240,18 @@
     document.getElementById('runOptimizationPlacement')?.addEventListener('click', () => {
       runOptimizationPlacement().catch(err => alert(err.message || 'Add-a-class placement failed.'));
     });
-    document.getElementById('optimizationCsv')?.addEventListener('change', () => loadOptimizationRows().catch(err => console.warn(err)));
-    document.getElementById('optimizationArchiveTerms')?.addEventListener('change', () => loadOptimizationRows().catch(err => console.warn(err)));
+    document.getElementById('clearOptimizationResults')?.addEventListener('click', clearOptimizationResults);
+    document.getElementById('optimizationCsv')?.addEventListener('change', () => {
+      invalidateOptimizationCache('Schedule CSV changed. Run optimization again to refresh results.');
+      loadOptimizationRows().catch(err => console.warn(err));
+    });
+    document.getElementById('optimizationArchiveTerms')?.addEventListener('change', () => {
+      invalidateOptimizationCache('Archived schedule terms changed. Run optimization again to refresh results.');
+      loadOptimizationRows().catch(err => console.warn(err));
+    });
     document.getElementById('optimizationFacultyArchiveTerms')?.addEventListener('change', () => {
+      invalidateOptimizationCache('Faculty Schedule archive terms changed. Run optimization again to refresh results.');
       loadOptimizationFacultyArchiveRows()
-        .then(() => { if (state.optimizationRan) return renderScheduleOptimizationLab(); })
         .catch(err => console.warn(err));
     });
     document.getElementById('refreshOptimizationArchives')?.addEventListener('click', () => {
@@ -14091,29 +14260,30 @@
           updateOptimizationTermOptions();
           updateOptimizationCourseControls();
           renderOptimizationArchiveStatus();
+          invalidateOptimizationCache('Backend archives refreshed. Run optimization again to refresh results.');
         })
         .catch(err => alert(err.message || 'Backend archive refresh failed.'));
     });
     document.getElementById('archiveOptimizationUploads')?.addEventListener('click', () => archiveUploads('optimizationCsv').catch(err => alert(err.message || 'Archive failed.')));
-    ['optimizationTerm', 'optimizationHistoryTerms', 'optimizationDemandTerms', 'optimizationTermPreset', 'optimizationPriorityBehavior', 'optimizationAllowedShift'].forEach(id => {
+    ['optimizationTerm', 'optimizationHistoryTerms', 'optimizationDemandTerms', 'optimizationTermPreset', 'optimizationPriorityBehavior', 'optimizationAllowedShift', 'optimizationMaxCandidateRooms'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {
         if (id === 'optimizationTerm' || id === 'optimizationTermPreset') updateOptimizationTermOptions();
-        if (state.optimizationRan) renderScheduleOptimizationLab().catch(err => console.warn(err));
+        invalidateOptimizationCache('Settings changed. Run optimization again to refresh results.');
       });
     });
     ['optimizationAddSubject', 'optimizationAddCourseSelect'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {
         updateOptimizationCourseControls();
         prefillOptimizationAddClassFromProfile();
-        if (state.optimizationRan) renderScheduleOptimizationLab().catch(err => console.warn(err));
+        markOptimizationDirty('Add-a-Class inputs changed. Run optimization again to refresh placement results.');
       });
     });
     document.getElementById('optimizationAddSectionProfile')?.addEventListener('change', () => {
       prefillOptimizationAddClassFromProfile();
-      if (state.optimizationRan) renderScheduleOptimizationLab().catch(err => console.warn(err));
+      markOptimizationDirty('Section profile changed. Run optimization again to refresh placement results.');
     });
     ['optimizationAddCourse', 'optimizationAddEnrollment', 'optimizationAddCampus', 'optimizationAddModality', 'optimizationAddRoomType', 'optimizationAddDays', 'optimizationAddStart', 'optimizationAddDuration', 'optimizationAddDivision', 'optimizationAddIncludeHistory', 'optimizationProposedDays', 'optimizationProposedStart', 'optimizationProposedEnd', 'optimizationProposedCampus', 'optimizationProposedRoomType', 'optimizationProposedEnrollment', 'optimizationFacultyNote'].forEach(id => {
-      document.getElementById(id)?.addEventListener('change', () => { if (state.optimizationRan) renderScheduleOptimizationLab().catch(err => console.warn(err)); });
+      document.getElementById(id)?.addEventListener('change', () => markOptimizationDirty('Add-a-Class inputs changed. Run optimization again to refresh placement results.'));
     });
     document.getElementById('exportOptimizationMoves')?.addEventListener('click', () => exportOptimizationRows('moves'));
     document.getElementById('exportOptimizationShifts')?.addEventListener('click', () => exportOptimizationRows('shifts'));

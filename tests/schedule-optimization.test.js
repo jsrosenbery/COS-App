@@ -155,3 +155,45 @@ test('better-time recommendations compare proposed and recommended evidence', ()
   assert.equal(typeof recs[0].competingSectionsNearProposedTime, 'number');
   assert.equal(typeof recs[0].availableRoomCount, 'number');
 });
+
+test('optimization indexes and candidate pruning limit room scans', () => {
+  const manyRooms = [
+    ...rooms,
+    { Campus: 'TCC', Building: 'T', Room: '1', Capacity: 40, 'Room Type': 'Classroom', 'Room Priority': 'Language & Communication' },
+    { Campus: 'COS', Building: 'Tiny', Room: '1', Capacity: 10, 'Room Type': 'Classroom', 'Room Priority': 'Language & Communication' },
+    { Campus: 'COS', Building: 'Huge', Room: '1', Capacity: 200, 'Room Type': 'Classroom', 'Room Priority': 'Language & Communication' },
+    { Campus: 'COS', Building: 'Lab', Room: '1', Capacity: 40, 'Room Type': 'Science Lab', 'Room Priority': 'Science' }
+  ];
+  const active = sections.filter(row => row.term === 'FALL 2026');
+  const indexes = optimizer.buildOptimizationIndexes({ activeRows: active, historyRows: sections, rooms: manyRooms });
+  const candidates = optimizer.candidateRoomsForSection(active[0], indexes.rooms, {
+    indexes,
+    roomIndexes: indexes.roomIndexes,
+    availability: indexes.availability,
+    maxCandidateRoomsPerSection: 2
+  });
+
+  assert.equal(indexes.activeSections.length, 2);
+  assert.equal(indexes.roomIndexes.byCampus.get('COS').length >= 4, true);
+  assert.equal(indexes.historicalDemand.courseMetrics.has('ENGL C1000'), true);
+  assert.equal(candidates.length <= 2, true);
+  assert.equal(candidates.every(room => room.campus === 'COS'), true);
+  assert.equal(candidates.every(room => room.capacity >= 40), true);
+  assert.equal(candidates.every(room => /Classroom/.test(room.roomType)), true);
+});
+
+test('recommendation stats report evaluated candidates', () => {
+  const stats = {};
+  const indexes = optimizer.buildOptimizationIndexes({ activeRows: sections.filter(row => row.term === 'FALL 2026'), historyRows: sections, rooms });
+  const moves = optimizer.generateRoomMoveRecommendations(indexes.activeSections, indexes.rooms, {
+    indexes,
+    historicalDemand: indexes.historicalDemand,
+    maxCandidateRoomsPerSection: 1,
+    stats
+  });
+
+  assert.ok(Array.isArray(moves));
+  assert.equal(stats.sectionsEvaluated, indexes.activeSections.length);
+  assert.equal(stats.candidateRoomsEvaluated <= indexes.activeSections.length, true);
+  assert.equal(typeof stats.roomMoveRecommendations, 'number');
+});
