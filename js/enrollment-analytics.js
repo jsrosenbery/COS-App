@@ -322,7 +322,7 @@
   };
   const TUTORING_OPEN_LAB_CONFIG = {
     label: 'Tutoring / Open Lab Sections',
-    defaultExcludedCourses: ['MATH 400', 'ENGL 400', 'LA 425']
+    defaultExcludedCourses: ['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425']
   };
   const tutoringOpenLabCourseSet = new Set(TUTORING_OPEN_LAB_CONFIG.defaultExcludedCourses.map(canon));
 

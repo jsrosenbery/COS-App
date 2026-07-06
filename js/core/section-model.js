@@ -17,7 +17,7 @@
     hybrid: new Set(['HYB', 'OH', 'OHF', 'FLX', 'OHS']),
     omitted: new Set(['CPL', 'DE', 'CBE', '98', '20'])
   };
-  const tutoringOpenLabCourses = new Set(['MATH 400', 'ENGL 400', 'LA 425']);
+  const tutoringOpenLabCourses = new Set(['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425']);
 
   function normalizeDayArray(days) {
     const aliases = {

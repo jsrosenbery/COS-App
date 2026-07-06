@@ -752,7 +752,7 @@ test('student presence graph series accepts already-normalized enrollment rows',
 test('tutoring open lab rows are centrally identified', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
 
-  ['MATH 400', 'ENGL 400', 'LA 425'].forEach(course => {
+  ['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425'].forEach(course => {
     const [subject, number] = course.split(' ');
     const splitRow = COSEnrollmentAnalytics.normalizeRow({ Subject: subject, Course: number });
     const combinedRow = COSEnrollmentAnalytics.normalizeRow({ Course: course });
@@ -4561,7 +4561,7 @@ test('standard analytics expose tutoring open lab exclusion controls and diagnos
   const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
 
-  ['MATH 400', 'ENGL 400', 'LA 425'].forEach(course => {
+  ['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425'].forEach(course => {
     assert.match(analytics, new RegExp(course));
     assert.match(app, new RegExp(course));
   });
