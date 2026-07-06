@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const api = factory();
+  const termUtils = root.COSTermUtils || (typeof require === 'function' ? require('./term-utils') : null);
+  const api = factory(termUtils);
   root.COSCsvNormalizer = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis, function () {
+})(typeof window !== 'undefined' ? window : globalThis, function (termUtils) {
   'use strict';
 
   function normalizeHeaderKey(key) {
@@ -72,6 +73,7 @@
   }
 
   function normalizeTermLabel(value) {
+    if (termUtils?.normalizeTermLabel) return termUtils.normalizeTermLabel(value);
     const text = String(value || '').trim();
     const match = text.match(/\b(SUMMER|FALL|SPRING|WINTER)\b\s*(20\d{2})/i) || text.match(/\b(20\d{2})\b.*\b(SUMMER|FALL|SPRING|WINTER)\b/i);
     if (!match) return text;

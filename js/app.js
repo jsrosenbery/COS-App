@@ -1384,7 +1384,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
     const tableTitle = document.createElement('span');
     tableTitle.id = 'room-catalog-table-title';
-    tableTitle.textContent = `Room Catalog Table ? ${roomCatalog.length} rooms`;
+    tableTitle.textContent = `Room Catalog Table — ${roomCatalog.length} rooms`;
     const tableChevron = document.createElement('span');
     tableChevron.className = 'collapsible-section-chevron';
     tableChevron.setAttribute('aria-hidden', 'true');
@@ -1422,7 +1422,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!preview) return;
     const rooms = getRoomCatalogEntries();
     const tableTitle = document.getElementById('room-catalog-table-title');
-    if (tableTitle) tableTitle.textContent = `Room Catalog Table ? ${rooms.length} rooms`;
+    if (tableTitle) tableTitle.textContent = `Room Catalog Table — ${rooms.length} rooms`;
     const display = rooms.slice(0, 25);
     if (!display.length) {
       preview.innerHTML = '<p>No room catalog rows loaded.</p>';
@@ -1741,6 +1741,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function termFromFilename(filename = '') {
+    if (window.COSTermUtils?.termFromFilename) return window.COSTermUtils.termFromFilename(filename);
     const text = String(filename || '').toUpperCase();
     const code = text.match(/\b(20\d{4})\b/)?.[1];
     if (code) {
@@ -3629,6 +3630,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function normalizeTermLabel(value) {
+    if (window.COSTermUtils?.normalizeTermLabel) return window.COSTermUtils.normalizeTermLabel(value);
     const text = String(value || '').trim();
     const match = text.match(/\b(SUMMER|FALL|SPRING)\b\s*(20\d{2})/i) || text.match(/\b(20\d{2})\b.*\b(SUMMER|FALL|SPRING)\b/i);
     if (!match) return text;

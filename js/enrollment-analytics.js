@@ -1090,6 +1090,7 @@
   }
 
   function termFromFilename(filename) {
+    if (window.COSTermUtils?.termFromFilename) return window.COSTermUtils.termFromFilename(filename);
     const text = String(filename || '');
     const match = text.match(/\b(20\d{2})(10|20|30|40)\b/);
     if (!match) return '';
@@ -1103,6 +1104,7 @@
   }
 
   function normalizeTermLabel(term) {
+    if (window.COSTermUtils?.normalizeTermLabel) return window.COSTermUtils.normalizeTermLabel(term);
     const text = canon(term).replace(/\s+/g, ' ').trim();
     if (!text) return '';
     const bannerTerm = termFromFilename(text);
@@ -1116,6 +1118,7 @@
   }
 
   function termSortValue(term) {
+    if (window.COSTermUtils?.termSortValue) return window.COSTermUtils.termSortValue(term);
     const text = normalizeTermLabel(term);
     const year = Number((text.match(/\b(20\d{2})\b/) || [])[1] || 0);
     const season = (text.match(/FALL|SPRING|SUMMER|WINTER/) || [''])[0];
@@ -1124,6 +1127,7 @@
   }
 
   function termParts(term) {
+    if (window.COSTermUtils?.termParts) return window.COSTermUtils.termParts(term);
     const text = normalizeTermLabel(term);
     return {
       season: (text.match(/FALL|SPRING|SUMMER|WINTER/) || [''])[0],
@@ -1132,16 +1136,19 @@
   }
 
   function academicYearTrailingYear(term) {
+    if (window.COSTermUtils?.academicYearTrailingYear) return window.COSTermUtils.academicYearTrailingYear(term);
     const parts = termParts(term);
     if (!parts.year) return 0;
     return parts.season === 'SPRING' ? parts.year : parts.year + 1;
   }
 
   function academicYearLabel(trailingYear) {
+    if (window.COSTermUtils?.academicYearLabel) return window.COSTermUtils.academicYearLabel(trailingYear);
     return `FY/AY ${trailingYear}`;
   }
 
   function targetTermFromFiscalYear(season, fiscalYear) {
+    if (window.COSTermUtils?.targetTermFromFiscalYear) return window.COSTermUtils.targetTermFromFiscalYear(season, fiscalYear);
     const year = season === 'SPRING' ? fiscalYear : fiscalYear - 1;
     return `${season} ${year}`;
   }

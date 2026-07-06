@@ -11,7 +11,7 @@ function loadEnrollmentModules() {
   };
   context.window.window = context.window;
   vm.createContext(context);
-  ['js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
+  ['js/core/term-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -32,7 +32,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
+  ['js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -2090,7 +2090,12 @@ test('demand term diagnostics count selected loaded filtered empty and failed te
 
 test('demand term normalization is consistent across common labels', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const termUtils = require('../js/core/term-utils.js');
 
+  assert.equal(termUtils.normalizeTermLabel('Fall 2025'), 'FALL 2025');
+  assert.equal(termUtils.normalizeTermLabel('2025 Fall'), 'FALL 2025');
+  assert.equal(termUtils.normalizeTermLabel('202610.csv'), 'FALL 2025');
+  assert.equal(termUtils.termSortValue('SPRING 2026') > termUtils.termSortValue('FALL 2025'), true);
   assert.equal(COSEnrollmentAnalytics.normalizeTermLabel('Fall 2025'), 'FALL 2025');
   assert.equal(COSEnrollmentAnalytics.normalizeTermLabel('FALL 2025'), 'FALL 2025');
   assert.equal(COSEnrollmentAnalytics.normalizeTermLabel('2025 Fall'), 'FALL 2025');
@@ -4679,6 +4684,7 @@ test('index owns enrollment analytics script order', () => {
   const expectedOrder = [
     'js/config.js',
     'js/core/dom-utils.js',
+    'js/core/term-utils.js',
     'js/core/csv-normalizer.js',
     'js/core/formatters.js',
     'js/core/physical-time.js',
