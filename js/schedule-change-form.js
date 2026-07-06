@@ -317,7 +317,6 @@
         </main>
         <footer>
           <button id="printBtn" class="btn" type="button">Print</button>
-          <button id="exportPdfBtn" class="btn" type="button">Export PDF</button>
           <button id="clearBtn" class="btn" type="button">Clear</button>
           <button id="closeBtn2" class="btn" type="button">Close</button>
           <button id="exportDocxBtn" class="btn" type="button">Export to Official Form (DOCX)</button>
@@ -750,7 +749,6 @@ function buildRows(tbody){
     const closeBtn = shadow.getElementById('closeBtn');
     const closeBtn2 = shadow.getElementById('closeBtn2');
     const printBtn = shadow.getElementById('printBtn');
-    const exportPdfBtn = shadow.getElementById('exportPdfBtn');
     const clearBtn = shadow.getElementById('clearBtn');
     const exportDocxBtn = shadow.getElementById('exportDocxBtn');
     const lookupBtn = shadow.getElementById('lookupBtn');
@@ -805,7 +803,6 @@ function buildRows(tbody){
       }
     });
     printBtn.addEventListener('click', ()=>window.print());
-    if (exportPdfBtn) exportPdfBtn.addEventListener('click', ()=>scfExportPdf(shadow));
     if (exportDocxBtn) exportDocxBtn.addEventListener('click', ()=>scfExportDocx(shadow));
 
     // expose for debugging if needed
