@@ -320,7 +320,7 @@
     hybrid: new Set(['HYB', 'OH', 'OHF', 'FLX', 'OHS']),
     omitted: new Set(['CPL', 'DE', 'CBE', '98'])
   };
-  const SHOW_ATTRITION_CENSUS2 = false;
+  const SHOW_CENSUS2 = false;
   const TUTORING_OPEN_LAB_CONFIG = {
     label: 'Tutoring / Open Lab Sections',
     defaultExcludedCourses: ['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425']
@@ -941,6 +941,14 @@
     return raw || 'CUSTOM';
   }
 
+  function isCensus2Snapshot(record) {
+    return normalizeSnapshotType(record?.snapshotType) === 'CENSUS 2';
+  }
+
+  function visibleSnapshotRecords(records = []) {
+    return SHOW_CENSUS2 ? (records || []) : (records || []).filter(record => !isCensus2Snapshot(record));
+  }
+
   function snapshotSourceValue(row, type) {
     const normalizedType = normalizeSnapshotType(type);
     const raw = row || {};
@@ -1400,7 +1408,7 @@
                 <ul>
                   <li>Select the term, snapshot type, and snapshot date, then upload the Section Seating export for that date.</li>
                   <li>Snapshot uploads may contain only the sections that begin on the selected snapshot date. Missing CRNs will not delete or overwrite previously saved snapshot records.</li>
-                  <li>First Day and Final snapshots use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present. Census 2 uses CENSUS_ENROLL2 when present.</li>
+                  <li>First Day and Final snapshots use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present.</li>
                   <li>If the uploaded file has no term field, the selected term is used. If the file has a conflicting term, the selected term remains authoritative for storage.</li>
                 </ul>
               </div>
@@ -1427,12 +1435,12 @@
               <select id="snapType">
                 <option>First Day</option>
                 <option>Census 1</option>
-                <option>Census 2</option>
+                ${SHOW_CENSUS2 ? '<option>Census 2</option>' : ''}
                 <option>Final</option>
                 <option>Custom</option>
               </select>
             </label>
-            <span class="analytics-note snapshot-note">First Day is the primary manual snapshot. Census 1, Census 2, and Final are already present in Banner source exports and generally do not need manual snapshot capture; keep those options for correction or manual override only.</span>
+            <span class="analytics-note snapshot-note">First Day is the primary manual snapshot. Census 1 and Final are already present in Banner source exports and generally do not need manual snapshot capture; keep those options for correction or manual override only.</span>
             <label>Snapshot Date <input id="snapDate" type="date" required></label>
             <label>Snapshot CSV <input id="snapshotCsv" type="file" accept=".csv"></label>
             <button id="saveSnapshotBatch" type="button">Archive/Save Snapshot</button>
@@ -2383,7 +2391,6 @@
                 <ul>
                   <li>Sections are deduplicated by CRN within term, with subject/course/section used as fallback, so multi-meeting rows are not double counted.</li>
                   <li>Overall Attrition = Census 1 to End/Final attrition. Census 1 is the Banner-captured milestone value from CENSUS_ENROLL. End/Final uses final enrollment or ACTUAL_ENROLL/current enrollment after the end of the term.</li>
-                  <li>Census 2 parsing remains available internally, but Census 2 displays are temporarily hidden while the source extract is reviewed.</li>
                   <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
                   <li>Total milestone enrollment is shown independently for Census 1 and End/Final. Those totals can use different CRN populations when the source data differs by milestone.</li>
                   <li>Lifecycle intervals shown are Start to End, Start to Census 1, Census 1 to End, and Overall Attrition. Each interval uses matched CRNs that have both required milestone values.</li>
@@ -8183,7 +8190,7 @@
     const milestones = [
       ['First Day', 'firstDay'],
       ['Census 1', 'census1'],
-      ['Census 2', 'census2'],
+      ...(SHOW_CENSUS2 ? [['Census 2', 'census2']] : []),
       ['Final', 'finalEnrollment']
     ];
     const missing = milestones
@@ -8335,7 +8342,8 @@
     const snapYearInput = document.getElementById('snapYear');
     if (snapYearInput && !snapYearInput.value) setSnapshotTermControls(attritionDecisionTerm() || currentTerm());
     const term = snapshotTerm();
-    const coverage = snapshotCoverage(rows, state.enrollmentSnapshots, term);
+    const visibleSnapshots = visibleSnapshotRecords(state.enrollmentSnapshots);
+    const coverage = snapshotCoverage(rows, visibleSnapshots, term);
     metric('snapshotMetrics', [
       ['Sections in Focus Term', coverage.sectionsInFocusTerm],
       ['Sections with First Day Snapshot', coverage.sectionsWithFirstDaySnapshot],
@@ -8350,7 +8358,7 @@
     if (warningNode) {
       warningNode.innerHTML = warnings.length ? warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('') : '';
     }
-    table('snapshotTable', state.enrollmentSnapshots || [], [
+    table('snapshotTable', visibleSnapshots, [
       'term',
       'snapshotType',
       'snapshotDate',
@@ -8373,11 +8381,11 @@
       title: 'Enrollment Snapshot Manager Methodology & Data Dictionary',
       purpose: 'Captures lifecycle enrollment points that are not available as standing fields in the source system, especially First Day enrollment.',
       methodology: 'Records are stored by Term + CRN + Snapshot Type. New CRNs append. Existing Term + CRN + Snapshot Type records update with the latest snapshot date/enrollment. Missing CRNs in later partial uploads are not deleted.',
-      assumptions: 'First Day and Final use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present, with ACTUAL_ENROLL fallback only when needed and visibly labeled. Census 2 uses CENSUS_ENROLL2 when present, then documented fallbacks.',
+      assumptions: 'First Day and Final use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present, with ACTUAL_ENROLL fallback only when needed and visibly labeled.',
       limitations: 'Snapshot coverage depends on the user uploading every partial start-date batch for the term. Coverage below 100% means First Day lifecycle measures are incomplete.',
       items: [
         ['Enrollment Snapshot', 'A point-in-time captured enrollment value for a section.'],
-        ['Snapshot Type', 'Lifecycle milestone being captured: First Day, Census 1, Census 2, Final, or Custom.'],
+        ['Snapshot Type', 'Lifecycle milestone being captured: First Day, Census 1, Final, or Custom.'],
         ['Snapshot Date', 'The actual date represented by the uploaded partial export.'],
         ['Snapshot Coverage', 'Sections with a stored First Day snapshot divided by sections in the selected focus term.'],
         ['Source Field Used', 'The upload column used to populate the snapshot enrollment value.']
@@ -8885,34 +8893,37 @@
   }
 
   function archiveInspectionRows() {
-    return (state.archiveInspectionRows || []).map(row => ({
-      sourceTerm: row.raw?.__sourceTerm || row.__sourceTerm || state.archiveInspectionTerm || row.term,
-      term: row.term,
-      crn: row.crn,
-      subject: row.subject,
-      course: row.course,
-      section: row.section,
-      title: row.title,
-      division: row.division,
-      department: row.department,
-      campus: row.campus,
-      modality: row.modality,
-      instructionalMethod: row.instructionalMethod,
-      instructor: row.instructor,
-      days: row.dayPattern,
-      start: row.start,
-      end: row.end,
-      timeBlock: row.timeBlock,
-      building: row.building,
-      room: row.roomOnly || row.room,
-      capacity: row.cap,
-      censusEnrollment: row.census,
-      finalEnrollment: row.actual,
-      crossList: row.crossList,
-      tutoringOpenLab: isTutoringOpenLabSection(row) ? 'Yes' : 'No',
-      invalidNegativeCensus2: row.invalidNegativeCensus2 ? 'Yes' : 'No',
-      sourceType: row.sourceType
-    }));
+    return (state.archiveInspectionRows || []).map(row => {
+      const output = {
+        sourceTerm: row.raw?.__sourceTerm || row.__sourceTerm || state.archiveInspectionTerm || row.term,
+        term: row.term,
+        crn: row.crn,
+        subject: row.subject,
+        course: row.course,
+        section: row.section,
+        title: row.title,
+        division: row.division,
+        department: row.department,
+        campus: row.campus,
+        modality: row.modality,
+        instructionalMethod: row.instructionalMethod,
+        instructor: row.instructor,
+        days: row.dayPattern,
+        start: row.start,
+        end: row.end,
+        timeBlock: row.timeBlock,
+        building: row.building,
+        room: row.roomOnly || row.room,
+        capacity: row.cap,
+        censusEnrollment: row.census,
+        finalEnrollment: row.actual,
+        crossList: row.crossList,
+        tutoringOpenLab: isTutoringOpenLabSection(row) ? 'Yes' : 'No',
+        sourceType: row.sourceType
+      };
+      if (SHOW_CENSUS2) output.invalidNegativeCensus2 = row.invalidNegativeCensus2 ? 'Yes' : 'No';
+      return output;
+    });
   }
 
   function renderArchiveInspection(rawRows, rows, selectedTerm) {
@@ -8939,7 +8950,7 @@
       ['Dual Enrollment Rows', dualEnrollmentRows],
       ['Work Experience Rows', workExperienceRows],
       ['Tutoring/Open Lab Rows', tutoringOpenLabRows],
-      ['Rows with Invalid Negative Census 2', invalidNegativeCensus2Rows],
+      ...(SHOW_CENSUS2 ? [['Rows with Invalid Negative Census 2', invalidNegativeCensus2Rows]] : []),
       ['Term Value Detected', termsDetected.length ? termsDetected.join(', ') : 'N/A']
     ]);
     document.getElementById('archiveInspectionSummary').innerHTML = [
@@ -8965,7 +8976,7 @@
       'instructionalMethod',
       'crossList',
       'tutoringOpenLab',
-      'invalidNegativeCensus2',
+      ...(SHOW_CENSUS2 ? ['invalidNegativeCensus2'] : []),
       'censusEnrollment',
       'capacity'
     ]);
@@ -9969,11 +9980,11 @@
   }
 
   function attritionVisibleItems(items = []) {
-    return SHOW_ATTRITION_CENSUS2 ? items : items.filter(item => !item.some(isAttritionCensus2Label));
+    return SHOW_CENSUS2 ? items : items.filter(item => !item.some(isAttritionCensus2Label));
   }
 
   function attritionVisibleColumns(columns = []) {
-    if (SHOW_ATTRITION_CENSUS2) return columns;
+    if (SHOW_CENSUS2) return columns;
     return columns.filter(column => !/census2|Census2|C2/i.test(String(column || '')));
   }
 
@@ -10149,7 +10160,7 @@
     if (historicalMilestones.mismatch) {
       dataQualityWarnings.push('Milestone populations differ. Attrition rates are calculated using matched CRNs for each comparison.');
     }
-    if (SHOW_ATTRITION_CENSUS2 && diagnostics.hasInvalidNegativeCensus2) {
+    if (SHOW_CENSUS2 && diagnostics.hasInvalidNegativeCensus2) {
       dataQualityWarnings.push('Negative Census 2 values were detected and treated as invalid.');
     }
     if (diagnostics.tutoringOpenLabRowsExcluded > 0) {
@@ -10230,7 +10241,7 @@
         ...collectExclusionChips('attr'),
         { label: 'Planning Term Excluded', value: excludedPlanningTerm || 'None' },
         { label: 'Tutoring/Open Lab', value: `${diagnostics.tutoringOpenLabRowsExcluded || 0} rows excluded` },
-        ...(SHOW_ATTRITION_CENSUS2 ? [{ label: 'Invalid Census 2', value: `${diagnostics.invalidNegativeCensus2Rows || 0} rows treated as missing` }] : [])
+        ...(SHOW_CENSUS2 ? [{ label: 'Invalid Census 2', value: `${diagnostics.invalidNegativeCensus2Rows || 0} rows treated as missing` }] : [])
       ],
       method: [
         { label: 'Aggregation mode', value: document.getElementById('attrGroup')?.value || 'COURSE' },
@@ -10318,7 +10329,7 @@
       ['census1ToEnd', 'Census 1', 'End/Final', 'Census 1 to End/Final'],
       ['census2ToEnd', 'Census 2', 'End/Final', 'Census 2 to End/Final']
     ].filter(([, startMilestone, endMilestone, calculation]) => (
-      SHOW_ATTRITION_CENSUS2 || ![startMilestone, endMilestone, calculation].some(isAttritionCensus2Label)
+      SHOW_CENSUS2 || ![startMilestone, endMilestone, calculation].some(isAttritionCensus2Label)
     ));
     const scopes = [
       ['Decision Term', summaries.decision],
@@ -10361,9 +10372,9 @@
   function renderAttritionDataQualityNotes(warnings = []) {
     const node = document.getElementById('attritionDataQualityNotes');
     if (!node) return;
-    const standard = SHOW_ATTRITION_CENSUS2
+    const standard = SHOW_CENSUS2
       ? 'Lifecycle milestone populations may differ because Banner captures Census 1 and Census 2 as milestone values, while End/Final uses ACTUAL_ENROLL/current enrollment after term completion. Rates are diagnostic and should be reviewed with the milestone coverage counts.'
-      : 'Lifecycle milestone populations may differ because Census 1 and End/Final can have different valid CRN populations. Census 2 is still parsed internally but is temporarily hidden while the source extract is reviewed.';
+      : 'Lifecycle milestone populations may differ because Census 1 and End/Final can have different valid CRN populations. Rates are diagnostic and should be reviewed with the milestone coverage counts.';
     const notes = [...new Set([standard, ...(warnings.length ? warnings : ['No additional data-quality warnings detected.'])])];
     node.innerHTML = `
       <h3>Data Quality Notes</h3>
@@ -13389,9 +13400,9 @@
     renderMethodologyPanel(legend, {
       title: 'Enrollment Attrition Trend Methodology & Data Dictionary',
       purpose: 'Reviews completed historical milestone enrollment movement and data coverage so attrition trends can be interpreted for planning.',
-      methodology: SHOW_ATTRITION_CENSUS2
+      methodology: SHOW_CENSUS2
         ? 'Enrollment Attrition Trend is intended to review completed historical milestone enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Because milestone populations may differ, attrition rates are diagnostic and should be interpreted alongside CRN coverage counts. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Negative Census 2 values are treated as invalid/missing. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.'
-        : 'Enrollment Attrition Trend is intended to review completed historical Census 1 to End/Final enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 is captured from CENSUS_ENROLL. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Census 2 parsing remains available internally but is temporarily hidden while the source extract is reviewed. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.',
+        : 'Enrollment Attrition Trend is intended to review completed historical Census 1 to End/Final enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 is captured from CENSUS_ENROLL. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.',
       assumptions: 'CENSUS_ENROLL is treated as census enrollment. ACTUAL_ENROLL is treated as final enrollment when the source file is final and as current enrollment when the source file is an in-progress snapshot.',
       limitations: 'This report does not know why students left, whether a term file is final unless the uploaded source reflects that, or whether external retention interventions occurred.',
       items,
@@ -14884,7 +14895,7 @@
     document.getElementById('snapSeason')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('snapYear')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('viewStoredSnapshots')?.addEventListener('click', () => renderSnapshotManager());
-    document.getElementById('exportStoredSnapshots')?.addEventListener('click', () => exportRows(state.enrollmentSnapshots, 'enrollment-snapshots.csv'));
+    document.getElementById('exportStoredSnapshots')?.addEventListener('click', () => exportRows(visibleSnapshotRecords(state.enrollmentSnapshots), 'enrollment-snapshots.csv'));
     document.getElementById('clearSnapshotBatch')?.addEventListener('click', () => clearSelectedSnapshotBatch().catch(err => alert(err.message || 'Snapshot clear failed.')));
     document.getElementById('iaDivision')?.addEventListener('change', () => {
       populateInstructorAvailabilityFilters(currentRows());
@@ -15127,6 +15138,7 @@
   }
 
   window.COSEnrollmentAnalytics = {
+    showCensus2: SHOW_CENSUS2,
     ROLE_LEVEL,
     ROLE_LABEL,
     REPORT_ACCESS,

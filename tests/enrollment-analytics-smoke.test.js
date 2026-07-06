@@ -1075,7 +1075,8 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
     'trendInterpretation',
     'confidence'
   ].forEach(column => assert.match(detailBlock, new RegExp(column)));
-  assert.match(text, /const SHOW_ATTRITION_CENSUS2 = false/);
+  assert.match(text, /const SHOW_CENSUS2 = false/);
+  assert.match(text, /showCensus2: SHOW_CENSUS2/);
   assert.match(text, /attritionVisibleColumns/);
   assert.match(text, /firstDayToCensus1Attrition/);
   assert.match(text, /census2ToEndFinalAttrition/);
@@ -1209,7 +1210,7 @@ test('dashboard scope panel reports lifecycle milestone availability', () => {
     section({ firstDay: 10, census1: 9, census2: 8, finalEnrollment: 7 })
   ]);
 
-  assert.deepEqual(Array.from(missingContext.missingMilestones), ['First Day', 'Census 1', 'Census 2', 'Final']);
+  assert.deepEqual(Array.from(missingContext.missingMilestones), ['First Day', 'Census 1', 'Final']);
   assert.ok(missingContext.warnings.includes('Lifecycle milestone data unavailable in current upload.'));
   assert.deepEqual(Array.from(available.missing), []);
 });
@@ -1425,7 +1426,7 @@ test('dashboard lifecycle displays N/A when milestone fields are missing', () =>
     section({ census: 20, actual: 15 })
   ], [], []);
 
-  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [null, null, null, null]);
+  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [null, null, null]);
   const exportRows = COSEnrollmentDashboard.dashboardSummaryExportRows(summary, {});
   const lifecycleRows = exportRows.filter(row => row.Section === 'Enrollment Health' && row.Group === 'Lifecycle Milestone');
   assert.equal(lifecycleRows.every(row => row.Value === 'N/A'), true);
@@ -1438,7 +1439,7 @@ test('dashboard lifecycle totals future milestone fields when available', () => 
     section({ firstDay: 20, census1: 18, census2: 16, finalEnrollment: 12 })
   ], [], []);
 
-  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [50, 46, 42, 34]);
+  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [50, 46, 34]);
 });
 
 test('dashboard division filter changes row count and exported rows', () => {
@@ -1938,7 +1939,8 @@ test('attrition summary and visible table use executive and coverage clarity lab
     'Trend / Interpretation',
     'Confidence'
   ].forEach(label => assert.match(text, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
-  assert.match(text, /Census 2 parsing remains available internally, but Census 2 displays are temporarily hidden/);
+  assert.match(text, /Census 1 to End\/Final enrollment movement/);
+  assert.doesNotMatch(text, /Census 2 parsing remains available internally/);
 });
 
 test('consolidation scope is limited to selected report inputs', () => {
@@ -3523,7 +3525,7 @@ test('snapshot manager defaults first day as primary manual snapshot', () => {
 
   assert.ok(snapBlock.indexOf('<option>First Day</option>') < snapBlock.indexOf('<option>Census 1</option>'));
   assert.match(text, /First Day is the primary manual snapshot/);
-  assert.match(text, /Census 1, Census 2, and Final are already present in Banner source exports/);
+  assert.match(text, /Census 1 and Final are already present in Banner source exports/);
 });
 
 test('modality balance uses shared modality category normalization and diagnostics', () => {
@@ -4568,7 +4570,7 @@ test('standard analytics expose tutoring open lab exclusion controls and diagnos
     /\$\{prefix\}ExcludeTutoringOpenLab/,
     /roomFitExcludeTutoringOpenLab/,
     /Tutoring\/Open Lab Rows Excluded/,
-    /Negative Census 2 values were detected and treated as invalid/
+    /SHOW_CENSUS2 \? \[\['Rows with Invalid Negative Census 2'/
   ].forEach(pattern => assert.match(analytics, pattern));
   [
     /heatmap-exclude-tutoring-openlab/,
