@@ -754,6 +754,16 @@
     return start === '00:00' && (end === '00:00' || end === '00:59');
   }
 
+  function isMidnightPlaceholderInterval(row) {
+    const start = minutesFromTime(row?.start || row?.startTime);
+    const end = minutesFromTime(row?.end || row?.endTime);
+    const block = canon(row?.timeBlock || row?.TimeBlock || row?.['Time Block'] || '');
+    if (start == null || end == null) return false;
+    if (/^0?0:00(?:\s*-\s*0?0:(?:00|59))?$/.test(block)) return true;
+    if (start === 0 && end >= 6 * 60) return true;
+    return start === 0 && end <= 59;
+  }
+
   function rowInstructionModality(row) {
     const direct = row?.modality || row?.Modality || row?.instructionalMethod || row?.INSTRUCTIONAL_METHOD || row?.INSM_CODE_SSBSECT || row?.raw?.INSTRUCTIONAL_METHOD || row?.raw?.INSM_CODE_SSBSECT || '';
     return canon(normalizeModality(direct, row));
@@ -774,7 +784,7 @@
     if (!Array.isArray(row?.days) || !row.days.length) return false;
     if (start == null || end == null || end <= start) return false;
     if (canon(row?.timeBlock) === 'ONLINE/TBA') return false;
-    if (start === 0 && end <= 59) return false;
+    if (isMidnightPlaceholderInterval(row)) return false;
     if (isOnlinePlaceholderTime(row)) return false;
     return true;
   }
@@ -5517,7 +5527,8 @@
 
   function scheduleOpportunitySummary(rows, options = {}) {
     const sourceRows = (rows || []).filter(row => !row.isWorkExperience && !isOmittedInstructionalMethod(row));
-    const sections = distinctScheduleSections(sourceRows);
+    const analysisRows = physicalIntervalRows(sourceRows, options);
+    const sections = distinctScheduleSections(analysisRows);
     const calGetcCodes = studentChoiceCalGetcCodes();
     const courses = new Set();
     const subjects = new Set();
@@ -5539,7 +5550,10 @@
     const seats = sections.reduce((total, row) => total + (row.cap || 0), 0);
     const enrollment = sections.reduce((total, row) => total + scheduleOpportunityEnrollment(row), 0);
     const waitlist = sections.reduce((total, row) => total + (row.waitlist || 0), 0);
-    const physicalBuckets = buildStudentChoiceBuckets(sourceRows, 'studentPresence', { includeOnline: options.includeOnline === true });
+    const physicalBuckets = buildStudentChoiceBuckets(analysisRows, 'studentPresence', {
+      includeOnline: options.includeOnline === true,
+      onlineTreatment: options.onlineTreatment || (options.includeOnline === true ? 'scheduled-online' : 'physical')
+    });
     const studentPresence = physicalBuckets.reduce((total, row) => total + (row.studentPresence || 0), 0);
     const fillRateNumber = safeDiv(enrollment, seats);
     const choiceIndex = choiceDiversityIndex({

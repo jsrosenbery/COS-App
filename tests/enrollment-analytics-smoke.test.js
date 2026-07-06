@@ -2307,7 +2307,7 @@ test('demand expected FTES range mirrors projection range behavior and export fi
   assert.ok(stable.expectedRange.low < stable.expectedRange.high);
   assert.ok(stable.expectedFtesRange.low < stable.expectedFtesRange.high);
   assert.ok(volatileWidth > stableWidth, 'FTES range should widen when FTES volatility increases');
-  assert.match(COSEnrollmentAnalytics.formatDemandFtesRange(4480, 4760), /^4480\.0–4760\.0$/);
+  assert.match(COSEnrollmentAnalytics.formatDemandFtesRange(4480, 4760), /^4480\.0?4760\.0$/);
   assert.match(source, /\['Expected FTES Range', formatDemandFtesRange/);
   assert.match(source, /expectedFtesRangeDisplay/);
   assert.match(source, /expectedFtesRangeLow/);
@@ -2511,6 +2511,29 @@ test('schedule opportunity online treatment excludes asynchronous online from fu
   assert.equal(scheduledActive.every(row => row.studentPresence === 25), true);
   assert.equal(JSON.stringify(allActive.map(row => `${row.dayCode}|${row.minutes}`)), JSON.stringify(['TU|600', 'TU|630']));
   assert.equal(allOnline[0].onlineTreatment, 'all-online');
+});
+
+test('schedule opportunity excludes midnight placeholders even when modality appears physical', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ crn: 'BAD1', subject: 'BUS', course: '001', modality: 'HYBRID', days: ['MO'], dayPattern: 'M', start: '00:00', end: '19:00', timeBlock: '00:00-00:59', census: 50, actual: 50 }),
+    section({ crn: 'GOOD1', subject: 'MATH', course: '021', modality: 'HYBRID', days: ['MO'], dayPattern: 'M', start: '08:00', end: '09:00', timeBlock: '08:00-08:59', census: 25, actual: 25 })
+  ];
+  const buckets = COSEnrollmentAnalytics.buildStudentChoiceBuckets(rows, 'uniqueCourses', { onlineTreatment: 'physical', dynamicWindow: true });
+  const summary = COSEnrollmentAnalytics.scheduleOpportunitySummary(rows, { onlineTreatment: 'physical' });
+  const active = buckets.filter(row => row.sections || row.uniqueCourses);
+  const slots = [...new Set(buckets.map(row => row.minutes))];
+
+  assert.equal(COSEnrollmentAnalytics.hasUsablePhysicalInterval(rows[0]), false);
+  assert.equal(COSEnrollmentAnalytics.hasUsablePhysicalInterval(rows[1]), true);
+  assert.equal(slots[0], 8 * 60);
+  assert.equal(slots.at(-1), 8 * 60 + 30);
+  assert.equal(active.length, 2);
+  assert.equal(active.every(row => row.uniqueCourses === 1), true);
+  assert.equal(active.every(row => row.enrollment === 25), true);
+  assert.equal(summary.scheduledClassOfferings, 1);
+  assert.equal(summary.uniqueCourses, 1);
+  assert.equal(summary.enrollment, 25);
 });
 
 test('schedule opportunity heatmap controls and export metadata are wired', () => {
@@ -2833,7 +2856,7 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /id="currentAccessLevel"/);
   assert.match(text, /Lock Reports/);
   assert.match(text, /function lockedReportLabel/);
-  assert.match(text, /Locked report ••••••••/);
+  assert.match(text, /Locked report ????????/);
   assert.doesNotMatch(text, /Locked - unlock to view name/);
   assert.match(text, /note\.textContent = reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
   assert.match(text, /the selected locked report/);
@@ -3787,7 +3810,7 @@ test('room catalog table is collapsed separately from import export controls', (
   assert.ok(preview);
   assert.equal(toggle.getAttribute('aria-expanded'), 'false');
   assert.equal(preview.hidden, true);
-  assert.match(title.textContent, /^Room Catalog Table — \d+ rooms$/);
+  assert.match(title.textContent, /^Room Catalog Table ? \d+ rooms$/);
   assert.match(status.textContent, /\d+ rooms loaded\./);
   assert.match(topLevelText, /Room Catalog/);
   assert.match(topLevelText, /Export Rooms CSV/);
