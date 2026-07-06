@@ -2437,6 +2437,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     // For snapshot
     const combos = getUniqueRooms(currentData);
     const roomOptions = combos.map(room => ({ value: room, label: getRoomDisplay(room) }));
+    const defaultRoom = roomOptions[0]?.value || 'All';
+    const priorSnapshotRoom = snapshotRoomFilter?.value;
+    const priorCalendarRoom = calendarRoomFilter?.value || document.getElementById('calendar-room-select')?.value;
     if (roomDiv) {
       roomDiv.replaceChildren();
       const label = document.createElement('label');
@@ -2444,6 +2447,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       snapshotRoomFilter = document.createElement('select');
       snapshotRoomFilter.id = 'room-select';
       resetSelect(snapshotRoomFilter, roomOptions);
+      snapshotRoomFilter.value = priorSnapshotRoom && (priorSnapshotRoom === 'All' || combos.includes(priorSnapshotRoom))
+        ? priorSnapshotRoom
+        : defaultRoom;
       label.appendChild(snapshotRoomFilter);
       roomDiv.appendChild(label);
       snapshotRoomFilter.onchange = renderSchedule;
@@ -2453,6 +2459,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const calendarRoomSelect = document.getElementById('calendar-room-select');
     if (calendarRoomSelect) {
       resetSelect(calendarRoomSelect, roomOptions);
+      calendarRoomSelect.value = priorCalendarRoom && (priorCalendarRoom === 'All' || combos.includes(priorCalendarRoom))
+        ? priorCalendarRoom
+        : defaultRoom;
       calendarRoomFilter = calendarRoomSelect;
       calendarRoomFilter.onchange = renderFullCalendar;
     }

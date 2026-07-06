@@ -4370,6 +4370,17 @@ test('collapsible sections are wired across reports without changing Room Availa
   assert.match(analytics, /<details class="methodology-panel" open>/);
 });
 
+test('room availability grid defaults to first actual room instead of all rooms', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  assert.match(app, /const defaultRoom = roomOptions\[0\]\?\.value \|\| 'All'/);
+  assert.match(app, /snapshotRoomFilter\.value = priorSnapshotRoom/);
+  assert.match(app, /calendarRoomSelect\.value = priorCalendarRoom/);
+  assert.match(app, /combos\.includes\(priorSnapshotRoom\)/);
+  assert.match(app, /combos\.includes\(priorCalendarRoom\)/);
+  assert.match(app, /: defaultRoom/);
+});
+
 test('development graphics default to container-width responsive layouts', () => {
   const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
