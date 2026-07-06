@@ -11,7 +11,7 @@ function loadEnrollmentModules() {
   };
   context.window.window = context.window;
   vm.createContext(context);
-  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
+  ['js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -32,7 +32,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
+  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -1844,7 +1844,12 @@ test('enrollment analytics report labels are operational', () => {
 
 test('student presence UI and exports expose meeting frequency fields', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const formatters = require('../js/core/formatters.js');
 
+  assert.equal(formatters.formatWholeNumber(204129.4420289), '204,129');
+  assert.equal(formatters.formatPercent(0.1493), '14.9%');
+  assert.equal(formatters.formatFactor(0.2319), '0.23');
+  assert.equal(formatters.formatPresenceValue(118054.55797101), '118,055');
   assert.match(text, /id="spPresenceMode"/);
   assert.match(text, /Nominal Scheduled Presence/);
   assert.match(text, /Expected Physical Presence/);
@@ -1852,6 +1857,7 @@ test('student presence UI and exports expose meeting frequency fields', () => {
   assert.match(text, /frequencySource/);
   assert.match(text, /frequencyWarning/);
   assert.match(text, /function formatWholeNumber/);
+  assert.match(text, /window\.COSFormatters\?\.formatWholeNumber/);
   assert.match(text, /function formatPercent/);
   assert.match(text, /function formatFactor/);
   assert.match(text, /function formatPresenceValue/);
@@ -4674,6 +4680,7 @@ test('index owns enrollment analytics script order', () => {
     'js/config.js',
     'js/core/dom-utils.js',
     'js/core/csv-normalizer.js',
+    'js/core/formatters.js',
     'js/core/physical-time.js',
     'js/core/faculty-utils.js',
     'js/core/faculty-model.js',

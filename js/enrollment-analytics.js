@@ -396,28 +396,36 @@
   }
 
   function formatWholeNumber(value) {
-    const numeric = Number(value) || 0;
-    return Math.round(numeric).toLocaleString('en-US');
+    return window.COSFormatters?.formatWholeNumber
+      ? window.COSFormatters.formatWholeNumber(value)
+      : Math.round(Number(value) || 0).toLocaleString('en-US');
   }
 
   function formatDecimal(value, digits = 1) {
-    const numeric = Number(value) || 0;
-    return numeric.toLocaleString('en-US', {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits
-    });
+    return window.COSFormatters?.formatDecimal
+      ? window.COSFormatters.formatDecimal(value, digits)
+      : (Number(value) || 0).toLocaleString('en-US', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      });
   }
 
   function formatPercent(value, digits = 1) {
-    return `${formatDecimal((Number(value) || 0) * 100, digits)}%`;
+    return window.COSFormatters?.formatPercent
+      ? window.COSFormatters.formatPercent(value, digits)
+      : `${formatDecimal((Number(value) || 0) * 100, digits)}%`;
   }
 
   function formatFactor(value) {
-    return formatDecimal(value, 2);
+    return window.COSFormatters?.formatFactor
+      ? window.COSFormatters.formatFactor(value)
+      : formatDecimal(value, 2);
   }
 
   function formatPresenceValue(value) {
-    return formatWholeNumber(value);
+    return window.COSFormatters?.formatPresenceValue
+      ? window.COSFormatters.formatPresenceValue(value)
+      : formatWholeNumber(value);
   }
 
   function canon(value) {
