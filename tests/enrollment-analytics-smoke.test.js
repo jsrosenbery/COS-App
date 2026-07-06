@@ -1070,14 +1070,13 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
     'historicalTermsUsed',
     'historicalSectionsCrns',
     'census1Enrollment',
-    'census2Enrollment',
     'endFinalEnrollment',
-    'census1ToCensus2AttritionDisplay',
-    'census2ToFinalAttritionDisplay',
     'census1ToFinalAttritionDisplay',
     'trendInterpretation',
     'confidence'
   ].forEach(column => assert.match(detailBlock, new RegExp(column)));
+  assert.match(text, /const SHOW_ATTRITION_CENSUS2 = false/);
+  assert.match(text, /attritionVisibleColumns/);
   assert.match(text, /firstDayToCensus1Attrition/);
   assert.match(text, /census2ToEndFinalAttrition/);
 });
@@ -1935,11 +1934,11 @@ test('attrition summary and visible table use executive and coverage clarity lab
     'Historical Terms Used',
     'Historical Sections / CRNs',
     'Census 1 Enrollment',
-    'Census 2 Enrollment',
     'End/Final Enrollment',
     'Trend / Interpretation',
     'Confidence'
   ].forEach(label => assert.match(text, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
+  assert.match(text, /Census 2 parsing remains available internally, but Census 2 displays are temporarily hidden/);
 });
 
 test('consolidation scope is limited to selected report inputs', () => {
