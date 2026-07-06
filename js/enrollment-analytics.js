@@ -1866,7 +1866,9 @@
                 <label><input class="ptDay" type="checkbox" value="SU"> U</label>
               </span>
             </label>
-            <label>Term <select id="ptTerm"></select></label>
+            <label>Terms <select id="ptTerm" multiple size="5" data-placeholder="All loaded terms"></select></label>
+            <button type="button" data-prime-time-terms="all">All Terms</button>
+            <button type="button" data-prime-time-terms="latest">Most Recent Term</button>
             <label>Campus <select id="ptCampus"></select></label>
             <label>Division <select id="ptDivision"></select></label>
             <label>Department <select id="ptDepartment"></select></label>
@@ -4047,8 +4049,26 @@
     return start < definition.end && end > definition.start;
   }
 
+  function primeTimeSelectedTerms() {
+    const selected = selectedOptionValues(document.getElementById('ptTerm')).map(normalizeTermLabel).filter(Boolean);
+    if (selected.length) return selected;
+    return [...new Set(reportableFacultyRows(state.primeTimeRows).map(row => normalizeTermLabel(facultyTerm(row))).filter(Boolean))]
+      .sort((a, b) => termSortValue(a) - termSortValue(b));
+  }
+
+  function setPrimeTimeTermSelection(mode = 'all') {
+    const select = document.getElementById('ptTerm');
+    if (!select) return;
+    const options = Array.from(select.options || []).filter(option => option.value);
+    const latest = options.map(option => normalizeTermLabel(option.value)).sort((a, b) => termSortValue(a) - termSortValue(b)).pop();
+    options.forEach(option => {
+      option.selected = mode === 'all' || normalizeTermLabel(option.value) === latest;
+    });
+    renderPrimeTimeAnalysis();
+  }
+
   function primeTimeFilterRows() {
-    const term = document.getElementById('ptTerm')?.value || '';
+    const selectedTerms = new Set(primeTimeSelectedTerms());
     const campus = document.getElementById('ptCampus')?.value || '';
     const division = document.getElementById('ptDivision')?.value || '';
     const department = document.getElementById('ptDepartment')?.value || '';
@@ -4057,7 +4077,7 @@
       .filter(row => facultyHasUsablePhysicalInterval(row))
       .filter(row => {
         if (!facultyMatchesSelectedModality(row, 'ptModality', PHYSICAL_MODALITY_LABELS)) return false;
-        if (term && facultyTerm(row) !== term) return false;
+        if (selectedTerms.size && !selectedTerms.has(normalizeTermLabel(facultyTerm(row)))) return false;
         if (campus && row.campus !== campus) return false;
         if (division && row.divisionId !== division) return false;
         if (department && row.departmentId !== department) return false;
@@ -4068,7 +4088,17 @@
 
   function updatePrimeTimeFilterOptions() {
     const rows = reportableFacultyRows(state.primeTimeRows);
-    setFacultyFilterOptions('ptTerm', rows.map(facultyTerm), 'All terms');
+    const termSelect = document.getElementById('ptTerm');
+    if (termSelect) {
+      const previousValues = new Set(Array.from(termSelect.selectedOptions || []).map(option => normalizeTermLabel(option.value)).filter(Boolean));
+      const terms = [...new Set(rows.map(row => normalizeTermLabel(facultyTerm(row))).filter(Boolean))]
+        .sort((a, b) => termSortValue(a) - termSortValue(b));
+      termSelect.replaceChildren();
+      terms.forEach(term => termSelect.appendChild(new Option(term, term)));
+      Array.from(termSelect.options).forEach(option => {
+        option.selected = previousValues.size ? previousValues.has(normalizeTermLabel(option.value)) : true;
+      });
+    }
     setFacultyFilterOptions('ptCampus', rows.map(row => row.campus), 'All campuses');
     setFacultyFilterOptions('ptDivision', rows.map(row => row.divisionId), 'All divisions');
     const division = document.getElementById('ptDivision')?.value || '';
@@ -4285,6 +4315,29 @@
     ];
   }
 
+  function primeTimeScopeDiagnostics(sourceRows = [], modalityLabels = PHYSICAL_MODALITY_LABELS) {
+    const terms = new Set(primeTimeSelectedTerms());
+    const reportable = reportableFacultyRows(sourceRows);
+    const termRows = reportable.filter(row => !terms.size || terms.has(normalizeTermLabel(facultyTerm(row))));
+    const modalityRows = termRows.filter(row => facultyModalityMatchesLabelList(row, modalityLabels));
+    const validRows = modalityRows.filter(row => facultyHasUsablePhysicalInterval(row));
+    const invalidRows = modalityRows.filter(row => !facultyHasUsablePhysicalInterval(row));
+    const onlineRows = modalityRows.filter(row => facultyInstructionModality(row) === 'Online');
+    const onlineValidRows = onlineRows.filter(row => facultyHasUsablePhysicalInterval(row));
+    const onlineInvalidRows = onlineRows.filter(row => !facultyHasUsablePhysicalInterval(row));
+    return {
+      selectedTerms: terms.size ? [...terms].join(', ') : 'All loaded terms',
+      reportableRows: reportable.length,
+      termRows: termRows.length,
+      modalityRows: modalityRows.length,
+      validRows: validRows.length,
+      invalidRows: invalidRows.length,
+      onlineRows: onlineRows.length,
+      onlineValidRows: onlineValidRows.length,
+      onlineInvalidRows: onlineInvalidRows.length
+    };
+  }
+
   function renderPrimeTimeGauges(rows) {
     const node = document.getElementById('primeTimeGauges');
     if (!node) return;
@@ -4343,8 +4396,11 @@
     }
     const rows = primeTimeFilterRows();
     const aggregationMode = historicalAggregationMode('ptHistoricalAggregation');
-    const focusTerm = document.getElementById('ptTerm')?.value || '';
-    const tableRows = primeTimeAnalysisRows(rows, [...selectedModalityLabels('ptModality', PHYSICAL_MODALITY_LABELS)], { aggregationMode, focusTerm });
+    const modalityLabels = [...selectedModalityLabels('ptModality', PHYSICAL_MODALITY_LABELS)];
+    const selectedTerms = primeTimeSelectedTerms();
+    const focusTerm = selectedTerms[selectedTerms.length - 1] || '';
+    const diagnostics = primeTimeScopeDiagnostics(sourceRows, modalityLabels);
+    const tableRows = primeTimeAnalysisRows(rows, modalityLabels, { aggregationMode, focusTerm });
     state.primeTimeTableRows = tableRows;
     renderPrimeTimeGauges(tableRows);
     const pick = label => tableRows.find(row => row.category === label)?.percentPrime || '0%';
@@ -4359,7 +4415,11 @@
       ['Activity prime time', pick('Activity'), 'activity'],
       ['Enrollment prime time', pick('Enrollment'), 'enrollment'],
       ['Seats prime time', pick('Seats'), 'seats-offered'],
-      ['LHE prime time', pick('LHE'), 'lhe']
+      ['LHE prime time', pick('LHE'), 'lhe'],
+      ['Selected terms', diagnostics.selectedTerms],
+      ['Rows with valid scheduled times', diagnostics.validRows],
+      ['Online rows with scheduled times', diagnostics.onlineValidRows],
+      ['Online async/TBA rows excluded', diagnostics.onlineInvalidRows]
     ]);
     table('primeTimeTable', tableRows, ['category', 'aggregationMode', 'focusPlanningTerm', 'selectedHistoricalTerms', 'historicalTermWeights', 'primeValue', 'nonPrimeValue', 'totalValue', 'percentPrime', 'totalAcrossSelectedTerms', 'averagePerSelectedTerm', 'weightedHistoricalAverage']);
     const definition = primeTimeDefinition();
@@ -4368,10 +4428,11 @@
       title: 'Prime Time Analysis Methodology & Data Dictionary',
       purpose: 'Measures how much faculty instruction, enrollment, and LHE are concentrated during the selected campus prime-time window.',
       metricsUsed: ['Historical Aggregation Mode', 'Prime-Time Concentration', 'Scheduled Class Offerings, Unique CRNs', 'Instructional Meetings', 'Enrollment', 'Seats', 'LHE', 'FTES', 'Full-Time Faculty Instructional Meetings', 'Part-Time Faculty Instructional Meetings', 'Lecture', 'Lab', 'Activity'],
-      calculationRules: `Prime time currently uses ${dayNames}, ${formatPresenceHourLabel(definition.start / 60)}-${formatPresenceHourLabel(definition.end / 60)}. A meeting counts as prime time when any scheduled day and any part of the meeting overlaps the selected window. Percent Prime = prime-time value / total value. Historical Aggregation defaults to Average per Selected Term so multi-term history is compared as a typical term rather than a cumulative total.`,
-      assumptions: 'Prime Time Analysis defaults to physical instruction because it evaluates campus time-of-day concentration. Online sections can be included manually.',
+      calculationRules: `Prime time currently uses ${dayNames}, ${formatPresenceHourLabel(definition.start / 60)}-${formatPresenceHourLabel(definition.end / 60)}. A meeting counts as prime time when any scheduled day and any part of the meeting overlaps the selected window. Percent Prime = prime-time value / total value. Historical Aggregation defaults to Average per Selected Term so multi-term history is compared as a typical term rather than a cumulative total. The Terms control is multi-select; selecting multiple terms is required for historical averages across those terms.`,
+      assumptions: 'Prime Time Analysis defaults to physical instruction because it evaluates campus time-of-day concentration. Online sections can be included manually, but only online rows with real scheduled days and start/end times can be evaluated in a time-of-day report.',
       limitations: 'Prime-time concentration describes schedule placement. It does not determine whether a placement is pedagogically, contractually, or operationally appropriate.',
       items: [
+        ['Selected Terms', 'The selected Faculty Schedule terms included in the analysis. If no term is selected, all loaded terms are included.'],
         ['Historical Aggregation Mode', 'Controls how multiple selected historical terms are summarized: Average per Selected Term, Total Across Selected Terms, Most Recent Comparable Term, or Weighted Historical Average.'],
         ['Average per Selected Term', 'Default planning benchmark. Divides selected historical totals by the number of selected terms so a future term is compared against a typical term.'],
         ['Total Across Selected Terms', 'Cumulative value across all selected terms. Useful for audit context, but not the default planning comparison.'],
@@ -4385,6 +4446,7 @@
         ['Total', 'Prime plus Non-Prime for the selected metric and aggregation mode.'],
         ['Percent Prime', 'Prime-time value divided by total value for the selected metric.'],
         ['Enrollment', 'ActualEnroll from Faculty Schedule data when available.'],
+        ['Online async/TBA rows excluded', 'Online rows without real scheduled meeting days and start/end times are excluded from Prime Time Analysis because they cannot be assigned to a time-of-day window. This is why Online-only mode may show only synchronous online CRNs.'],
         ['Student Presence', 'Enrollment present in overlapping physical time intervals; used by related schedule opportunity reports.'],
         ['LHE', 'Loaded LHE values from Faculty Schedule data.'],
         ['FTES', 'Loaded FTES values if available in the source data.']
@@ -4414,7 +4476,8 @@
   function clearPrimeTimeAnalysis() {
     ['ptTerm', 'ptCampus', 'ptDivision', 'ptDepartment', 'ptCourse'].forEach(id => {
       const node = document.getElementById(id);
-      if (node) node.value = '';
+      if (node?.multiple) Array.from(node.options || []).forEach(option => { option.selected = false; });
+      else if (node) node.value = '';
     });
     setModalitySelectValues('ptModality', PHYSICAL_MODALITY_LABELS);
     const start = document.getElementById('ptStart');
@@ -14264,6 +14327,9 @@
     document.getElementById('primeTimeCsv')?.addEventListener('change', () => loadPrimeTimeAnalysis().catch(err => console.warn(err)));
     ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd', 'ptHistoricalAggregation', 'ptModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderPrimeTimeAnalysis);
+    });
+    document.querySelectorAll('[data-prime-time-terms]').forEach(button => {
+      button.addEventListener('click', () => setPrimeTimeTermSelection(button.dataset.primeTimeTerms || 'all'));
     });
     ['ptDivision', 'ptDepartment', 'ptCourse'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {

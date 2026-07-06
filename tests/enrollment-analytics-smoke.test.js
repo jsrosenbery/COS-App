@@ -3059,6 +3059,9 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /id="ptDepartment"/);
   assert.match(text, /id="ptCourse"/);
   assert.match(text, /id="ptTerm"/);
+  assert.match(text, /id="ptTerm" multiple size="5"/);
+  assert.match(text, /data-prime-time-terms="all"/);
+  assert.match(text, /data-prime-time-terms="latest"/);
   assert.match(text, /id="ptHistoricalAggregation"/);
   assert.match(text, /Average per Selected Term/);
   assert.match(text, /Total Across Selected Terms/);
@@ -3070,7 +3073,11 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /id="exportPrimeTimeAnalysis"/);
   assert.match(text, /function primeTimeDefinition/);
   assert.match(text, /function rowOverlapsPrimeTime/);
+  assert.match(text, /function primeTimeSelectedTerms/);
+  assert.match(text, /function primeTimeScopeDiagnostics/);
   assert.match(text, /function primeTimeAnalysisRows/);
+  assert.match(text, /Online async\/TBA rows excluded/);
+  assert.match(text, /only online rows with real scheduled days and start\/end times/);
   assert.match(text, /Scheduled Class Offerings, Unique CRNs/);
   assert.match(text, /Instructional Meetings/);
   assert.match(text, /Full-Time Faculty Instructional Meetings/);
