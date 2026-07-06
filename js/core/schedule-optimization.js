@@ -152,8 +152,17 @@
 
   function roomKey(room) {
     const building = compact(room?.building || room?.Building || room?.BUILDING);
-    const roomNumber = compact(room?.room || room?.Room || room?.ROOM);
+    const roomNumber = cleanRoomNumber(building, room?.room || room?.Room || room?.ROOM);
     return compact(room?.buildingRoom || room?.roomKey || room?.['Room Key'] || room?.RoomKey || [building, roomNumber].filter(Boolean).join('-'));
+  }
+
+  function cleanRoomNumber(buildingValue, roomValue) {
+    const building = compact(buildingValue);
+    const room = compact(roomValue);
+    if (!building || !room) return room;
+    const buildingKey = canon(building);
+    const parts = room.split(/\s+/).filter(part => canon(part) !== buildingKey);
+    return compact(parts.join(' ')) || room;
   }
 
   function normalizeRoomCatalog(rooms = []) {
@@ -224,7 +233,7 @@
 
   function normalizeSection(section = {}) {
     const building = compact(section.building || section.Building || section.BUILDING);
-    const room = compact(section.room || section.Room || section.ROOM || section.roomOnly);
+    const room = cleanRoomNumber(building, section.room || section.Room || section.ROOM || section.roomOnly);
     const start = compact(section.start || section.startTime || section.Start_Time || section['Start Time']);
     const end = compact(section.end || section.endTime || section.End_Time || section['End Time']);
     return {
@@ -244,8 +253,8 @@
       end,
       startMinutes: minutesFromTime(start),
       endMinutes: minutesFromTime(end),
-      enrollment: num(section.census ?? section.censusEnrollment ?? section.CENSUS_ENROLL ?? section.actual ?? section.actualEnroll ?? section.ACTUAL_ENROLL),
-      sectionCap: num(section.cap ?? section.maxEnroll ?? section.MAX_ENROLL ?? section['Max Enrollment'] ?? section.Capacity),
+      enrollment: num(section.enrollment ?? section.census ?? section.censusEnrollment ?? section.CENSUS_ENROLL ?? section.actual ?? section.actualEnroll ?? section.ACTUAL_ENROLL),
+      sectionCap: num(section.sectionCap ?? section.cap ?? section.maxEnroll ?? section.MAX_ENROLL ?? section['Max Enrollment'] ?? section.Capacity),
       roomType: compact(section.roomType || section['Room Type'] || section.scheduleType || section.meetingType),
       division: normalizeDivisionName(section.division || section.Division),
       modality: compact(section.modality || section.Modality || section.instructionalMethod || section.INSM_CODE),

@@ -65,6 +65,25 @@ test('same-time room move recommends better available room without changing sour
   assert.equal(sections[0].room, '101');
 });
 
+test('room move current capacity matches catalog when section room repeats building code', () => {
+  const catalog = [
+    { Campus: 'TCC', Building: 'TCCB', Room: 'B120', Capacity: 20, 'Room Type': 'Classroom', 'Room Priority': 'Industry and Technology' },
+    { Campus: 'TCC', Building: 'TCCB', Room: 'B110', Capacity: 40, 'Room Type': 'Classroom', 'Room Priority': 'Industry and Technology' }
+  ];
+  const active = [
+    { term: 'FALL 2026', crn: '10248', subject: 'AGMT', course: '001', campus: 'TCC', building: 'TCCB', room: 'TCCB TCCB B120', days: 'MW', start: '09:00', end: '10:15', actual: 40, cap: 40, division: 'Industry and Technology', roomType: 'Classroom', modality: 'In-Person' }
+  ];
+
+  const normalized = optimizer.normalizeSection(active[0]);
+  const moves = optimizer.generateRoomMoveRecommendations(active, catalog, { priorityBehavior: 'prefer', historyRows: active });
+
+  assert.equal(normalized.room, 'B120');
+  assert.equal(normalized.roomKey, 'TCCB-B120');
+  assert.equal(moves[0]?.currentRoom, 'TCCB-B120');
+  assert.equal(moves[0]?.currentCapacity, 20);
+  assert.equal(moves[0]?.suggestedRoom, 'TCCB-B110');
+});
+
 test('time shift recommendations obey allowed tolerance', () => {
   const conflictSections = [
     { term: 'FALL 2026', crn: '1', subject: 'ART', course: '001', campus: 'COS', building: 'A', room: '101', days: 'MW', start: '09:00', end: '10:00', actual: 20, cap: 25, division: 'Fine Arts', roomType: 'Classroom', modality: 'In-Person' },
