@@ -1268,6 +1268,7 @@
           <div class="em-access-status">
             <span>Access Level</span>
             <strong id="currentAccessLevel">General</strong>
+            <small id="currentAccessExpiration">No active unlock session</small>
           </div>
           <button id="unlockEnrollmentManagement" type="button" class="em-unlock">Unlock Reports</button>
           <button id="lockEnrollmentReports" type="button" class="em-unlock">Lock Reports</button>
@@ -14023,6 +14024,13 @@
     return roleSession().role;
   }
 
+  function currentAccessExpirationLabel() {
+    const session = roleSession();
+    if (!session.token) return 'No active unlock session';
+    if (!session.expiresAt) return 'Session expiration unavailable';
+    return `Expires ${new Date(session.expiresAt).toLocaleString()}`;
+  }
+
   function canAccessRole(requiredRole) {
     return ROLE_LEVEL[currentAccessRole()] >= ROLE_LEVEL[normalizeRole(requiredRole)];
   }
@@ -14178,13 +14186,21 @@
     wrap.style.display = 'block';
     document.getElementById('emReportControls').hidden = false;
     document.getElementById('workExperienceUploadPanel').hidden = !selectedAccessible || selected !== REPORTS.workExperience;
-    document.getElementById('unlockEnrollmentManagement').hidden = currentAccessRole() === 'admin';
-    document.getElementById('lockEnrollmentReports').hidden = currentAccessRole() === 'general' && !enrollmentManagementToken();
+    const role = currentAccessRole();
+    document.getElementById('unlockEnrollmentManagement').hidden = role === 'admin';
+    document.getElementById('lockEnrollmentReports').hidden = role === 'general' && !enrollmentManagementToken();
     const access = document.getElementById('currentAccessLevel');
-    if (access) access.textContent = ROLE_LABEL[currentAccessRole()];
+    const accessStatus = document.querySelector('.em-access-status');
+    if (access) access.textContent = ROLE_LABEL[role];
+    if (accessStatus) {
+      accessStatus.dataset.accessRole = role;
+      accessStatus.classList.toggle('is-unlocked', role !== 'general' || Boolean(enrollmentManagementToken()));
+    }
+    const expiration = document.getElementById('currentAccessExpiration');
+    if (expiration) expiration.textContent = currentAccessExpirationLabel();
     const note = document.querySelector('.em-access-note');
     if (note) note.textContent = selectedAccessible
-      ? `${ROLE_LABEL[currentAccessRole()]} access is active for this browser session.`
+      ? `${ROLE_LABEL[role]} access is active for this browser session.`
       : `A locked report requires ${ROLE_LABEL[REPORT_ACCESS[selected] || 'general']} access.`;
     renderLockedReportPanel(selected);
     setReportDisplay(REPORTS.dashboard, 'dashboardReport');
@@ -14339,6 +14355,9 @@
       .em-access-panel{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e2eaf3}
       .em-access-status{display:flex;flex-direction:column;gap:2px;margin-right:4px;padding:7px 10px;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;color:#51657c;font-size:11px;text-transform:uppercase;font-weight:800}
       .em-access-status strong{color:#123367;font-size:14px;text-transform:none}
+      .em-access-status small{max-width:220px;color:#6b7d91;font-size:11px;font-weight:700;text-transform:none}
+      .em-access-status.is-unlocked{border-color:#9cc8b1;background:#f3fbf7}
+      .em-access-status[data-access-role="admin"]{border-color:#d5b25f;background:#fff9e8}
       .em-unlock{min-height:32px;border:1px solid #ccd6e2;border-radius:8px;padding:0 12px;background:#f8fbff;color:#51657c;font-size:13px;font-weight:800;cursor:pointer;box-shadow:none}
       .em-unlock:hover{color:#123367;border-color:#8ba6c2;background:#fff}
       .em-access-note{color:#6b7d91;font-size:12px}

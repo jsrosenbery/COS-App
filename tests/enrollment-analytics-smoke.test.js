@@ -2854,6 +2854,13 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /function canAccess\(reportName\)/);
   assert.match(text, /Access Level/);
   assert.match(text, /id="currentAccessLevel"/);
+  assert.match(text, /id="currentAccessExpiration"/);
+  assert.match(text, /function currentAccessExpirationLabel/);
+  assert.match(text, /No active unlock session/);
+  assert.match(text, /Expires \$\{new Date\(session\.expiresAt\)\.toLocaleString\(\)\}/);
+  assert.match(text, /accessStatus\.dataset\.accessRole = role/);
+  assert.match(text, /\.em-access-status\.is-unlocked/);
+  assert.match(text, /\.em-access-status\[data-access-role="admin"\]/);
   assert.match(text, /Lock Reports/);
   assert.match(text, /function lockedReportLabel/);
   assert.match(text, /Locked report ????????/);
