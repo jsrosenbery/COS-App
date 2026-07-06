@@ -243,8 +243,12 @@
     optimizationMoves: [],
     optimizationShifts: [],
     optimizationPlacements: [],
+    optimizationProposedEvaluation: [],
+    optimizationBetterTimes: [],
     optimizationAudit: [],
     optimizationContext: {},
+    optimizationRows: [],
+    optimizationArchiveLoad: { rows: [], results: [] },
     optimizationRan: false,
     conflictRows: [],
     conflictInput: [],
@@ -2217,7 +2221,21 @@
             </div>
           </div>
           <div class="analytics-toolbar">
+            <label>Schedule CSV(s) <input id="optimizationCsv" type="file" accept=".csv" multiple></label>
+            <button id="archiveOptimizationUploads" type="button">Archive Uploads</button>
+            <label>Archived schedule terms <select id="optimizationArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Active term <select id="optimizationTerm"></select></label>
+            <label>Historical comparison terms <select id="optimizationHistoryTerms" multiple data-placeholder="Optional historical terms"></select></label>
+            <label>Demand/history terms <select id="optimizationDemandTerms" multiple data-placeholder="Use like-term history"></select></label>
+            <label>Term preset
+              <select id="optimizationTermPreset">
+                <option value="">Manual term selection</option>
+                <option value="prior-like">Prior like terms</option>
+                <option value="prior-fall">Prior Fall Terms</option>
+                <option value="prior-spring">Prior Spring Terms</option>
+                <option value="prior-academic-year">Prior Academic Year</option>
+              </select>
+            </label>
             <label>Room priority behavior
               <select id="optimizationPriorityBehavior">
                 <option value="advisory">Advisory only</option>
@@ -2237,6 +2255,8 @@
             <button id="exportOptimizationMoves" type="button">Export Room Moves</button>
             <button id="exportOptimizationShifts" type="button">Export Time Shifts</button>
             <button id="exportOptimizationPlacements" type="button">Export Placements</button>
+            <button id="exportOptimizationProposed" type="button">Export Proposed Time Evaluation</button>
+            <button id="exportOptimizationBetterTimes" type="button">Export Better Times</button>
             <button id="exportOptimizationAudit" type="button">Export Priority Audit</button>
           </div>
           <div id="optimizationContext" class="analytics-legend"></div>
@@ -2248,7 +2268,10 @@
           <section id="optimizationAddClassPanel" class="demand-report-section">
             <h3>Add-a-Class Placement</h3>
             <div class="analytics-toolbar">
-              <label>Course <input id="optimizationAddCourse" type="text" placeholder="ENGL C1000"></label>
+              <label>Subject <select id="optimizationAddSubject"><option value="">All subjects</option></select></label>
+              <label>Course <select id="optimizationAddCourseSelect"><option value="">Select course from data</option></select></label>
+              <label>Existing section/CRN <select id="optimizationAddSectionProfile"><option value="">Optional profile</option></select></label>
+              <label>Manual course <input id="optimizationAddCourse" type="text" placeholder="ENGL C1000"></label>
               <label>Expected enrollment <input id="optimizationAddEnrollment" type="number" min="1" value="35"></label>
               <label>Campus <input id="optimizationAddCampus" type="text" placeholder="COS"></label>
               <label>Modality <input id="optimizationAddModality" type="text" value="In-Person"></label>
@@ -2258,8 +2281,18 @@
               <label>Duration minutes <input id="optimizationAddDuration" type="number" min="30" step="15" value="75"></label>
               <label>Division / priority <input id="optimizationAddDivision" type="text"></label>
               <label class="analytics-check"><input id="optimizationAddIncludeHistory" type="checkbox" checked> Include historical demand</label>
+              <label>Proposed day pattern <input id="optimizationProposedDays" type="text" value="MW"></label>
+              <label>Proposed start <input id="optimizationProposedStart" type="time" value="09:00" step="1800"></label>
+              <label>Proposed end <input id="optimizationProposedEnd" type="time" value="10:15" step="1800"></label>
+              <label>Proposed campus <input id="optimizationProposedCampus" type="text" placeholder="COS"></label>
+              <label>Proposed room type <input id="optimizationProposedRoomType" type="text" value="Classroom"></label>
+              <label>Expected enrollment/cap <input id="optimizationProposedEnrollment" type="number" min="1" value="35"></label>
+              <label>Faculty note <input id="optimizationFacultyNote" type="text" placeholder="Optional preferred-time note"></label>
               <button id="runOptimizationPlacement" type="button">Rank Placement Options</button>
             </div>
+            <div id="optimizationCourseProfileStatus" class="analytics-legend"></div>
+            <div id="optimizationProposedEvaluation" class="analytics-table"></div>
+            <div id="optimizationBetterTimes" class="analytics-table"></div>
             <div id="optimizationPlacementTable" class="analytics-table"></div>
           </section>
           <div id="optimizationPriorityAudit" class="analytics-table"></div>
@@ -6408,20 +6441,97 @@
     return optimizationEngine().normalizeRoomCatalog(rooms);
   }
 
+  function optimizationAllRows() {
+    return (state.optimizationRows?.length ? state.optimizationRows : state.enrollment || []).map(normalize);
+  }
+
+  async function loadOptimizationRows() {
+    const uploadedRows = await readCsv(document.getElementById('optimizationCsv'), { sourceType: 'SCHEDULE_OPTIMIZATION_UPLOAD' });
+    const archiveLoad = await readArchivedRowsWithDiagnostics('optimizationArchiveTerms', { reportLabel: 'Schedule Optimization Lab' });
+    const rows = [...uploadedRows, ...archiveLoad.rows].map(normalize);
+    state.optimizationArchiveLoad = archiveLoad;
+    state.optimizationRows = dedupeEnrollmentRows(rows);
+    if (!state.optimizationRows.length && state.enrollment?.length) {
+      state.optimizationRows = dedupeEnrollmentRows(state.enrollment.map(normalize));
+    }
+    updateOptimizationTermOptions();
+    updateOptimizationCourseControls();
+    return state.optimizationRows;
+  }
+
+  function optimizationSelectedTerms(id) {
+    return getSelectedValues(id).map(normalizeTermLabel).filter(Boolean);
+  }
+
+  function optimizationLikeHistoricalTerms(activeTerm, terms) {
+    const active = termParts(activeTerm);
+    return terms.filter(term => {
+      const parts = termParts(term);
+      return parts.year && parts.year < active.year && (!active.season || parts.season === active.season);
+    }).sort((a, b) => termSortValue(b) - termSortValue(a)).slice(0, 5);
+  }
+
+  function applyOptimizationTermPreset() {
+    const preset = document.getElementById('optimizationTermPreset')?.value || '';
+    if (!preset) return;
+    const active = document.getElementById('optimizationTerm')?.value || '';
+    const terms = [...new Set(optimizationAllRows().map(row => normalizeTermLabel(row.term)).filter(Boolean))]
+      .sort((a, b) => termSortValue(a) - termSortValue(b));
+    const activeParts = termParts(active);
+    let selected = [];
+    if (preset === 'prior-like') selected = optimizationLikeHistoricalTerms(active, terms);
+    if (preset === 'prior-fall') selected = terms.filter(term => termParts(term).season === 'FALL' && term !== active);
+    if (preset === 'prior-spring') selected = terms.filter(term => termParts(term).season === 'SPRING' && term !== active);
+    if (preset === 'prior-academic-year') {
+      const trailingYear = activeParts.season === 'FALL' ? activeParts.year : activeParts.year - 1;
+      selected = terms.filter(term => {
+        const parts = termParts(term);
+        return parts.year && (parts.year === trailingYear || parts.year === trailingYear - 1) && term !== active;
+      });
+    }
+    ['optimizationHistoryTerms', 'optimizationDemandTerms'].forEach(id => {
+      const select = document.getElementById(id);
+      if (!select) return;
+      const wanted = new Set(selected);
+      Array.from(select.options).forEach(option => { option.selected = wanted.has(option.value); });
+    });
+  }
+
   function updateOptimizationTermOptions() {
     const select = document.getElementById('optimizationTerm');
     if (!select) return;
     const selected = select.value;
-    const terms = [...new Set((state.enrollment || []).map(row => normalizeTermLabel(row.term)).filter(Boolean))]
+    const terms = [...new Set(optimizationAllRows().map(row => normalizeTermLabel(row.term)).filter(Boolean))]
       .sort((a, b) => termSortValue(a) - termSortValue(b));
     resetSelect(select, terms, terms.length ? 'Latest loaded term' : 'No loaded terms', '');
     select.value = selected && terms.includes(selected) ? selected : (terms[terms.length - 1] || '');
+    ['optimizationHistoryTerms', 'optimizationDemandTerms'].forEach(id => {
+      const multi = document.getElementById(id);
+      if (!multi) return;
+      const prior = Array.from(multi.selectedOptions || []).map(option => option.value);
+      resetSelect(multi, terms.filter(term => term !== select.value), 'All', 'All');
+      const wanted = new Set(prior.filter(term => terms.includes(term) && term !== select.value));
+      if (!wanted.size && id === 'optimizationDemandTerms') {
+        optimizationLikeHistoricalTerms(select.value, terms).forEach(term => wanted.add(term));
+      }
+      Array.from(multi.options).forEach(option => { option.selected = wanted.has(option.value); });
+    });
+    applyOptimizationTermPreset();
   }
 
   function optimizationActiveRows() {
     const term = document.getElementById('optimizationTerm')?.value || '';
-    const rows = (state.enrollment || []).map(normalize);
+    const rows = optimizationAllRows();
     return term ? rows.filter(row => normalizeTermLabel(row.term) === term) : rows;
+  }
+
+  function optimizationHistoryRows(activeTerm) {
+    const rows = optimizationAllRows();
+    const selectedHistory = optimizationSelectedTerms('optimizationHistoryTerms');
+    const selectedDemand = optimizationSelectedTerms('optimizationDemandTerms');
+    const selected = [...new Set([...selectedHistory, ...selectedDemand])].filter(Boolean);
+    if (selected.length) return rows.filter(row => selected.includes(normalizeTermLabel(row.term)));
+    return rows.filter(row => normalizeTermLabel(row.term) !== activeTerm);
   }
 
   function optimizationExcludedRows(rows) {
@@ -6439,18 +6549,85 @@
   }
 
   function optimizationAddClassInput() {
+    const selectedCourse = document.getElementById('optimizationAddCourseSelect')?.value || '';
+    const manualCourse = document.getElementById('optimizationAddCourse')?.value || '';
+    const proposedStart = document.getElementById('optimizationProposedStart')?.value || document.getElementById('optimizationAddStart')?.value || '09:00';
+    const proposedEnd = document.getElementById('optimizationProposedEnd')?.value || '';
     return {
-      course: document.getElementById('optimizationAddCourse')?.value || '',
-      expectedEnrollment: document.getElementById('optimizationAddEnrollment')?.value || '',
-      campus: document.getElementById('optimizationAddCampus')?.value || '',
+      subject: document.getElementById('optimizationAddSubject')?.value || '',
+      course: manualCourse || selectedCourse,
+      selectedCourse,
+      sectionProfileKey: document.getElementById('optimizationAddSectionProfile')?.value || '',
+      expectedEnrollment: document.getElementById('optimizationAddEnrollment')?.value || document.getElementById('optimizationProposedEnrollment')?.value || '',
+      campus: document.getElementById('optimizationAddCampus')?.value || document.getElementById('optimizationProposedCampus')?.value || '',
       modality: document.getElementById('optimizationAddModality')?.value || 'In-Person',
-      roomType: document.getElementById('optimizationAddRoomType')?.value || '',
+      roomType: document.getElementById('optimizationAddRoomType')?.value || document.getElementById('optimizationProposedRoomType')?.value || '',
       preferredDayPattern: document.getElementById('optimizationAddDays')?.value || 'MW',
       preferredStart: document.getElementById('optimizationAddStart')?.value || '09:00',
       durationMinutes: document.getElementById('optimizationAddDuration')?.value || 75,
       division: document.getElementById('optimizationAddDivision')?.value || '',
-      includeHistory: document.getElementById('optimizationAddIncludeHistory')?.checked !== false
+      includeHistory: document.getElementById('optimizationAddIncludeHistory')?.checked !== false,
+      proposedDayPattern: document.getElementById('optimizationProposedDays')?.value || document.getElementById('optimizationAddDays')?.value || 'MW',
+      proposedStart,
+      proposedEnd,
+      proposedCampus: document.getElementById('optimizationProposedCampus')?.value || document.getElementById('optimizationAddCampus')?.value || '',
+      proposedRoomType: document.getElementById('optimizationProposedRoomType')?.value || document.getElementById('optimizationAddRoomType')?.value || '',
+      cap: document.getElementById('optimizationProposedEnrollment')?.value || document.getElementById('optimizationAddEnrollment')?.value || '',
+      facultyNote: document.getElementById('optimizationFacultyNote')?.value || ''
     };
+  }
+
+  function updateOptimizationCourseControls() {
+    const engine = optimizationEngine();
+    const profiles = engine.courseProfiles(optimizationAllRows());
+    state.optimizationCourseProfiles = profiles;
+    const subjectSelect = document.getElementById('optimizationAddSubject');
+    const courseSelect = document.getElementById('optimizationAddCourseSelect');
+    const sectionSelect = document.getElementById('optimizationAddSectionProfile');
+    if (!subjectSelect || !courseSelect || !sectionSelect) return;
+    const priorSubject = subjectSelect.value;
+    const priorCourse = courseSelect.value;
+    const priorSection = sectionSelect.value;
+    const subjects = [...new Set(profiles.map(profile => profile.subject).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    resetSelect(subjectSelect, subjects, 'All subjects', '');
+    subjectSelect.value = subjects.includes(priorSubject) ? priorSubject : '';
+    const visibleProfiles = subjectSelect.value ? profiles.filter(profile => profile.subject === subjectSelect.value) : profiles;
+    resetSelect(courseSelect, visibleProfiles.map(profile => ({ value: profile.courseCode, label: profile.courseCode })), 'Select course from data', '');
+    courseSelect.value = visibleProfiles.some(profile => profile.courseCode === priorCourse) ? priorCourse : '';
+    const selectedProfile = profiles.find(profile => profile.courseCode === courseSelect.value);
+    const sections = selectedProfile?.sections || [];
+    resetSelect(sectionSelect, sections.map((section, index) => ({
+      value: `${selectedProfile.courseCode}::${index}`,
+      label: [section.term, section.crn ? `CRN ${section.crn}` : '', section.section, section.dayTime].filter(Boolean).join(' - ')
+    })), 'Optional profile', '');
+    sectionSelect.value = sections.some((_, index) => `${selectedProfile?.courseCode}::${index}` === priorSection) ? priorSection : '';
+    document.getElementById('optimizationCourseProfileStatus').innerHTML = profiles.length
+      ? `<strong>Course/section profile source</strong><p>${escapeAttr(profiles.length)} course profile(s) available from loaded active and historical schedule rows. Selecting a course or CRN can prefill Add-a-Class assumptions; manual entry remains available for new courses.</p>`
+      : '<p class="analytics-empty">Load schedule rows or archived terms to populate course and section dropdowns. Manual entry is still available.</p>';
+  }
+
+  function prefillOptimizationAddClassFromProfile() {
+    const profiles = state.optimizationCourseProfiles || optimizationEngine().courseProfiles(optimizationAllRows());
+    const selectedCourse = document.getElementById('optimizationAddCourseSelect')?.value || '';
+    const selectedSectionKey = document.getElementById('optimizationAddSectionProfile')?.value || '';
+    const profile = profiles.find(item => item.courseCode === selectedCourse);
+    if (!profile) return;
+    const sectionIndex = Number((selectedSectionKey.split('::')[1] || ''));
+    const section = Number.isFinite(sectionIndex) ? profile.sections[sectionIndex] : null;
+    const set = (id, value) => {
+      const node = document.getElementById(id);
+      if (node && value !== undefined && value !== null && value !== '') node.value = value;
+    };
+    set('optimizationAddCourse', profile.courseCode);
+    set('optimizationAddEnrollment', section?.enrollment || profile.typicalEnrollment);
+    set('optimizationProposedEnrollment', section?.cap || profile.historicalCap || profile.typicalEnrollment);
+    set('optimizationAddCampus', section?.campus || profile.campus);
+    set('optimizationProposedCampus', section?.campus || profile.campus);
+    set('optimizationAddModality', section?.modality || profile.modality);
+    set('optimizationAddRoomType', section?.roomType || profile.typicalRoomType);
+    set('optimizationProposedRoomType', section?.roomType || profile.typicalRoomType);
+    set('optimizationAddDivision', section?.division || profile.division);
   }
 
   function scoreComponentsText(components = {}) {
@@ -6469,63 +6646,111 @@
       title: 'Schedule Optimization Lab Methodology & Data Dictionary',
       purpose: 'Recommends possible room moves, small time shifts, and add-a-class placements for executive planning review.',
       methodology: 'Room fit compares assigned room capacity, section cap, current enrollment, historical average/peak enrollment, historical cap, room type, campus, and room priority. Historical cap risk is flagged when the room fits current enrollment but is smaller than historical or normal cap expectations. Room priority affects scoring according to the selected behavior: Advisory only, Prefer priority match, or Strict priority match. Time shifts are constrained to the selected tolerance and preserve day pattern and duration. Add-a-class placement ranks available rooms and day/time options using the same transparent score components.',
-      assumptions: 'Recommendations are advisory and do not automatically change schedules, archives, Room Availability, Room Catalog, or uploaded data. Room Catalog is treated as the primary room inventory source.',
-      limitations: 'The lab does not model instructor contracts, student conflicts across courses, travel time, program sequencing, room setup time, equipment needs beyond room type/features, or leadership decisions. Strict priority mode blocks mismatched priority recommendations; other modes surface priority warnings for review.',
+      assumptions: 'One active optimization term is analyzed for possible changes. Historical comparison and demand terms are read-only evidence sources for demand, fill-rate, caps, and prior room usage. Recommendations are advisory and do not automatically change schedules, archives, Room Availability, Room Catalog, or uploaded data. Room Catalog is treated as the primary room inventory source.',
+      limitations: 'The lab does not model instructor contracts, student conflicts across courses, travel time, program sequencing, room setup time, equipment needs beyond room type/features, or leadership decisions. Strict priority mode blocks mismatched priority recommendations; other modes surface priority warnings for review. When historical data is limited, confidence is lowered and recommendations state that limitation.',
       items: [
+        ['Active Term', 'The current or planned term being optimized. Room moves, time shifts, and add-a-class availability are evaluated against this term only.'],
+        ['Historical / Demand Terms', 'Optional selected archived or uploaded terms used to support demand, fill-rate, cap, and like-term evidence. Like-term history defaults toward Fall-to-Fall or Spring-to-Spring when available.'],
         ['Capacity Fit', 'Rewards rooms close to expected enrollment, section cap, and historical cap/peak demand.'],
         ['Historical Cap Risk', 'Flags sections placed in rooms smaller than historical cap, historical peak enrollment, or normal section cap.'],
         ['Room Priority', 'Raw room priority is preserved and normalized into primary and secondary priority areas.'],
         ['Time Shift', 'Only considers shifts within the selected tolerance and excludes asynchronous Online/TBA rows.'],
-        ['Add-a-Class Placement', 'Ranks available rooms for a hypothetical new section based on capacity, room type, priority, and conflicts.'],
+        ['Add-a-Class Placement', 'Ranks available rooms for a hypothetical new section based on capacity, room type, priority, conflicts, and historical demand evidence. Course and CRN profiles can prefill assumptions; manual entry remains available for brand-new courses.'],
+        ['Proposed Faculty Time Evaluation', 'Scores a faculty-preferred day/time against room availability, expected fill/demand support, student presence alignment, prime-time pressure, competing similar sections, room fit, historical performance, saturated patterns, and schedule gaps.'],
+        ['Better-Time Recommendation', 'Compares candidate alternatives against the proposed faculty time and explains why an option is better only when data supports a higher score.'],
         ['What this tool does not do', 'It does not automatically edit schedules or replace manual review by deans, schedulers, faculty, or facilities.']
       ],
       version: 'Methodology v1.0'
     });
   }
 
-  function renderScheduleOptimizationLab() {
+  async function renderScheduleOptimizationLab() {
     const engine = optimizationEngine();
+    await loadOptimizationRows();
     updateOptimizationTermOptions();
+    updateOptimizationCourseControls();
     const rooms = optimizationRoomCatalog();
     const activeRows = optimizationActiveRows();
-    const allRows = (state.enrollment || []).map(normalize);
+    const allRows = optimizationAllRows();
+    const activeTerm = document.getElementById('optimizationTerm')?.value || '';
+    const historyRows = optimizationHistoryRows(activeTerm);
     const priorityBehavior = document.getElementById('optimizationPriorityBehavior')?.value || 'prefer';
     const allowedShiftMinutes = Number(document.getElementById('optimizationAllowedShift')?.value || 0);
     const exclusions = optimizationExcludedRows(activeRows);
-    const options = { priorityBehavior, allowedShiftMinutes, includeHistory: true, historyRows: allRows };
+    const options = { priorityBehavior, allowedShiftMinutes, includeHistory: true, historyRows };
     const moves = engine.generateRoomMoveRecommendations(activeRows, rooms, options);
     const shifts = engine.generateTimeShiftRecommendations(activeRows, rooms, options);
-    const placements = engine.addClassPlacement(optimizationAddClassInput(), allRows, rooms, {
+    const addInput = optimizationAddClassInput();
+    const placements = engine.addClassPlacement(addInput, activeRows, rooms, {
       priorityBehavior,
-      includeHistory: document.getElementById('optimizationAddIncludeHistory')?.checked !== false
+      includeHistory: document.getElementById('optimizationAddIncludeHistory')?.checked !== false,
+      historyRows
     });
+    const proposed = engine.evaluateProposedTime(addInput, activeRows, rooms, { priorityBehavior, historyRows });
+    const betterTimes = engine.recommendBetterTimes(addInput, activeRows, rooms, { priorityBehavior, historyRows });
     const audit = engine.roomPriorityAudit(rooms);
     state.optimizationMoves = flattenOptimizationRows(moves);
     state.optimizationShifts = flattenOptimizationRows(shifts);
     state.optimizationPlacements = flattenOptimizationRows(placements);
+    state.optimizationProposedEvaluation = [{
+      course: proposed.course,
+      proposedDayTime: proposed.proposedDayTime,
+      proposedTimeScore: proposed.proposedTimeScore,
+      availableRoomCount: proposed.availableRoomCount,
+      bestRoomFit: proposed.bestRoomFit,
+      expectedFillDemandSupport: proposed.expectedFillDemandSupport,
+      historicalFillRate: proposed.historicalFillRate,
+      competingSections: proposed.competingSections,
+      primeTimePressure: proposed.primeTimePressure,
+      roomFitQuality: proposed.roomFitQuality,
+      historicalPerformance: proposed.historicalPerformance,
+      saturatedPattern: proposed.saturatedPattern,
+      scheduleGapFit: proposed.scheduleGapFit
+    }];
+    state.optimizationBetterTimes = betterTimes.map(row => ({
+      ...row,
+      historicalFillRateAtProposedTime: row.historicalFillRateAtProposedTime,
+      historicalFillRateAtRecommendedTime: row.historicalFillRateAtRecommendedTime
+    }));
     state.optimizationAudit = audit;
+    const loadedTerms = collectRowTerms(allRows);
+    const historyTerms = collectRowTerms(historyRows);
+    const selectedArchivedTerms = state.optimizationArchiveLoad?.selectedTerms || optimizationSelectedTerms('optimizationArchiveTerms');
+    const failedArchives = (state.optimizationArchiveLoad?.results || []).filter(result => result.failed);
     state.optimizationContext = {
-      activeTerm: document.getElementById('optimizationTerm')?.value || 'All loaded terms',
-      historyTerms: [...new Set(allRows.map(row => normalizeTermLabel(row.term)).filter(term => term && term !== document.getElementById('optimizationTerm')?.value))].join(', '),
+      activeOptimizationTerm: activeTerm || 'No active term selected',
+      historicalComparisonTerms: optimizationSelectedTerms('optimizationHistoryTerms').join(', ') || 'None selected',
+      demandTermsUsed: historyTerms.join(', ') || 'None selected',
+      loadedScheduleTerms: loadedTerms.join(', ') || 'None loaded',
+      selectedArchivedTerms: selectedArchivedTerms.join(', ') || 'None selected',
+      failedArchiveLoads: failedArchives.map(result => `${result.term}: ${result.error}`).join('; ') || 'None',
       roomCatalogStatus: rooms.length ? `${rooms.length} rooms available` : 'No room catalog loaded',
-      scheduledSectionsAnalyzed: exclusions.usable,
+      activeTermSectionsAnalyzed: exclusions.usable,
+      historicalSectionsUsed: historyRows.length,
       sectionsExcluded: exclusions.excluded,
       exclusionReasons: exclusions.reasons.map(([reason, count]) => `${reason}: ${count}`).join('; ') || 'None',
-      activeFilters: 'Uses loaded schedule rows for selected active term.',
+      activeFilters: 'Uses loaded schedule rows for selected active optimization term; historical rows support demand/fill evidence only.',
       priorityBehavior,
       allowedShiftMinutes
     };
     renderReportContext(REPORTS.scheduleOptimizationLab, {
-      selectedTerm: state.optimizationContext.activeTerm,
+      focusTerm: state.optimizationContext.activeOptimizationTerm,
+      historicalTerms: historyTerms,
+      archivedTerms: selectedArchivedTerms,
+      rowsLoaded: allRows.length,
       rowsIncluded: exclusions.usable,
+      rowsExcluded: exclusions.excluded,
       exclusions: state.optimizationContext.exclusionReasons,
-      filters: [
+      activeFilters: [
         { label: 'Room priority behavior', value: priorityBehavior },
-        { label: 'Allowed time shift', value: `${allowedShiftMinutes} minutes` }
+        { label: 'Allowed time shift', value: `${allowedShiftMinutes} minutes` },
+        { label: 'Historical comparison terms', value: state.optimizationContext.historicalComparisonTerms },
+        { label: 'Demand terms', value: state.optimizationContext.demandTermsUsed }
       ],
       notes: [
         { label: 'Room catalog', value: state.optimizationContext.roomCatalogStatus },
-        { label: 'History terms', value: state.optimizationContext.historyTerms || 'None' }
+        { label: 'History rows', value: `${historyRows.length} historical section row(s) used as evidence` },
+        { label: 'Assumption', value: 'No source schedule data is changed automatically.' }
       ]
     });
     document.getElementById('optimizationContext').innerHTML = `
@@ -6547,6 +6772,8 @@
     document.getElementById('optimizationInventoryStatus').innerHTML = `<strong>Room Inventory Status</strong><p>${escapeAttr(rooms.length ? `${rooms.length} normalized Room Catalog rows loaded as primary inventory source.` : 'No Room Catalog rows are available. Import Room Catalog before relying on recommendations.')}</p>`;
     table('optimizationMoveTable', state.optimizationMoves, ['crn', 'course', 'section', 'currentRoom', 'suggestedRoom', 'currentCapacity', 'suggestedCapacity', 'currentEnrollment', 'sectionCap', 'historicalAverageEnrollment', 'historicalPeakEnrollment', 'roomTypeComparison', 'roomPriorityComparison', 'reason', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
     table('optimizationShiftTable', state.optimizationShifts, ['crn', 'course', 'currentDayTime', 'suggestedDayTime', 'currentRoom', 'suggestedRoom', 'timeShiftAmount', 'improvementReason', 'conflictsAvoided', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
+    table('optimizationProposedEvaluation', state.optimizationProposedEvaluation, ['course', 'proposedDayTime', 'proposedTimeScore', 'availableRoomCount', 'bestRoomFit', 'expectedFillDemandSupport', 'historicalFillRate', 'competingSections', 'primeTimePressure', 'roomFitQuality', 'historicalPerformance', 'saturatedPattern', 'scheduleGapFit']);
+    table('optimizationBetterTimes', state.optimizationBetterTimes, ['suggestedDayTime', 'suggestedRoom', 'proposedTimeScore', 'recommendedTimeScore', 'historicalFillRateAtProposedTime', 'historicalFillRateAtRecommendedTime', 'competingSectionsNearProposedTime', 'competingSectionsNearRecommendedTime', 'availableRoomCount', 'bestRoomFit', 'demandGapIndicator', 'primeTimeImpact', 'studentPresenceAlignment', 'confidence', 'whyThisIsBetter']);
     table('optimizationPlacementTable', state.optimizationPlacements, ['course', 'bestRoom', 'bestDayTime', 'capacity', 'expectedEnrollment', 'expectedFillRate', 'historicalDemandSupport', 'roomFit', 'priorityAlignment', 'utilizationImpact', 'primeTimePressure', 'score', 'scoreComponents', 'why']);
     table('optimizationPriorityAudit', state.optimizationAudit, ['campus', 'building', 'room', 'roomKey', 'capacity', 'roomType', 'rawRoomPriority', 'primaryPriorityArea', 'secondaryPriorityArea', 'priorityNotes', 'matchConfidence', 'matchMethod', 'matchNote']);
     renderOptimizationMethodology();
@@ -6554,12 +6781,12 @@
     state.optimizationRan = true;
   }
 
-  function runScheduleOptimizationLab() {
-    renderScheduleOptimizationLab();
+  async function runScheduleOptimizationLab() {
+    await renderScheduleOptimizationLab();
   }
 
-  function runOptimizationPlacement() {
-    renderScheduleOptimizationLab();
+  async function runOptimizationPlacement() {
+    await renderScheduleOptimizationLab();
   }
 
   function exportOptimizationRows(kind) {
@@ -6567,6 +6794,8 @@
       moves: [state.optimizationMoves, 'schedule-optimization-room-moves.csv'],
       shifts: [state.optimizationShifts, 'schedule-optimization-time-shifts.csv'],
       placements: [state.optimizationPlacements, 'schedule-optimization-add-class-placement.csv'],
+      proposed: [state.optimizationProposedEvaluation, 'schedule-optimization-proposed-time-evaluation.csv'],
+      betterTimes: [state.optimizationBetterTimes, 'schedule-optimization-better-time-recommendations.csv'],
       audit: [state.optimizationAudit, 'schedule-optimization-room-priority-audit.csv']
     };
     const [rows, filename] = map[kind] || [[], 'schedule-optimization.csv'];
@@ -13192,10 +13421,14 @@
     }
     if (selected === REPORTS.scheduleOptimizationLab && !state.optimizationRan) {
       updateOptimizationTermOptions();
+      updateOptimizationCourseControls();
       renderOptimizationMethodology();
       document.getElementById('optimizationMoveTable').innerHTML = '<p class="analytics-empty">Load schedule data and click Run Optimization Lab.</p>';
       document.getElementById('optimizationShiftTable').innerHTML = '<p class="analytics-empty">Select an allowed time shift and click Run Optimization Lab.</p>';
+      document.getElementById('optimizationProposedEvaluation').innerHTML = '<p class="analytics-empty">Enter a proposed faculty time and click Rank Placement Options.</p>';
+      document.getElementById('optimizationBetterTimes').innerHTML = '<p class="analytics-empty">Better-time recommendations appear when data supports a higher-scoring alternative.</p>';
       document.getElementById('optimizationPlacementTable').innerHTML = '<p class="analytics-empty">Enter add-a-class details and click Rank Placement Options.</p>';
+      document.getElementById('optimizationPriorityAudit').innerHTML = '<p class="analytics-empty">Room priority audit appears after running the lab.</p>';
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -13770,20 +14003,39 @@
     document.getElementById('exportRecommendationCsv')?.addEventListener('click', () => exportRowsWithoutMethodology(state.recommendationOutputRows, 'scheduling-recommendations.csv'));
     document.getElementById('exportRecommendationPdf')?.addEventListener('click', () => exportRecommendationPdf().catch(err => alert(err.message || 'PDF export failed.')));
     document.getElementById('runScheduleOptimizationLab')?.addEventListener('click', () => {
-      try { runScheduleOptimizationLab(); } catch (err) { alert(err.message || 'Schedule Optimization Lab failed.'); }
+      runScheduleOptimizationLab().catch(err => alert(err.message || 'Schedule Optimization Lab failed.'));
     });
     document.getElementById('runOptimizationPlacement')?.addEventListener('click', () => {
-      try { runOptimizationPlacement(); } catch (err) { alert(err.message || 'Add-a-class placement failed.'); }
+      runOptimizationPlacement().catch(err => alert(err.message || 'Add-a-class placement failed.'));
     });
-    ['optimizationTerm', 'optimizationPriorityBehavior', 'optimizationAllowedShift'].forEach(id => {
-      document.getElementById(id)?.addEventListener('change', () => { if (state.optimizationRan) renderScheduleOptimizationLab(); });
+    document.getElementById('optimizationCsv')?.addEventListener('change', () => loadOptimizationRows().catch(err => console.warn(err)));
+    document.getElementById('optimizationArchiveTerms')?.addEventListener('change', () => loadOptimizationRows().catch(err => console.warn(err)));
+    document.getElementById('archiveOptimizationUploads')?.addEventListener('click', () => archiveUploads('optimizationCsv').catch(err => alert(err.message || 'Archive failed.')));
+    ['optimizationTerm', 'optimizationHistoryTerms', 'optimizationDemandTerms', 'optimizationTermPreset', 'optimizationPriorityBehavior', 'optimizationAllowedShift'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        if (id === 'optimizationTerm' || id === 'optimizationTermPreset') updateOptimizationTermOptions();
+        if (state.optimizationRan) renderScheduleOptimizationLab().catch(err => console.warn(err));
+      });
     });
-    ['optimizationAddCourse', 'optimizationAddEnrollment', 'optimizationAddCampus', 'optimizationAddModality', 'optimizationAddRoomType', 'optimizationAddDays', 'optimizationAddStart', 'optimizationAddDuration', 'optimizationAddDivision', 'optimizationAddIncludeHistory'].forEach(id => {
-      document.getElementById(id)?.addEventListener('change', () => { if (state.optimizationRan) renderScheduleOptimizationLab(); });
+    ['optimizationAddSubject', 'optimizationAddCourseSelect'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        updateOptimizationCourseControls();
+        prefillOptimizationAddClassFromProfile();
+        if (state.optimizationRan) renderScheduleOptimizationLab().catch(err => console.warn(err));
+      });
+    });
+    document.getElementById('optimizationAddSectionProfile')?.addEventListener('change', () => {
+      prefillOptimizationAddClassFromProfile();
+      if (state.optimizationRan) renderScheduleOptimizationLab().catch(err => console.warn(err));
+    });
+    ['optimizationAddCourse', 'optimizationAddEnrollment', 'optimizationAddCampus', 'optimizationAddModality', 'optimizationAddRoomType', 'optimizationAddDays', 'optimizationAddStart', 'optimizationAddDuration', 'optimizationAddDivision', 'optimizationAddIncludeHistory', 'optimizationProposedDays', 'optimizationProposedStart', 'optimizationProposedEnd', 'optimizationProposedCampus', 'optimizationProposedRoomType', 'optimizationProposedEnrollment', 'optimizationFacultyNote'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => { if (state.optimizationRan) renderScheduleOptimizationLab().catch(err => console.warn(err)); });
     });
     document.getElementById('exportOptimizationMoves')?.addEventListener('click', () => exportOptimizationRows('moves'));
     document.getElementById('exportOptimizationShifts')?.addEventListener('click', () => exportOptimizationRows('shifts'));
     document.getElementById('exportOptimizationPlacements')?.addEventListener('click', () => exportOptimizationRows('placements'));
+    document.getElementById('exportOptimizationProposed')?.addEventListener('click', () => exportOptimizationRows('proposed'));
+    document.getElementById('exportOptimizationBetterTimes')?.addEventListener('click', () => exportOptimizationRows('betterTimes'));
     document.getElementById('exportOptimizationAudit')?.addEventListener('click', () => exportOptimizationRows('audit'));
     document.getElementById('saveFacultyScheduleArchive')?.addEventListener('click', () => saveFacultyScheduleArchive().catch(err => alert(err.message || 'Faculty Schedule save failed.')));
     document.getElementById('loadSavedFacultyScheduleHeatmap')?.addEventListener('click', () => loadSavedFacultyScheduleHeatmap().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));

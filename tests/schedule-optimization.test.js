@@ -95,3 +95,63 @@ test('strict priority blocks mismatches while advisory allows warning rows', () 
   assert.equal(strict.some(row => /Violates/.test(row.roomPriorityComparison)), false);
   assert.equal(advisory.some(row => /Violates|priority/.test(row.roomPriorityComparison)), true);
 });
+
+test('course profiles support add-a-class dropdown prefill from history', () => {
+  const profiles = optimizer.courseProfiles(sections);
+  const engl = profiles.find(profile => profile.courseCode === 'ENGL C1000');
+
+  assert.ok(engl);
+  assert.equal(engl.subject, 'ENGL');
+  assert.equal(engl.division, 'Language & Communication');
+  assert.equal(engl.historicalCap >= 40, true);
+  assert.equal(engl.typicalEnrollment >= 28, true);
+  assert.ok(engl.commonDayTimePatterns.some(pattern => /Monday\/Wednesday/.test(pattern.label)));
+  assert.ok(engl.sections.some(section => section.crn === '12345'));
+});
+
+test('proposed faculty time evaluation reports data-backed comparison fields', () => {
+  const activeRows = [
+    ...sections.filter(row => row.term === 'FALL 2026'),
+    { term: 'FALL 2026', crn: '77777', subject: 'ENGL', course: 'C1000', section: '002', campus: 'COS', building: 'B', room: '110', days: 'MW', start: '09:00', end: '10:15', actual: 30, cap: 35, division: 'Language & Communication', roomType: 'Classroom', modality: 'In-Person' }
+  ];
+  const evaluation = optimizer.evaluateProposedTime({
+    course: 'ENGL C1000',
+    expectedEnrollment: 35,
+    campus: 'COS',
+    roomType: 'Classroom',
+    division: 'Language & Communication',
+    proposedDayPattern: 'MW',
+    proposedStart: '09:00',
+    proposedEnd: '10:15'
+  }, activeRows, rooms, { historyRows: sections });
+
+  assert.equal(evaluation.course, 'ENGL C1000');
+  assert.match(evaluation.proposedDayTime, /Monday\/Wednesday 9:00 AM-10:15 AM/);
+  assert.equal(typeof evaluation.proposedTimeScore, 'number');
+  assert.equal(evaluation.competingSections >= 1, true);
+  assert.match(evaluation.historicalPerformance, /historical term/);
+  assert.ok(Array.isArray(evaluation.roomOptions));
+});
+
+test('better-time recommendations compare proposed and recommended evidence', () => {
+  const activeRows = [
+    ...sections.filter(row => row.term === 'FALL 2026'),
+    { term: 'FALL 2026', crn: '77777', subject: 'ENGL', course: 'C1000', section: '002', campus: 'COS', building: 'B', room: '110', days: 'MW', start: '09:00', end: '10:15', actual: 30, cap: 35, division: 'Language & Communication', roomType: 'Classroom', modality: 'In-Person' }
+  ];
+  const recs = optimizer.recommendBetterTimes({
+    course: 'ENGL C1000',
+    expectedEnrollment: 35,
+    campus: 'COS',
+    roomType: 'Classroom',
+    division: 'Language & Communication',
+    proposedDayPattern: 'MW',
+    proposedStart: '09:00',
+    proposedEnd: '10:15'
+  }, activeRows, rooms, { historyRows: sections });
+
+  assert.ok(recs.length);
+  assert.ok(recs[0].recommendedTimeScore > recs[0].proposedTimeScore);
+  assert.match(recs[0].whyThisIsBetter, /Compared with/);
+  assert.equal(typeof recs[0].competingSectionsNearProposedTime, 'number');
+  assert.equal(typeof recs[0].availableRoomCount, 'number');
+});

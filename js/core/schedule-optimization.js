@@ -217,6 +217,11 @@
     return `${hour12}:${String(minute).padStart(2, '0')} ${ap}`;
   }
 
+  function dayTimeLabel(section) {
+    const row = normalizeSection(section);
+    return `${row.days.map(day => DAY_LABELS[day]).join('/')} ${timeLabel(row.startMinutes)}-${timeLabel(row.endMinutes)}`.trim();
+  }
+
   function normalizeSection(section = {}) {
     const building = compact(section.building || section.Building || section.BUILDING);
     const room = compact(section.room || section.Room || section.ROOM || section.roomOnly);
@@ -275,6 +280,195 @@
       historicalAverageCap: avg(caps),
       historicalPeakCap: Math.max(0, ...caps)
     };
+  }
+
+  function courseProfiles(sectionsInput = []) {
+    const profiles = new Map();
+    (sectionsInput || []).map(normalizeSection).forEach(row => {
+      const subject = compact(row.subject || (row.courseCode.match(/^[A-Z]+/) || [''])[0]);
+      const course = compact(row.course || row.courseCode.replace(subject, '').trim());
+      const key = canon([subject, course].filter(Boolean).join(' ')) || canon(row.courseCode);
+      if (!key) return;
+      if (!profiles.has(key)) {
+        profiles.set(key, {
+          subject,
+          course,
+          courseCode: row.courseCode || [subject, course].filter(Boolean).join(' '),
+          division: row.division,
+          campus: row.campus,
+          modality: row.modality,
+          typicalRoomType: row.roomType,
+          sections: [],
+          caps: [],
+          enrollments: [],
+          patterns: new Map()
+        });
+      }
+      const profile = profiles.get(key);
+      profile.sections.push({
+        term: row.term,
+        crn: row.crn,
+        section: row.section,
+        courseCode: row.courseCode,
+        division: row.division,
+        campus: row.campus,
+        modality: row.modality,
+        roomType: row.roomType,
+        cap: row.sectionCap,
+        enrollment: row.enrollment,
+        dayTime: isTimeBasedSection(row) ? dayTimeLabel(row) : 'No fixed meeting time'
+      });
+      if (row.sectionCap) profile.caps.push(row.sectionCap);
+      if (row.enrollment) profile.enrollments.push(row.enrollment);
+      if (isTimeBasedSection(row)) {
+        const patternKey = `${row.days.join('')}-${row.startMinutes}-${row.endMinutes}`;
+        profile.patterns.set(patternKey, (profile.patterns.get(patternKey) || 0) + 1);
+      }
+      if (!profile.division && row.division) profile.division = row.division;
+      if (!profile.campus && row.campus) profile.campus = row.campus;
+      if (!profile.modality && row.modality) profile.modality = row.modality;
+      if (!profile.typicalRoomType && row.roomType) profile.typicalRoomType = row.roomType;
+    });
+    const avg = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+    return [...profiles.values()].map(profile => ({
+      ...profile,
+      historicalCap: Math.round(avg(profile.caps) || 0),
+      typicalEnrollment: Math.round(avg(profile.enrollments) || 0),
+      historicalPeakEnrollment: Math.max(0, ...profile.enrollments),
+      commonDayTimePatterns: [...profile.patterns.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([key, count]) => {
+          const [, daysPart, startPart, endPart] = key.match(/^([A-Z]+)-(\d+)-(\d+)$/) || [];
+          const days = normalizeDays(daysPart || '');
+          return { label: `${days.map(day => DAY_LABELS[day]).join('/')} ${timeLabel(Number(startPart))}-${timeLabel(Number(endPart))}`, count };
+        })
+    })).sort((a, b) => a.courseCode.localeCompare(b.courseCode, undefined, { numeric: true }));
+  }
+
+  function countCompetingSections(candidate, sectionsInput = []) {
+    const row = normalizeSection(candidate);
+    if (!isTimeBasedSection(row)) return 0;
+    return (sectionsInput || []).map(normalizeSection).filter(other => {
+      if (!isTimeBasedSection(other)) return false;
+      const sameCourse = row.courseCode && other.courseCode && canon(row.courseCode) === canon(other.courseCode);
+      const sameSubject = row.subject && other.subject && canon(row.subject) === canon(other.subject);
+      return (sameCourse || sameSubject) && overlaps(row, other);
+    }).length;
+  }
+
+  function demandEvidence(candidate, historyRows = []) {
+    const history = historyForSection(candidate, historyRows);
+    const fillRates = (historyRows || []).map(normalizeSection)
+      .filter(row => row.courseCode && row.courseCode === normalizeSection(candidate).courseCode && row.sectionCap)
+      .map(row => row.enrollment / row.sectionCap)
+      .filter(value => Number.isFinite(value));
+    const avgFill = fillRates.length ? fillRates.reduce((sum, value) => sum + value, 0) / fillRates.length : 0;
+    return {
+      ...history,
+      historicalFillRate: avgFill,
+      demandGapIndicator: avgFill >= 0.9 ? 'High unmet-demand signal' : (avgFill >= 0.75 ? 'Moderate demand signal' : (fillRates.length ? 'Limited demand pressure' : 'Limited history'))
+    };
+  }
+
+  function evaluateProposedTime(input = {}, sectionsInput = [], roomsInput = [], options = {}) {
+    const historyRows = options.historyRows || sectionsInput;
+    const start = minutesFromTime(input.proposedStart || input.preferredStart || input.start || '09:00') ?? 9 * 60;
+    const end = minutesFromTime(input.proposedEnd || input.end || '') ?? (start + (num(input.durationMinutes || input.duration || 75) || 75));
+    const proposed = normalizeSection({
+      crn: 'PROPOSED',
+      subject: input.subject || '',
+      course: input.courseNumber || input.course || '',
+      courseCode: input.course || input.subjectCourse || [input.subject, input.courseNumber].filter(Boolean).join(' '),
+      campus: input.proposedCampus || input.campus || '',
+      roomType: input.proposedRoomType || input.roomType || '',
+      division: input.division || input.priorityArea || '',
+      enrollment: input.expectedEnrollment || input.cap || 0,
+      cap: input.cap || input.expectedEnrollment || 0,
+      days: input.proposedDayPattern || input.preferredDayPattern || input.days || 'MW',
+      start: timeLabel(start),
+      end: timeLabel(end),
+      modality: input.modality || 'In-Person'
+    });
+    const rooms = normalizeRoomCatalog(roomsInput)
+      .filter(room => !proposed.campus || !room.campus || canon(room.campus) === canon(proposed.campus));
+    const roomOptions = rooms
+      .map(room => ({ room, fit: roomFitScore(proposed, room, historyRows, options) }))
+      .filter(candidate => !candidate.fit.priority.blocks)
+      .filter(candidate => isRoomAvailable(candidate.room, { ...proposed, roomKey: candidate.room.roomKey }, sectionsInput))
+      .sort((a, b) => b.fit.score - a.fit.score);
+    const evidence = demandEvidence(proposed, historyRows);
+    const competing = countCompetingSections(proposed, sectionsInput);
+    const prime = proposed.startMinutes >= 9 * 60 && proposed.startMinutes < 15 * 60;
+    const bestFit = roomOptions[0]?.fit || roomFitScore(proposed, rooms[0] || {}, historyRows, options);
+    const score = Math.round((bestFit.score || 0) + (evidence.historicalFillRate * 20) - (competing * 4) - (prime && competing >= 2 ? 8 : 0));
+    return {
+      course: proposed.courseCode,
+      proposedDayTime: dayTimeLabel(proposed),
+      proposedCampus: proposed.campus,
+      proposedRoomType: proposed.roomType,
+      expectedEnrollment: proposed.enrollment,
+      proposedTimeScore: score,
+      availableRoomCount: roomOptions.length,
+      bestRoomFit: roomOptions[0]?.room?.roomKey || 'No available room found',
+      historicalFillRate: evidence.historicalFillRate,
+      expectedFillDemandSupport: evidence.demandGapIndicator,
+      studentPresenceAlignment: prime ? 'Prime-time campus presence window' : 'Distributes activity outside core prime time',
+      primeTimePressure: prime ? (competing ? 'Adds pressure to an already active prime-time block' : 'Prime-time request with limited same-course competition') : 'Lower prime-time pressure',
+      competingSections: competing,
+      roomFitQuality: bestFit.flags?.join('; ') || 'General fit',
+      historicalPerformance: evidence.terms.length ? `${evidence.terms.length} historical term(s); avg fill ${Math.round(evidence.historicalFillRate * 100)}%` : 'Limited historical evidence',
+      saturatedPattern: competing >= 3 ? 'May duplicate saturated offering pattern' : 'No saturated same/similar-course pattern detected',
+      scheduleGapFit: roomOptions.length >= 3 && competing <= 1 ? 'Fills a schedule gap with multiple room options' : 'Limited schedule-gap evidence',
+      facultyNote: compact(input.facultyNote),
+      roomOptions: roomOptions.slice(0, 5).map(candidate => ({
+        room: candidate.room.roomKey,
+        capacity: candidate.room.capacity,
+        roomType: candidate.room.roomType,
+        priorityAlignment: candidate.fit.priority.status,
+        score: Math.round(candidate.fit.score)
+      }))
+    };
+  }
+
+  function recommendBetterTimes(input = {}, sectionsInput = [], roomsInput = [], options = {}) {
+    const proposed = evaluateProposedTime(input, sectionsInput, roomsInput, options);
+    const baseStart = minutesFromTime(input.proposedStart || input.preferredStart || input.start || '09:00') ?? 9 * 60;
+    const duration = (minutesFromTime(input.proposedEnd || input.end || '') ?? (baseStart + (num(input.durationMinutes || input.duration || 75) || 75))) - baseStart;
+    const dayPatterns = ['MW', 'TR', 'M', 'T', 'W', 'R', 'F'];
+    const starts = [8 * 60, 9 * 60 + 30, 11 * 60, 13 * 60, 14 * 60 + 30, 16 * 60];
+    return dayPatterns.flatMap(days => starts.map(start => ({ days, start })))
+      .filter(candidate => !(canon(candidate.days) === canon(input.proposedDayPattern || input.preferredDayPattern || input.days || 'MW') && candidate.start === baseStart))
+      .map(candidate => {
+        const recInput = { ...input, proposedDayPattern: candidate.days, proposedStart: timeLabel(candidate.start), proposedEnd: timeLabel(candidate.start + duration) };
+        const evaluation = evaluateProposedTime(recInput, sectionsInput, roomsInput, options);
+        return {
+          suggestedDayTime: evaluation.proposedDayTime,
+          suggestedRoom: evaluation.bestRoomFit,
+          expectedEnrollmentFillSupport: evaluation.expectedFillDemandSupport,
+          historicalDemandEvidence: evaluation.historicalPerformance,
+          studentPresenceEvidence: evaluation.studentPresenceAlignment,
+          roomAvailabilityEvidence: `${evaluation.availableRoomCount} available room option(s)`,
+          primeTimeImpact: evaluation.primeTimePressure,
+          proposedTimeScore: proposed.proposedTimeScore,
+          recommendedTimeScore: evaluation.proposedTimeScore,
+          historicalFillRateAtProposedTime: proposed.historicalFillRate,
+          historicalFillRateAtRecommendedTime: evaluation.historicalFillRate,
+          competingSectionsNearProposedTime: proposed.competingSections,
+          competingSectionsNearRecommendedTime: evaluation.competingSections,
+          availableRoomCount: evaluation.availableRoomCount,
+          bestRoomFit: evaluation.bestRoomFit,
+          demandGapIndicator: evaluation.expectedFillDemandSupport,
+          studentPresenceAlignment: evaluation.studentPresenceAlignment,
+          confidence: evaluation.historicalPerformance.includes('Limited') ? 'Low' : (evaluation.availableRoomCount >= 2 ? 'Medium' : 'Low'),
+          whyThisIsBetter: evaluation.proposedTimeScore > proposed.proposedTimeScore
+            ? `Compared with ${proposed.proposedDayTime}, ${evaluation.proposedDayTime} improves the score by ${evaluation.proposedTimeScore - proposed.proposedTimeScore}, has ${evaluation.availableRoomCount} available room option(s), and shows ${evaluation.expectedFillDemandSupport.toLowerCase()}.`
+            : `This option is not clearly better than the faculty-proposed time; keep it only as an alternative if operational constraints require it.`
+        };
+      })
+      .filter(row => row.recommendedTimeScore > proposed.proposedTimeScore)
+      .sort((a, b) => b.recommendedTimeScore - a.recommendedTimeScore)
+      .slice(0, options.limit || 10);
   }
 
   function priorityComparison(room, section, behavior = 'prefer') {
@@ -537,6 +731,9 @@
     generateRoomMoveRecommendations,
     generateTimeShiftRecommendations,
     addClassPlacement,
+    courseProfiles,
+    evaluateProposedTime,
+    recommendBetterTimes,
     roomPriorityAudit
   };
 });
