@@ -228,6 +228,7 @@
     supplyDemandRows: [],
     supplyDemandBucketRows: [],
     supplyDemandRan: false,
+    demandExportRows: [],
     busyTimeRows: [],
     busyTimeFacultyRows: [],
     busyTimeTableRows: [],
@@ -10840,7 +10841,16 @@
     const labels = rows.map(row => row.forecastConfidence).filter(Boolean);
     if (!labels.length) return { label: 'Low', score: 35 };
     const score = average(labels.map(label => ({ High: 90, Moderate: 65, Medium: 65, Low: 35 }[label] || 35)));
-    return { label: score >= 80 ? 'High' : score >= 55 ? 'Moderate' : 'Low', score };
+    return { label: score >= 80 ? 'High' : score >= 55 ? 'Medium' : 'Low', score };
+  }
+
+  function demandConfidenceLabel(value) {
+    const text = canon(value);
+    if (text === 'MODERATE') return 'Medium';
+    if (text === 'HIGH') return 'High';
+    if (text === 'LOW') return 'Low';
+    if (text === 'MEDIUM') return 'Medium';
+    return 'Low';
   }
 
   function demandExecutiveSummary(rows, trends, context = {}, diagnostics = {}) {
@@ -10870,7 +10880,7 @@
       expected ? `Projected variance is ${projectedVariance >= 0 ? '+' : ''}${Math.round(projectedVariance)} students against the trend projection.` : 'Trend projection is unavailable for this scope.',
       capDelta == null ? 'No FTES cap was entered for cap-position review.' : `Annual FTES projection is ${capDelta >= 0 ? `${round1(capDelta)} under` : `${round1(Math.abs(capDelta))} over`} cap.`,
       `${expanding} expanding demand rows and ${softening} softening demand rows were identified.`,
-      `Forecast confidence is ${confidence.label.toLowerCase()} across visible forecast rows.`
+      `Forecast confidence is ${demandConfidenceLabel(confidence.label).toLowerCase()} across visible forecast rows.`
     ].slice(0, 4);
     return {
       health,
@@ -11173,7 +11183,7 @@
       });
       renderDemandDiagnosticsPanel(termDiagnostics);
       renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), trends, yearSeasonForecast, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, executiveSummary, growthModifier, diagnostics: termDiagnostics, context, populationSelections, populationSummary, rows });
-      table('demandTable', state.demandRows, demandColumns());
+      renderDemandCalculationDetails(state.demandRows);
       renderDemandLegend();
     } catch (err) {
       console.error('Enrollment planning forecast failed:', err);
@@ -11193,6 +11203,7 @@
   }
 
   function renderEmptyDemand(message, termDiagnostics = null, context = {}) {
+    state.demandExportRows = [];
     renderReportContext(REPORTS.demand, demandReportContextOverrides({
       loadedRows: context.loadedRows || state.demandInput || [],
       rows: context.filteredRows || [],
@@ -11223,6 +11234,10 @@
 
   function demandColumns() {
     return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeHigh', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'recencyWeightedGrowth', 'adjustedForecastGrowth', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
+  }
+
+  function demandExportColumns() {
+    return ['Section', 'Field', 'Value', 'Metric', 'Current', 'Expected / Benchmark', 'Difference', 'What It Means', 'Suggested Action', 'Category', 'Confidence', 'Evidence', 'Action', ...demandColumns()];
   }
 
   function demandForecastRowsForLevels(rows, context, modifierGrowth = 0) {
@@ -11544,19 +11559,32 @@
     const sourceRows = forecastContext.rows || [];
     const populationSummary = forecastContext.populationSummary || demandPopulationSummary(sourceRows, rows);
     const supply = demandSupplyMetrics(sourceRows);
+    const collegeRow = rows.find(row => row.forecastLevel === 'College') || rows[0] || {};
+    const executiveRecommendation = demandExecutiveRecommendation(summary, findings, rows, trends, forecastContext);
+    const simplifiedPlanningRows = demandSimplifiedPlanningRows(summary, collegeRow, supply);
     const breakdowns = demandPlanningBreakdowns(sourceRows, rows);
     const enrollmentData = buildEnrollmentTrendChartData(trends, forecastContext.forecastFtes == null ? null : rows.find(row => row.forecastLevel === 'College')?.expectedEnrollmentNextTerm, targetLabel);
     const ftesData = buildFtesTrendChartData(trends, forecastContext.forecastFtes || 0, forecastContext.ftesCap || 0, targetLabel);
     const fillWaitlistData = buildFillWaitlistPressureChartData(trends);
     const distributionData = buildCourseDemandDistributionChartData(rows);
     const backtestData = buildForecastBacktestChartData(trends);
+    state.demandExportRows = demandPlanningExportRows({
+      recommendation: executiveRecommendation,
+      planningRows: simplifiedPlanningRows,
+      calculationRows: rows,
+      summary,
+      findings,
+      context: forecastContext
+    });
     wrap.innerHTML = `
       <section class="demand-report-section demand-executive-summary" data-collapsible-title="Executive Summary" data-collapsible-id="demand-executive-summary" data-collapsible-default-open="true">
         <h3>Executive Summary</h3>
+        ${demandExecutiveRecommendationPanel(executiveRecommendation)}
         ${demandExecutiveSummaryPanel(summary)}
         ${demandExecutiveNarrative(summary, forecastContext)}
         ${demandCompositionPanel(populationSummary, 'Population Composition')}
       </section>
+      ${demandAdministrativeActionsPanel(executiveRecommendation)}
       <section class="demand-report-section" data-collapsible-title="FTES Analysis" data-collapsible-id="demand-ftes-analysis" data-collapsible-default-open="true">
         <h3>FTES Analysis</h3>
         ${lineChartPanel('FTES Trend Chart', ftesData, { valueFormatter: value => round1(value), yLabel: 'FTES', warning: ftesData.exceedsCap ? 'Forecast exceeds the entered FTES cap.' : '' })}
@@ -11599,6 +11627,8 @@
         ${demandPatternPanel('Highest Demand Day/Time Patterns', highPatterns)}
         ${demandPatternPanel('Lowest Demand Day/Time Patterns', lowPatterns)}
       </section>
+      ${demandSimplifiedPlanningTable(simplifiedPlanningRows)}
+      ${demandScenarioSummaryPanel(summary, collegeRow, forecastContext)}
       <section class="demand-report-section" data-collapsible-title="Recommendation Engine" data-collapsible-id="demand-recommendation-engine" data-collapsible-default-open="false">
         <h3>Recommendation Engine</h3>
         ${demandFindingsPanel(findings)}
@@ -11839,7 +11869,110 @@
     const projected = Math.round(summary.projected || 0);
     const expected = Math.round(summary.expected || 0);
     const variancePct = expected ? pct(safeDiv(projected - expected, expected)) : 'N/A';
-    return `<p class="demand-executive-narrative">Based on ${terms || 'selected'} comparable historical term${terms === 1 ? '' : 's'}, current schedule construction, and projected growth, ${escapeAttr(target)} is expected to finish at approximately ${projected} students, ${variancePct} versus the trend baseline, with ${escapeAttr(summary.confidence?.label || 'low')} confidence.</p>`;
+    return `<p class="demand-executive-narrative">Based on ${terms || 'selected'} comparable historical term${terms === 1 ? '' : 's'}, current schedule construction, and projected growth, ${escapeAttr(target)} is expected to finish at approximately ${projected} students, ${variancePct} versus the trend baseline, with ${escapeAttr(demandConfidenceLabel(summary.confidence?.label))} confidence.</p>`;
+  }
+
+  function demandExecutiveRecommendation(summary = {}, findings = [], rows = [], trends = [], context = {}) {
+    const college = rows.find(row => row.forecastLevel === 'College') || rows[0] || {};
+    const projected = Number(summary.projected || college.expectedEnrollmentNextTerm || 0);
+    const expected = Number(summary.expected || college.trendProjectionEnrollment || college.historicalBaselineEnrollment || 0);
+    const variance = projected - expected;
+    const variancePct = expected ? safeDiv(variance, expected) : 0;
+    const fillRate = Number(college.expectedFillRate || college.avgFillRate || 0);
+    const confidence = demandConfidenceLabel(summary.confidence?.label || college.forecastConfidence);
+    const termsUsed = context.diagnostics?.termsUsedInForecast?.length || summary.diagnostics?.termsUsedInForecast?.length || college.terms || 0;
+    const capOver = summary.capDelta != null && summary.capDelta < 0;
+    const expansionPressure = (summary.expanding || 0) > (summary.softening || 0) || variancePct >= 0.05 || (college.avgWaitlistCount || 0) > 0;
+    const reductionPressure = (summary.softening || 0) > (summary.expanding || 0) || variancePct <= -0.05 || fillRate < 0.65;
+    const mixedSignals = expansionPressure && reductionPressure;
+    let outlook = 'Strong Alignment';
+    let recommendation = 'Maintain current schedule and monitor registration updates';
+    if (capOver) {
+      outlook = 'Rebalance Needed';
+      recommendation = 'Review FTES cap position and rebalance before adding capacity';
+    } else if (mixedSignals) {
+      outlook = 'Rebalance Needed';
+      recommendation = 'Rebalance time patterns and course mix before changing total schedule size';
+    } else if (expansionPressure) {
+      outlook = 'Expansion Opportunity';
+      recommendation = 'Review targeted adds in high-demand areas';
+    } else if (reductionPressure) {
+      outlook = 'Reduction Risk';
+      recommendation = 'Review low-fill or softening areas before preserving all capacity';
+    }
+    const primaryReason = capOver
+      ? `Annual FTES projection is ${round1(Math.abs(summary.capDelta || 0))} over the entered cap.`
+      : variance
+        ? `Projected enrollment is ${variance >= 0 ? '+' : ''}${Math.round(variance)} students versus the expected benchmark.`
+        : 'Projected enrollment is close to the historical benchmark.';
+    const actions = [
+      expansionPressure && !capOver ? 'Review targeted added sections where projected demand, fill rate, or waitlist pressure is strongest.' : '',
+      reductionPressure ? 'Review low-fill or softening areas before adding capacity or preserving every section.' : '',
+      mixedSignals || capOver ? 'Rebalance section placement, modality, and time patterns before making broad schedule-size changes.' : '',
+      'Monitor current enrollment, waitlist, and fill rate updates before final schedule decisions.'
+    ].filter(Boolean).slice(0, 3);
+    const evidence = [
+      `Projected enrollment: ${Math.round(projected)} students.`,
+      expected ? `Expected benchmark: ${Math.round(expected)} students.` : 'Expected benchmark is unavailable for this scope.',
+      `Expected fill rate: ${pct(fillRate)}.`,
+      `${summary.expanding || 0} expanding rows and ${summary.softening || 0} softening rows.`,
+      summary.capDelta == null ? 'No FTES cap entered.' : `FTES cap position: ${summary.capDelta >= 0 ? `${round1(summary.capDelta)} under cap` : `${round1(Math.abs(summary.capDelta))} over cap`}.`
+    ];
+    const cautions = [
+      termsUsed < 3 ? 'Historical data is thin; treat the recommendation as directional.' : '',
+      summary.lifecycle?.status === 'active' ? 'Current enrollment appears in-progress and may change before census/final.' : '',
+      context.target?.scope === 'year' ? 'Academic-year forecasts combine Summer, Fall, and Spring patterns; review term-level assumptions.' : '',
+      Number(context.growthModifier || 0) !== 0 ? 'A manual growth modifier is applied; compare results with and without the modifier.' : '',
+      'This is a planning signal, not an automatic add, cancellation, or staffing decision.'
+    ].filter(Boolean);
+    return {
+      outlook,
+      recommendation,
+      confidence,
+      primaryReason,
+      keyIndicators: evidence.slice(0, 5),
+      cautions,
+      bottomLine: `${outlook}: ${recommendation}.`,
+      actions: actions.map((action, index) => ({ priority: `Priority ${index + 1}`, action })),
+      supportingEvidence: evidence,
+      watchItems: findings.map(row => `${row.category}: ${row.evidence}`).slice(0, 4),
+      dataLimitations: cautions,
+      why: `${primaryReason} Confidence is ${confidence.toLowerCase()} based on ${termsUsed || 'limited'} historical term${termsUsed === 1 ? '' : 's'}, trend consistency, and current lifecycle status.`
+    };
+  }
+
+  function demandExecutiveRecommendationPanel(recommendation = {}) {
+    return `<section class="demand-executive-recommendation-panel">
+      <h4>Executive Recommendation Summary</h4>
+      <dl>
+        <div><dt>Outlook</dt><dd>${escapeAttr(recommendation.outlook || 'Review Manually')}</dd></div>
+        <div><dt>Recommendation</dt><dd>${escapeAttr(recommendation.recommendation || 'Review manually')}</dd></div>
+        <div><dt>Confidence</dt><dd>${escapeAttr(recommendation.confidence || 'Low')}</dd></div>
+        <div><dt>Why</dt><dd>${escapeAttr(recommendation.why || recommendation.primaryReason || '')}</dd></div>
+      </dl>
+      <div class="demand-executive-indicators">
+        <h5>Key Supporting Indicators</h5>
+        <ul>${(recommendation.keyIndicators || []).map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul>
+      </div>
+      <div class="demand-executive-indicators">
+        <h5>Cautions / Limitations</h5>
+        <ul>${(recommendation.cautions || ['This is a planning signal, not an automatic action.']).map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul>
+      </div>
+    </section>`;
+  }
+
+  function demandAdministrativeActionsPanel(recommendation = {}) {
+    const actions = recommendation.actions?.length ? recommendation.actions : [{ priority: 'Priority 1', action: 'Maintain current schedule size and monitor registration updates.' }];
+    return `<section class="demand-admin-actions-panel" data-collapsible-title="Recommended Administrative Actions" data-collapsible-id="demand-administrative-actions" data-collapsible-default-open="true">
+      <h3>Recommended Administrative Actions</h3>
+      <div class="demand-bottom-line"><strong>Bottom Line</strong><p>${escapeAttr(recommendation.bottomLine || 'Review manually before making schedule changes.')}</p></div>
+      <ol>${actions.map(item => `<li><strong>${escapeAttr(item.priority)}</strong><span>${escapeAttr(item.action)}</span></li>`).join('')}</ol>
+      <div class="demand-action-grid">
+        <div><h4>Supporting Evidence</h4><ul>${(recommendation.supportingEvidence || []).map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul></div>
+        <div><h4>Watch Items</h4><ul>${(recommendation.watchItems || ['No high-priority watch item surfaced.']).map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul></div>
+        <div><h4>Data Limitations</h4><ul>${(recommendation.dataLimitations || ['Forecasts are planning estimates, not guarantees.']).map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul></div>
+      </div>
+    </section>`;
   }
 
   function demandCompositionPanel(summary = {}, title = 'FTES Composition', mode = 'ftes') {
@@ -11904,6 +12037,209 @@
       ['Student Choice Indicators', supply.uniqueCourses || 0]
     ];
     return `<section class="demand-supply-panel"><h4>Schedule Supply Indicators</h4><div class="analytics-metrics">${cards.map(([labelText, value]) => `<div><strong>${escapeAttr(value)}</strong><span>${escapeAttr(labelText)}</span></div>`).join('')}</div></section>`;
+  }
+
+  function demandPlainInterpretation(row = {}, metric = '') {
+    const current = Number(row.current || 0);
+    const expected = Number(row.expected || 0);
+    const diff = Number(row.difference || 0);
+    if (/fill/i.test(metric)) {
+      if (expected >= 0.9) return 'Projected fill rate is high; capacity may be tight.';
+      if (expected < 0.65) return 'Projected fill rate is low; review whether capacity is overbuilt.';
+      return 'Projected fill rate is stable.';
+    }
+    if (/offerings|sections/i.test(metric)) {
+      if (diff > 0) return 'Suggested section need is above the current schedule baseline.';
+      if (diff < 0) return 'Current offerings are above the projected section need.';
+      return 'Current offerings align with the projected section need.';
+    }
+    if (/waitlist/i.test(metric)) {
+      if (expected > 0) return 'Waitlist pressure may indicate constrained demand.';
+      return 'No waitlist pressure is visible in the selected data.';
+    }
+    if (diff > 0) return 'Projected demand is above the benchmark.';
+    if (diff < 0) return 'Projected demand is below the benchmark.';
+    return 'Projected demand is close to the benchmark.';
+  }
+
+  function demandSuggestedActionForMetric(metric = '', diff = 0, expected = 0) {
+    if (/fill/i.test(metric)) {
+      if (expected >= 0.9) return 'Review added capacity or larger rooms where feasible.';
+      if (expected < 0.65) return 'Review low-fill areas before adding capacity.';
+      return 'Maintain and monitor.';
+    }
+    if (/offerings|sections/i.test(metric)) {
+      if (diff > 0) return 'Review targeted section additions.';
+      if (diff < 0) return 'Review possible right-sizing or redistribution.';
+      return 'Maintain current schedule size.';
+    }
+    if (/waitlist/i.test(metric)) return expected > 0 ? 'Check whether waitlist pressure is concentrated in specific courses or times.' : 'No immediate action indicated.';
+    if (diff > 0) return 'Review expansion in high-demand areas.';
+    if (diff < 0) return 'Avoid broad expansion until demand is confirmed.';
+    return 'No immediate scheduling action indicated.';
+  }
+
+  function demandSimplifiedPlanningRows(summary = {}, college = {}, supply = {}) {
+    const enrollmentCurrent = Number(summary.current || 0);
+    const enrollmentExpected = Number(summary.projected || college.expectedEnrollmentNextTerm || 0);
+    const enrollmentBenchmark = Number(summary.expected || college.trendProjectionEnrollment || college.historicalBaselineEnrollment || 0);
+    const ftesCurrent = Number(college.avgFtes || 0);
+    const ftesExpected = Number(college.expectedFtesNextTerm || 0);
+    const offeringsCurrent = Number(supply.scheduledClassOfferings || college.totalSectionsOffered || 0);
+    const offeringsExpected = Number(college.suggestedSectionCount || college.expectedSectionsNeeded || offeringsCurrent);
+    const rows = [
+      {
+        metric: 'Enrollment',
+        current: Math.round(enrollmentCurrent),
+        expected: Math.round(enrollmentExpected || enrollmentBenchmark),
+        difference: Math.round((enrollmentExpected || enrollmentBenchmark) - enrollmentBenchmark),
+        whatItMeans: '',
+        suggestedAction: ''
+      },
+      {
+        metric: 'FTES',
+        current: round1(ftesCurrent),
+        expected: round1(ftesExpected),
+        difference: round1(ftesExpected - ftesCurrent),
+        whatItMeans: '',
+        suggestedAction: ''
+      },
+      {
+        metric: 'Fill Rate',
+        current: pct(college.avgFillRate || 0),
+        expected: pct(college.expectedFillRate || 0),
+        difference: pct((college.expectedFillRate || 0) - (college.avgFillRate || 0)),
+        numericExpected: Number(college.expectedFillRate || 0),
+        numericDifference: Number(college.expectedFillRate || 0) - Number(college.avgFillRate || 0),
+        whatItMeans: '',
+        suggestedAction: ''
+      },
+      {
+        metric: 'Class Offerings',
+        current: Math.round(offeringsCurrent),
+        expected: Math.round(offeringsExpected),
+        difference: Math.round(offeringsExpected - offeringsCurrent),
+        whatItMeans: '',
+        suggestedAction: ''
+      },
+      {
+        metric: 'Waitlist Pressure',
+        current: Math.round(college.avgWaitlistCount || 0),
+        expected: Math.round(college.avgWaitlistCount || 0),
+        difference: 0,
+        whatItMeans: '',
+        suggestedAction: ''
+      }
+    ];
+    return rows.map(row => {
+      const numericDiff = row.numericDifference ?? Number(row.difference || 0);
+      const numericExpected = row.numericExpected ?? Number(row.expected || 0);
+      return {
+        ...row,
+        expectedBenchmark: row.expected,
+        whatItMeans: demandPlainInterpretation({ ...row, difference: numericDiff, expected: numericExpected }, row.metric),
+        suggestedAction: demandSuggestedActionForMetric(row.metric, numericDiff, numericExpected)
+      };
+    });
+  }
+
+  function demandSimplifiedPlanningTable(rows = []) {
+    const columns = ['metric', 'current', 'expectedBenchmark', 'difference', 'whatItMeans', 'suggestedAction'];
+    return `<section class="demand-planning-gap-panel" data-collapsible-title="Simplified Planning Gap Table" data-collapsible-id="demand-simplified-planning-gap" data-collapsible-default-open="true">
+      <h3>Simplified Planning Gap Table</h3>
+      <p class="analytics-chart-note">This table translates the forecast into decision language. Detailed model fields remain available in Calculation Details.</p>
+      <table><thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    </section>`;
+  }
+
+  function demandScenarioSummaryPanel(summary = {}, college = {}, context = {}) {
+    const modifier = Number(context.growthModifier || 0);
+    const rows = [
+      {
+        metric: 'Enrollment',
+        before: Math.round(summary.current || 0),
+        after: Math.round(summary.projected || college.expectedEnrollmentNextTerm || 0),
+        change: Math.round((summary.projected || college.expectedEnrollmentNextTerm || 0) - (summary.current || 0)),
+        meaning: 'Current Actual compared with Forecast Scenario. No schedule change is implied unless a scenario adjustment is applied.'
+      },
+      {
+        metric: 'FTES',
+        before: round1(college.avgFtes || 0),
+        after: round1(college.expectedFtesNextTerm || 0),
+        change: round1((college.expectedFtesNextTerm || 0) - (college.avgFtes || 0)),
+        meaning: 'Historical average FTES compared with projected FTES.'
+      },
+      {
+        metric: 'Growth Modifier',
+        before: 'Baseline model',
+        after: modifier ? `${pct(modifier)} modifier applied` : 'No scenario adjustment applied',
+        change: modifier ? pct(modifier) : 'None',
+        meaning: modifier ? 'Forecast scenario includes the entered manual growth assumption.' : 'The schedule has not been changed; this is the baseline forecast projection.'
+      }
+    ];
+    const columns = ['metric', 'before', 'after', 'change', 'meaning'];
+    return `<section class="demand-scenario-summary-panel" data-collapsible-title="Scenario Summary" data-collapsible-id="demand-scenario-summary" data-collapsible-default-open="true">
+      <h3>Scenario Summary</h3>
+      <p class="analytics-chart-note">Before = Current Actual or historical baseline. After = Forecast Scenario / Model Projection, not a confirmed schedule change.</p>
+      <table><thead><tr>${columns.map(column => `<th>${escapeAttr(column === 'after' ? 'Forecast Scenario' : label(column))}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    </section>`;
+  }
+
+  function analyticsTableMarkup(rows = [], columns = []) {
+    const display = rows.slice(0, 500);
+    if (!display.length) return '<p class="analytics-empty">No rows match the selected criteria.</p>';
+    return `<table><thead><tr>${columns.map((c, index) => `<th><button type="button" class="analytics-sort" data-column="${index}" aria-label="Sort by ${label(c)}">${label(c)} <span aria-hidden="true"></span></button></th>`).join('')}</tr></thead>
+      <tbody>${display.map(row => `<tr>${columns.map(c => `<td data-sort="${escapeAttr(sortValue(row[c], c))}">${format(row[c], c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  }
+
+  function renderDemandCalculationDetails(rows = []) {
+    const node = document.getElementById('demandTable');
+    if (!node) return;
+    node.innerHTML = `<section class="demand-report-section" data-collapsible-title="Detailed Calculation Tables" data-collapsible-id="demand-detailed-calculation-tables" data-collapsible-default-open="false">
+      <h3>Detailed Calculation Tables</h3>
+      <p class="analytics-chart-note">Advanced model fields are retained for validation and export. The simplified planning table above is the default decision view.</p>
+      ${analyticsTableMarkup(rows, demandColumns())}
+    </section>`;
+    refreshGeneratedCollapsibleSections(node);
+  }
+
+  function demandPlanningExportRows(config = {}) {
+    const recommendation = config.recommendation || {};
+    const context = config.context || {};
+    const rows = [];
+    rows.push(
+      { Section: 'Executive Recommendation Summary', Field: 'Outlook', Value: recommendation.outlook || '' },
+      { Section: 'Executive Recommendation Summary', Field: 'Recommendation', Value: recommendation.recommendation || '' },
+      { Section: 'Executive Recommendation Summary', Field: 'Confidence', Value: recommendation.confidence || '' },
+      { Section: 'Executive Recommendation Summary', Field: 'Primary Reason', Value: recommendation.primaryReason || recommendation.why || '' },
+      { Section: 'Executive Recommendation Summary', Field: 'Forecast Target', Value: context.target?.label || '' }
+    );
+    (recommendation.keyIndicators || []).forEach((item, index) => rows.push({ Section: 'Key Supporting Indicators', Field: `Indicator ${index + 1}`, Value: item }));
+    (recommendation.actions || []).forEach(item => rows.push({ Section: 'Recommended Administrative Actions', Field: item.priority, Value: item.action }));
+    (recommendation.cautions || []).forEach((item, index) => rows.push({ Section: 'Cautions / Limitations', Field: `Caution ${index + 1}`, Value: item }));
+    (config.planningRows || []).forEach(row => rows.push({
+      Section: 'Simplified Planning Table',
+      Metric: row.metric,
+      Current: row.current,
+      'Expected / Benchmark': row.expectedBenchmark,
+      Difference: row.difference,
+      'What It Means': row.whatItMeans,
+      'Suggested Action': row.suggestedAction
+    }));
+    (config.findings || []).forEach(row => rows.push({
+      Section: 'Recommendation Detail',
+      Category: row.category,
+      Confidence: demandConfidenceLabel(row.confidence),
+      Evidence: row.evidence,
+      Action: row.action
+    }));
+    (config.calculationRows || []).forEach(row => rows.push({
+      Section: 'Detailed Calculation Table',
+      ...row
+    }));
+    return rows;
   }
 
   function demandExecutiveSummaryPanel(summary = {}) {
@@ -12979,7 +13315,7 @@
       ['Trend Projection', 'Historical same-season or academic-year trend projected forward with recency weighting, growth modifiers, expected range, and schedule adjustment when available.'],
       ['Schedule Adjustment', 'Adjustment from historical baseline toward the expected projection based on schedule construction signals such as class offerings, seats, and modality mix.'],
       ['Expected Projection', 'Projected enrollment or FTES after trend projection and schedule adjustment. Expected Projection Range shows low and high enrollment range when available. Expected FTES Range applies the same range method to FTES history and displays low/high FTES bounds.'],
-      ['Forecast Confidence', 'High, Moderate, or Low confidence based on available history, forecast stability, and visible forecast row confidence labels.'],
+      ['Forecast Confidence', 'High, Medium, or Low confidence based on available history, forecast stability, and visible forecast row confidence labels.'],
       ['Terms Included', 'Metric card. Number of selected historical terms included after filters and the Analysis window are applied.'],
       ['Forecast Target', 'Metric card and controls. The future term or academic year being forecast. This does not require an uploaded section seating report. Forecast year uses the trailing FY/AY convention: FY/AY 2027 includes Summer 2026, Fall 2026, and Spring 2027, so FY/AY 2027 + Fall targets Fall 2026 / Banner term 202710. Rows from this target and later terms are excluded from historical calculations because in-progress enrollment is not a finalized baseline.'],
       ['Forecast Scope', 'Metric card and control. Single term forecasts compare only the same season before the target, such as prior Fall terms for a Fall target. Academic year forecasts aggregate Summer, Fall, and Spring rows into annual buckets before calculating growth.'],
@@ -13458,7 +13794,14 @@
       rotationCycle: 'Rotation Cycle',
       lastOffered: 'Last Offered',
       expectedNextOffering: 'Expected Next Offering',
-      rotationStatus: 'Rotation Status'
+      rotationStatus: 'Rotation Status',
+      expectedBenchmark: 'Expected / Benchmark',
+      whatItMeans: 'What It Means',
+      suggestedAction: 'Suggested Action',
+      before: 'Before',
+      after: 'Forecast Scenario',
+      change: 'Change',
+      meaning: 'Meaning'
     };
     return labels[text] || text.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
   }
@@ -14118,6 +14461,22 @@
       .demand-health-alert{border-color:#f4b4a8;background:#fff1ed}
       .demand-driver-list{margin:0 0 10px;padding:10px;border:1px solid #e2eaf3;border-radius:10px;background:#f8fbff}
       .demand-driver-list h4,.demand-pattern-panel h4,.demand-method-card h4,.demand-recommendation-detail h4{margin:0 0 6px;color:#123367}
+      .demand-executive-recommendation-panel,.demand-admin-actions-panel,.demand-planning-gap-panel,.demand-scenario-summary-panel{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:12px;margin-bottom:12px}
+      .demand-executive-recommendation-panel h4,.demand-admin-actions-panel h3,.demand-planning-gap-panel h3,.demand-scenario-summary-panel h3{margin:0 0 8px;color:#123367}
+      .demand-executive-recommendation-panel dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:10px;margin:0 0 10px}
+      .demand-executive-recommendation-panel dt{font-size:11px;color:#51657c;text-transform:uppercase;font-weight:900}
+      .demand-executive-recommendation-panel dd{margin:2px 0 0;color:#123367;font-weight:900;line-height:1.35}
+      .demand-executive-indicators ul,.demand-admin-actions-panel ul{margin:6px 0 0;padding-left:18px;color:#334862}
+      .demand-bottom-line{border-left:4px solid #2f8f57;padding-left:10px;margin-bottom:10px;color:#334862}
+      .demand-bottom-line strong{display:block;color:#123367}
+      .demand-admin-actions-panel ol{display:grid;gap:8px;margin:0 0 12px;padding-left:22px}
+      .demand-admin-actions-panel li span{display:block;color:#334862;margin-top:2px}
+      .demand-action-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:10px}
+      .demand-action-grid>div{border:1px solid #e2eaf3;border-radius:8px;background:#fff;padding:10px}
+      .demand-action-grid h4{margin:0;color:#123367}
+      .demand-planning-gap-panel table,.demand-scenario-summary-panel table{width:100%;border-collapse:collapse;background:#fff;margin-top:8px}
+      .demand-planning-gap-panel th,.demand-planning-gap-panel td,.demand-scenario-summary-panel th,.demand-scenario-summary-panel td{border-top:1px solid #e2eaf3;padding:8px;text-align:left;vertical-align:top}
+      .demand-planning-gap-panel th,.demand-scenario-summary-panel th{background:#eaf2f9;color:#123367;font-size:12px;text-transform:uppercase}
       .demand-findings,.demand-recommendation-detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px}
       .demand-findings article,.demand-recommendation-detail article,.demand-pattern-card,.demand-method-card{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:10px}
       .demand-findings span{display:inline-block;color:#51657c;font-size:11px;text-transform:uppercase;font-weight:900}
@@ -14549,8 +14908,8 @@
     document.getElementById('clearFacultyHeatmap')?.addEventListener('click', clearFacultyScheduleHeatmap);
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-trend-${attritionDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${consolidationDecisionTerm() || currentTerm() || 'term'}.csv`));
-    document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandRows, `enrollment-planning-forecast-${demandTargetSlug()}.csv`));
-    document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandRows, demandColumns(), `enrollment-planning-forecast-${demandTargetSlug()}.xls`));
+    document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, `enrollment-planning-forecast-${demandTargetSlug()}.csv`));
+    document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, demandExportColumns(), `enrollment-planning-forecast-${demandTargetSlug()}.xls`));
     document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
       const modalityQuickButton = event.target.closest('[data-modality-quick]');

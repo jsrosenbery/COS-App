@@ -2194,7 +2194,7 @@ test('demand redesign helpers distinguish lifecycle expected enrollment and conf
   assert.equal(active.currentEnrollment, 40);
   assert.equal(completed.status, 'completed');
   assert.equal(completed.finalEnrollment, 90);
-  assert.equal(confidence.label, 'Moderate');
+  assert.equal(confidence.label, 'Medium');
 });
 
 test('demand executive summary recommendations and diagnostics support decision story', () => {
@@ -2233,9 +2233,17 @@ test('demand redesign sections and metric definitions are wired', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const registry = require('../js/core/metric-definitions.js');
 
-  ['Executive Summary', 'FTES Analysis', 'Enrollment Analysis', 'Schedule Supply', 'Student Demand', 'Recommendation Engine', 'Data Quality & Methodology', 'Show All Recommendations', 'Forecast Accuracy / Back-test'].forEach(label => {
+  ['Executive Summary', 'Executive Recommendation Summary', 'Recommended Administrative Actions', 'Simplified Planning Gap Table', 'Scenario Summary', 'Detailed Calculation Tables', 'FTES Analysis', 'Enrollment Analysis', 'Schedule Supply', 'Student Demand', 'Recommendation Engine', 'Data Quality & Methodology', 'Show All Recommendations', 'Forecast Accuracy / Back-test'].forEach(label => {
     assert.match(text, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   });
+  assert.match(text, /function demandExecutiveRecommendation/);
+  assert.match(text, /function demandSimplifiedPlanningRows/);
+  assert.match(text, /function demandScenarioSummaryPanel/);
+  assert.match(text, /function demandPlanningExportRows/);
+  assert.match(text, /demandExportRows/);
+  assert.match(text, /Forecast Scenario \/ Model Projection|Forecast Scenario/);
+  assert.match(text, /This is a planning signal, not an automatic add, cancellation, or staffing decision/);
+  assert.match(text, /High, Medium, or Low confidence/);
   assert.match(text, /demand-zero-track/);
   assert.match(text, /Below Expected/);
   assert.match(text, /Above Expected/);
