@@ -3702,12 +3702,89 @@
     }));
   }
 
+  function facultyModalityPieSlicePath(cx, cy, radius, startAngle, endAngle) {
+    const start = {
+      x: cx + radius * Math.cos(startAngle),
+      y: cy + radius * Math.sin(startAngle)
+    };
+    const end = {
+      x: cx + radius * Math.cos(endAngle),
+      y: cy + radius * Math.sin(endAngle)
+    };
+    const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+    return `M ${cx} ${cy} L ${start.x.toFixed(3)} ${start.y.toFixed(3)} A ${radius} ${radius} 0 ${largeArc} 1 ${end.x.toFixed(3)} ${end.y.toFixed(3)} Z`;
+  }
+
+  function renderFacultyModalityPieCard(title, rows, options = {}) {
+    const colors = options.colors || {
+      'Full-Time': '#0f5f8f',
+      'Part-Time': '#f59e0b',
+      'In-Person': '#1f7aa8',
+      Hybrid: '#f59e0b',
+      Online: '#7c3aed'
+    };
+    const total = rows.reduce((sum, row) => sum + (Number(row.value) || 0), 0);
+    const radius = 58;
+    const cx = 70;
+    const cy = 70;
+    let cursor = -Math.PI / 2;
+    const slices = total ? rows.map(row => {
+      const value = Number(row.value) || 0;
+      const angle = (value / total) * Math.PI * 2;
+      const path = facultyModalityPieSlicePath(cx, cy, radius, cursor, cursor + angle);
+      cursor += angle;
+      const pct = total ? ((value / total) * 100).toFixed(1) : '0.0';
+      return `<path d="${path}" fill="${colors[row.label] || '#64748b'}"><title>${escapeAttr(row.label)}: ${escapeAttr(value)} class offering(s), ${pct}%</title></path>`;
+    }).join('') : `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="#eef4f9"></circle>`;
+    const legend = rows.map(row => {
+      const value = Number(row.value) || 0;
+      const pct = total ? ((value / total) * 100).toFixed(1) : '0.0';
+      return `
+        <li>
+          <span class="faculty-modality-swatch" style="background:${colors[row.label] || '#64748b'}"></span>
+          <span>${escapeAttr(row.label)}</span>
+          <strong>${escapeAttr(value)} (${pct}%)</strong>
+        </li>`;
+    }).join('');
+    return `
+      <section class="faculty-modality-pie-card">
+        <h3>${escapeAttr(title)}</h3>
+        <div class="faculty-modality-pie-layout">
+          <svg class="faculty-modality-pie" viewBox="0 0 140 140" role="img" aria-label="${escapeAttr(title)} pie chart">
+            ${slices}
+            <circle cx="${cx}" cy="${cy}" r="30" fill="#fff"></circle>
+            <text x="${cx}" y="${cy - 2}" text-anchor="middle" class="faculty-modality-pie-total">${escapeAttr(total)}</text>
+            <text x="${cx}" y="${cy + 14}" text-anchor="middle" class="faculty-modality-pie-caption">classes</text>
+          </svg>
+          <ul class="faculty-modality-pie-legend">${legend}</ul>
+        </div>
+      </section>`;
+  }
+
   function renderFacultyModalityChart(rows) {
     const node = document.getElementById('facultyModalityChart');
     if (!node) return;
+    const focusRows = rows.filter(row => row.facultyType === 'Full-Time' || row.facultyType === 'Part-Time');
+    const byFacultyType = type => focusRows.filter(row => row.facultyType === type).reduce((total, row) => total + (row.sections || 0), 0);
+    const byFacultyAndModality = (type, modality) => focusRows
+      .filter(row => row.facultyType === type && row.modality === modality)
+      .reduce((total, row) => total + (row.sections || 0), 0);
+    const modalities = ['In-Person', 'Hybrid', 'Online'];
+    const ftPtRows = [
+      { label: 'Full-Time', value: byFacultyType('Full-Time') },
+      { label: 'Part-Time', value: byFacultyType('Part-Time') }
+    ];
+    const fullTimeRows = modalities.map(modality => ({ label: modality, value: byFacultyAndModality('Full-Time', modality) }));
+    const partTimeRows = modalities.map(modality => ({ label: modality, value: byFacultyAndModality('Part-Time', modality) }));
+    const pieCharts = `
+      <div class="faculty-modality-pie-grid">
+        ${renderFacultyModalityPieCard('FT/PT Share of Class Offerings', ftPtRows)}
+        ${renderFacultyModalityPieCard('Full-Time Modality Share', fullTimeRows)}
+        ${renderFacultyModalityPieCard('Part-Time Modality Share', partTimeRows)}
+      </div>`;
     const maxSections = Math.max(1, ...rows.map(row => row.sections || 0));
     const facultyTypes = ['Full-Time', 'Part-Time', 'Unknown'];
-    node.innerHTML = facultyTypes.map(type => {
+    const barCards = facultyTypes.map(type => {
       const typeRows = rows.filter(row => row.facultyType === type);
       const bars = typeRows.map(row => {
         const width = Math.max(2, ((row.sections || 0) / maxSections) * 100);
@@ -3722,6 +3799,7 @@
       }).join('');
       return `<section class="faculty-modality-card"><h3>${escapeAttr(type)}</h3>${bars}</section>`;
     }).join('');
+    node.innerHTML = `${pieCharts}${barCards}`;
   }
 
   function renderFacultyModality() {
@@ -3774,6 +3852,8 @@
       limitations: 'This report does not infer faculty preference, load eligibility, or assignment policy. It only summarizes uploaded schedule rows.',
       items: [
         ['Section Share', 'Sections in the faculty type/modality row divided by all included sections after filters.'],
+        ['FT/PT Share of Class Offerings', 'Pie chart showing Full-Time versus Part-Time share of included class offerings. Unknown faculty rows remain in the table but are not included in the FT/PT pie.'],
+        ['Faculty Type Modality Share', 'Pie charts showing each faculty type split across In-Person, Hybrid, and Online class offerings.'],
         ['Source Codes', 'Original INSM_CODE_SSBSECT values that mapped into the displayed modality row.']
       ],
       version: 'Methodology v1.0'
@@ -13790,6 +13870,17 @@
       .faculty-modality-hybrid{background:#f59e0b}
       .faculty-modality-online{background:#7c3aed}
       .faculty-modality-other{background:#64748b}
+      .faculty-modality-pie-grid{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px;margin:0 0 12px}
+      .faculty-modality-pie-card{min-width:0;border:1px solid #d8e1ec;border-radius:10px;background:#fff;padding:12px}
+      .faculty-modality-pie-card h3{margin:0 0 8px;color:#123367;font-size:15px}
+      .faculty-modality-pie-layout{display:grid;grid-template-columns:140px minmax(0,1fr);gap:12px;align-items:center}
+      .faculty-modality-pie{display:block;width:140px;height:140px}
+      .faculty-modality-pie-total{fill:#123367;font-size:20px;font-weight:900}
+      .faculty-modality-pie-caption{fill:#51657c;font-size:10px;font-weight:800;text-transform:uppercase}
+      .faculty-modality-pie-legend{list-style:none;margin:0;padding:0;display:grid;gap:7px;color:#334862;font-size:12px}
+      .faculty-modality-pie-legend li{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:7px;align-items:center}
+      .faculty-modality-pie-legend strong{color:#123367;white-space:nowrap}
+      .faculty-modality-swatch{width:12px;height:12px;border-radius:3px;display:inline-block}
       .prime-time-days span{display:flex;flex-wrap:wrap;gap:8px}
       .prime-time-days span label{display:inline-flex;flex-direction:row;align-items:center;gap:3px;font-weight:800}
       .prime-time-gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:12px;margin:0 0 14px}

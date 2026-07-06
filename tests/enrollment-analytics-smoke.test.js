@@ -3026,6 +3026,12 @@ test('faculty modality is a standalone Development report using INSM codes', () 
   assert.match(text, /Hybrid/);
   assert.match(text, /Online/);
   assert.doesNotMatch(text, /Other modality buckets/);
+  assert.match(text, /FT\/PT Share of Class Offerings/);
+  assert.match(text, /Full-Time Modality Share/);
+  assert.match(text, /Part-Time Modality Share/);
+  assert.match(text, /function renderFacultyModalityPieCard/);
+  assert.match(text, /faculty-modality-pie-grid/);
+  assert.match(text, /faculty-modality-pie-card/);
   assert.match(text, /faculty-modality-bar/);
   assert.match(text, /facultyModalityTableRows/);
   assert.match(text, /faculty-modality\.csv/);
