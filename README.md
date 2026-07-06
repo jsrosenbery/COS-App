@@ -37,6 +37,7 @@ For a different backend, override `window.COS_APP_CONFIG.backendBaseUrl` before 
 - `js/app.js`: active scheduling app, term tabs, uploads, room availability, heatmap, modality balance, room utilization, schedule grid, FullCalendar view, and admin imports.
 - `js/config.js`: single frontend configuration surface for backend URL, environment flags, and feature toggles.
 - `js/core/term-utils.js`: shared term parsing, Banner term-code normalization, academic-year labels, and term sort helpers used by schedule and enrollment reports.
+- `js/core/day-utils.js`: shared meeting-day normalization and day-pattern helpers for schedule, faculty, and enrollment time-based reports.
 - `js/core/formatters.js`: shared presentation formatting helpers for whole numbers, decimals, percentages, factors, and student-presence values.
 - `js/core/physical-time.js`: shared physical day/time eligibility and Online/TBA placeholder filtering used by time-based reports.
 - `js/core/metric-definitions.js`: read-only presentation layer used to explain metrics. It does not control calculations, filters, exports, parsing, report data generation, or Room Availability logic.

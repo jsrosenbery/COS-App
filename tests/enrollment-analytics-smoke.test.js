@@ -11,7 +11,7 @@ function loadEnrollmentModules() {
   };
   context.window.window = context.window;
   vm.createContext(context);
-  ['js/core/term-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
+  ['js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -32,7 +32,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  ['js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
+  ['js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -490,6 +490,23 @@ test('shared modality normalizer stores unmapped codes as UNKNOWN diagnostics', 
     currentMappedCategory: row.currentMappedCategory
   })), [{ originalInstructionalMethodCode: 'ZZZ', count: 2, currentMappedCategory: 'UNKNOWN' }]);
   assert.match(diagnostics[0].exampleCrnsCourses, /90001 \/ HIST 018/);
+});
+
+test('core day utility owns shared meeting-day normalization', () => {
+  const dayUtils = require('../js/core/day-utils.js');
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const facultyUtils = fs.readFileSync(path.join(__dirname, '..', 'js/core/faculty-utils.js'), 'utf8');
+
+  assert.deepEqual(dayUtils.normalizeDays('MW'), ['MO', 'WE']);
+  assert.deepEqual(dayUtils.normalizeDays('TR'), ['TU', 'TH']);
+  assert.deepEqual(dayUtils.normalizeDays('TH'), ['TH']);
+  assert.deepEqual(dayUtils.normalizeDays('Monday Wednesday'), ['MO', 'WE']);
+  assert.deepEqual(dayUtils.normalizeDays('XX'), []);
+  assert.deepEqual(dayUtils.normalizeDays('', { row: { MONDAY: 'Y', THURSDAY: 'Y' } }), ['MO', 'TH']);
+  assert.equal(dayUtils.dayPattern(['MO', 'WE']), 'MW');
+  assert.equal(dayUtils.dayPattern([]), 'TBA');
+  assert.match(analytics, /window\.COSDayUtils\?\.normalizeDays/);
+  assert.match(facultyUtils, /dayUtils\?\.normalizeDays/);
 });
 
 test('canonical CRN deduplication prevents enrollment inflation from repeated meeting rows', () => {
@@ -4685,6 +4702,7 @@ test('index owns enrollment analytics script order', () => {
     'js/config.js',
     'js/core/dom-utils.js',
     'js/core/term-utils.js',
+    'js/core/day-utils.js',
     'js/core/csv-normalizer.js',
     'js/core/formatters.js',
     'js/core/physical-time.js',

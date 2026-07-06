@@ -668,6 +668,7 @@
   }
 
   function normalizeDays(raw, row = {}) {
+    if (window.COSDayUtils?.normalizeDays) return window.COSDayUtils.normalizeDays(raw, { row });
     if (Array.isArray(row.Days) && row.Days.length) return normalizeDayArray(row.Days);
     const text = canon(raw);
     const dayFlags = [
@@ -691,6 +692,7 @@
   }
 
   function normalizeDayArray(days) {
+    if (window.COSDayUtils?.normalizeDayCodes) return window.COSDayUtils.normalizeDayCodes(days);
     const aliases = {
       MONDAY: 'MO',
       TUESDAY: 'TU',
@@ -715,6 +717,7 @@
   }
 
   function dayPattern(days) {
+    if (window.COSDayUtils?.dayPattern) return window.COSDayUtils.dayPattern(days);
     const normalized = normalizeDayArray(days || []);
     return normalized.length ? normalized.map(day => dayLabels[day]).join('') : 'TBA';
   }

@@ -1,9 +1,10 @@
 (function (root, factory) {
   const csv = root.COSCsvNormalizer || (typeof require === 'function' ? require('./csv-normalizer') : null);
-  const api = factory(csv);
+  const dayUtils = root.COSDayUtils || (typeof require === 'function' ? require('./day-utils') : null);
+  const api = factory(csv, dayUtils);
   root.COSFacultyUtils = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (csv) {
+})(typeof window !== 'undefined' ? window : globalThis, function (csv, dayUtils) {
   'use strict';
 
   if (!csv) throw new Error('COSCsvNormalizer is required before COSFacultyUtils.');
@@ -33,8 +34,8 @@
     endDate: ['EndDate', 'End Date', 'END_DATE']
   };
 
-  const dayOrder = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
-  const dayLabels = { SU: 'U', MO: 'M', TU: 'T', WE: 'W', TH: 'R', FR: 'F', SA: 'S' };
+  const dayOrder = dayUtils?.dayOrder || ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  const dayLabels = dayUtils?.dayLabels || { SU: 'U', MO: 'M', TU: 'T', WE: 'W', TH: 'R', FR: 'F', SA: 'S' };
   const dayAliases = {
     U: 'SU',
     SU: 'SU',
@@ -105,6 +106,7 @@
   }
 
   function normalizeDays(value) {
+    if (dayUtils?.normalizeDays) return dayUtils.normalizeDays(value);
     if (Array.isArray(value)) return normalizeDayCodes(value);
     const text = normalizeCode(value);
     if (!text || text === 'XX' || text === 'TBA') return [];
@@ -121,6 +123,7 @@
   }
 
   function normalizeDayCodes(values) {
+    if (dayUtils?.normalizeDayCodes) return dayUtils.normalizeDayCodes(values);
     const found = new Set();
     (values || []).forEach(value => {
       const code = dayAliases[normalizeCode(value)];
@@ -130,6 +133,7 @@
   }
 
   function dayPattern(days, fallback = '') {
+    if (dayUtils?.dayPattern) return dayUtils.dayPattern(days, fallback || '');
     const normalized = normalizeDays(days);
     if (normalized.length) return normalized.map(day => dayLabels[day]).join('');
     return normalizeCode(fallback);

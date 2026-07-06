@@ -118,6 +118,7 @@ test('faculty modules expose browser-compatible APIs', () => {
   context.window.window = context.window;
   vm.createContext(context);
   [
+    'js/core/day-utils.js',
     'js/core/csv-normalizer.js',
     'js/core/modality-normalizer.js',
     'js/core/faculty-utils.js',
