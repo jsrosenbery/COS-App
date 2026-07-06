@@ -3494,6 +3494,9 @@ test('schedule optimization lab is a standalone Development planning tool', () =
   assert.match(text, /Advisory only/);
   assert.match(text, /Prefer priority match/);
   assert.match(text, /Strict priority match/);
+  assert.match(text, /optimizationAllowCrossCampus/);
+  assert.match(text, /Allow cross-campus recommendations/);
+  assert.match(text, /Cross-campus recommendations/);
   assert.match(text, /Allowed time shift/);
   assert.match(text, /Maximum candidate rooms per section/);
   assert.match(text, /Run Optimization/);
@@ -3545,6 +3548,10 @@ test('schedule optimization lab is a standalone Development planning tool', () =
   assert.match(moduleText, /function buildHistoricalDemandIndex/);
   assert.match(moduleText, /function candidateRoomsForSection/);
   assert.match(moduleText, /function generateRoomMoveRecommendations/);
+  assert.match(moduleText, /SCHEDULE_TYPE_ROOM_COMPATIBILITY/);
+  assert.match(moduleText, /SCHD 04\/4 sections require lab-compatible rooms/);
+  assert.match(moduleText, /Cross-campus recommendation\. Administrative approval required\./);
+  assert.doesNotMatch(moduleText, /campusFit/);
   assert.match(moduleText, /function generateTimeShiftRecommendations/);
   assert.match(moduleText, /function addClassPlacement/);
   assert.match(moduleText, /function courseProfiles/);

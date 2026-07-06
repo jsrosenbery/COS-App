@@ -102,6 +102,56 @@
     return DIVISION_ALIASES.get(key) || text;
   }
 
+  const SCHEDULE_TYPE_ROOM_COMPATIBILITY = Object.freeze({
+    LECTURE: Object.freeze({
+      scheduleType: '02',
+      normalizedInstructionalComponent: 'Lecture',
+      compatibleRoomTypes: Object.freeze(['CLASSROOM', 'LECTURE HALL', 'SEMINAR']),
+      disallowedRoomTypes: Object.freeze(['LAB', 'LABORATORY', 'SCIENCE LAB', 'COMPUTER LAB', 'NURSING LAB', 'ART STUDIO', 'SHOP']),
+      notes: 'SCHD 02/2 sections require lecture/classroom-compatible rooms.'
+    }),
+    LAB: Object.freeze({
+      scheduleType: '04',
+      normalizedInstructionalComponent: 'Lab',
+      compatibleRoomTypes: Object.freeze(['LAB', 'LABORATORY', 'SCIENCE LAB', 'COMPUTER LAB', 'NURSING LAB', 'ART STUDIO', 'SHOP', 'LAB/ACTIVITY']),
+      disallowedRoomTypes: Object.freeze(['CLASSROOM', 'LECTURE HALL', 'SEMINAR']),
+      notes: 'SCHD 04/4 sections require lab-compatible rooms.'
+    })
+  });
+
+  function normalizeScheduleType(value) {
+    const text = compact(value);
+    if (!text) return '';
+    const numeric = text.match(/\d+/)?.[0] || '';
+    if (numeric) return numeric.padStart(2, '0');
+    const key = canon(text);
+    if (key.includes('LECTURE')) return '02';
+    if (key.includes('LAB')) return '04';
+    return key;
+  }
+
+  function scheduleTypeCompatibility(section = {}) {
+    const normalized = normalizeScheduleType(section.scheduleType || section.schdCode || section.SCHD_CODE_SSRMEET || section['SCHD Code'] || section['Schedule Type']);
+    if (normalized === '02') return SCHEDULE_TYPE_ROOM_COMPATIBILITY.LECTURE;
+    if (normalized === '04') return SCHEDULE_TYPE_ROOM_COMPATIBILITY.LAB;
+    return null;
+  }
+
+  function roomTypeCompatibleWithScheduleType(room, section) {
+    const rule = scheduleTypeCompatibility(section);
+    if (!rule) return true;
+    const actual = canon(room?.roomType || room?.['Room Type'] || room?.type);
+    if (!actual) return false;
+    if (rule.disallowedRoomTypes.some(type => actual.includes(type))) return false;
+    return rule.compatibleRoomTypes.some(type => actual.includes(type));
+  }
+
+  function inferredRequiredRoomType(section) {
+    const rule = scheduleTypeCompatibility(section);
+    if (rule) return rule.normalizedInstructionalComponent === 'Lab' ? 'Lab / Laboratory' : 'Lecture / Classroom';
+    return compact(section.roomType || section['Room Type'] || '');
+  }
+
   function normalizeRoomPriority(rawValue) {
     const raw = compact(Array.isArray(rawValue) ? rawValue.join('; ') : rawValue);
     if (!raw) {
@@ -236,6 +286,7 @@
     const room = cleanRoomNumber(building, section.room || section.Room || section.ROOM || section.roomOnly);
     const start = compact(section.start || section.startTime || section.Start_Time || section['Start Time']);
     const end = compact(section.end || section.endTime || section.End_Time || section['End Time']);
+    const scheduleType = normalizeScheduleType(section.scheduleType || section.schdCode || section.SCHD_CODE_SSRMEET || section['SCHD_CODE_SSRMEET'] || section['SCHD Code'] || section['Schedule Type'] || section.meetingType);
     return {
       term: compact(section.term || section.Term),
       crn: compact(section.crn || section.CRN),
@@ -255,9 +306,13 @@
       endMinutes: minutesFromTime(end),
       enrollment: num(section.enrollment ?? section.census ?? section.censusEnrollment ?? section.CENSUS_ENROLL ?? section.actual ?? section.actualEnroll ?? section.ACTUAL_ENROLL),
       sectionCap: num(section.sectionCap ?? section.cap ?? section.maxEnroll ?? section.MAX_ENROLL ?? section['Max Enrollment'] ?? section.Capacity),
-      roomType: compact(section.roomType || section['Room Type'] || section.scheduleType || section.meetingType),
+      scheduleType,
+      instructionalComponent: scheduleTypeCompatibility({ scheduleType })?.normalizedInstructionalComponent || compact(section.instructionalComponent || section.component || ''),
+      roomType: compact(section.roomType || section['Room Type'] || section.roomCategory || section.RoomCategory),
       division: normalizeDivisionName(section.division || section.Division),
       modality: compact(section.modality || section.Modality || section.instructionalMethod || section.INSM_CODE),
+      instructor: compact(section.instructor || section.instructorName || section.Instructor || section.FacultyName),
+      crossListId: compact(section.crossListId || section.XLIST || section.xlist || section['Cross List'] || section['Crosslist Group'] || section.Crosslist),
       source: section
     };
   }
@@ -603,11 +658,18 @@
   }
 
   function roomTypeMatches(room, section) {
+    if (!roomTypeCompatibleWithScheduleType(room, section)) return false;
+    const rule = scheduleTypeCompatibility(section);
+    if (rule) return true;
     const needed = canon(section.roomType);
     if (!needed) return true;
     const actual = canon(room.roomType);
     if (!actual) return false;
     return actual.includes(needed) || needed.includes(actual) || (needed.includes('LAB') && actual.includes('LAB')) || (needed.includes('CLASS') && actual.includes('CLASS'));
+  }
+
+  function sameCampus(room, section) {
+    return !section.campus || !room.campus || canon(room.campus) === canon(section.campus);
   }
 
   function roomFitScore(sectionInput, roomInput, allSections = [], options = {}) {
@@ -620,23 +682,21 @@
     const flags = [];
     if (history.historicalPeakCap && capacity < history.historicalPeakCap) flags.push('Room too small for historical cap');
     if (section.sectionCap && capacity < section.sectionCap) flags.push('Room too small for section cap');
+    if (capacity >= section.enrollment && capacity < Math.max(section.sectionCap || 0, history.historicalPeakCap || 0, history.historicalPeakEnrollment || 0)) flags.push('Room currently fits enrollment but does not support historical/section-cap demand');
     if (expected && capacity > expected * 1.75 && capacity - expected >= 15) flags.push('Room too large for expected enrollment');
     if (capacity < Math.max(section.enrollment, history.historicalPeakEnrollment || 0)) flags.push('Over-capacity risk');
     if (expected && capacity >= expected && capacity <= expected * 1.25) flags.push('Capacity fit');
     if (!roomTypeMatches(room, section)) flags.push('Room type mismatch');
+    if (!sameCampus(room, section)) flags.push('Cross-campus recommendation. Administrative approval required.');
     const priority = priorityComparison(room, section, options.priorityBehavior || 'prefer');
     if (priority.violates) flags.push('Priority mismatch');
     const capacityGap = capTarget ? Math.abs(capacity - capTarget) : 0;
-    const capacityFit = Math.max(0, 30 - Math.min(30, capacityGap));
-    const historicalCapFit = history.historicalPeakCap ? Math.max(0, 20 - Math.min(20, Math.abs(capacity - history.historicalPeakCap))) : 10;
-    const typeMatch = roomTypeMatches(room, section) ? 15 : -15;
-    const campusFit = !section.campus || !room.campus || canon(section.campus) === canon(room.campus) ? 10 : -20;
+    const capacityFit = Math.max(0, 45 - Math.min(45, capacityGap));
+    const historicalCapFit = history.historicalPeakCap ? Math.max(0, 25 - Math.min(25, Math.abs(capacity - history.historicalPeakCap))) : 10;
     const utilizationFit = expected && capacity ? Math.max(0, 10 - Math.abs((expected / capacity) - 0.82) * 20) : 5;
     const scoreComponents = {
       capacityFit: Math.round(capacityFit),
       historicalCapFit: Math.round(historicalCapFit),
-      roomTypeMatch: typeMatch,
-      campusFit,
       roomPriorityMatch: priority.score,
       demandFillHistory: history.historicalAverageEnrollment ? 8 : 0,
       studentPresenceImpact: capacity >= expected ? 5 : -10,
@@ -661,11 +721,57 @@
     const section = normalizeSection(sectionInput);
     if (!isTimeBasedSection(section)) return false;
     const indexed = scheduledSections?.byRoom ? scheduledSections.byRoom.get(room.roomKey) || [] : scheduledSections;
+    const ignored = Array.isArray(ignoreCrn) ? ignoreCrn : [ignoreCrn];
     return !(indexed || []).map(normalizeSection).some(other => {
-      if (ignoreCrn && other.crn && other.crn === ignoreCrn) return false;
+      if (ignored.includes(other.crn)) return false;
       if (other.roomKey !== room.roomKey || !isTimeBasedSection(other)) return false;
       return overlaps(section, other);
     });
+  }
+
+  function sharedMeetingKey(section) {
+    const row = normalizeSection(section);
+    const meeting = [row.days.join(''), row.startMinutes, row.endMinutes, row.roomKey].join('|');
+    if (row.crossListId) return `XLIST|${canon(row.crossListId)}|${meeting}`;
+    if (row.instructor && row.roomKey) return `SHARED|${canon(row.instructor)}|${meeting}`;
+    return `CRN|${row.crn}|${meeting}`;
+  }
+
+  function groupedOptimizationSections(sectionsInput = []) {
+    const rows = normalizedSections(sectionsInput).filter(isTimeBasedSection);
+    const groups = new Map();
+    rows.forEach(row => mapPush(groups, sharedMeetingKey(row), row));
+    return [...groups.values()].map(groupRows => {
+      const base = { ...groupRows[0] };
+      const crns = [...new Set(groupRows.map(row => row.crn).filter(Boolean))];
+      const shared = groupRows.length > 1 && crns.length > 1;
+      base.affectedCrns = crns;
+      base.sharedMeetingRows = groupRows;
+      base.crossListId = base.crossListId || groupRows.find(row => row.crossListId)?.crossListId || '';
+      if (shared) {
+        base.crn = crns.join('/');
+        base.enrollment = groupRows.reduce((sum, row) => sum + (Number(row.enrollment) || 0), 0);
+        base.sectionCap = groupRows.reduce((sum, row) => sum + (Number(row.sectionCap) || 0), 0);
+      }
+      return base;
+    });
+  }
+
+  function relatedSectionComponents(section, sectionsInput = []) {
+    const row = normalizeSection(section);
+    if (!row.crn) return [];
+    const ownKey = `${row.days.join('')}-${row.startMinutes}-${row.endMinutes}-${row.scheduleType}`;
+    return normalizedSections(sectionsInput).filter(other => other.crn === row.crn && `${other.days.join('')}-${other.startMinutes}-${other.endMinutes}-${other.scheduleType}` !== ownKey);
+  }
+
+  function lectureLabReviewNote(section, sectionsInput = []) {
+    const row = normalizeSection(section);
+    const related = relatedSectionComponents(row, sectionsInput);
+    if (!related.length) return '';
+    const full = [row, ...related];
+    const hasLecture = full.some(item => scheduleTypeCompatibility(item)?.normalizedInstructionalComponent === 'Lecture');
+    const hasLab = full.some(item => scheduleTypeCompatibility(item)?.normalizedInstructionalComponent === 'Lab');
+    return hasLecture && hasLab ? 'Lecture/lab relationship requires scheduler review.' : '';
   }
 
   function candidateRoomsForSection(sectionInput, roomsInput = [], options = {}) {
@@ -685,7 +791,7 @@
     if (rightSized.length) candidates = rightSized;
     return candidates
       .filter(room => room.roomKey !== section.roomKey)
-      .filter(room => isRoomAvailable(room, { ...section, roomKey: room.roomKey }, options.availability || options.sections || [], section.crn))
+      .filter(room => isRoomAvailable(room, { ...section, roomKey: room.roomKey }, options.availability || options.sections || [], section.affectedCrns || section.crn))
       .sort((a, b) => {
         const aGap = needed ? Math.abs(a.capacity - needed) : 0;
         const bGap = needed ? Math.abs(b.capacity - needed) : 0;
@@ -694,18 +800,38 @@
       .slice(0, maxCandidates);
   }
 
-  function recommendationBase(section, currentRoom, suggestedRoom, currentFit, suggestedFit) {
+  function recommendationTradeoffs(section, currentRoom, suggestedRoom, suggestedFit, options = {}) {
+    const notes = [];
+    if (suggestedFit.priority.violates) notes.push(suggestedFit.priority.note);
+    if (!sameCampus(suggestedRoom, section)) notes.push('Cross-campus recommendation. Administrative approval required.');
+    if (canon(currentRoom?.roomType) !== canon(suggestedRoom?.roomType)) notes.push(`Room type changes from ${currentRoom?.roomType || 'unknown'} to ${suggestedRoom?.roomType || 'unknown'}.`);
+    if (!suggestedFit.history.terms?.length) notes.push('Historical data missing or limited; review before acting.');
+    if (!currentRoom?.capacity) notes.push('Current room is unknown. Required room type inferred from schedule type.');
+    if (section.affectedCrns?.length > 1) notes.push(`Cross-listed/shared meeting group affects CRNs ${section.affectedCrns.join('/')}.`);
+    const relationNote = lectureLabReviewNote(section, options.allSections || []);
+    if (relationNote) notes.push(relationNote);
+    return notes.length ? notes.join(' ') : 'No major tradeoff identified.';
+  }
+
+  function recommendationBase(section, currentRoom, suggestedRoom, currentFit, suggestedFit, options = {}) {
+    const affectedCrns = section.affectedCrns?.length ? section.affectedCrns : [section.crn].filter(Boolean);
+    const groupLabel = affectedCrns.length > 1 ? `shared meeting group CRNs ${affectedCrns.join('/')}` : `CRN ${section.crn || ''}`;
+    const capPhrase = affectedCrns.length > 1 ? ` Combined cap is ${section.sectionCap} and current room capacity is ${currentRoom?.capacity || 0}.` : '';
     return {
       crn: section.crn,
+      affectedCrns: affectedCrns.join('/'),
       course: section.courseCode,
       section: section.section,
       currentCampus: section.campus,
+      suggestedCampus: suggestedRoom.campus,
       currentRoom: section.roomKey,
       suggestedRoom: suggestedRoom.roomKey,
       currentCapacity: currentRoom?.capacity || 0,
       suggestedCapacity: suggestedRoom.capacity || 0,
       currentEnrollment: section.enrollment,
       sectionCap: section.sectionCap,
+      instructionalComponent: scheduleTypeCompatibility(section)?.normalizedInstructionalComponent || section.instructionalComponent || 'Unknown',
+      requiredRoomType: inferredRequiredRoomType(section),
       historicalAverageEnrollment: Math.round(currentFit.history.historicalAverageEnrollment || suggestedFit.history.historicalAverageEnrollment || 0),
       historicalPeakEnrollment: Math.round(currentFit.history.historicalPeakEnrollment || suggestedFit.history.historicalPeakEnrollment || 0),
       roomTypeComparison: `${currentRoom?.roomType || 'Unknown'} -> ${suggestedRoom.roomType || 'Unknown'}`,
@@ -713,23 +839,24 @@
       confidence: suggestedFit.confidence,
       score: Math.round(suggestedFit.score - currentFit.score),
       scoreComponents: suggestedFit.scoreComponents,
-      tradeoffs: suggestedFit.priority.violates ? suggestedFit.priority.note : 'No major tradeoff identified.',
-      reason: `Move CRN ${section.crn || ''} from ${section.roomKey || 'unassigned room'} to ${suggestedRoom.roomKey} because the suggested room improves ${suggestedFit.flags.includes('Capacity fit') ? 'capacity fit' : 'overall room fit'} and ${suggestedFit.priority.status.toLowerCase()}.`
+      tradeoffs: recommendationTradeoffs(section, currentRoom, suggestedRoom, suggestedFit, options),
+      reason: `Move ${groupLabel} from ${section.roomKey || 'unassigned room'} to ${suggestedRoom.roomKey} because the suggested room improves ${suggestedFit.flags.includes('Capacity fit') ? 'capacity fit' : 'overall room fit'} and ${suggestedFit.priority.status.toLowerCase()}.${capPhrase}`
     };
   }
 
   function generateRoomMoveRecommendations(sectionsInput = [], roomsInput = [], options = {}) {
     const indexes = options.indexes || null;
-    const sections = indexes?.activeSections || sectionsInput.map(normalizeSection).filter(isTimeBasedSection);
+    const sourceSections = indexes?.activeSections || sectionsInput.map(normalizeSection).filter(isTimeBasedSection);
+    const sections = groupedOptimizationSections(sourceSections);
     const historyRows = options.historyRows || sectionsInput;
     const rooms = indexes?.rooms || normalizeRoomCatalog(roomsInput);
-    const availability = indexes?.availability || buildAvailabilityIndex(sections);
+    const availability = indexes?.availability || buildAvailabilityIndex(sourceSections);
     const historicalDemand = options.historicalDemand || indexes?.historicalDemand;
     const recommendations = [];
     let candidateRoomsEvaluated = 0;
     sections.forEach(section => {
       const currentRoom = rooms.find(room => room.roomKey === section.roomKey) || { roomKey: section.roomKey, capacity: 0, roomType: '' };
-      const scopedOptions = { ...options, availability, historicalDemand, roomIndexes: indexes?.roomIndexes };
+      const scopedOptions = { ...options, availability, historicalDemand, roomIndexes: indexes?.roomIndexes, allSections: sourceSections };
       const currentFit = roomFitScore(section, currentRoom, historyRows, scopedOptions);
       const prefiltered = candidateRoomsForSection(section, rooms, scopedOptions);
       candidateRoomsEvaluated += prefiltered.length;
@@ -738,7 +865,7 @@
         .filter(candidate => !candidate.fit.priority.blocks)
         .filter(candidate => candidate.fit.score > currentFit.score + 8)
         .sort((a, b) => b.fit.score - a.fit.score);
-      if (candidates[0]) recommendations.push(recommendationBase(section, currentRoom, candidates[0].room, currentFit, candidates[0].fit));
+      if (candidates[0]) recommendations.push(recommendationBase(section, currentRoom, candidates[0].room, currentFit, candidates[0].fit, scopedOptions));
     });
     if (options.stats) {
       options.stats.sectionsEvaluated = sections.length;
@@ -776,11 +903,13 @@
       const currentRoom = rooms.find(room => room.roomKey === section.roomKey);
       if (!currentRoom) return;
       const currentFit = roomFitScore(section, currentRoom, historyRows, { ...options, historicalDemand: indexes?.historicalDemand || options.historicalDemand });
+      const relationNote = lectureLabReviewNote(section, sections);
       const best = steps.map(offset => {
         candidateTimeShiftsEvaluated += 1;
         const shifted = shiftedSection(section, offset);
         if (shifted.startMinutes < 6 * 60 || shifted.endMinutes > 22 * 60) return null;
         if (!isRoomAvailable(currentRoom, shifted, availability, section.crn)) return null;
+        if (relationNote && scheduleTypeCompatibility(section)?.normalizedInstructionalComponent === 'Lab' && Math.abs(offset) > 30) return null;
         const fit = { ...currentFit, score: currentFit.score + Math.max(0, 12 - Math.abs(offset) / 10), scoreComponents: { ...currentFit.scoreComponents, timeShiftSize: -Math.round(Math.abs(offset) / 10), conflictRisk: 15 } };
         return { offset, shifted, fit };
       }).filter(Boolean).sort((a, b) => b.fit.score - a.fit.score)[0];
@@ -795,8 +924,8 @@
           timeShiftAmount: `${best.offset > 0 ? '+' : ''}${best.offset} minutes`,
           improvementReason: 'Same-room time shift avoids conflicts within the selected tolerance and preserves meeting pattern.',
           conflictsAvoided: 'No overlapping scheduled room conflict after shift.',
-          confidence: currentFit.confidence,
-          tradeoffs: 'Review instructor and student schedule impacts before changing published times.',
+          confidence: relationNote ? 'Low' : currentFit.confidence,
+          tradeoffs: relationNote ? `${relationNote} Time shift affects only part of a multi-component section.` : 'Review instructor and student schedule impacts before changing published times.',
           score: Math.round(best.fit.score - currentFit.score),
           scoreComponents: best.fit.scoreComponents
         });
@@ -875,11 +1004,15 @@
   }
 
   return {
+    SCHEDULE_TYPE_ROOM_COMPATIBILITY,
     normalizeDivisionName,
     normalizeRoomPriority,
     normalizeRoomCatalog,
     normalizeSection,
     normalizeDays,
+    scheduleTypeCompatibility,
+    inferredRequiredRoomType,
+    groupedOptimizationSections,
     isTimeBasedSection,
     minutesFromTime,
     timeLabel,

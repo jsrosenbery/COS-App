@@ -84,6 +84,125 @@ test('room move current capacity matches catalog when section room repeats build
   assert.equal(moves[0]?.suggestedRoom, 'TCCB-B110');
 });
 
+test('schedule type compatibility maps lecture and lab codes defensibly', () => {
+  assert.equal(optimizer.scheduleTypeCompatibility({ scheduleType: '02' }).normalizedInstructionalComponent, 'Lecture');
+  assert.equal(optimizer.scheduleTypeCompatibility({ scheduleType: '2' }).normalizedInstructionalComponent, 'Lecture');
+  assert.equal(optimizer.scheduleTypeCompatibility({ scheduleType: '04' }).normalizedInstructionalComponent, 'Lab');
+  assert.equal(optimizer.scheduleTypeCompatibility({ scheduleType: '4' }).normalizedInstructionalComponent, 'Lab');
+});
+
+test('lecture sections are not recommended into labs and lab sections are not recommended into classrooms', () => {
+  const catalog = [
+    { Campus: 'COS', Building: 'C', Room: '101', Capacity: 40, 'Room Type': 'Classroom', 'Room Priority': 'Science' },
+    { Campus: 'COS', Building: 'L', Room: '201', Capacity: 40, 'Room Type': 'Science Lab', 'Room Priority': 'Science' }
+  ];
+  const lecture = { term: 'FALL 2026', crn: '20001', subject: 'BIO', course: '010', campus: 'COS', building: 'C', room: '099', days: 'MW', start: '09:00', end: '10:00', actual: 30, cap: 35, division: 'Science', SCHD_CODE_SSRMEET: '02', modality: 'In-Person' };
+  const lab = { ...lecture, crn: '20002', building: 'L', room: '099', SCHD_CODE_SSRMEET: '04' };
+
+  const lectureCandidates = optimizer.candidateRoomsForSection(lecture, catalog);
+  const labCandidates = optimizer.candidateRoomsForSection(lab, catalog);
+
+  assert.equal(lectureCandidates.some(room => /Lab/.test(room.roomType)), false);
+  assert.equal(lectureCandidates.some(room => /Classroom/.test(room.roomType)), true);
+  assert.equal(labCandidates.some(room => /Classroom/.test(room.roomType)), false);
+  assert.equal(labCandidates.some(room => /Lab/.test(room.roomType)), true);
+});
+
+test('unknown current room infers required room type from SCHD Code', () => {
+  const catalog = [
+    { Campus: 'COS', Building: 'C', Room: '101', Capacity: 40, 'Room Type': 'Classroom', 'Room Priority': 'Science' },
+    { Campus: 'COS', Building: 'L', Room: '201', Capacity: 40, 'Room Type': 'Science Lab', 'Room Priority': 'Science' }
+  ];
+  const section = { term: 'FALL 2026', crn: '21001', subject: 'BIO', course: '010', campus: 'COS', building: '', room: 'N/A', days: 'MW', start: '09:00', end: '10:00', actual: 30, cap: 35, division: 'Science', SCHD_CODE_SSRMEET: '02', modality: 'In-Person' };
+  const moves = optimizer.generateRoomMoveRecommendations([section], catalog, { priorityBehavior: 'prefer', historyRows: [section] });
+
+  assert.equal(optimizer.inferredRequiredRoomType(optimizer.normalizeSection(section)), 'Lecture / Classroom');
+  assert.equal(moves[0].suggestedRoom, 'C-101');
+  assert.match(moves[0].tradeoffs, /Current room is unknown/);
+  assert.equal(/Lab/.test(moves[0].suggestedRoom), false);
+});
+
+test('campus is a hard constraint unless cross-campus recommendations are enabled', () => {
+  const catalog = [
+    { Campus: 'COS', Building: 'A', Room: '101', Capacity: 20, 'Room Type': 'Classroom', 'Room Priority': 'Math' },
+    { Campus: 'TCC', Building: 'T', Room: '101', Capacity: 40, 'Room Type': 'Classroom', 'Room Priority': 'Math' }
+  ];
+  const section = { term: 'FALL 2026', crn: '22001', subject: 'MATH', course: '001', campus: 'COS', building: 'A', room: '101', days: 'MW', start: '09:00', end: '10:00', actual: 35, cap: 35, division: 'Math', SCHD_CODE_SSRMEET: '02', modality: 'In-Person' };
+
+  assert.equal(optimizer.candidateRoomsForSection(section, catalog).length, 0);
+  const crossCampus = optimizer.generateRoomMoveRecommendations([section], catalog, { allowCrossCampusMoves: true, historyRows: [section] });
+  assert.equal(crossCampus[0].suggestedRoom, 'T-101');
+  assert.match(crossCampus[0].tradeoffs, /Cross-campus recommendation/);
+});
+
+test('priority violation appears as a tradeoff instead of no-major-tradeoff language', () => {
+  const catalog = [
+    { Campus: 'COS', Building: 'A', Room: '101', Capacity: 20, 'Room Type': 'Classroom', 'Room Priority': 'Science' },
+    { Campus: 'COS', Building: 'B', Room: '101', Capacity: 40, 'Room Type': 'Classroom', 'Room Priority': 'Science' }
+  ];
+  const section = { term: 'FALL 2026', crn: '23001', subject: 'MATH', course: '001', campus: 'COS', building: 'A', room: '101', days: 'MW', start: '09:00', end: '10:00', actual: 35, cap: 35, division: 'Math', SCHD_CODE_SSRMEET: '02', modality: 'In-Person' };
+  const moves = optimizer.generateRoomMoveRecommendations([section], catalog, { priorityBehavior: 'advisory', historyRows: [section] });
+
+  assert.match(moves[0].roomPriorityComparison, /Violates priority/);
+  assert.match(moves[0].tradeoffs, /not Math/);
+  assert.doesNotMatch(moves[0].tradeoffs, /No major tradeoff/);
+});
+
+test('multi-meeting lecture lab section preserves component awareness', () => {
+  const rows = [
+    { term: 'FALL 2026', crn: '24001', subject: 'CHEM', course: '001', campus: 'COS', building: 'A', room: '101', days: 'M', start: '09:00', end: '10:00', actual: 20, cap: 24, division: 'Science', SCHD_CODE_SSRMEET: '02', modality: 'In-Person' },
+    { term: 'FALL 2026', crn: '24001', subject: 'CHEM', course: '001', campus: 'COS', building: 'L', room: '100', days: 'M', start: '10:00', end: '12:00', actual: 20, cap: 24, division: 'Science', SCHD_CODE_SSRMEET: '04', modality: 'In-Person' }
+  ];
+  const catalog = [
+    { Campus: 'COS', Building: 'A', Room: '101', Capacity: 30, 'Room Type': 'Classroom', 'Room Priority': 'Science' },
+    { Campus: 'COS', Building: 'L', Room: '100', Capacity: 12, 'Room Type': 'Science Lab', 'Room Priority': 'Science' },
+    { Campus: 'COS', Building: 'L', Room: '200', Capacity: 24, 'Room Type': 'Science Lab', 'Room Priority': 'Science' }
+  ];
+  const moves = optimizer.generateRoomMoveRecommendations(rows, catalog, { priorityBehavior: 'prefer', historyRows: rows });
+  const labMove = moves.find(row => row.instructionalComponent === 'Lab');
+  const shifts = optimizer.generateTimeShiftRecommendations(rows, catalog, { allowedShiftMinutes: 60, historyRows: rows });
+
+  assert.ok(labMove);
+  assert.equal(labMove.suggestedRoom, 'L-200');
+  assert.equal(moves.some(row => row.instructionalComponent === 'Lecture' && /L-/.test(row.suggestedRoom)), false);
+  assert.ok(shifts.every(row => row.crn !== '24001' || /Lecture\/lab relationship requires scheduler review|Review instructor/.test(row.tradeoffs)));
+});
+
+test('cross-listed shared meetings move as a unit using combined enrollment and capacity', () => {
+  const rows = [
+    { term: 'FALL 2026', crn: '25001', subject: 'HIST', course: '001', campus: 'COS', building: 'A', room: '101', days: 'TR', start: '11:00', end: '12:15', actual: 20, cap: 25, division: 'Social Science', SCHD_CODE_SSRMEET: '02', XLIST: 'XL1', instructor: 'Smith', modality: 'In-Person' },
+    { term: 'FALL 2026', crn: '25002', subject: 'POLS', course: '001', campus: 'COS', building: 'A', room: '101', days: 'TR', start: '11:00', end: '12:15', actual: 18, cap: 20, division: 'Social Science', SCHD_CODE_SSRMEET: '02', XLIST: 'XL1', instructor: 'Smith', modality: 'In-Person' }
+  ];
+  const catalog = [
+    { Campus: 'COS', Building: 'A', Room: '101', Capacity: 32, 'Room Type': 'Classroom', 'Room Priority': 'Social Science' },
+    { Campus: 'COS', Building: 'B', Room: '110', Capacity: 50, 'Room Type': 'Classroom', 'Room Priority': 'Social Science' }
+  ];
+  const grouped = optimizer.groupedOptimizationSections(rows);
+  const moves = optimizer.generateRoomMoveRecommendations(rows, catalog, { priorityBehavior: 'prefer', historyRows: rows });
+
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0].enrollment, 38);
+  assert.equal(grouped[0].sectionCap, 45);
+  assert.equal(moves[0].affectedCrns, '25001/25002');
+  assert.equal(moves[0].currentEnrollment, 38);
+  assert.equal(moves[0].sectionCap, 45);
+  assert.match(moves[0].reason, /shared meeting group CRNs 25001\/25002/);
+});
+
+test('cross-listed shared lecture can move as unit while separate labs remain separate', () => {
+  const rows = [
+    { term: 'FALL 2026', crn: '26001', subject: 'BIO', course: '001', campus: 'COS', building: 'A', room: '101', days: 'M', start: '09:00', end: '10:00', actual: 15, cap: 20, division: 'Science', SCHD_CODE_SSRMEET: '02', XLIST: 'XL2', instructor: 'Lee', modality: 'In-Person' },
+    { term: 'FALL 2026', crn: '26002', subject: 'BIO', course: '001', campus: 'COS', building: 'A', room: '101', days: 'M', start: '09:00', end: '10:00', actual: 12, cap: 18, division: 'Science', SCHD_CODE_SSRMEET: '02', XLIST: 'XL2', instructor: 'Lee', modality: 'In-Person' },
+    { term: 'FALL 2026', crn: '26001', subject: 'BIO', course: '001', campus: 'COS', building: 'L', room: '100', days: 'W', start: '09:00', end: '11:00', actual: 15, cap: 20, division: 'Science', SCHD_CODE_SSRMEET: '04', instructor: 'Lee', modality: 'In-Person' },
+    { term: 'FALL 2026', crn: '26002', subject: 'BIO', course: '001', campus: 'COS', building: 'L', room: '101', days: 'W', start: '12:00', end: '14:00', actual: 12, cap: 18, division: 'Science', SCHD_CODE_SSRMEET: '04', instructor: 'Lee', modality: 'In-Person' }
+  ];
+  const grouped = optimizer.groupedOptimizationSections(rows);
+
+  assert.equal(grouped.some(row => row.affectedCrns.join('/') === '26001/26002' && row.instructionalComponent === 'Lecture'), true);
+  assert.equal(grouped.some(row => row.affectedCrns.join('/') === '26001' && row.instructionalComponent === 'Lab'), true);
+  assert.equal(grouped.some(row => row.affectedCrns.join('/') === '26002' && row.instructionalComponent === 'Lab'), true);
+});
+
 test('time shift recommendations obey allowed tolerance', () => {
   const conflictSections = [
     { term: 'FALL 2026', crn: '1', subject: 'ART', course: '001', campus: 'COS', building: 'A', room: '101', days: 'MW', start: '09:00', end: '10:00', actual: 20, cap: 25, division: 'Fine Arts', roomType: 'Classroom', modality: 'In-Person' },

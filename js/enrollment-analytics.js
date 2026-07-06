@@ -2251,6 +2251,7 @@
                 <option value="strict">Strict priority match</option>
               </select>
             </label>
+            <label class="analytics-check"><input id="optimizationAllowCrossCampus" type="checkbox"> Allow cross-campus recommendations</label>
             <label>Allowed time shift
               <select id="optimizationAllowedShift">
                 <option value="0">None</option>
@@ -6678,16 +6679,20 @@
     renderMethodologyPanel(document.getElementById('optimizationMethodology'), {
       title: 'Schedule Optimization Lab Methodology & Data Dictionary',
       purpose: 'Recommends possible room moves, small time shifts, and add-a-class placements for executive planning review.',
-      methodology: 'Room fit compares assigned room capacity, section cap, current enrollment, historical average/peak enrollment, historical cap, room type, campus, and room priority. Historical cap risk is flagged when the room fits current enrollment but is smaller than historical or normal cap expectations. Room priority affects scoring according to the selected behavior: Advisory only, Prefer priority match, or Strict priority match. Time shifts are constrained to the selected tolerance and preserve day pattern and duration. Add-a-class placement ranks available rooms and day/time options using the same transparent score components.',
-      assumptions: 'One active optimization term is analyzed for possible changes. Historical comparison and demand terms are read-only evidence sources for demand, fill-rate, caps, and prior room usage. Recommendations are advisory and do not automatically change schedules, archives, Room Availability, Room Catalog, or uploaded data. Room Catalog is treated as the primary room inventory source.',
-      limitations: 'The lab does not model instructor contracts, student conflicts across courses, travel time, program sequencing, room setup time, equipment needs beyond room type/features, or leadership decisions. Strict priority mode blocks mismatched priority recommendations; other modes surface priority warnings for review. When historical data is limited, confidence is lowered and recommendations state that limitation.',
+      methodology: 'Room fit treats campus and room type as hard constraints before scoring. By default, only same-campus rooms are evaluated; cross-campus options appear only when the cross-campus setting is enabled and are flagged for administrative approval. SCHD Code / Schedule Type is the primary room-type driver: SCHD 02/2 requires lecture/classroom-compatible rooms and SCHD 04/4 requires lab-compatible rooms. Capacity fit, section cap, historical cap/peak enrollment, room priority, historical demand, availability, and confidence are scored only after invalid candidates are pruned.',
+      assumptions: 'One active optimization term is analyzed for possible changes. Historical comparison and demand terms are read-only evidence sources for demand, fill-rate, caps, and prior room usage. Recommendations are advisory and do not automatically change schedules, archives, Room Availability, Room Catalog, or uploaded data. Room Catalog is treated as the primary room inventory source. Cross-listed/shared meetings are evaluated as a unit when a cross-list ID is present or when rows share the same room, day/time, and instructor.',
+      limitations: 'The lab does not model instructor contracts, student conflicts across courses, travel time, program sequencing, room setup time, equipment needs beyond room type/features, or leadership decisions. Strict priority mode blocks mismatched priority recommendations; other modes surface priority warnings for review. Lecture/lab relationship uncertainty, cross-list uncertainty, current-room uncertainty, priority violations, and limited history are called out as review tradeoffs.',
       items: [
         ['Active Term', 'The current or planned term being optimized. Room moves, time shifts, and add-a-class availability are evaluated against this term only.'],
         ['Historical / Demand Terms', 'Optional selected archived or uploaded terms used to support demand, fill-rate, cap, and like-term evidence. Like-term history defaults toward Fall-to-Fall or Spring-to-Spring when available.'],
+        ['Campus Constraint', 'Campus is not a weighted score. Same-campus rooms are evaluated by default. Cross-campus recommendations are excluded unless the cross-campus setting is enabled, and then every cross-campus row is flagged for administrative approval.'],
+        ['Schedule Type Room Rules', 'SCHD 02/2 sections require lecture/classroom-compatible rooms. SCHD 04/4 sections require lab-compatible rooms. Lecture-to-lab and lab-to-classroom recommendations are rejected before scoring.'],
         ['Capacity Fit', 'Rewards rooms close to expected enrollment, section cap, and historical cap/peak demand.'],
         ['Historical Cap Risk', 'Flags sections placed in rooms smaller than historical cap, historical peak enrollment, or normal section cap.'],
         ['Room Priority', 'Raw room priority is preserved and normalized into primary and secondary priority areas.'],
-        ['Time Shift', 'Only considers shifts within the selected tolerance and excludes asynchronous Online/TBA rows.'],
+        ['Lecture/Lab Components', 'Room moves may be component-specific, but time shifts consider the full section pattern. Lab time shifts should not separate the lab from its related lecture in a way that creates an impractical student schedule.'],
+        ['Cross-Listed Sections', 'Shared cross-listed meetings are treated as a unit. Capacity fit uses combined enrollment/capacity where the shared meeting can be identified.'],
+        ['Time Shift', 'Only considers shifts within the selected tolerance and excludes asynchronous Online/TBA rows. Multi-component lecture/lab shifts are lowered in confidence and flagged for scheduler review.'],
         ['Add-a-Class Placement', 'Ranks available rooms for a hypothetical new section based on capacity, room type, priority, conflicts, and historical demand evidence. Course and CRN profiles can prefill assumptions; manual entry remains available for brand-new courses.'],
         ['Proposed Faculty Time Evaluation', 'Scores a faculty-preferred day/time against room availability, expected fill/demand support, student presence alignment, prime-time pressure, competing similar sections, room fit, historical performance, saturated patterns, and schedule gaps.'],
         ['Better-Time Recommendation', 'Compares candidate alternatives against the proposed faculty time and explains why an option is better only when data supports a higher score.'],
@@ -6788,6 +6793,7 @@
       const runStarted = performance.now();
       setOptimizationRunStatus('Preparing data', { running: true });
       const priorityBehavior = document.getElementById('optimizationPriorityBehavior')?.value || 'prefer';
+      const allowCrossCampusMoves = document.getElementById('optimizationAllowCrossCampus')?.checked === true;
       const allowedShiftMinutes = Number(document.getElementById('optimizationAllowedShift')?.value || 0);
       const maxCandidateRoomsPerSection = Number(document.getElementById('optimizationMaxCandidateRooms')?.value || 10);
       await optimizationStage(timings, 'Load active term', async () => {
@@ -6801,7 +6807,7 @@
       const activeRows = await optimizationStage(timings, 'Normalize schedule rows', async () => optimizationActiveRows().map(engine.normalizeSection));
       const historyRows = await optimizationStage(timings, 'Load historical terms', async () => optimizationHistoryRows(activeTerm).map(engine.normalizeSection));
       const rooms = await optimizationStage(timings, 'Normalize room catalog', async () => optimizationRoomCatalog());
-      const settings = { priorityBehavior, allowedShiftMinutes, maxCandidateRoomsPerSection };
+      const settings = { priorityBehavior, allowCrossCampusMoves, allowedShiftMinutes, maxCandidateRoomsPerSection };
       const cacheKey = optimizationCacheKey({ activeTerm, activeRows, historyRows, rooms, settings });
       let indexes = state.optimizationCache.key === cacheKey ? state.optimizationCache.indexes : null;
       if (indexes) {
@@ -6831,6 +6837,7 @@
       };
       const options = {
         priorityBehavior,
+        allowCrossCampusMoves,
         allowedShiftMinutes,
         includeHistory: true,
         historyRows,
@@ -6895,6 +6902,7 @@
           exclusionReasons: exclusions.reasons.map(([reason, count]) => `${reason}: ${count}`).join('; ') || 'None',
           activeFilters: 'Uses loaded schedule rows for selected active optimization term; historical rows support demand/fill evidence only.',
           priorityBehavior,
+          allowCrossCampusMoves,
           allowedShiftMinutes,
           maxCandidateRoomsPerSection
         };
@@ -6908,6 +6916,7 @@
           exclusions: optimizationExclusionChips(exclusions),
           activeFilters: [
             { label: 'Room priority behavior', value: priorityBehavior },
+            { label: 'Cross-campus recommendations', value: allowCrossCampusMoves ? 'Allowed with administrative approval flag' : 'Blocked' },
             { label: 'Allowed time shift', value: `${allowedShiftMinutes} minutes` },
             { label: 'Maximum candidate rooms per section', value: maxCandidateRoomsPerSection },
             { label: 'Historical comparison terms', value: state.optimizationContext.historicalComparisonTerms },
@@ -6938,7 +6947,7 @@
         ]);
         document.getElementById('optimizationSettingsPanel').innerHTML = `<strong>Optimization Settings</strong><p>Priority behavior: ${escapeAttr(priorityBehavior)}. Allowed time shift: ${escapeAttr(allowedShiftMinutes)} minutes. Maximum candidate rooms per section: ${escapeAttr(maxCandidateRoomsPerSection)}. Recommendations remain advisory and do not update source data.</p>`;
         document.getElementById('optimizationInventoryStatus').innerHTML = `<strong>Room Inventory Status</strong><p>${escapeAttr(rooms.length ? `${rooms.length} normalized Room Catalog rows loaded as primary inventory source.` : 'No Room Catalog rows are available. Import Room Catalog before relying on recommendations.')}</p>`;
-        table('optimizationMoveTable', state.optimizationMoves, ['crn', 'course', 'section', 'currentRoom', 'suggestedRoom', 'currentCapacity', 'suggestedCapacity', 'currentEnrollment', 'sectionCap', 'historicalAverageEnrollment', 'historicalPeakEnrollment', 'roomTypeComparison', 'roomPriorityComparison', 'reason', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
+        table('optimizationMoveTable', state.optimizationMoves, ['crn', 'affectedCrns', 'course', 'section', 'instructionalComponent', 'requiredRoomType', 'currentCampus', 'suggestedCampus', 'currentRoom', 'suggestedRoom', 'currentCapacity', 'suggestedCapacity', 'currentEnrollment', 'sectionCap', 'historicalAverageEnrollment', 'historicalPeakEnrollment', 'roomTypeComparison', 'roomPriorityComparison', 'reason', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
         table('optimizationShiftTable', state.optimizationShifts, ['crn', 'course', 'currentDayTime', 'suggestedDayTime', 'currentRoom', 'suggestedRoom', 'timeShiftAmount', 'improvementReason', 'conflictsAvoided', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
         table('optimizationProposedEvaluation', state.optimizationProposedEvaluation, ['course', 'proposedDayTime', 'proposedTimeScore', 'availableRoomCount', 'bestRoomFit', 'expectedFillDemandSupport', 'historicalFillRate', 'competingSections', 'primeTimePressure', 'roomFitQuality', 'historicalPerformance', 'saturatedPattern', 'scheduleGapFit']);
         table('optimizationBetterTimes', state.optimizationBetterTimes, ['suggestedDayTime', 'suggestedRoom', 'proposedTimeScore', 'recommendedTimeScore', 'historicalFillRateAtProposedTime', 'historicalFillRateAtRecommendedTime', 'competingSectionsNearProposedTime', 'competingSectionsNearRecommendedTime', 'availableRoomCount', 'bestRoomFit', 'demandGapIndicator', 'primeTimeImpact', 'studentPresenceAlignment', 'confidence', 'whyThisIsBetter']);
@@ -14272,7 +14281,7 @@
         .catch(err => alert(err.message || 'Backend archive refresh failed.'));
     });
     document.getElementById('archiveOptimizationUploads')?.addEventListener('click', () => archiveUploads('optimizationCsv').catch(err => alert(err.message || 'Archive failed.')));
-    ['optimizationTerm', 'optimizationHistoryTerms', 'optimizationDemandTerms', 'optimizationTermPreset', 'optimizationPriorityBehavior', 'optimizationAllowedShift', 'optimizationMaxCandidateRooms'].forEach(id => {
+    ['optimizationTerm', 'optimizationHistoryTerms', 'optimizationDemandTerms', 'optimizationTermPreset', 'optimizationPriorityBehavior', 'optimizationAllowCrossCampus', 'optimizationAllowedShift', 'optimizationMaxCandidateRooms'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {
         if (id === 'optimizationTerm' || id === 'optimizationTermPreset') updateOptimizationTermOptions();
         invalidateOptimizationCache('Settings changed. Run optimization again to refresh results.');
