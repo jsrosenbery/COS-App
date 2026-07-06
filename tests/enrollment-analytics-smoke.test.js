@@ -3497,6 +3497,9 @@ test('schedule optimization lab is a standalone Development planning tool', () =
   assert.match(text, /Allowed time shift/);
   assert.match(text, /optimizationCsv/);
   assert.match(text, /optimizationArchiveTerms/);
+  assert.match(text, /optimizationFacultyArchiveTerms/);
+  assert.match(text, /refreshOptimizationArchives/);
+  assert.match(text, /Backend archives:/);
   assert.match(text, /optimizationHistoryTerms/);
   assert.match(text, /optimizationDemandTerms/);
   assert.match(text, /Prior Fall Terms/);
@@ -3512,6 +3515,10 @@ test('schedule optimization lab is a standalone Development planning tool', () =
   assert.match(text, /Room Priority Audit/);
   assert.match(text, /runScheduleOptimizationLab/);
   assert.match(text, /exportOptimizationRows/);
+  assert.match(text, /setSelectOptions\('optimizationArchiveTerms', options\)/);
+  assert.match(text, /'optimizationFacultyArchiveTerms'/);
+  assert.match(text, /readSavedFacultyScheduleRowsForTerms/);
+  assert.match(text, /loadOptimizationFacultyArchiveRows/);
   assert.match(text, /setReportDisplay\(REPORTS\.scheduleOptimizationLab, 'scheduleOptimizationLabReport'\)/);
   assert.match(text, /optimization-room-move-recommendations/);
   assert.match(text, /optimization-room-priority-audit', title: 'Room Priority Audit', defaultOpen: false/);

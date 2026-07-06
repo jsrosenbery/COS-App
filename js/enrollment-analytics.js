@@ -248,6 +248,7 @@
     optimizationAudit: [],
     optimizationContext: {},
     optimizationRows: [],
+    optimizationFacultyRows: [],
     optimizationArchiveLoad: { rows: [], results: [] },
     optimizationRan: false,
     conflictRows: [],
@@ -2224,6 +2225,9 @@
             <label>Schedule CSV(s) <input id="optimizationCsv" type="file" accept=".csv" multiple></label>
             <button id="archiveOptimizationUploads" type="button">Archive Uploads</button>
             <label>Archived schedule terms <select id="optimizationArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
+            <label>Saved Faculty Schedule terms <select id="optimizationFacultyArchiveTerms" multiple data-placeholder="No saved Faculty Schedule terms"></select></label>
+            <button id="refreshOptimizationArchives" type="button">Refresh Backend Archives</button>
+            <span id="optimizationArchiveStatus" class="analytics-note">Backend archives not loaded yet.</span>
             <label>Active term <select id="optimizationTerm"></select></label>
             <label>Historical comparison terms <select id="optimizationHistoryTerms" multiple data-placeholder="Optional historical terms"></select></label>
             <label>Demand/history terms <select id="optimizationDemandTerms" multiple data-placeholder="Use like-term history"></select></label>
@@ -6456,7 +6460,15 @@
     }
     updateOptimizationTermOptions();
     updateOptimizationCourseControls();
+    renderOptimizationArchiveStatus();
     return state.optimizationRows;
+  }
+
+  async function loadOptimizationFacultyArchiveRows() {
+    const terms = getSelectedValues('optimizationFacultyArchiveTerms');
+    state.optimizationFacultyRows = await readSavedFacultyScheduleRowsForTerms(terms);
+    renderOptimizationArchiveStatus();
+    return state.optimizationFacultyRows;
   }
 
   function optimizationSelectedTerms(id) {
@@ -6667,6 +6679,7 @@
   async function renderScheduleOptimizationLab() {
     const engine = optimizationEngine();
     await loadOptimizationRows();
+    await loadOptimizationFacultyArchiveRows();
     updateOptimizationTermOptions();
     updateOptimizationCourseControls();
     const rooms = optimizationRoomCatalog();
@@ -6716,6 +6729,7 @@
     const loadedTerms = collectRowTerms(allRows);
     const historyTerms = collectRowTerms(historyRows);
     const selectedArchivedTerms = state.optimizationArchiveLoad?.selectedTerms || optimizationSelectedTerms('optimizationArchiveTerms');
+    const selectedFacultyArchiveTerms = getSelectedValues('optimizationFacultyArchiveTerms').map(normalizeTermLabel).filter(Boolean);
     const failedArchives = (state.optimizationArchiveLoad?.results || []).filter(result => result.failed);
     state.optimizationContext = {
       activeOptimizationTerm: activeTerm || 'No active term selected',
@@ -6723,6 +6737,8 @@
       demandTermsUsed: historyTerms.join(', ') || 'None selected',
       loadedScheduleTerms: loadedTerms.join(', ') || 'None loaded',
       selectedArchivedTerms: selectedArchivedTerms.join(', ') || 'None selected',
+      selectedFacultyScheduleTerms: selectedFacultyArchiveTerms.join(', ') || 'None selected',
+      facultyScheduleRowsLoaded: state.optimizationFacultyRows.length,
       failedArchiveLoads: failedArchives.map(result => `${result.term}: ${result.error}`).join('; ') || 'None',
       roomCatalogStatus: rooms.length ? `${rooms.length} rooms available` : 'No room catalog loaded',
       activeTermSectionsAnalyzed: exclusions.usable,
@@ -6750,6 +6766,7 @@
       notes: [
         { label: 'Room catalog', value: state.optimizationContext.roomCatalogStatus },
         { label: 'History rows', value: `${historyRows.length} historical section row(s) used as evidence` },
+        { label: 'Faculty Schedule rows', value: `${state.optimizationFacultyRows.length} saved Faculty Schedule row(s) loaded for context` },
         { label: 'Assumption', value: 'No source schedule data is changed automatically.' }
       ]
     });
@@ -6887,6 +6904,20 @@
     return batches.flat();
   }
 
+  function renderOptimizationArchiveStatus(message = '') {
+    const node = document.getElementById('optimizationArchiveStatus');
+    if (!node) return;
+    if (message) {
+      node.textContent = message;
+      return;
+    }
+    const sectionCount = state.archivedAnalyticsTerms?.length || 0;
+    const facultyCount = state.facultyScheduleArchiveTerms?.length || 0;
+    const selectedSection = getSelectedValues('optimizationArchiveTerms').length;
+    const selectedFaculty = getSelectedValues('optimizationFacultyArchiveTerms').length;
+    node.textContent = `Backend archives: ${sectionCount} Section Seating term(s), ${facultyCount} Faculty Schedule term(s). Selected: ${selectedSection} schedule, ${selectedFaculty} faculty.`;
+  }
+
   function facultyRawField(row, names) {
     if (!row || typeof row !== 'object') return '';
     const entries = Object.entries(row);
@@ -6924,7 +6955,8 @@
       'primeTimeArchiveTerm',
       'busyTimeFacultyArchiveTerm',
       'studentChoiceFacultyArchiveTerm',
-      'recommendationFacultyArchiveTerm'
+      'recommendationFacultyArchiveTerm',
+      'optimizationFacultyArchiveTerms'
     ];
   }
 
@@ -6933,10 +6965,14 @@
     facultyScheduleArchiveSelectIds().forEach(id => {
       const select = document.getElementById(id);
       if (!select) return;
+      const previousValues = new Set(Array.from(select.selectedOptions || []).map(option => option.value).filter(Boolean));
       const previous = select.value;
-      select.replaceChildren(new Option('Saved Faculty Schedule terms', ''));
+      select.replaceChildren();
+      if (!select.multiple) select.appendChild(new Option('Saved Faculty Schedule terms', ''));
       terms.forEach(item => select.appendChild(new Option(item.term || '', item.term || '')));
-      if (terms.some(item => item.term === previous)) select.value = previous;
+      if (select.multiple) {
+        Array.from(select.options).forEach(option => { option.selected = previousValues.has(option.value); });
+      } else if (terms.some(item => item.term === previous)) select.value = previous;
     });
   }
 
@@ -6956,6 +6992,7 @@
     if (!window.BACKEND_BASE_URL) {
       state.facultyScheduleArchiveTerms = [];
       updateFacultyScheduleArchiveSelectors();
+      renderOptimizationArchiveStatus('Backend is not configured; saved Faculty Schedule terms cannot be listed.');
       return [];
     }
     try {
@@ -6963,9 +7000,11 @@
       const payload = response.ok ? await response.json() : { data: [] };
       state.facultyScheduleArchiveTerms = Array.isArray(payload.data) ? payload.data : [];
       updateFacultyScheduleArchiveSelectors();
+      renderOptimizationArchiveStatus();
       return state.facultyScheduleArchiveTerms;
     } catch (err) {
       console.warn('Faculty Schedule archive list skipped:', err);
+      renderOptimizationArchiveStatus(`Faculty Schedule archive list failed: ${err?.message || err}`);
       return [];
     }
   }
@@ -7027,6 +7066,24 @@
     return normalized;
   }
 
+  async function readSavedFacultyScheduleRowsForTerms(terms = []) {
+    const selectedTerms = [...new Set((terms || []).map(normalizeTermLabel).filter(Boolean))];
+    if (!selectedTerms.length) return [];
+    if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so saved Faculty Schedule data cannot be loaded.');
+    const batches = await Promise.all(selectedTerms.map(async term => {
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-schedules/${encodeURIComponent(term)}`);
+      if (!response.ok) throw new Error(await response.text() || `Saved Faculty Schedule load failed for ${term}.`);
+      const payload = await response.json();
+      const rows = Array.isArray(payload.data) ? payload.data : [];
+      const validation = validateFacultyScheduleRawRows(rows);
+      if (!validation.valid) throw new Error(validation.message);
+      return window.COSFacultyModel?.facultyMeetingsForReporting
+        ? window.COSFacultyModel.facultyMeetingsForReporting(rows.map(row => ({ ...row, __sourceTerm: term })), { term })
+        : [];
+    }));
+    return batches.flat();
+  }
+
   async function readArchivedRowsWithDiagnostics(selectId, options = {}) {
     const selectedTerms = getSelectedValues(selectId).map(normalizeTermLabel).filter(Boolean);
     const reportLabel = options.reportLabel || 'analytics archive';
@@ -7086,7 +7143,10 @@
   }
 
   async function refreshAnalyticsArchiveOptions() {
-    if (!window.BACKEND_BASE_URL) return;
+    if (!window.BACKEND_BASE_URL) {
+      renderOptimizationArchiveStatus('Backend is not configured; Section Seating archive terms cannot be listed.');
+      return;
+    }
     try {
       const payload = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
       state.archivedAnalyticsTerms = (payload.data || []).map(item => item.term).filter(Boolean);
@@ -7103,9 +7163,12 @@
       setSelectOptions('busyTimeArchiveTerms', options);
       setSelectOptions('studentChoiceArchiveTerms', options);
       setSelectOptions('recommendationArchiveTerms', options);
+      setSelectOptions('optimizationArchiveTerms', options);
       setArchiveInspectionTermOptions();
+      renderOptimizationArchiveStatus();
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
+      renderOptimizationArchiveStatus(`Section Seating archive list failed: ${err?.message || err}`);
     }
   }
 
@@ -13420,6 +13483,13 @@
       document.getElementById('recommendationTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
     }
     if (selected === REPORTS.scheduleOptimizationLab && !state.optimizationRan) {
+      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives()])
+        .then(() => {
+          updateOptimizationTermOptions();
+          updateOptimizationCourseControls();
+          renderOptimizationArchiveStatus();
+        })
+        .catch(err => console.warn(err));
       updateOptimizationTermOptions();
       updateOptimizationCourseControls();
       renderOptimizationMethodology();
@@ -14010,6 +14080,20 @@
     });
     document.getElementById('optimizationCsv')?.addEventListener('change', () => loadOptimizationRows().catch(err => console.warn(err)));
     document.getElementById('optimizationArchiveTerms')?.addEventListener('change', () => loadOptimizationRows().catch(err => console.warn(err)));
+    document.getElementById('optimizationFacultyArchiveTerms')?.addEventListener('change', () => {
+      loadOptimizationFacultyArchiveRows()
+        .then(() => { if (state.optimizationRan) return renderScheduleOptimizationLab(); })
+        .catch(err => console.warn(err));
+    });
+    document.getElementById('refreshOptimizationArchives')?.addEventListener('click', () => {
+      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives()])
+        .then(() => {
+          updateOptimizationTermOptions();
+          updateOptimizationCourseControls();
+          renderOptimizationArchiveStatus();
+        })
+        .catch(err => alert(err.message || 'Backend archive refresh failed.'));
+    });
     document.getElementById('archiveOptimizationUploads')?.addEventListener('click', () => archiveUploads('optimizationCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['optimizationTerm', 'optimizationHistoryTerms', 'optimizationDemandTerms', 'optimizationTermPreset', 'optimizationPriorityBehavior', 'optimizationAllowedShift'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {
