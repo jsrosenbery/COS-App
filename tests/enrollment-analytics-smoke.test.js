@@ -3531,6 +3531,9 @@ test('schedule optimization lab is a standalone Development planning tool', () =
   assert.match(text, /Score room move recommendations/);
   assert.match(text, /Score time shift recommendations/);
   assert.match(text, /Score add-a-class recommendations/);
+  assert.match(text, /function optimizationExclusionChips/);
+  assert.match(text, /exclusions: optimizationExclusionChips\(exclusions\)/);
+  assert.doesNotMatch(text, /exclusions: state\.optimizationContext\.exclusionReasons/);
   assert.doesNotMatch(text, /if \(state\.optimizationRan\) renderScheduleOptimizationLab/);
   assert.match(text, /setReportDisplay\(REPORTS\.scheduleOptimizationLab, 'scheduleOptimizationLabReport'\)/);
   assert.match(text, /optimization-room-move-recommendations/);

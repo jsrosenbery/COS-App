@@ -6574,6 +6574,13 @@
     };
   }
 
+  function optimizationExclusionChips(exclusions = {}) {
+    return (exclusions.reasons || []).map(([reason, count]) => ({
+      label: reason,
+      value: count
+    }));
+  }
+
   function optimizationAddClassInput() {
     const selectedCourse = document.getElementById('optimizationAddCourseSelect')?.value || '';
     const manualCourse = document.getElementById('optimizationAddCourse')?.value || '';
@@ -6898,7 +6905,7 @@
           rowsLoaded: allRows.length,
           rowsIncluded: exclusions.usable,
           rowsExcluded: exclusions.excluded,
-          exclusions: state.optimizationContext.exclusionReasons,
+          exclusions: optimizationExclusionChips(exclusions),
           activeFilters: [
             { label: 'Room priority behavior', value: priorityBehavior },
             { label: 'Allowed time shift', value: `${allowedShiftMinutes} minutes` },
