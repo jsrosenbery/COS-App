@@ -265,8 +265,17 @@
     return a.startMinutes < b.endMinutes && b.startMinutes < a.endMinutes;
   }
 
+  function rowsArray(rows = []) {
+    if (Array.isArray(rows)) return rows;
+    if (Array.isArray(rows?.rows)) return rows.rows;
+    if (Array.isArray(rows?.sections)) return rows.sections;
+    if (Array.isArray(rows?.activeSections)) return rows.activeSections;
+    if (Array.isArray(rows?.historicalRows)) return rows.historicalRows;
+    return [];
+  }
+
   function normalizedSections(rows = []) {
-    return (rows || []).map(row => row && Array.isArray(row.days) && row.startMinutes != null ? row : normalizeSection(row));
+    return rowsArray(rows).map(row => row && Array.isArray(row.days) && row.startMinutes != null ? row : normalizeSection(row));
   }
 
   function mapPush(map, key, value) {
@@ -360,7 +369,7 @@
 
   function historyForSection(section, allSections = []) {
     const target = normalizeSection(section);
-    const matches = (allSections || [])
+    const matches = rowsArray(allSections)
       .map(normalizeSection)
       .filter(row => row.courseCode && row.courseCode === target.courseCode && row.term !== target.term);
     const caps = matches.map(row => row.sectionCap).filter(Boolean);
@@ -377,7 +386,7 @@
 
   function courseProfiles(sectionsInput = []) {
     const profiles = new Map();
-    (sectionsInput || []).map(normalizeSection).forEach(row => {
+    rowsArray(sectionsInput).map(normalizeSection).forEach(row => {
       const subject = compact(row.subject || (row.courseCode.match(/^[A-Z]+/) || [''])[0]);
       const course = compact(row.course || row.courseCode.replace(subject, '').trim());
       const key = canon([subject, course].filter(Boolean).join(' ')) || canon(row.courseCode);
@@ -442,7 +451,7 @@
   function countCompetingSections(candidate, sectionsInput = []) {
     const row = normalizeSection(candidate);
     if (!isTimeBasedSection(row)) return 0;
-    return (sectionsInput || []).map(normalizeSection).filter(other => {
+    return rowsArray(sectionsInput).map(normalizeSection).filter(other => {
       if (!isTimeBasedSection(other)) return false;
       const sameCourse = row.courseCode && other.courseCode && canon(row.courseCode) === canon(other.courseCode);
       const sameSubject = row.subject && other.subject && canon(row.subject) === canon(other.subject);
@@ -757,7 +766,7 @@
     sections.forEach(section => {
       const currentRoom = rooms.find(room => room.roomKey === section.roomKey);
       if (!currentRoom) return;
-      const currentFit = roomFitScore(section, currentRoom, historyRows, { ...options, historicalDemand: indexes?.historicalDemand });
+      const currentFit = roomFitScore(section, currentRoom, historyRows, { ...options, historicalDemand: indexes?.historicalDemand || options.historicalDemand });
       const best = steps.map(offset => {
         candidateTimeShiftsEvaluated += 1;
         const shifted = shiftedSection(section, offset);

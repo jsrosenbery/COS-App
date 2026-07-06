@@ -197,3 +197,27 @@ test('recommendation stats report evaluated candidates', () => {
   assert.equal(stats.candidateRoomsEvaluated <= indexes.activeSections.length, true);
   assert.equal(typeof stats.roomMoveRecommendations, 'number');
 });
+
+test('indexed historical demand objects do not trigger array map errors', () => {
+  const active = sections.filter(row => row.term === 'FALL 2026');
+  const historicalDemand = optimizer.buildHistoricalDemandIndex(sections);
+  const indexes = optimizer.buildOptimizationIndexes({ activeRows: active, historyRows: sections, rooms });
+
+  assert.doesNotThrow(() => optimizer.historyForSection(active[0], historicalDemand));
+  assert.doesNotThrow(() => optimizer.roomFitScore(active[0], rooms[0], historicalDemand, { historicalDemand }));
+  assert.doesNotThrow(() => optimizer.generateTimeShiftRecommendations(active, rooms, {
+    allowedShiftMinutes: 30,
+    historicalDemand,
+    historyRows: historicalDemand
+  }));
+  assert.doesNotThrow(() => optimizer.evaluateProposedTime({
+    course: 'ENGL C1000',
+    expectedEnrollment: 35,
+    campus: 'COS',
+    roomType: 'Classroom',
+    division: 'Language & Communication',
+    proposedDayPattern: 'MW',
+    proposedStart: '09:00',
+    proposedEnd: '10:15'
+  }, indexes, rooms, { indexes, historicalDemand }));
+});
