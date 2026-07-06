@@ -2961,6 +2961,13 @@ test('faculty schedule heatmap is a standalone Development report', () => {
   assert.match(text, /facultyHeatmapPartTime/);
   assert.match(text, /facultyHeatmapPanelSummaryHtml/);
   assert.match(text, /facultyHeatmapPanelDetailTableHtml/);
+  assert.match(text, /Heatmap Detail Data/);
+  assert.match(text, /data-collapsible-title="Heatmap Detail Data"/);
+  assert.match(text, /data-collapsible-default-open="false"/);
+  assert.match(text, /heatmapDay: row\.dayName/);
+  assert.match(text, /heatmapTime: row\.time/);
+  assert.match(text, /heatmapDay: 'Day'/);
+  assert.match(text, /heatmapTime: 'Time'/);
   assert.match(text, /facultyHeatmapPanelMethodologyHtml/);
   assert.match(text, /data-collapsible-default-open="true"/);
   assert.doesNotMatch(text, /selector: '#facultyHeatmapContainer'/);

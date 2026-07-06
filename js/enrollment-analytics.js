@@ -3120,8 +3120,8 @@
       .filter(row => row.sections || row.facultyCount || row.enrollment || row.seats || row.lhe)
       .map(row => ({
         facultyGroup: panel.groupLabel,
-        day: row.dayName,
-        time: row.time,
+        heatmapDay: row.dayName,
+        heatmapTime: row.time,
         sections: row.sections,
         facultyCount: row.facultyCount,
         enrollment: row.enrollment,
@@ -3132,12 +3132,21 @@
 
   function facultyHeatmapPanelDetailTableHtml(panel) {
     const rows = facultyHeatmapPanelDetailRows(panel).slice(0, 200);
-    if (!rows.length) return '<p class="analytics-empty">No active faculty meeting intervals match this grouping.</p>';
-    const columns = ['day', 'time', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe'];
-    return `<div class="dashboard-table-wrap faculty-heatmap-detail-table"><table class="dashboard-mini-table">
-      <thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead>
-      <tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table>${facultyHeatmapPanelDetailRows(panel).length > rows.length ? `<p class="analytics-note">Showing first ${rows.length} active intervals for ${escapeAttr(panel.groupLabel)}.</p>` : ''}</div>`;
+    const totalRows = facultyHeatmapPanelDetailRows(panel).length;
+    const body = !rows.length
+      ? '<p class="analytics-empty">No active faculty meeting intervals match this grouping.</p>'
+      : (() => {
+          const columns = ['heatmapDay', 'heatmapTime', 'sections', 'facultyCount', 'enrollment', 'seats', 'lhe'];
+          return `<div class="dashboard-table-wrap faculty-heatmap-detail-table"><table class="dashboard-mini-table">
+            <thead><tr>${columns.map(column => `<th>${escapeAttr(label(column))}</th>`).join('')}</tr></thead>
+            <tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeAttr(format(row[column], column))}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table>${totalRows > rows.length ? `<p class="analytics-note">Showing first ${rows.length} active intervals for ${escapeAttr(panel.groupLabel)}.</p>` : ''}</div>`;
+        })();
+    return `<section class="faculty-heatmap-detail-section" data-collapsible-title="Heatmap Detail Data" data-collapsible-id="${escapeAttr(panel.id)}-detail-data" data-collapsible-default-open="false">
+      <h3>Heatmap Detail Data</h3>
+      <p class="analytics-chart-note">Validation/export view of non-empty heatmap cells. This repeats the heatmap values in table form and is collapsed by default.</p>
+      ${body}
+    </section>`;
   }
 
   function facultyHeatmapPanelMethodologyHtml(panel) {
@@ -13755,6 +13764,8 @@
       timeBlock: 'Time Block',
       censusEnrollment: 'Census Enrollment',
       day: 'Overlap Day',
+      heatmapDay: 'Day',
+      heatmapTime: 'Time',
       timeOverlap: 'Time Overlap',
       facultyGroup: 'Faculty Group',
       meetingDays1: 'Meeting Days 1',
