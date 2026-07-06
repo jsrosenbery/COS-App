@@ -11,7 +11,7 @@ function loadEnrollmentModules() {
   };
   context.window.window = context.window;
   vm.createContext(context);
-  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
+  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -32,7 +32,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
+  ['js/core/dom-utils.js', 'js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -2307,7 +2307,7 @@ test('demand expected FTES range mirrors projection range behavior and export fi
   assert.ok(stable.expectedRange.low < stable.expectedRange.high);
   assert.ok(stable.expectedFtesRange.low < stable.expectedFtesRange.high);
   assert.ok(volatileWidth > stableWidth, 'FTES range should widen when FTES volatility increases');
-  assert.match(COSEnrollmentAnalytics.formatDemandFtesRange(4480, 4760), /^4480\.0?4760\.0$/);
+  assert.match(COSEnrollmentAnalytics.formatDemandFtesRange(4480, 4760), /^4480\.0–4760\.0$/);
   assert.match(source, /\['Expected FTES Range', formatDemandFtesRange/);
   assert.match(source, /expectedFtesRangeDisplay/);
   assert.match(source, /expectedFtesRangeLow/);
@@ -2389,6 +2389,21 @@ test('development physical interval calculations exclude online and TBA rows by 
 
   const withOnline = COSEnrollmentAnalytics.physicalIntervalRows([physical, onlineFixed, onlinePlaceholder, tba], { includeOnline: true });
   assert.deepEqual(withOnline.map(row => row.crn).sort(), ['IP1']);
+});
+
+test('core physical time module owns shared placeholder filtering', () => {
+  const physicalTime = require('../js/core/physical-time.js');
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const rows = [
+    section({ crn: 'BAD1', modality: 'HYBRID', days: ['MO'], dayPattern: 'M', start: '00:00', end: '19:00', timeBlock: '00:00-00:59', census: 50 }),
+    section({ crn: 'GOOD1', modality: 'HYBRID', days: ['MO'], dayPattern: 'M', start: '08:00', end: '09:00', timeBlock: '08:00-08:59', census: 25 })
+  ];
+
+  assert.equal(physicalTime.hasUsablePhysicalInterval(rows[0]), false);
+  assert.equal(physicalTime.hasUsablePhysicalInterval(rows[1]), true);
+  assert.equal(physicalTime.physicalIntervalRows(rows).length, 1);
+  assert.match(analytics, /window\.COSPhysicalTime\?\.physicalIntervalRows/);
+  assert.match(analytics, /window\.COSPhysicalTime\?\.hasUsablePhysicalInterval/);
 });
 
 test('development modality helpers support physical-only and all-modality selections', () => {
@@ -2863,7 +2878,7 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /\.em-access-status\[data-access-role="admin"\]/);
   assert.match(text, /Lock Reports/);
   assert.match(text, /function lockedReportLabel/);
-  assert.match(text, /Locked report ????????/);
+  assert.match(text, /Locked report ••••••••/);
   assert.doesNotMatch(text, /Locked - unlock to view name/);
   assert.match(text, /note\.textContent = reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
   assert.match(text, /the selected locked report/);
@@ -3817,7 +3832,7 @@ test('room catalog table is collapsed separately from import export controls', (
   assert.ok(preview);
   assert.equal(toggle.getAttribute('aria-expanded'), 'false');
   assert.equal(preview.hidden, true);
-  assert.match(title.textContent, /^Room Catalog Table ? \d+ rooms$/);
+  assert.match(title.textContent, /^Room Catalog Table — \d+ rooms$/);
   assert.match(status.textContent, /\d+ rooms loaded\./);
   assert.match(topLevelText, /Room Catalog/);
   assert.match(topLevelText, /Export Rooms CSV/);
@@ -4659,6 +4674,7 @@ test('index owns enrollment analytics script order', () => {
     'js/config.js',
     'js/core/dom-utils.js',
     'js/core/csv-normalizer.js',
+    'js/core/physical-time.js',
     'js/core/faculty-utils.js',
     'js/core/faculty-model.js',
     'js/core/faculty-parser.js',

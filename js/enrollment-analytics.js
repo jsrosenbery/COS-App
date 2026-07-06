@@ -742,6 +742,7 @@
   }
 
   function isOnlinePlaceholderTime(row) {
+    if (window.COSPhysicalTime?.isOnlinePlaceholderTime) return window.COSPhysicalTime.isOnlinePlaceholderTime(row);
     const modality = canon(row?.modality || row?.Modality || '');
     const start = canon(row?.start || row?.Start_Time || row?.Start || '');
     const end = canon(row?.end || row?.End_Time || row?.End || '');
@@ -755,6 +756,7 @@
   }
 
   function isMidnightPlaceholderInterval(row) {
+    if (window.COSPhysicalTime?.isMidnightPlaceholderInterval) return window.COSPhysicalTime.isMidnightPlaceholderInterval(row);
     const start = minutesFromTime(row?.start || row?.startTime);
     const end = minutesFromTime(row?.end || row?.endTime);
     const block = canon(row?.timeBlock || row?.TimeBlock || row?.['Time Block'] || '');
@@ -765,20 +767,24 @@
   }
 
   function rowInstructionModality(row) {
+    if (window.COSPhysicalTime?.rowInstructionModality) return window.COSPhysicalTime.rowInstructionModality(row);
     const direct = row?.modality || row?.Modality || row?.instructionalMethod || row?.INSTRUCTIONAL_METHOD || row?.INSM_CODE_SSBSECT || row?.raw?.INSTRUCTIONAL_METHOD || row?.raw?.INSM_CODE_SSBSECT || '';
     return canon(normalizeModality(direct, row));
   }
 
   function isPhysicalInstructionModality(row) {
+    if (window.COSPhysicalTime?.isPhysicalInstructionModality) return window.COSPhysicalTime.isPhysicalInstructionModality(row);
     const modality = rowInstructionModality(row);
     return modality === 'IN PERSON' || modality === 'HYBRID';
   }
 
   function isOnlineInstructionModality(row) {
+    if (window.COSPhysicalTime?.isOnlineInstructionModality) return window.COSPhysicalTime.isOnlineInstructionModality(row);
     return rowInstructionModality(row) === 'ONLINE';
   }
 
   function hasUsablePhysicalInterval(row) {
+    if (window.COSPhysicalTime?.hasUsablePhysicalInterval) return window.COSPhysicalTime.hasUsablePhysicalInterval(row);
     const start = minutesFromTime(row?.start || row?.startTime);
     const end = minutesFromTime(row?.end || row?.endTime);
     if (!Array.isArray(row?.days) || !row.days.length) return false;
@@ -790,6 +796,7 @@
   }
 
   function physicalIntervalRows(rows, options = {}) {
+    if (window.COSPhysicalTime?.physicalIntervalRows) return window.COSPhysicalTime.physicalIntervalRows(rows, options);
     const treatment = options.onlineTreatment || (options.includeOnline === true ? 'scheduled-online' : 'physical');
     const includeOnline = treatment === 'scheduled-online' || treatment === 'all-online' || options.includeOnline === true;
     return (rows || []).filter(row => {
@@ -1223,7 +1230,7 @@
   }
 
   function lockedReportLabel(report) {
-    return canAccess(report) ? REPORT_LABEL[report] || report : 'Locked report ????????';
+    return canAccess(report) ? REPORT_LABEL[report] || report : 'Locked report ••••••••';
   }
 
   function reportGroupsHtml() {
@@ -2272,9 +2279,9 @@
             <label>Allowed time shift
               <select id="optimizationAllowedShift">
                 <option value="0">None</option>
-                <option value="30">?30 minutes</option>
-                <option value="60">?1 hour</option>
-                <option value="120">?2 hours</option>
+                <option value="30">±30 minutes</option>
+                <option value="60">±1 hour</option>
+                <option value="120">±2 hours</option>
               </select>
             </label>
             <label>Maximum candidate rooms per section
@@ -11124,7 +11131,7 @@
     const highValue = Number(high);
     const normalizedLow = Number.isFinite(lowValue) ? lowValue : 0;
     const normalizedHigh = Number.isFinite(highValue) ? highValue : normalizedLow;
-    return `${round1(normalizedLow).toFixed(1)}?${round1(normalizedHigh).toFixed(1)}`;
+    return `${round1(normalizedLow).toFixed(1)}–${round1(normalizedHigh).toFixed(1)}`;
   }
 
   function collectDemandSourceTerms(rows) {
@@ -14138,7 +14145,7 @@
       const locked = !canAccess(report);
       option.dataset.requiredRole = requiredRole;
       option.dataset.locked = locked ? 'true' : 'false';
-      option.textContent = locked ? 'Locked report ????????' : (REPORT_LABEL[report] || report);
+      option.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
     });
     document.querySelectorAll('.em-report-button[data-report-target]').forEach(button => {
       const report = button.dataset.reportTarget || '';
@@ -14148,7 +14155,7 @@
       button.setAttribute('aria-current', report === selected ? 'page' : 'false');
       button.setAttribute('aria-disabled', locked ? 'true' : 'false');
       const label = button.querySelector('span');
-      if (label) label.textContent = locked ? 'Locked report ????????' : (REPORT_LABEL[report] || report);
+      if (label) label.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
       const note = button.querySelector('small');
       if (note) note.textContent = reportSubtitleForGroup(button.dataset.reportGroup) || reportSubtitleForReport(report);
     });
@@ -14165,7 +14172,7 @@
     const requiredRole = REPORT_ACCESS[reportName] || 'general';
     panel.hidden = false;
     panel.innerHTML = `
-      <h3>Locked report ????????</h3>
+      <h3>Locked report ••••••••</h3>
       <p>This report requires <strong>${escapeAttr(ROLE_LABEL[requiredRole])}</strong> access or higher.</p>
       <button type="button" data-unlock-report="${escapeAttr(reportName)}">Unlock This Report</button>
     `;
