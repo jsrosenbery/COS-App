@@ -2903,7 +2903,10 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /const ROLE_LEVEL = \{/);
   assert.match(text, /development: 4/);
   assert.match(text, /const REPORT_ACCESS = \{/);
-  assert.match(text, /\[REPORTS\.dashboard\]: 'dean'/);
+  assert.match(text, /\[REPORTS\.dashboard\]: 'em'/);
+  assert.match(text, /\[REPORTS\.studentPresence\]: 'dean'/);
+  assert.match(text, /\[REPORTS\.utilization\]: 'dean'/);
+  assert.match(text, /\[REPORTS\.roomFit\]: 'dean'/);
   assert.match(text, /\[REPORTS\.modality\]: 'dean'/);
   assert.match(text, /\[REPORTS\.consolidation\]: 'em'/);
   assert.match(text, /\[REPORTS\.archiveInspection\]: 'admin'/);
