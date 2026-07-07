@@ -3129,20 +3129,62 @@
     const bucketRows = panel.built?.rows || [];
     const peak = peakFacultyHeatmapCell(bucketRows, panel.metricName);
     const nonEmpty = bucketRows.filter(row => row.sections || row.facultyCount || row.enrollment || row.seats || row.lhe);
-    const totalMeetings = nonEmpty.reduce((total, row) => total + (row.sections || 0), 0);
-    const totalEnrollment = nonEmpty.reduce((total, row) => total + (row.enrollment || 0), 0);
-    const totalSeats = nonEmpty.reduce((total, row) => total + (row.seats || 0), 0);
-    const totalLhe = nonEmpty.reduce((total, row) => total + (row.lhe || 0), 0);
+    const intervalMeetings = nonEmpty.reduce((total, row) => total + (row.sections || 0), 0);
+    const termTotals = facultyHeatmapTermTotals(rows);
     return [
       ['Faculty Scheduled', facultyHeatmapDistinctFaculty(rows)],
       ['Meeting Rows Included', rows.length],
-      ['Instructional Meetings', totalMeetings],
-      ['Enrollment Supported', totalEnrollment],
-      ['Seats Supported', totalSeats],
-      ['LHE', totalLhe.toFixed(1)],
+      ['Distinct Meeting Components', termTotals.distinctMeetingComponents],
+      ['Unduplicated Enrollment Supported', termTotals.enrollment],
+      ['Unduplicated Seats Supported', termTotals.seats],
+      ['Component LHE', termTotals.lhe.toFixed(1)],
+      ['Interval Meetings', intervalMeetings],
       ['Peak Time', peak ? `${peak.dayName} ${peak.time}` : 'N/A'],
       ['Peak Value', peak ? (panel.metricName === 'lhe' ? (peak.metricValue || 0).toFixed(1) : Math.round(peak.metricValue || 0)) : 'N/A']
     ];
+  }
+
+  function facultyHeatmapTermTotals(rows) {
+    const crnEnrollment = new Map();
+    const crnSeats = new Map();
+    const componentLhe = new Map();
+    const meetingComponents = new Set();
+    (rows || []).forEach(row => {
+      const crnKey = facultyHeatmapCrnKey(row);
+      const componentKey = facultyHeatmapComponentKey(row);
+      if (crnKey) {
+        crnEnrollment.set(crnKey, Math.max(crnEnrollment.get(crnKey) || 0, Number(row.actualEnroll) || 0));
+        crnSeats.set(crnKey, Math.max(crnSeats.get(crnKey) || 0, Number(row.maxEnroll) || 0));
+      }
+      if (componentKey) {
+        meetingComponents.add(componentKey);
+        componentLhe.set(componentKey, Math.max(componentLhe.get(componentKey) || 0, Number(row.lhe) || 0));
+      }
+    });
+    return {
+      enrollment: [...crnEnrollment.values()].reduce((total, value) => total + value, 0),
+      seats: [...crnSeats.values()].reduce((total, value) => total + value, 0),
+      lhe: [...componentLhe.values()].reduce((total, value) => total + value, 0),
+      distinctMeetingComponents: meetingComponents.size
+    };
+  }
+
+  function facultyHeatmapCrnKey(row) {
+    const crn = String(row?.crn || '').trim().toUpperCase();
+    if (crn) return `${facultyTerm(row) || 'UNKNOWN'}|${crn}`;
+    return String(row?.deduplicationKey || [
+      facultyTerm(row) || 'UNKNOWN',
+      facultyCourseValue(row) || '',
+      row?.facultyId || row?.facultyName || row?.instructor || ''
+    ].join('|')).trim().toUpperCase();
+  }
+
+  function facultyHeatmapComponentKey(row) {
+    const crnKey = facultyHeatmapCrnKey(row);
+    if (!crnKey) return '';
+    const facultyKey = row?.facultyId || row?.facultyName || row?.instructor || '';
+    const component = row?.schdCodeNormalized || row?.schdCode || row?.meetingType || '';
+    return [crnKey, component, facultyKey].map(value => String(value || '').trim().toUpperCase()).join('|');
   }
 
   function facultyHeatmapPanelSummaryHtml(panel) {
@@ -3190,6 +3232,7 @@
       <summary>Methodology</summary>
       <p>${escapeAttr(panel.groupLabel)} uses the same selected term, campus, division, department, discipline, course, modality, meeting type, metric, time scale, color scale, cell sizing, and legend as the other Faculty Schedule Heatmap views.</p>
       <p>Rows are normalized by the Faculty Schedule parser and deduplicated by CRN, day pattern, start/end time, meeting type, and instructor. Each meeting contributes to every overlapping 30-minute active meeting interval on every scheduled day.</p>
+      <p>Heatmap cells and Heatmap Detail Data show interval activity, so enrollment, seats, and LHE are repeated across active 30-minute cells by design. Summary cards use unduplicated CRN totals for Enrollment Supported and Seats Supported, and distinct CRN/component totals for LHE, so those cards should be interpreted as term-level support totals rather than interval sums.</p>
       <p>Faculty Type maps FCNT_CODE values. FT and TE are Full-Time, JP is Part-Time, and AE/X omitted rows are excluded before these calculations. This report uses Faculty Schedule Data only and does not affect Room Availability.</p>
     </details>`;
   }

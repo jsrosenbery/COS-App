@@ -4265,6 +4265,26 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.doesNotMatch(css, /\.heatmap th,[\s\S]*?overflow-wrap: anywhere;/);
 });
 
+test('faculty heatmap summary separates term totals from interval cell sums', () => {
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(analytics, /function facultyHeatmapTermTotals/);
+  assert.match(analytics, /function facultyHeatmapCrnKey/);
+  assert.match(analytics, /function facultyHeatmapComponentKey/);
+  assert.match(analytics, /crnEnrollment\.set\(crnKey, Math\.max/);
+  assert.match(analytics, /crnSeats\.set\(crnKey, Math\.max/);
+  assert.match(analytics, /componentLhe\.set\(componentKey, Math\.max/);
+  assert.match(analytics, /Unduplicated Enrollment Supported/);
+  assert.match(analytics, /Unduplicated Seats Supported/);
+  assert.match(analytics, /Component LHE/);
+  assert.match(analytics, /Interval Meetings/);
+  assert.match(analytics, /Heatmap cells and Heatmap Detail Data show interval activity/);
+  assert.match(analytics, /Summary cards use unduplicated CRN totals for Enrollment Supported and Seats Supported/);
+  assert.doesNotMatch(analytics, /\['Enrollment Supported', totalEnrollment\]/);
+  assert.doesNotMatch(analytics, /\['Seats Supported', totalSeats\]/);
+  assert.doesNotMatch(analytics, /\['LHE', totalLhe\.toFixed\(1\)\]/);
+});
+
 test('heatmap terminology distinguishes aggregation from true weighting', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
