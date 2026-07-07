@@ -2344,6 +2344,95 @@ test('demand expected FTES range mirrors projection range behavior and export fi
   assert.match(source, /Expected FTES Range', value: 'Uses the same trend projection confidence\/range method/);
 });
 
+test('ftes projection monitor categorizes accounting methods and projects census FTES', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const weekly = {
+    term: 'SPRING 2026',
+    crn: '10001',
+    subject: 'ENGL',
+    course: 'C1000',
+    section: '01',
+    accountingMethod: 'W',
+    totalContactHours: 54,
+    actual: 25,
+    census: 24,
+    census1: 24,
+    startDate: '1/20/2026',
+    endDate: '5/20/2026',
+    raw: { CENSUS_ENRL_DATE: '2/10/2026', 'SCHEDULE TYPE': 'LEC' }
+  };
+  const projected = COSEnrollmentAnalytics.ftesProjectionForSection(weekly, [], {
+    asOfDate: new Date('2026-03-01'),
+    defaultCompletionRatio: 0.7
+  });
+
+  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('W'), 'Weekly Census');
+  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('D'), 'Daily Census');
+  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('IW'), 'Independent Study Weekly Census');
+  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('ID'), 'Independent Study Daily Census');
+  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('P'), 'Positive Attendance');
+  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('E'), 'Open Entry / Open Exit');
+  assert.equal(projected.sectionStatus, 'Census Complete');
+  assert.equal(projected.projectedEnrollmentUsed, 24);
+  assert.equal(projected.projectedFtes, 2.5);
+  assert.match(projected.calculationMethod, /projected enrollment x TOTAL_CONTACT_HOURS \/ 525/);
+});
+
+test('ftes projection monitor estimates positive attendance and flags weak support', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = {
+    term: 'SPRING 2026',
+    crn: '20001',
+    subject: 'PE',
+    course: '101',
+    accountingMethod: 'P',
+    totalContactHours: 50,
+    actual: 20,
+    census: null,
+    startDate: '1/20/2026',
+    endDate: '5/20/2026',
+    raw: { 'SCHEDULE TYPE': 'LAB' }
+  };
+  const historical = [{
+    term: 'SPRING 2025',
+    crn: '20002',
+    subject: 'PE',
+    course: '101',
+    accountingMethod: 'P',
+    totalContactHours: 50,
+    actual: 20,
+    census: 20,
+    census1: 20,
+    ftes: 1.5,
+    hasDirectFtesData: true,
+    raw: { 'SCHEDULE TYPE': 'LAB' }
+  }];
+  const projected = COSEnrollmentAnalytics.ftesProjectionForSection(row, historical, {
+    asOfDate: new Date('2026-03-01'),
+    positiveMethod: 'cascade',
+    defaultCompletionRatio: 0.7
+  });
+
+  assert.equal(projected.accountingMethodNormalized, 'Positive Attendance');
+  assert.match(projected.calculationMethod, /Positive Attendance estimated FTES/);
+  assert.equal(projected.confidence, 'Low');
+  assert.equal(projected.ftesAtRisk, 'Yes');
+  assert.equal(projected.projectedFtes > 0, true);
+});
+
+test('ftes projection monitor is exposed in Development workflow and UI copy', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /FTES Projection & Apportionment Monitor/);
+  assert.match(text, /ftesProjectionReport/);
+  assert.match(text, /ftesCsv/);
+  assert.match(text, /ftesArchiveTerms/);
+  assert.match(text, /FTES projection requires attendance accounting method/);
+  assert.match(text, /Positive attendance and open-entry\/open-exit FTES are actual-hours based/);
+  assert.match(text, /exportFtesProjectionRows/);
+  assert.match(text, /setSelectOptions\('ftesArchiveTerms'/);
+});
+
 test('trend projection engine adjusts for current schedule supply', () => {
   const engine = require('../js/enrollment/trend-projection.js');
   const termTotals = [
