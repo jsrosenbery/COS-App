@@ -2183,7 +2183,7 @@ test('demand trend chart data includes enrollment series and forecast point', ()
 
   assert.deepEqual([...data.categories], ['FALL 2023', 'FALL 2024', 'FALL 2025']);
   assert.equal(data.series.length, 3);
-  assert.deepEqual([...data.series.map(series => series.name)], ['Census enrollment', 'Final/current enrollment', 'Forecast enrollment']);
+  assert.deepEqual([...data.series.map(series => series.name)], ['Census enrollment', 'Final/current enrollment', 'Historical Trend Expected Enrollment']);
   assert.equal(data.series[2].values[2], 132);
   assert.match(data.tooltips[0], /Fill rate/);
 });
@@ -2197,7 +2197,7 @@ test('demand FTES chart data includes cap and exceed flag', () => {
 
   assert.equal(data.exceedsCap, true);
   assert.deepEqual([...data.categories], ['FALL 2023', 'FALL 2024', 'FALL 2025']);
-  assert.deepEqual([...data.series.map(series => series.name)], ['Historical FTES', 'Forecast FTES', 'FTES cap']);
+  assert.deepEqual([...data.series.map(series => series.name)], ['Historical FTES', 'Historical Trend Estimated FTES', 'FTES cap']);
   assert.equal(data.series[2].values[2], 40);
 });
 
@@ -2216,6 +2216,55 @@ test('demand course distribution chart data separates expanding and softening co
   assert.equal(data[0].demandVariance, 8);
   assert.equal(data[1].demandVariance, -6);
   assert.equal(data[0].forecastEnrollment, 28);
+});
+
+test('demand forecast context separates current snapshot from historical trend projection', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ART', Course: '101', ACTUAL_ENROLL: '40', CENSUS_ENROLL: '', MAX_ENROLL: '50', FTES: '4.2', SnapshotDate: '2026-06-30' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10002', Subject: 'ART', Course: '102', ACTUAL_ENROLL: '35', CENSUS_ENROLL: '', MAX_ENROLL: '40', FTES: '3.8', SnapshotDate: '2026-06-30' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '90001', Subject: 'ART', Course: '101', ACTUAL_ENROLL: '92', CENSUS_ENROLL: '90', MAX_ENROLL: '100', FTES: '9.1' })
+  ];
+  const snapshot = COSEnrollmentAnalytics.demandActiveSnapshot(rows, { label: 'FALL 2026' });
+  const college = {
+    forecastLevel: 'College',
+    expectedEnrollmentNextTerm: 100,
+    expectedFtesNextTerm: 10,
+    adjustedForecastGrowth: 0.18,
+    scheduleAdjustment: { combinedFactor: 1.2 },
+    recencyWeights: [{ term: 'FALL 2025', weight: 1 }],
+    yearOverYearGrowth: [{ term: 'FALL 2025', enrollmentGrowth: 0.18 }],
+    historicalBaselineEnrollment: 90,
+    trendProjectionEnrollment: 96
+  };
+  const warnings = COSEnrollmentAnalytics.demandProjectionWarnings({ projected: 100 }, college, snapshot);
+  const confidence = COSEnrollmentAnalytics.demandConfidenceDetails([college], [{ term: 'FALL 2025', census: 90, fillRate: 0.9, ftes: 9.1 }], { populationSelections: { dual: true } }, { termsUsedInForecast: ['FALL 2025'] }, snapshot);
+  const exportRows = COSEnrollmentAnalytics.demandPlanningExportRows({
+    summary: { projected: 100, confidence },
+    calculationRows: [college],
+    context: {
+      target: { label: 'FALL 2026' },
+      activeSnapshot: snapshot,
+      confidenceDetails: confidence,
+      projectionWarnings: warnings,
+      diagnostics: { termsUsedInForecast: ['FALL 2025'], termsIncludedAfterFilters: ['FALL 2025'] },
+      populationSelections: { dual: true },
+      rows
+    }
+  });
+
+  assert.equal(snapshot.sectionCount, 2);
+  assert.equal(snapshot.currentEnrollment, 75);
+  assert.equal(snapshot.seatsOffered, 90);
+  assert.equal(snapshot.estimatedFtes, 8);
+  assert.ok(warnings.some(item => /Historical Trend Expected Enrollment/.test(item)));
+  assert.ok(warnings.some(item => /planning estimate/.test(item)));
+  assert.ok(confidence.lowered.some(item => /trend-based/.test(item)));
+  assert.ok(exportRows.some(row => row.Section === 'Report Context' && row.Field === 'Forecast Type' && row.Value === 'Schedule-Adjusted Historical Trend Projection'));
+  assert.ok(exportRows.some(row => row.Section === 'Report Context' && row.Field === 'Current Snapshot Enrollment' && row.Value === 75));
+  assert.ok(exportRows.some(row => row.Section === 'Confidence Factors - Lowered'));
+  assert.ok(exportRows.some(row => row.Section === 'Projection Warnings'));
+  assert.ok(exportRows.some(row => row.Section === 'Calculation Path' && row.Field === 'Final Projected Value'));
 });
 
 test('demand redesign helpers distinguish lifecycle expected enrollment and confidence', () => {
