@@ -529,6 +529,7 @@
     const totalNominal = rows.reduce((total, row) => total + (row.nominalStudentsPresent ?? row.studentsPresent ?? 0), 0);
     const totalExpected = rows.reduce((total, row) => total + (row.expectedStudentsPresent ?? row.studentsPresent ?? 0), 0);
     const totalSections = sourceRows.length ? distinctCrnCount(sourceRows) : distinctBucketCrnCount(rows);
+    const unduplicatedEnrollment = sumEnrollmentByDistinctCrn(sourceRows);
     const totalMeetingRows = sourceRows.length
       ? sourceRows.length
       : rows.reduce((total, row) => total + (row.meetingRowsIncluded || row.sectionsActive || 0), 0);
@@ -541,6 +542,7 @@
       presenceMode: presenceMode(options),
       totalSections,
       distinctCrns: totalSections,
+      unduplicatedEnrollment,
       meetingRowsIncluded: totalMeetingRows,
       averageMeetingFrequencyFactor: safeDiv(rows.reduce((total, row) => total + (row.averageMeetingFrequencyFactor || 0) * (row.frequencyFactorCount || 0), 0), rows.reduce((total, row) => total + (row.frequencyFactorCount || 0), 0)),
       unknownFrequencyRows: rows.reduce((total, row) => total + (row.unknownFrequencyRows || 0), 0),
@@ -599,6 +601,16 @@
     const crns = new Set();
     (rows || []).forEach(row => crns.add(presenceCrn(row)));
     return crns.size;
+  }
+
+  function sumEnrollmentByDistinctCrn(rows) {
+    const seen = new Set();
+    return (rows || []).reduce((total, row) => {
+      const crn = presenceCrn(row);
+      if (seen.has(crn)) return total;
+      seen.add(crn);
+      return total + enrollment(row);
+    }, 0);
   }
 
   function distinctBucketCrnCount(rows) {

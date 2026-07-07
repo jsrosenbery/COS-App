@@ -9038,7 +9038,7 @@
     const metrics = report.metrics || {};
     const rows = report.rows || [];
     const presenceModeLabel = metrics.presenceMode === 'expected' ? 'Expected Physical Presence' : 'Nominal Scheduled Presence';
-    const presenceValueLabel = metrics.presenceMode === 'expected' ? 'expected student-presence' : 'nominal student-presence';
+    const presenceValueLabel = metrics.presenceMode === 'expected' ? 'expected interval-presence' : 'nominal interval-presence';
     const expectedPresence = metrics.totalExpectedStudents || 0;
     const nominalPresence = metrics.totalNominalStudents || 0;
     const activePresence = metrics.presenceMode === 'expected' ? expectedPresence : nominalPresence;
@@ -9053,20 +9053,21 @@
       ['Focus Term', studentPresenceFocusTerm() || 'N/A'],
       ['Presence Mode', presenceModeLabel],
       ['Sections / CRNs Included', formatWholeNumber(metrics.distinctCrns || metrics.totalSections || 0), 'scheduled-class-offerings'],
+      ['Unduplicated Enrollment', formatWholeNumber(metrics.unduplicatedEnrollment || 0), 'enrollment'],
       ['Meeting Rows Included', formatWholeNumber(metrics.meetingRowsIncluded || 0), 'instructional-meetings'],
       ['Hybrid Rows Frequency-Adjusted', formatWholeNumber(metrics.hybridRowsFrequencyAdjusted || 0)],
       ['Rows With Unknown Frequency', formatWholeNumber(metrics.unknownFrequencyRows || 0)],
       ['Overall Presence', '', 'group-label'],
-      ['Expected Student Presence', formatPresenceValue(expectedPresence), 'student-presence'],
-      ['Nominal Student Presence', formatPresenceValue(nominalPresence), 'student-presence'],
+      ['Expected Interval Presence', formatPresenceValue(expectedPresence), 'student-presence'],
+      ['Nominal Interval Presence', formatPresenceValue(nominalPresence), 'student-presence'],
       ['Frequency Adjustment Impact', adjustmentImpact],
       ['Average Meeting Frequency Factor', formatFactor(metrics.averageMeetingFrequencyFactor || 0)],
       ['Average Fill Rate', formatPercent(metrics.averageFillRate || 0), 'fill-rate'],
       ['Capacity', '', 'group-label'],
-      ['Seats Scheduled', formatWholeNumber(metrics.totalSeats || 0), 'seats-offered'],
-      ['Available Capacity', formatWholeNumber(metrics.totalOpen || 0)],
-      ['Capacity Utilization', formatPercent(capacityUtilization), 'fill-rate'],
-      ['Remaining Capacity', `${formatWholeNumber(metrics.totalOpen || 0)} seats`],
+      ['Interval Seats Scheduled', formatWholeNumber(metrics.totalSeats || 0), 'seats-offered'],
+      ['Interval Open Capacity', formatWholeNumber(metrics.totalOpen || 0)],
+      ['Interval Capacity Utilization', formatPercent(capacityUtilization), 'fill-rate'],
+      ['Interval Remaining Capacity', `${formatWholeNumber(metrics.totalOpen || 0)} seats`],
       ['Peak Activity', '', 'group-label'],
       ['Peak Day', presenceMetricLabel(peakDay, presenceValueLabel)],
       ['Peak Hour', presenceMetricLabel(metrics.peakHour, presenceValueLabel)],
@@ -9554,11 +9555,12 @@
     renderMethodologyPanel(legend, {
       title: 'Student Presence Analytics Methodology & Data Dictionary',
       purpose: 'Estimates physical student presence from loaded scheduled sections and enrollment for the selected focus term.',
-      methodology: 'Rows are included by default only when they are in-person or hybrid, have fixed meeting days and times, use physical COS/TCC/HAC campus codes or their local aliases, and do not use online, web, virtual, or TBA campus values. Dual Enrollment is excluded by default and can be included with the report toggle. Students present uses census enrollment when available and current enrollment otherwise. Nominal Scheduled Presence counts every scheduled physical meeting at full enrollment. Expected Physical Presence adjusts hybrid or irregular meetings by a Meeting Frequency Factor so classes meeting only part of the term contribute proportionally less to average campus presence; expected presence may therefore be lower than nominal presence. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct instructional meeting block.',
-      assumptions: 'Available room capacity is scheduled seats minus enrollment for the included active meeting intervals. A multi-day or long-duration section contributes to each applicable 30-minute interval, but Scheduled Class Offerings still count unique CRNs across the selected scope. Comparison curves use the same filters and inclusion toggles for each selected term.',
+      methodology: 'Rows are included by default only when they are in-person or hybrid, have fixed meeting days and times, use physical COS/TCC/HAC campus codes or their local aliases, and do not use online, web, virtual, or TBA campus values. Dual Enrollment is excluded by default and can be included with the report toggle. Unduplicated Enrollment counts census/current enrollment once per included CRN and is the term-level enrollment reference. Interval Presence is different: it adds enrollment to every active 30-minute meeting interval, so a multi-day or long-duration class contributes to multiple interval cells. Nominal Scheduled Presence counts every scheduled physical meeting interval at full enrollment. Expected Physical Presence adjusts hybrid or irregular meeting intervals by a Meeting Frequency Factor so classes meeting only part of the term contribute proportionally less to average campus presence. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct instructional meeting block.',
+      assumptions: 'Interval open capacity is scheduled seats minus enrollment for each included active meeting interval. A multi-day or long-duration section contributes to each applicable 30-minute interval, but Scheduled Class Offerings and Unduplicated Enrollment still count unique CRNs across the selected scope. Comparison curves use the same filters and inclusion toggles for each selected term.',
       limitations: 'This report does not count unscheduled student presence, online attendance, tutoring, library use, athletics, events, or services traffic.',
       items: [
-        ['Students Present', 'Sum of census/current enrollment once per distinct CRN/day/start/end block in the selected active meeting interval.'],
+        ['Unduplicated Enrollment', 'Term-level enrollment reference. Census enrollment, or current enrollment when census is unavailable, counted once per included CRN.'],
+        ['Interval Presence', 'Sum of census/current enrollment once per distinct CRN/day/start/end block in each selected active 30-minute meeting interval. This is not the same as unduplicated term enrollment.'],
         ['Nominal Scheduled Presence', 'Current/default behavior. Every valid physical meeting block contributes full census/current enrollment to each active half-hour interval.'],
         ['Expected Physical Presence', 'Enrollment multiplied by a Meeting Frequency Factor so hybrid, short-term, or irregular meetings contribute proportionally to typical campus presence.'],
         ['Meeting Frequency Factor', 'A 0.00-1.00 multiplier. Full-term weekly meetings use 1.00; partial-term meetings use meeting weeks divided by full-term weeks, exact meeting count divided by expected full-term weekly meetings, or meeting date span divided by term date span.'],
@@ -13928,12 +13930,15 @@
       endDate2: 'End Date 2',
       dateRange2: 'Date Range 2',
       overlapMinutes: 'Overlap Minutes',
-      studentsPresent: 'Students Present',
+      studentsPresent: 'Interval Presence',
+      nominalStudentsPresent: 'Nominal Interval Presence',
+      expectedStudentsPresent: 'Expected Interval Presence',
+      unduplicatedEnrollment: 'Unduplicated Enrollment',
       sectionsActive: 'Sections Active',
       distinctCrns: 'Distinct CRNs',
       meetingRowsIncluded: 'Meeting Rows Included',
-      availableRoomCapacity: 'Available Room Capacity',
-      seatsScheduled: 'Seats Scheduled',
+      availableRoomCapacity: 'Interval Open Capacity',
+      seatsScheduled: 'Interval Seats Scheduled',
       averageFillRate: 'Average Fill Rate',
       hour: 'Hour',
       peak: 'Peak',

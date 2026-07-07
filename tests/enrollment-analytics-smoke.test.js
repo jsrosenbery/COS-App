@@ -642,6 +642,7 @@ test('student presence report distinguishes scheduled offerings from instruction
 
   assert.equal(report.metrics.totalSections, 1);
   assert.equal(report.metrics.distinctCrns, 1);
+  assert.equal(report.metrics.unduplicatedEnrollment, 20);
   assert.equal(report.rows[0].instructionalMeetings, 3);
   assert.equal(report.rows[0].sectionsActive, 3);
   assert.equal(report.rows[0].studentsPresent, 60);
@@ -1888,16 +1889,19 @@ test('student presence UI and exports expose meeting frequency fields', () => {
   assert.match(text, /Sections \/ CRNs Included/);
   assert.match(text, /Meeting Rows Included/);
   assert.match(text, /\['Overall Presence', '', 'group-label'\]/);
-  assert.match(text, /Expected Student Presence/);
-  assert.match(text, /Nominal Student Presence/);
+  assert.match(text, /Unduplicated Enrollment/);
+  assert.match(text, /Expected Interval Presence/);
+  assert.match(text, /Nominal Interval Presence/);
+  assert.match(text, /Interval Seats Scheduled/);
+  assert.match(text, /Interval Open Capacity/);
   assert.match(text, /Frequency Adjustment Impact/);
   assert.match(text, /No adjustment applied/);
   assert.match(text, /lower than nominal/);
   assert.match(text, /Average Meeting Frequency Factor', formatFactor/);
   assert.match(text, /Average Fill Rate', formatPercent/);
   assert.match(text, /\['Capacity', '', 'group-label'\]/);
-  assert.match(text, /Capacity Utilization/);
-  assert.match(text, /Remaining Capacity/);
+  assert.match(text, /Interval Capacity Utilization/);
+  assert.match(text, /Interval Remaining Capacity/);
   assert.match(text, /\['Peak Activity', '', 'group-label'\]/);
   assert.match(text, /Peak Day/);
   assert.match(text, /presenceMetricLabel\(metrics\.peakCampus, presenceValueLabel\)/);
@@ -1905,6 +1909,8 @@ test('student presence UI and exports expose meeting frequency fields', () => {
   assert.doesNotMatch(text, /\['Students Present', metrics\.totalStudents/);
   assert.doesNotMatch(text, /Total Nominal Student Presence/);
   assert.doesNotMatch(text, /Total Expected Student Presence/);
+  assert.doesNotMatch(text, /\['Expected Student Presence'/);
+  assert.doesNotMatch(text, /\['Nominal Student Presence'/);
 });
 
 test('shared report context renders filters exclusions rows and export metadata', () => {
