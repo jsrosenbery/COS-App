@@ -1878,6 +1878,12 @@ test('student presence UI and exports expose meeting frequency fields', () => {
   assert.match(text, /function formatPercent/);
   assert.match(text, /function formatFactor/);
   assert.match(text, /function formatPresenceValue/);
+  assert.match(text, /function studentPresenceOptionsForRows/);
+  assert.match(text, /dashboard\.buildTermRanges/);
+  assert.match(text, /studentPresenceSummaryDisplayRows/);
+  assert.match(text, /studentPresenceDetailDisplayRows/);
+  assert.match(text, /formatPresenceValue\(row\.studentsPresent\)/);
+  assert.match(text, /formatFactor\(row\.averageMeetingFrequencyFactor\)/);
   assert.match(text, /\['Data Scope', '', 'group-label'\]/);
   assert.match(text, /Sections \/ CRNs Included/);
   assert.match(text, /Meeting Rows Included/);

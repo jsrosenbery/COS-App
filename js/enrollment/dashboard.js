@@ -8,7 +8,6 @@
   const { censusEnrollment, finalEnrollment, safeDiv, average } = metrics;
   const { valueMatchesSelection } = filterUtils;
   const dayOrder = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
-  const showCensus2 = window.COSEnrollmentAnalytics?.showCensus2 === true;
 
   function group(rows, keyer) {
     const map = new Map();
@@ -201,7 +200,7 @@
     const milestones = [
       ['First Day', 'firstDay'],
       ['Census 1', 'census1'],
-      ...(showCensus2 ? [['Census 2', 'census2']] : []),
+      ['Census 2', 'census2'],
       ['Final', 'finalEnrollment']
     ];
     return milestones.map(([label, key]) => {
@@ -796,6 +795,7 @@
     studentPresence,
     studentPresenceReport,
     meetingFrequencyFactor,
+    buildTermRanges,
     presenceEnrollment,
     isPhysicalPresenceRow,
     scheduleStructure,

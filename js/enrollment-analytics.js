@@ -22,7 +22,6 @@
     busyTimeDashboard: 'busy-time-dashboard',
     studentChoiceOpportunity: 'student-choice-opportunity',
     recommendationEngine: 'scheduling-recommendation-engine',
-    ftesProjection: 'ftes-projection-monitor',
     scheduleOptimizationLab: 'schedule-optimization-lab',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
@@ -65,7 +64,6 @@
     [REPORTS.busyTimeDashboard]: 'development',
     [REPORTS.studentChoiceOpportunity]: 'development',
     [REPORTS.recommendationEngine]: 'development',
-    [REPORTS.ftesProjection]: 'development',
     [REPORTS.scheduleOptimizationLab]: 'development',
     [REPORTS.facultyHeatmap]: 'development'
   };
@@ -91,7 +89,6 @@
     [REPORTS.busyTimeDashboard]: 'Busy Time Dashboard',
     [REPORTS.studentChoiceOpportunity]: 'Schedule Opportunity Analysis',
     [REPORTS.recommendationEngine]: 'Scheduling Recommendation Engine',
-    [REPORTS.ftesProjection]: 'FTES Projection & Apportionment Monitor',
     [REPORTS.scheduleOptimizationLab]: 'Schedule Optimization Lab',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
@@ -116,7 +113,6 @@
     REPORTS.studentChoiceOpportunity,
     REPORTS.busyTimeDashboard,
     REPORTS.recommendationEngine,
-    REPORTS.ftesProjection,
     REPORTS.scheduleOptimizationLab,
     REPORTS.instructionalMethodValidation,
     REPORTS.archiveInspection,
@@ -159,7 +155,6 @@
         REPORTS.studentChoiceOpportunity,
         REPORTS.busyTimeDashboard,
         REPORTS.recommendationEngine,
-        REPORTS.ftesProjection,
         REPORTS.scheduleOptimizationLab
       ]
     },
@@ -246,13 +241,6 @@
     recommendationFacultyRows: [],
     recommendationOutputRows: [],
     recommendationRan: false,
-    ftesProjectionRows: [],
-    ftesProjectionDetailRows: [],
-    ftesProjectionSummaryRows: [],
-    ftesProjectionTermRows: [],
-    ftesProjectionDivisionRows: [],
-    ftesProjectionRiskRows: [],
-    ftesProjectionRan: false,
     optimizationMoves: [],
     optimizationShifts: [],
     optimizationPlacements: [],
@@ -332,10 +320,9 @@
     hybrid: new Set(['HYB', 'OH', 'OHF', 'FLX', 'OHS']),
     omitted: new Set(['CPL', 'DE', 'CBE', '98'])
   };
-  const SHOW_CENSUS2 = false;
   const TUTORING_OPEN_LAB_CONFIG = {
     label: 'Tutoring / Open Lab Sections',
-    defaultExcludedCourses: ['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425']
+    defaultExcludedCourses: ['MATH 400', 'ENGL 400', 'LA 425']
   };
   const tutoringOpenLabCourseSet = new Set(TUTORING_OPEN_LAB_CONFIG.defaultExcludedCourses.map(canon));
 
@@ -378,9 +365,6 @@
   };
   fields.startDate = ['Start_Date', 'START_DATE', 'Start Date', 'START DATE', 'Class Start Date', 'CLASS START DATE', 'Begin Date', 'BEGIN DATE'];
   fields.endDate = ['End_Date', 'END_DATE', 'End Date', 'END DATE', 'Class End Date', 'CLASS END DATE', 'Stop Date', 'STOP DATE'];
-  fields.censusDate = ['CENSUS_ENRL_DATE', 'Census Enrl Date', 'Census Date', 'CENSUS DATE', 'Census_Enrl_Date'];
-  fields.scheduleType = ['SCHEDULE TYPE', 'Schedule Type', 'SCHEDULE_TYPE', 'SCHD_CODE_SSRMEET', 'Schedule Code'];
-  fields.partOfTerm = ['PTRM', 'Part of Term', 'PART_OF_TERM', 'Part_Of_Term'];
 
   function val(row, names) {
     for (const name of names) {
@@ -956,14 +940,6 @@
     return raw || 'CUSTOM';
   }
 
-  function isCensus2Snapshot(record) {
-    return normalizeSnapshotType(record?.snapshotType) === 'CENSUS 2';
-  }
-
-  function visibleSnapshotRecords(records = []) {
-    return SHOW_CENSUS2 ? (records || []) : (records || []).filter(record => !isCensus2Snapshot(record));
-  }
-
   function snapshotSourceValue(row, type) {
     const normalizedType = normalizeSnapshotType(type);
     const raw = row || {};
@@ -1423,7 +1399,7 @@
                 <ul>
                   <li>Select the term, snapshot type, and snapshot date, then upload the Section Seating export for that date.</li>
                   <li>Snapshot uploads may contain only the sections that begin on the selected snapshot date. Missing CRNs will not delete or overwrite previously saved snapshot records.</li>
-                  <li>First Day and Final snapshots use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present.</li>
+                  <li>First Day and Final snapshots use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present. Census 2 uses CENSUS_ENROLL2 when present.</li>
                   <li>If the uploaded file has no term field, the selected term is used. If the file has a conflicting term, the selected term remains authoritative for storage.</li>
                 </ul>
               </div>
@@ -1450,12 +1426,12 @@
               <select id="snapType">
                 <option>First Day</option>
                 <option>Census 1</option>
-                ${SHOW_CENSUS2 ? '<option>Census 2</option>' : ''}
+                <option>Census 2</option>
                 <option>Final</option>
                 <option>Custom</option>
               </select>
             </label>
-            <span class="analytics-note snapshot-note">First Day is the primary manual snapshot. Census 1 and Final are already present in Banner source exports and generally do not need manual snapshot capture; keep those options for correction or manual override only.</span>
+            <span class="analytics-note snapshot-note">First Day is the primary manual snapshot. Census 1, Census 2, and Final are already present in Banner source exports and generally do not need manual snapshot capture; keep those options for correction or manual override only.</span>
             <label>Snapshot Date <input id="snapDate" type="date" required></label>
             <label>Snapshot CSV <input id="snapshotCsv" type="file" accept=".csv"></label>
             <button id="saveSnapshotBatch" type="button">Archive/Save Snapshot</button>
@@ -2386,7 +2362,7 @@
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition Trend</h2>
-            <p>Upload historical enrollment snapshot CSV files to review Census 1 and End/Final movement over time. This report is a historical trend baseline for planning; current or future planning terms are excluded from the trend rather than treated as the analysis target.</p>
+            <p>Upload historical enrollment snapshot CSV files to review Census 1, Census 2, and End/Final movement over time. This report is a historical trend baseline for planning; current or future planning terms are excluded from the trend rather than treated as the analysis target.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -2397,7 +2373,7 @@
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
                   <li>Use the planning term controls only to exclude an active, future, or otherwise non-final term from the historical trend. No current/decision term is required for this report.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
-                  <li>Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled sections. Clear the checkbox only when intentionally auditing those rows.</li>
+                  <li>Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled sections and can contain non-comparable Census 2 values. Clear the checkbox only when intentionally auditing those rows.</li>
                   <li>First Day comes from stored First Day snapshots when available. If First Day snapshots are missing, start-based lifecycle calculations show N/A instead of zero.</li>
                 </ul>
               </div>
@@ -2405,10 +2381,11 @@
                 <h3>Methodology</h3>
                 <ul>
                   <li>Sections are deduplicated by CRN within term, with subject/course/section used as fallback, so multi-meeting rows are not double counted.</li>
-                  <li>Overall Attrition = Census 1 to End/Final attrition. Census 1 is the Banner-captured milestone value from CENSUS_ENROLL. End/Final uses final enrollment or ACTUAL_ENROLL/current enrollment after the end of the term.</li>
+                  <li>Overall Attrition = Census 1 to End/Final attrition. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses final enrollment or ACTUAL_ENROLL/current enrollment after the end of the term.</li>
+                  <li>Negative Census 2 values are not valid enrollment counts and are treated as missing/invalid rather than included as real enrollment.</li>
                   <li>Census Fill Rate = CENSUS_ENROLL / MAX ENROLL. Final Fill Rate = ACTUAL_ENROLL / MAX ENROLL.</li>
-                  <li>Total milestone enrollment is shown independently for Census 1 and End/Final. Those totals can use different CRN populations when the source data differs by milestone.</li>
-                  <li>Lifecycle intervals shown are Start to End, Start to Census 1, Census 1 to End, and Overall Attrition. Each interval uses matched CRNs that have both required milestone values.</li>
+                  <li>Total milestone enrollment is shown independently for Census 1, Census 2, and End/Final. Those totals can use different CRN populations when the source data differs by milestone.</li>
+                  <li>Lifecycle intervals shown are Start to End, Start to Census 1, Start to Census 2, Census 1 to Census 2, Census 1 to End, Census 2 to End, and Overall Attrition. Each interval uses matched CRNs that have both required milestone values.</li>
                   <li>Attrition is signed: (start enrollment - end enrollment) / start enrollment. Enrollment gains display as negative attrition rather than being clamped to zero.</li>
                   <li>If milestone populations differ, the report shows a data-quality warning but still calculates each attrition interval from its matched CRN population.</li>
                   <li>Historical Attrition uses selected completed terms only. The excluded planning term never contributes to the trend rates.</li>
@@ -2528,8 +2505,7 @@
                   <li>Single-term forecasts compare like terms only. Academic-year forecasts aggregate Summer, Fall, and Spring into annual historical buckets before calculating growth.</li>
                   <li>Forecast Growth blends course-specific growth, discipline growth, division growth, and college-wide growth.</li>
                   <li>The overall enrollment modifier lets you apply a planning assumption, such as an expected 3% college-wide enrollment increase.</li>
-                  <li>This report separates enrollment projection, seat/capacity projection, fill-rate projection, and FTES projection labels. FTES values in this report are planning context, not official apportionment calculations.</li>
-                  <li>FTES projection requires attendance accounting method, contact hours, census status, and special handling for positive attendance and open-entry/open-exit sections. Use the FTES Projection &amp; Apportionment Monitor for that calculation engine.</li>
+                  <li>FTES uses the uploaded FTES column when present; otherwise it estimates weekly-census FTES as census enrollment x weekly contact hours x 17.5 / 525, with a conservative census enrollment x units / 30 fallback when weekly hours are unavailable.</li>
                   <li>Forecasts estimate next-term enrollment, expected fill rate, section need, and confidence from historical behavior.</li>
                   <li>Use the optional FTES cap field to compare the annual FTES projection against the state-sanctioned FTES cap for planning and apportionment context.</li>
                   <li>Capacity guidance indicates whether demand is expanding, stable, or softening; it is not a direct section cancellation instruction.</li>
@@ -2564,55 +2540,6 @@
           <div id="demandInsights" class="analytics-insights"></div>
           <div id="demandTable" class="analytics-table"></div>
           <div id="demandLegend" class="analytics-legend"></div>
-        </div>
-        <div id="ftesProjectionReport" class="analytics-view">
-          <div class="analytics-report-intro">
-            <h2>FTES Projection &amp; Apportionment Monitor</h2>
-            <p>Estimates current-term or fiscal-year FTES using partial active-term data, census-complete sections, future sections, late-start sections, historical averages, accounting method, and total contact hours.</p>
-            <div class="analytics-methodology">
-              <div>
-                <h3>How to Use This Report</h3>
-                <ul>
-                  <li>Upload or select archived Seating (All Columns) Section Seating files that include ACCOUNTING METHOD and TOTAL_CONTACT_HOURS where possible.</li>
-                  <li>Select the active term, as-of date, historical terms, and optional SP/supplemental term settings, then run the projection.</li>
-                  <li>Use the FTES target field to compare projected annual or term FTES against an internal target or apportionment cap.</li>
-                </ul>
-              </div>
-              <div>
-                <h3>Methodology</h3>
-                <ul>
-                  <li>Weekly and Daily Census sections use projected enrollment x TOTAL_CONTACT_HOURS / 525 when direct FTES is not available.</li>
-                  <li>Positive attendance and open-entry/open-exit FTES are actual-hours based. When actual attended hours are unavailable, this tool uses historical averages and should be treated as a planning estimate, not reported FTES.</li>
-                  <li>Confidence is lower when contact hours, census dates, accounting method, or comparable historical data are missing.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-          <div class="analytics-toolbar">
-            <label>FTES CSV(s) <input id="ftesCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveFtesUploads" type="button">Archive Uploads</button>
-            <label>Archived terms <select id="ftesArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
-            <label>Active term <select id="ftesActiveTerm"></select></label>
-            <label>As-of Date <input id="ftesAsOfDate" type="date"></label>
-            <label>Historical terms <select id="ftesHistoricalTerms" multiple data-placeholder="Use available historical terms"></select></label>
-            <label class="analytics-check"><input id="ftesLikeTermOnly" type="checkbox" checked> Like-term only</label>
-            <label class="analytics-check"><input id="ftesIncludePriorYear" type="checkbox" checked> Include prior academic year</label>
-            <label class="analytics-check"><input id="ftesIncludeSupplemental" type="checkbox"> Include SP/Supplemental Term</label>
-            <label>SP/Supplemental Term <select id="ftesSupplementalTerm"></select></label>
-            <label>SP Treatment <select id="ftesSupplementalTreatment"><option value="annual">Treat SP as part of annual projection</option><option value="separate">Treat SP as separate term contribution</option></select></label>
-            <label>Positive Attendance Projection Method <select id="ftesPositiveMethod"><option value="cascade">Historical course average, then subject/schedule/default</option><option value="course">Historical course average</option><option value="subject">Subject average</option><option value="schedule">Schedule-type average</option><option value="manual">Manual completion ratio</option><option value="default">Conservative default</option></select></label>
-            <label>Default Positive Attendance Completion Ratio <input id="ftesCompletionRatio" type="number" min="0" max="1" step="0.05" value="0.70"></label>
-            <label>FTES Target <input id="ftesTarget" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
-            ${filters('ftes', { includeGroup: false, includeCancelled: false, includeOrg: true })}
-            <button id="runFtesProjection" type="button">Run</button>
-            <button id="clearFtesProjection" type="button">Clear</button>
-            <button id="exportFtesProjection" type="button">Export CSV</button>
-          </div>
-          <div id="ftesProjectionMetrics" class="analytics-metrics"></div>
-          <div id="ftesProjectionContext" class="dashboard-scope-panel"></div>
-          <div id="ftesProjectionTables" class="analytics-insights"></div>
-          <div id="ftesProjectionDetail" class="analytics-table"></div>
-          <div id="ftesProjectionLegend" class="analytics-legend"></div>
         </div>
       </section>`);
     const utilizationTool = document.getElementById('utilization-tool');
@@ -7728,7 +7655,6 @@
       setSelectOptions('conArchiveTerms', options);
       setSelectOptions('dashArchiveTerms', options);
       setSelectOptions('demArchiveTerms', options);
-      setSelectOptions('ftesArchiveTerms', options);
       setSelectOptions('spArchiveTerms', options);
       setSelectOptions('conflictArchiveTerms', options);
       setSelectOptions('roomFitArchiveTerms', options);
@@ -7977,13 +7903,6 @@
   function updateDemandTermOptions(terms) {
     setDemandTargetDefaults(terms);
     return demandForecastTarget().label;
-  }
-
-  function updateFtesTermOptions(terms = []) {
-    const options = collectRowTerms(terms.map(term => ({ term }))).map(term => ({ value: term, label: term }));
-    setSelectOptions('ftesActiveTerm', [{ value: '', label: 'All selected terms' }, ...options]);
-    setSelectOptions('ftesHistoricalTerms', options);
-    setSelectOptions('ftesSupplementalTerm', [{ value: '', label: 'No supplemental term selected' }, ...options]);
   }
 
   function setDemandTargetDefaults(terms = []) {
@@ -8263,7 +8182,7 @@
     const milestones = [
       ['First Day', 'firstDay'],
       ['Census 1', 'census1'],
-      ...(SHOW_CENSUS2 ? [['Census 2', 'census2']] : []),
+      ['Census 2', 'census2'],
       ['Final', 'finalEnrollment']
     ];
     const missing = milestones
@@ -8415,8 +8334,7 @@
     const snapYearInput = document.getElementById('snapYear');
     if (snapYearInput && !snapYearInput.value) setSnapshotTermControls(attritionDecisionTerm() || currentTerm());
     const term = snapshotTerm();
-    const visibleSnapshots = visibleSnapshotRecords(state.enrollmentSnapshots);
-    const coverage = snapshotCoverage(rows, visibleSnapshots, term);
+    const coverage = snapshotCoverage(rows, state.enrollmentSnapshots, term);
     metric('snapshotMetrics', [
       ['Sections in Focus Term', coverage.sectionsInFocusTerm],
       ['Sections with First Day Snapshot', coverage.sectionsWithFirstDaySnapshot],
@@ -8431,7 +8349,7 @@
     if (warningNode) {
       warningNode.innerHTML = warnings.length ? warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('') : '';
     }
-    table('snapshotTable', visibleSnapshots, [
+    table('snapshotTable', state.enrollmentSnapshots || [], [
       'term',
       'snapshotType',
       'snapshotDate',
@@ -8454,11 +8372,11 @@
       title: 'Enrollment Snapshot Manager Methodology & Data Dictionary',
       purpose: 'Captures lifecycle enrollment points that are not available as standing fields in the source system, especially First Day enrollment.',
       methodology: 'Records are stored by Term + CRN + Snapshot Type. New CRNs append. Existing Term + CRN + Snapshot Type records update with the latest snapshot date/enrollment. Missing CRNs in later partial uploads are not deleted.',
-      assumptions: 'First Day and Final use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present, with ACTUAL_ENROLL fallback only when needed and visibly labeled.',
+      assumptions: 'First Day and Final use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present, with ACTUAL_ENROLL fallback only when needed and visibly labeled. Census 2 uses CENSUS_ENROLL2 when present, then documented fallbacks.',
       limitations: 'Snapshot coverage depends on the user uploading every partial start-date batch for the term. Coverage below 100% means First Day lifecycle measures are incomplete.',
       items: [
         ['Enrollment Snapshot', 'A point-in-time captured enrollment value for a section.'],
-        ['Snapshot Type', 'Lifecycle milestone being captured: First Day, Census 1, Final, or Custom.'],
+        ['Snapshot Type', 'Lifecycle milestone being captured: First Day, Census 1, Census 2, Final, or Custom.'],
         ['Snapshot Date', 'The actual date represented by the uploaded partial export.'],
         ['Snapshot Coverage', 'Sections with a stored First Day snapshot divided by sections in the selected focus term.'],
         ['Source Field Used', 'The upload column used to populate the snapshot enrollment value.']
@@ -8576,7 +8494,8 @@
     const filteredRows = applyFilters(sourceRows, 'sp');
     const options = studentPresenceOptions();
     const scopedRows = studentPresenceScopedRows(dashboardCurrentRows(filteredRows, focusTerm), options);
-    const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour', options);
+    const reportOptions = studentPresenceOptionsForRows(scopedRows, options);
+    const report = dashboard.studentPresenceReport(scopedRows, document.getElementById('spGroup')?.value || 'campusDayHour', reportOptions);
     report.metrics = report.metrics || {};
     report.metrics.tutoringOpenLabRowsExcluded = diagnostics.tutoringOpenLabRowsExcluded;
     state.studentPresenceChartFilter = null;
@@ -8594,6 +8513,15 @@
       physicalCampuses: studentPresenceCampusScope(),
       presenceMode: document.getElementById('spPresenceMode')?.value === 'expected' ? 'expected' : 'nominal',
       fullTermWeeks: 17.5
+    };
+  }
+
+  function studentPresenceOptionsForRows(rows, options = studentPresenceOptions()) {
+    const sourceRows = rows || [];
+    return {
+      ...options,
+      sourceRows,
+      termRanges: dashboard.buildTermRanges?.(sourceRows) || options.termRanges || new Map()
     };
   }
 
@@ -8615,10 +8543,12 @@
     const terms = [...new Set([studentPresenceFocusTerm(), ...getSelectedValues('spCompareTerms')].filter(Boolean))];
     return terms.map(term => {
       const termRows = studentPresenceScopedRows(dashboardCurrentRows(rows, term), options);
-      const report = dashboard.studentPresenceReport(termRows, 'hour', options);
+      const reportOptions = studentPresenceOptionsForRows(termRows, options);
+      const report = dashboard.studentPresenceReport(termRows, 'hour', reportOptions);
       return {
         term,
         sourceRows: termRows,
+        termRanges: reportOptions.termRanges,
         rows: report.rows || [],
         metrics: report.metrics || {}
       };
@@ -8966,37 +8896,34 @@
   }
 
   function archiveInspectionRows() {
-    return (state.archiveInspectionRows || []).map(row => {
-      const output = {
-        sourceTerm: row.raw?.__sourceTerm || row.__sourceTerm || state.archiveInspectionTerm || row.term,
-        term: row.term,
-        crn: row.crn,
-        subject: row.subject,
-        course: row.course,
-        section: row.section,
-        title: row.title,
-        division: row.division,
-        department: row.department,
-        campus: row.campus,
-        modality: row.modality,
-        instructionalMethod: row.instructionalMethod,
-        instructor: row.instructor,
-        days: row.dayPattern,
-        start: row.start,
-        end: row.end,
-        timeBlock: row.timeBlock,
-        building: row.building,
-        room: row.roomOnly || row.room,
-        capacity: row.cap,
-        censusEnrollment: row.census,
-        finalEnrollment: row.actual,
-        crossList: row.crossList,
-        tutoringOpenLab: isTutoringOpenLabSection(row) ? 'Yes' : 'No',
-        sourceType: row.sourceType
-      };
-      if (SHOW_CENSUS2) output.invalidNegativeCensus2 = row.invalidNegativeCensus2 ? 'Yes' : 'No';
-      return output;
-    });
+    return (state.archiveInspectionRows || []).map(row => ({
+      sourceTerm: row.raw?.__sourceTerm || row.__sourceTerm || state.archiveInspectionTerm || row.term,
+      term: row.term,
+      crn: row.crn,
+      subject: row.subject,
+      course: row.course,
+      section: row.section,
+      title: row.title,
+      division: row.division,
+      department: row.department,
+      campus: row.campus,
+      modality: row.modality,
+      instructionalMethod: row.instructionalMethod,
+      instructor: row.instructor,
+      days: row.dayPattern,
+      start: row.start,
+      end: row.end,
+      timeBlock: row.timeBlock,
+      building: row.building,
+      room: row.roomOnly || row.room,
+      capacity: row.cap,
+      censusEnrollment: row.census,
+      finalEnrollment: row.actual,
+      crossList: row.crossList,
+      tutoringOpenLab: isTutoringOpenLabSection(row) ? 'Yes' : 'No',
+      invalidNegativeCensus2: row.invalidNegativeCensus2 ? 'Yes' : 'No',
+      sourceType: row.sourceType
+    }));
   }
 
   function renderArchiveInspection(rawRows, rows, selectedTerm) {
@@ -9023,7 +8950,7 @@
       ['Dual Enrollment Rows', dualEnrollmentRows],
       ['Work Experience Rows', workExperienceRows],
       ['Tutoring/Open Lab Rows', tutoringOpenLabRows],
-      ...(SHOW_CENSUS2 ? [['Rows with Invalid Negative Census 2', invalidNegativeCensus2Rows]] : []),
+      ['Rows with Invalid Negative Census 2', invalidNegativeCensus2Rows],
       ['Term Value Detected', termsDetected.length ? termsDetected.join(', ') : 'N/A']
     ]);
     document.getElementById('archiveInspectionSummary').innerHTML = [
@@ -9049,7 +8976,7 @@
       'instructionalMethod',
       'crossList',
       'tutoringOpenLab',
-      ...(SHOW_CENSUS2 ? ['invalidNegativeCensus2'] : []),
+      'invalidNegativeCensus2',
       'censusEnrollment',
       'capacity'
     ]);
@@ -9154,7 +9081,7 @@
     if (state.studentPresenceChartFilter) {
       const rows = studentPresenceFilteredSectionRows();
       state.studentPresenceExportRows = rows;
-      table('studentPresenceTable', rows, [
+      table('studentPresenceTable', studentPresenceDetailDisplayRows(rows), [
         'term',
         'crn',
         'course',
@@ -9165,8 +9092,6 @@
         'day',
         'start',
         'end',
-        'enrollment',
-        'presenceMode',
         'enrollmentUsed',
         'meetingFrequencyFactor',
         'frequencySource',
@@ -9179,7 +9104,7 @@
     } else {
       const rows = report.rows || [];
       state.studentPresenceExportRows = rows;
-      table('studentPresenceTable', rows, [
+      table('studentPresenceTable', studentPresenceSummaryDisplayRows(rows), [
         'group',
         'campus',
         'building',
@@ -9187,12 +9112,10 @@
         'day',
         'hour',
         'studentsPresent',
-        'presenceMode',
         'nominalStudentsPresent',
         'expectedStudentsPresent',
         'averageMeetingFrequencyFactor',
         'unknownFrequencyRows',
-        'hybridRowsFrequencyAdjusted',
         'sectionsActive',
         'distinctCrns',
         'meetingRowsIncluded',
@@ -9204,13 +9127,42 @@
     renderStudentPresenceLegend();
   }
 
+  function studentPresenceSummaryDisplayRows(rows) {
+    return (rows || []).map(row => ({
+      ...row,
+      studentsPresent: formatPresenceValue(row.studentsPresent),
+      nominalStudentsPresent: formatPresenceValue(row.nominalStudentsPresent),
+      expectedStudentsPresent: formatPresenceValue(row.expectedStudentsPresent),
+      averageMeetingFrequencyFactor: formatFactor(row.averageMeetingFrequencyFactor),
+      unknownFrequencyRows: formatWholeNumber(row.unknownFrequencyRows),
+      sectionsActive: formatWholeNumber(row.sectionsActive),
+      distinctCrns: formatWholeNumber(row.distinctCrns),
+      meetingRowsIncluded: formatWholeNumber(row.meetingRowsIncluded),
+      availableRoomCapacity: formatWholeNumber(row.availableRoomCapacity),
+      seatsScheduled: formatWholeNumber(row.seatsScheduled),
+      averageFillRate: formatPercent(row.averageFillRate)
+    }));
+  }
+
+  function studentPresenceDetailDisplayRows(rows) {
+    return (rows || []).map(row => ({
+      ...row,
+      enrollment: formatWholeNumber(row.enrollment),
+      enrollmentUsed: formatWholeNumber(row.enrollmentUsed),
+      meetingFrequencyFactor: formatFactor(row.meetingFrequencyFactor),
+      nominalPresence: formatPresenceValue(row.nominalPresence),
+      expectedPresence: formatPresenceValue(row.expectedPresence),
+      capacity: formatWholeNumber(row.capacity)
+    }));
+  }
+
   function studentPresenceFilteredSectionRows() {
     const filter = state.studentPresenceChartFilter;
     if (!filter) return [];
     const start = filter.startMinutes;
     const end = filter.endMinutes;
-    const options = studentPresenceOptions();
     const rowsForTerm = studentPresenceRowsForChartTerm(filter.term);
+    const options = studentPresenceOptionsForRows(rowsForTerm, studentPresenceOptions());
     const rows = rowsForTerm
       .map(row => ({ raw: row, section: window.COSSectionModel?.normalizeSection?.(row) || row }))
       .filter(item => {
@@ -9225,7 +9177,7 @@
       if (seen.has(key)) return items;
       seen.add(key);
       const enrollmentUsed = window.COSSectionModel?.enrollmentForSection?.(row) ?? row.census ?? row.actual ?? 0;
-      const frequency = dashboard.meetingFrequencyFactor?.({ ...item.raw, ...row }, { ...options, sourceRows: rowsForTerm }) || { factor: 1, source: 'frequency unknown', warning: 'Frequency unknown; defaulted to 1.00.' };
+      const frequency = dashboard.meetingFrequencyFactor?.({ ...item.raw, ...row }, options) || { factor: 1, source: 'frequency unknown', warning: 'Frequency unknown; defaulted to 1.00.' };
       items.push({
         term: row.term || filter.term || '',
         crn: row.crn || '',
@@ -9240,10 +9192,10 @@
         enrollment: enrollmentUsed,
         presenceMode: options.presenceMode === 'expected' ? 'Expected Physical Presence' : 'Nominal Scheduled Presence',
         enrollmentUsed,
-        meetingFrequencyFactor: round1(frequency.factor || 0),
+        meetingFrequencyFactor: frequency.factor || 0,
         frequencySource: frequency.source || '',
         nominalPresence: enrollmentUsed,
-        expectedPresence: round1(enrollmentUsed * (frequency.factor || 0)),
+        expectedPresence: enrollmentUsed * (frequency.factor || 0),
         frequencyWarning: frequency.warning || '',
         capacity: row.cap || 0,
         instructor: row.instructor || ''
@@ -9473,12 +9425,13 @@
     const colorList = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2'];
     const multipleTerms = chartSources.length > 1;
     const datasets = chartSources.flatMap((source, sourceIndex) => {
+      const sourceOptions = studentPresenceOptionsForRows(source.rows, options);
       const counts = window.COSSectionModel.buildHalfHourPresenceSeries(source.rows, hours, {
         metric: 'presence',
         daysOfWeek,
         excludeOnlineTba: true,
         presenceMultiplier: (section, rawRow) => expectedPresence
-          ? (dashboard.meetingFrequencyFactor?.({ ...rawRow, ...section }, { ...options, sourceRows: source.rows })?.factor || 1)
+          ? (dashboard.meetingFrequencyFactor?.({ ...rawRow, ...section }, sourceOptions)?.factor || 1)
           : 1
       });
       return daysOfWeek.map((day, index) => ({
@@ -10048,19 +10001,6 @@
     return value == null ? 'N/A' : pct(value);
   }
 
-  function isAttritionCensus2Label(labelText) {
-    return /Census\s*2|C2|Negative Census 2|Invalid Census 2/i.test(String(labelText || ''));
-  }
-
-  function attritionVisibleItems(items = []) {
-    return SHOW_CENSUS2 ? items : items.filter(item => !item.some(isAttritionCensus2Label));
-  }
-
-  function attritionVisibleColumns(columns = []) {
-    if (SHOW_CENSUS2) return columns;
-    return columns.filter(column => !/census2|Census2|C2/i.test(String(column || '')));
-  }
-
   async function loadAttritionFiles() {
     const uploaded = await readCsv(document.getElementById('enrollmentCsv'));
     const archived = await readArchivedRows('attrArchiveTerms');
@@ -10111,7 +10051,7 @@
         historicalSections: 0
       }));
       renderAttritionSummarySections({
-        executive: attritionVisibleItems([
+        executive: [
           ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
           ['Historical Terms Included', 0],
           ['Historical Sections / CRNs Included', 0],
@@ -10119,13 +10059,13 @@
           ['Census 1 to Census 2 Attrition', 'N/A'],
           ['Census 2 to End/Final Attrition', 'N/A'],
           ['Census 1 to End/Final Attrition', 'N/A']
-        ]),
-        dataQuality: attritionVisibleItems([
+        ],
+        dataQuality: [
           ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
           ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
           ['Distinct CRNs with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Crns],
           ['Data Quality Warning', diagnostics.hasInvalidNegativeCensus2 ? 'Negative Census 2 values were detected and treated as invalid.' : 'None']
-        ])
+        ]
       });
       setAttritionStatus('No historical enrollment rows match the selected uploads, archived terms, excluded planning term, and filters.');
       renderAttritionDiagnosticRates({});
@@ -10233,7 +10173,7 @@
     if (historicalMilestones.mismatch) {
       dataQualityWarnings.push('Milestone populations differ. Attrition rates are calculated using matched CRNs for each comparison.');
     }
-    if (SHOW_CENSUS2 && diagnostics.hasInvalidNegativeCensus2) {
+    if (diagnostics.hasInvalidNegativeCensus2) {
       dataQualityWarnings.push('Negative Census 2 values were detected and treated as invalid.');
     }
     if (diagnostics.tutoringOpenLabRowsExcluded > 0) {
@@ -10253,7 +10193,7 @@
       distinctCrns: historicalSummary.sections
     }));
     renderAttritionSummarySections({
-      executive: attritionVisibleItems([
+      executive: [
         ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
         ['Historical Terms Included', historicalTerms.length],
         ['Historical Sections / CRNs Included', historicalSummary.sections],
@@ -10261,8 +10201,8 @@
         ['Census 1 to Census 2 Attrition', lifecycleMetricLabel(historicalSummary.census1ToCensus2Rate)],
         ['Census 2 to End/Final Attrition', lifecycleMetricLabel(historicalSummary.census2ToEndRate)],
         ['Census 1 to End/Final Attrition', lifecycleMetricLabel(historicalSummary.census1ToEndRate)]
-      ]),
-      dataQuality: attritionVisibleItems([
+      ],
+      dataQuality: [
         ['Historical Census 1 Total', historicalMilestones.census1.total],
         ['Historical Census 2 Total', historicalMilestones.census2.total],
         ['Historical End/Final Total', historicalMilestones.final.total],
@@ -10276,7 +10216,7 @@
         ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
         ['Work Experience Rows Included', workExperience.rows],
         ['Work Experience FTES Warnings', workExperience.missingFtes]
-      ])
+      ]
     });
     renderAttritionDiagnosticRates({
       historical: historicalSummary,
@@ -10284,7 +10224,7 @@
       includeAll: false
     });
     renderAttritionDataQualityNotes(dataQualityWarnings);
-    table('attritionTable', attritionDisplayRows(state.attritionRows), attritionVisibleColumns([
+    table('attritionTable', attritionDisplayRows(state.attritionRows), [
       'courseGroup',
       'historicalTermsUsed',
       'historicalSectionsCrns',
@@ -10296,7 +10236,7 @@
       'census1ToFinalAttritionDisplay',
       'trendInterpretation',
       'confidence'
-    ]));
+    ]);
     renderAttritionLegend();
   }
 
@@ -10314,7 +10254,7 @@
         ...collectExclusionChips('attr'),
         { label: 'Planning Term Excluded', value: excludedPlanningTerm || 'None' },
         { label: 'Tutoring/Open Lab', value: `${diagnostics.tutoringOpenLabRowsExcluded || 0} rows excluded` },
-        ...(SHOW_CENSUS2 ? [{ label: 'Invalid Census 2', value: `${diagnostics.invalidNegativeCensus2Rows || 0} rows treated as missing` }] : [])
+        { label: 'Invalid Census 2', value: `${diagnostics.invalidNegativeCensus2Rows || 0} rows treated as missing` }
       ],
       method: [
         { label: 'Aggregation mode', value: document.getElementById('attrGroup')?.value || 'COURSE' },
@@ -10359,23 +10299,6 @@
     }));
   }
 
-  function attritionExportRows(rows = []) {
-    const columns = attritionVisibleColumns([
-      'courseGroup',
-      'historicalTermsUsed',
-      'historicalSectionsCrns',
-      'census1Enrollment',
-      'census2Enrollment',
-      'endFinalEnrollment',
-      'census1ToCensus2AttritionDisplay',
-      'census2ToFinalAttritionDisplay',
-      'census1ToFinalAttritionDisplay',
-      'trendInterpretation',
-      'confidence'
-    ]);
-    return attritionDisplayRows(rows).map(row => Object.fromEntries(columns.map(column => [column, row[column]])));
-  }
-
   function attritionTrendInterpretation(row) {
     const rate = row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate;
     if (rate == null) return 'Insufficient lifecycle data';
@@ -10401,9 +10324,7 @@
       ['census1ToCensus2', 'Census 1', 'Census 2', 'Census 1 to Census 2'],
       ['census1ToEnd', 'Census 1', 'End/Final', 'Census 1 to End/Final'],
       ['census2ToEnd', 'Census 2', 'End/Final', 'Census 2 to End/Final']
-    ].filter(([, startMilestone, endMilestone, calculation]) => (
-      SHOW_CENSUS2 || ![startMilestone, endMilestone, calculation].some(isAttritionCensus2Label)
-    ));
+    ];
     const scopes = [
       ['Decision Term', summaries.decision],
       ['Historical Terms', summaries.historical],
@@ -10445,9 +10366,7 @@
   function renderAttritionDataQualityNotes(warnings = []) {
     const node = document.getElementById('attritionDataQualityNotes');
     if (!node) return;
-    const standard = SHOW_CENSUS2
-      ? 'Lifecycle milestone populations may differ because Banner captures Census 1 and Census 2 as milestone values, while End/Final uses ACTUAL_ENROLL/current enrollment after term completion. Rates are diagnostic and should be reviewed with the milestone coverage counts.'
-      : 'Lifecycle milestone populations may differ because Census 1 and End/Final can have different valid CRN populations. Rates are diagnostic and should be reviewed with the milestone coverage counts.';
+    const standard = 'Lifecycle milestone populations may differ because Banner captures Census 1 and Census 2 as milestone values, while End/Final uses ACTUAL_ENROLL/current enrollment after term completion. Rates are diagnostic and should be reviewed with the milestone coverage counts.';
     const notes = [...new Set([standard, ...(warnings.length ? warnings : ['No additional data-quality warnings detected.'])])];
     node.innerHTML = `
       <h3>Data Quality Notes</h3>
@@ -12472,296 +12391,6 @@
     return rows;
   }
 
-  function ftesAccountingCategory(rowOrMethod) {
-    const method = typeof rowOrMethod === 'string' ? canon(rowOrMethod) : canon(rowOrMethod?.accountingMethod);
-    const info = accountingMethodInfo(method);
-    if (info.category === 'weekly') return 'Weekly Census';
-    if (info.category === 'daily') return 'Daily Census';
-    if (info.category === 'independentWeekly') return 'Independent Study Weekly Census';
-    if (info.category === 'independentDaily') return 'Independent Study Daily Census';
-    if (method === 'E') return 'Open Entry / Open Exit';
-    if (info.category === 'positive') return 'Positive Attendance';
-    if (/SP|SUPP|SUPPLEMENTAL/.test(method)) return 'Supplemental / SP';
-    return 'Unknown / Needs Review';
-  }
-
-  function ftesSectionStatus(row, asOfDate = new Date()) {
-    const asOf = asOfDate instanceof Date ? asOfDate : parseSectionDate(asOfDate) || new Date();
-    const start = parseSectionDate(row?.startDate);
-    const end = parseSectionDate(row?.endDate);
-    const censusDate = parseSectionDate(val(row?.raw || {}, fields.censusDate));
-    const category = ftesAccountingCategory(row);
-    if (/Positive Attendance/.test(category)) return end && asOf > end ? 'Positive Attendance Completed' : 'Positive Attendance In Progress';
-    if (/Open Entry/.test(category)) return end && asOf > end ? 'Open Entry / Open Exit Completed' : 'Open Entry / Open Exit In Progress';
-    if (!start && !end && !censusDate) return 'Unknown / Needs Review';
-    if (end && asOf > end) return 'Completed';
-    if (censusDate && asOf >= censusDate) return 'Census Complete';
-    if (start && asOf < start) return 'Future / Not Yet Started';
-    return 'Pre-Census / In Progress';
-  }
-
-  function ftesEnrollmentValue(row, status, historicalRows = []) {
-    const census = rowCensus1(row);
-    const actual = row.actual ?? finalEnrollment(row);
-    const warnings = [];
-    if (/Census Complete|Completed/.test(status)) {
-      if (census != null && Number(census) > 0) return { value: Number(census), basis: 'CENSUS_ENROLL', warnings };
-      warnings.push('CENSUS_ENROLL missing after census date; ACTUAL_ENROLL used.');
-      return { value: Number(actual) || 0, basis: 'ACTUAL_ENROLL fallback', warnings };
-    }
-    if (Number(actual) > 0) return { value: Number(actual), basis: 'Current ACTUAL_ENROLL', warnings };
-    const courseHistory = historicalRows.filter(item => courseKey(item) === courseKey(row));
-    const subjectHistory = historicalRows.filter(item => item.subject === row.subject);
-    const source = courseHistory.length ? courseHistory : subjectHistory;
-    const historical = average(source.map(item => rowCensus1(item) ?? item.actual ?? 0).filter(value => Number(value) > 0));
-    if (historical > 0) return { value: historical, basis: courseHistory.length ? 'Historical course average census enrollment' : 'Historical subject average census enrollment', warnings };
-    if (row.cap > 0) return { value: Math.round(row.cap * 0.7), basis: '70% section capacity fallback', warnings: ['No historical enrollment fallback available; used 70% capacity planning assumption.'] };
-    return { value: Number(actual) || 0, basis: 'No projection basis available', warnings: ['Projected enrollment unavailable; enrollment treated as zero.'] };
-  }
-
-  function ftesHistoricalCompletionRatio(row, historicalRows = [], method = 'cascade', defaultRatio = 0.7) {
-    const scheduleType = canon(val(row?.raw || {}, fields.scheduleType));
-    const ratioFor = scopeRows => {
-      const values = scopeRows.map(item => {
-        const enrollment = rowCensus1(item) ?? item.actual ?? 0;
-        const contactHours = item.totalContactHours || 0;
-        const ftes = item.hasDirectFtesData ? item.ftes : 0;
-        if (!(enrollment > 0 && contactHours > 0 && ftes > 0)) return null;
-        return Math.max(0, Math.min(1.25, (ftes * 525) / (enrollment * contactHours)));
-      }).filter(value => value != null && Number.isFinite(value));
-      return values.length ? average(values) : null;
-    };
-    const courseRows = historicalRows.filter(item => courseKey(item) === courseKey(row));
-    const subjectRows = historicalRows.filter(item => item.subject === row.subject);
-    const scheduleRows = historicalRows.filter(item => canon(val(item.raw || {}, fields.scheduleType)) === scheduleType && scheduleType);
-    const scopes = method === 'course' ? [['Historical course average', courseRows]]
-      : method === 'subject' ? [['Subject average', subjectRows]]
-        : method === 'schedule' ? [['Schedule-type average', scheduleRows]]
-          : method === 'manual' || method === 'default' ? []
-            : [['Historical course average', courseRows], ['Subject average', subjectRows], ['Schedule-type average', scheduleRows]];
-    for (const [basis, rows] of scopes) {
-      const ratio = ratioFor(rows);
-      if (ratio != null) return { ratio, basis, confidence: rows.length >= 3 ? 'Medium' : 'Low' };
-    }
-    return { ratio: defaultRatio, basis: method === 'manual' ? 'Manual completion ratio' : 'Conservative default', confidence: 'Low' };
-  }
-
-  function ftesProjectionForSection(row, historicalRows = [], options = {}) {
-    const asOfDate = options.asOfDate || new Date();
-    const status = ftesSectionStatus(row, asOfDate);
-    const category = ftesAccountingCategory(row);
-    const enrollment = ftesEnrollmentValue(row, status, historicalRows);
-    const contactHours = row.totalContactHours || 0;
-    const warnings = [...enrollment.warnings];
-    if (!row.accountingMethod) warnings.push('ACCOUNTING METHOD missing.');
-    if (!contactHours && !row.hasDirectFtesData) warnings.push('TOTAL_CONTACT_HOURS missing.');
-    if (!parseSectionDate(row.startDate) || !parseSectionDate(row.endDate)) warnings.push('Section start/end date missing or invalid.');
-    const isActual = /Census Complete|Completed/.test(status) || row.hasDirectFtesData;
-    let projectedFtes = 0;
-    let calculationMethod = '';
-    let confidence = 'Medium';
-    if (row.hasDirectFtesData && row.ftes > 0) {
-      projectedFtes = row.ftes;
-      calculationMethod = 'Direct FTES from source upload';
-      confidence = 'High';
-    } else if (/Positive Attendance|Open Entry/.test(category)) {
-      const ratio = ftesHistoricalCompletionRatio(row, historicalRows, options.positiveMethod, options.defaultCompletionRatio);
-      projectedFtes = contactHours > 0 ? (enrollment.value * contactHours * ratio.ratio) / 525 : 0;
-      calculationMethod = `${category} estimated FTES - historical model (${ratio.basis}, ratio ${formatFactor(ratio.ratio)})`;
-      confidence = ratio.confidence;
-      if (ratio.confidence === 'Low') warnings.push(`${category} estimate has weak historical support.`);
-    } else if (/Weekly|Daily|Independent/.test(category)) {
-      projectedFtes = contactHours > 0
-        ? (enrollment.value * contactHours) / 525
-        : estimatedFtes(enrollment.value, { units: row.units, weeklyHours: row.weeklyHours, totalContactHours: row.totalContactHours, accountingMethod: row.accountingMethod });
-      calculationMethod = contactHours > 0
-        ? `${category} planning estimate: projected enrollment x TOTAL_CONTACT_HOURS / 525`
-        : `${category} fallback estimate using available weekly hours or units`;
-      if (!contactHours) confidence = 'Low';
-    } else {
-      projectedFtes = row.hasDirectFtesData ? row.ftes : 0;
-      calculationMethod = row.hasDirectFtesData ? 'Direct FTES from source upload' : 'Not calculated - requires FTES Projection Engine review';
-      confidence = 'Low';
-      warnings.push('Accounting method is unknown or needs review.');
-    }
-    const earnedFtes = isActual ? projectedFtes : 0;
-    const remainingFtes = isActual ? 0 : projectedFtes;
-    const ftesAtRisk = warnings.length > 0 || confidence === 'Low';
-    return {
-      term: row.term,
-      crn: row.crn,
-      course: courseKey(row),
-      section: row.section,
-      division: row.division,
-      subject: row.subject,
-      scheduleType: canon(val(row.raw || {}, fields.scheduleType)),
-      partOfTerm: canon(val(row.raw || {}, fields.partOfTerm)),
-      accountingMethodRaw: row.accountingMethod || '',
-      accountingMethodNormalized: category,
-      sectionStatus: status,
-      startDate: formatSectionDate(row.startDate),
-      endDate: formatSectionDate(row.endDate),
-      censusDate: formatSectionDate(val(row.raw || {}, fields.censusDate)),
-      totalContactHours: contactHours || '',
-      actualEnroll: row.actual || 0,
-      censusEnroll: rowCensus1(row) ?? '',
-      projectedEnrollmentUsed: Math.round(enrollment.value || 0),
-      projectedFtes: round1(projectedFtes),
-      earnedFtes: round1(earnedFtes),
-      remainingFtes: round1(remainingFtes),
-      ftesAtRisk: ftesAtRisk ? 'Yes' : 'No',
-      calculationMethod,
-      confidence,
-      warningNote: warnings.join(' | ') || 'None'
-    };
-  }
-
-  function ftesProjectionContext() {
-    const asOfDate = document.getElementById('ftesAsOfDate')?.value || new Date().toISOString().slice(0, 10);
-    return {
-      activeTerm: normalizeTermLabel(document.getElementById('ftesActiveTerm')?.value || ''),
-      asOfDate,
-      historicalTerms: getSelectedValues('ftesHistoricalTerms').map(normalizeTermLabel),
-      likeTermOnly: document.getElementById('ftesLikeTermOnly')?.checked !== false,
-      includePriorYear: document.getElementById('ftesIncludePriorYear')?.checked !== false,
-      includeSupplemental: document.getElementById('ftesIncludeSupplemental')?.checked === true,
-      supplementalTerm: normalizeTermLabel(document.getElementById('ftesSupplementalTerm')?.value || ''),
-      supplementalTreatment: document.getElementById('ftesSupplementalTreatment')?.value || 'annual',
-      positiveMethod: document.getElementById('ftesPositiveMethod')?.value || 'cascade',
-      defaultCompletionRatio: Number(document.getElementById('ftesCompletionRatio')?.value || 0.7),
-      target: Number(document.getElementById('ftesTarget')?.value || 0)
-    };
-  }
-
-  function selectFtesHistoricalRows(rows, context) {
-    const active = context.activeTerm;
-    const activeParts = termParts(active);
-    const explicit = new Set((context.historicalTerms || []).map(normalizeTermLabel));
-    return (rows || []).filter(row => {
-      const term = normalizeTermLabel(row.term);
-      if (!term || term === active) return false;
-      if (explicit.size && !explicit.has(term)) return false;
-      if (context.likeTermOnly && activeParts.season && termParts(term).season !== activeParts.season) return false;
-      return termSortValue(term) < termSortValue(active) || !active;
-    });
-  }
-
-  function summarizeFtesProjection(details = [], context = {}, sourceRows = [], historicalRows = []) {
-    const total = details.reduce((acc, row) => {
-      acc.projected += Number(row.projectedFtes) || 0;
-      acc.earned += Number(row.earnedFtes) || 0;
-      acc.remaining += Number(row.remainingFtes) || 0;
-      if (/Positive Attendance/.test(row.accountingMethodNormalized)) acc.positive += Number(row.projectedFtes) || 0;
-      if (/Open Entry/.test(row.accountingMethodNormalized)) acc.openEntry += Number(row.projectedFtes) || 0;
-      if (row.ftesAtRisk === 'Yes') acc.risk += Number(row.projectedFtes) || 0;
-      return acc;
-    }, { projected: 0, earned: 0, remaining: 0, positive: 0, openEntry: 0, risk: 0 });
-    const confidenceScore = average(details.map(row => ({ High: 90, Medium: 65, Low: 35 }[row.confidence] || 35)));
-    const confidence = confidenceScore >= 80 ? 'High' : confidenceScore >= 55 ? 'Medium' : 'Low';
-    const groupRows = (keyer, mapper) => [...group(details, keyer).entries()].map(([key, rows]) => mapper(key, rows));
-    const byAccounting = groupRows(row => row.accountingMethodNormalized || 'Unknown / Needs Review', (key, rows) => ({
-      attendanceAccountingType: key,
-      sections: rows.length,
-      censusCompleteActualFtes: round1(sum(rows, 'earnedFtes')),
-      projectedRemainingFtes: round1(sum(rows, 'remainingFtes')),
-      estimatedTotalFtes: round1(sum(rows, 'projectedFtes')),
-      confidence: rows.some(row => row.confidence === 'Low') ? 'Low' : rows.some(row => row.confidence === 'Medium') ? 'Medium' : 'High',
-      notes: [...new Set(rows.map(row => row.warningNote).filter(note => note && note !== 'None'))].slice(0, 3).join(' | ') || 'None'
-    }));
-    const byTerm = groupRows(row => row.term || 'UNKNOWN', (key, rows) => ({
-      term: key,
-      actualCensusCompleteFtes: round1(sum(rows, 'earnedFtes')),
-      projectedRemainingFtes: round1(sum(rows, 'remainingFtes')),
-      estimatedTotalFtes: round1(sum(rows, 'projectedFtes')),
-      confidence: rows.some(row => row.confidence === 'Low') ? 'Low' : rows.some(row => row.confidence === 'Medium') ? 'Medium' : 'High'
-    }));
-    const byDivision = groupRows(row => `${row.division || 'UNKNOWN'}|${row.subject || 'UNKNOWN'}`, (key, rows) => {
-      const [division, subject] = key.split('|');
-      return {
-        division,
-        subject,
-        sections: rows.length,
-        projectedFtes: round1(sum(rows, 'projectedFtes')),
-        ftesAtRisk: round1(sum(rows.filter(row => row.ftesAtRisk === 'Yes'), 'projectedFtes')),
-        confidence: rows.some(row => row.confidence === 'Low') ? 'Low' : rows.some(row => row.confidence === 'Medium') ? 'Medium' : 'High'
-      };
-    });
-    return {
-      total,
-      confidence,
-      byAccounting,
-      byTerm,
-      byDivision,
-      atRisk: details.filter(row => row.ftesAtRisk === 'Yes'),
-      contextRows: [
-        { Field: 'Active term', Value: context.activeTerm || 'All loaded terms' },
-        { Field: 'As-of date', Value: context.asOfDate },
-        { Field: 'Historical terms used', Value: termListLabel(collectRowTerms(historicalRows)) },
-        { Field: 'Like-term only', Value: context.likeTermOnly ? 'Yes' : 'No' },
-        { Field: 'SP/Supplemental setting', Value: context.includeSupplemental ? `${context.supplementalTerm || 'Selected'} (${context.supplementalTreatment})` : 'Not included' },
-        { Field: 'Active sections analyzed', Value: details.length },
-        { Field: 'Historical sections used', Value: historicalRows.length },
-        { Field: 'Excluded sections', Value: Math.max(0, sourceRows.length - details.length) },
-        { Field: 'Exclusion reasons', Value: 'Filters, omitted instructional/accounting methods, tutoring/open lab toggle, or inactive selected scope' }
-      ]
-    };
-  }
-
-  async function loadFtesProjectionRows() {
-    const saved = captureFilterState('ftes');
-    const uploadedRows = await readCsv(document.getElementById('ftesCsv'));
-    const archiveLoad = await readArchivedRowsWithDiagnostics('ftesArchiveTerms', { reportLabel: 'FTES Projection & Apportionment Monitor' });
-    const rows = dedupeEnrollmentRows([...uploadedRows, ...archiveLoad.rows].map(normalize))
-      .filter(row => !isOmittedInstructionalMethod(row) || row.isWorkExperience);
-    state.ftesProjectionRows = rows;
-    state.ftesProjectionArchiveLoad = archiveLoad;
-    const terms = collectRowTerms(rows);
-    updateFtesTermOptions(terms);
-    refreshAnalyticsFilters('ftes', rows, saved);
-    return rows;
-  }
-
-  async function runFtesProjection() {
-    state.ftesProjectionRan = true;
-    document.getElementById('ftesProjectionDetail').innerHTML = '<p class="analytics-empty">Running FTES projection...</p>';
-    const sourceRows = await loadFtesProjectionRows();
-    const context = ftesProjectionContext();
-    let filtered = applyFilters(sourceRows, 'ftes');
-    if (context.activeTerm) {
-      filtered = filtered.filter(row => row.term === context.activeTerm || (context.includeSupplemental && row.term === context.supplementalTerm));
-    }
-    const historicalRows = selectFtesHistoricalRows(sourceRows, context);
-    const details = filtered.map(row => ftesProjectionForSection(row, historicalRows, context));
-    const summary = summarizeFtesProjection(details, context, sourceRows, historicalRows);
-    state.ftesProjectionDetailRows = details;
-    state.ftesProjectionSummaryRows = summary.byAccounting;
-    state.ftesProjectionTermRows = summary.byTerm;
-    state.ftesProjectionDivisionRows = summary.byDivision;
-    state.ftesProjectionRiskRows = summary.atRisk;
-    metric('ftesProjectionMetrics', [
-      ['Projected Total FTES', round1(summary.total.projected)],
-      ['Earned / Census-Complete FTES', round1(summary.total.earned)],
-      ['Projected Remaining FTES', round1(summary.total.remaining)],
-      ['Positive Attendance Estimated FTES', round1(summary.total.positive)],
-      ['Open Entry/Open Exit Estimated FTES', round1(summary.total.openEntry)],
-      ['FTES at Risk', round1(summary.total.risk)],
-      ['Variance to FTES Target', context.target ? round1(summary.total.projected - context.target) : 'No target entered'],
-      ['Confidence', summary.confidence]
-    ]);
-    document.getElementById('ftesProjectionContext').innerHTML = `<h3>Report Context</h3><dl>${summary.contextRows.map(row => `<div><dt>${escapeAttr(row.Field)}</dt><dd>${escapeAttr(row.Value)}</dd></div>`).join('')}</dl>`;
-    document.getElementById('ftesProjectionTables').innerHTML = `
-      <section class="demand-report-section"><h3>By Attendance Accounting Type</h3><div id="ftesAccountingTable" class="analytics-table"></div></section>
-      <section class="demand-report-section"><h3>By Term</h3><div id="ftesTermTable" class="analytics-table"></div></section>
-      <section class="demand-report-section"><h3>By Division / Subject</h3><div id="ftesDivisionTable" class="analytics-table"></div></section>
-      <section class="demand-report-section"><h3>FTES at Risk</h3><div id="ftesRiskTable" class="analytics-table"></div></section>`;
-    table('ftesAccountingTable', summary.byAccounting, ['attendanceAccountingType', 'sections', 'censusCompleteActualFtes', 'projectedRemainingFtes', 'estimatedTotalFtes', 'confidence', 'notes']);
-    table('ftesTermTable', summary.byTerm, ['term', 'actualCensusCompleteFtes', 'projectedRemainingFtes', 'estimatedTotalFtes', 'confidence']);
-    table('ftesDivisionTable', summary.byDivision, ['division', 'subject', 'sections', 'projectedFtes', 'ftesAtRisk', 'confidence']);
-    table('ftesRiskTable', summary.atRisk, ['term', 'crn', 'course', 'sectionStatus', 'projectedFtes', 'confidence', 'warningNote']);
-    table('ftesProjectionDetail', details, ['term', 'crn', 'course', 'section', 'accountingMethodRaw', 'accountingMethodNormalized', 'sectionStatus', 'startDate', 'endDate', 'censusDate', 'totalContactHours', 'actualEnroll', 'censusEnroll', 'projectedEnrollmentUsed', 'projectedFtes', 'calculationMethod', 'confidence', 'warningNote']);
-    renderFtesProjectionLegend();
-  }
-
   function demandExecutiveSummaryPanel(summary = {}) {
     const tone = summary.health === 'On Track' ? 'ok' : summary.health === 'Watch' ? 'watch' : 'alert';
     return `
@@ -13724,7 +13353,7 @@
   function renderAttritionLegend() {
     const legend = document.getElementById('attritionLegend');
     if (!legend) return;
-    const items = attritionVisibleItems([
+    const items = [
       ['Group', 'The current grouping selected in Group by, usually Discipline + Course.'],
       ['Planning Term Excluded', 'Optional active, future, or otherwise non-final term removed from the historical trend. No current/decision term is required to run this report.'],
       ['Course Historical Terms Included', 'Number of completed historical terms where this specific row grouping appears after filters are applied. The excluded planning term is not included.'],
@@ -13759,13 +13388,11 @@
       ['Final Fill Rate', 'Final Enrollment divided by Total Seats. Values above 100% mean sections exceeded listed capacity.'],
       ['Empty Seats at Census', 'Total Seats minus Census Enrollment, floored at zero.'],
       ['Empty Seats at Final', 'Total Seats minus Final Enrollment, floored at zero.']
-    ]);
+    ];
     renderMethodologyPanel(legend, {
       title: 'Enrollment Attrition Trend Methodology & Data Dictionary',
       purpose: 'Reviews completed historical milestone enrollment movement and data coverage so attrition trends can be interpreted for planning.',
-      methodology: SHOW_CENSUS2
-        ? 'Enrollment Attrition Trend is intended to review completed historical milestone enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Because milestone populations may differ, attrition rates are diagnostic and should be interpreted alongside CRN coverage counts. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Negative Census 2 values are treated as invalid/missing. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.'
-        : 'Enrollment Attrition Trend is intended to review completed historical Census 1 to End/Final enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 is captured from CENSUS_ENROLL. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.',
+      methodology: 'Enrollment Attrition Trend is intended to review completed historical milestone enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Because milestone populations may differ, attrition rates are diagnostic and should be interpreted alongside CRN coverage counts. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Negative Census 2 values are treated as invalid/missing. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.',
       assumptions: 'CENSUS_ENROLL is treated as census enrollment. ACTUAL_ENROLL is treated as final enrollment when the source file is final and as current enrollment when the source file is an in-progress snapshot.',
       limitations: 'This report does not know why students left, whether a term file is final unless the uploaded source reflects that, or whether external retention interventions occurred.',
       items,
@@ -14010,32 +13637,6 @@
       </details>`;
   }
 
-  function renderFtesProjectionLegend() {
-    const legend = document.getElementById('ftesProjectionLegend');
-    if (!legend) return;
-    renderMethodologyPanel(legend, {
-      title: 'FTES Projection & Apportionment Monitor Methodology & Data Dictionary',
-      purpose: 'Estimates where selected active, future, late-start, and historical term sections are likely to finish in FTES for apportionment planning.',
-      methodology: 'Census sections use projected enrollment multiplied by TOTAL_CONTACT_HOURS divided by 525 when direct FTES is unavailable. Sections past census prefer CENSUS_ENROLL. Pre-census and future sections use current ACTUAL_ENROLL when present, then historical course, subject, or capacity fallback. Positive attendance and open-entry/open-exit sections are actual-hours based; when attended hours are unavailable, historical completion ratios or the configured default ratio are applied.',
-      assumptions: 'Census enrollment is preferred when available. Actual/current enrollment is used when census is unavailable. Direct uploaded FTES is used when present. Positive attendance and open-entry/open-exit estimates are planning estimates, not reported FTES.',
-      limitations: 'The report does not replace official apportionment reporting. Missing ACCOUNTING METHOD, TOTAL_CONTACT_HOURS, census date, section dates, direct FTES, or historical comparison rows lowers confidence and may place FTES at risk.',
-      items: [
-        ['Projected Total FTES', 'Earned/census-complete FTES plus projected remaining FTES for the selected active and supplemental term scope.'],
-        ['Earned / Census-Complete FTES', 'FTES for sections that are completed, census complete, or have direct FTES available.'],
-        ['Projected Remaining FTES', 'Planning estimate for sections not yet complete or not yet at census.'],
-        ['Positive Attendance Estimated FTES', 'Estimated Positive Attendance FTES - historical model. Uses direct FTES when available; otherwise uses projected enrollment x contact hours x completion ratio / 525.'],
-        ['Open Entry/Open Exit Estimated FTES', 'Estimated Open Entry/Open Exit FTES - historical model. Treated separately from standard census sections.'],
-        ['FTES at Risk', 'Projected FTES attached to sections with missing contact hours, missing census enrollment after census, unknown accounting method, missing dates, or weak historical support.'],
-        ['Variance to FTES Target', 'Projected Total FTES minus the optional FTES Target input. Positive values are above target; negative values are below target.'],
-        ['Attendance Accounting Type', 'Normalized accounting category derived from ACCOUNTING METHOD: Weekly Census, Daily Census, Independent Study Weekly/Daily Census, Positive Attendance, Open Entry/Open Exit, Supplemental/SP, or Unknown/Needs Review.'],
-        ['Section Status', 'Status as of the selected date: Census Complete, Pre-Census/In Progress, Future/Not Yet Started, Completed, Positive Attendance In Progress/Completed, Open Entry/Open Exit In Progress, or Unknown/Needs Review.'],
-        ['Calculation Method', 'Text description of the enrollment and FTES formula used for that section.'],
-        ['Confidence', 'High when direct FTES is present, Medium when the required contact/enrollment fields or historical support are present, and Low when fallback assumptions or missing data are used.']
-      ],
-      version: 'Methodology v1.0'
-    });
-  }
-
   function refreshGeneratedCollapsibleSections(root = document) {
     window.COSUtils?.applyCollapsibleSections?.(root);
   }
@@ -14164,26 +13765,6 @@
       ftesDifference: 'Difference',
       ftesPercentDifference: '% Difference',
       ftesShareOfTotal: 'Share of Total',
-      attendanceAccountingType: 'Attendance Accounting Type',
-      censusCompleteActualFtes: 'Census Complete / Actual FTES',
-      projectedRemainingFtes: 'Projected Remaining FTES',
-      estimatedTotalFtes: 'Estimated Total FTES',
-      notes: 'Notes',
-      actualCensusCompleteFtes: 'Actual/Census Complete FTES',
-      ftesAtRisk: 'FTES at Risk',
-      accountingMethodRaw: 'Accounting Method Raw',
-      accountingMethodNormalized: 'Accounting Method Normalized',
-      sectionStatus: 'Section Status',
-      startDate: 'Start Date',
-      endDate: 'End Date',
-      censusDate: 'Census Date',
-      totalContactHours: 'Total Contact Hours',
-      actualEnroll: 'Actual Enroll',
-      censusEnroll: 'Census Enroll',
-      projectedEnrollmentUsed: 'Projected Enrollment Used',
-      projectedFtes: 'Projected FTES',
-      calculationMethod: 'Calculation Method',
-      warningNote: 'Warning / Note',
       historicalEnrollment: 'Historical Enrollment',
       projectedEnrollment: 'Projected Enrollment',
       enrollmentDifference: 'Difference',
@@ -14412,24 +13993,6 @@
     URL.revokeObjectURL(link.href);
   }
 
-  function exportFtesProjectionRows() {
-    const context = ftesProjectionContext();
-    const rows = [
-      { Section: 'Report Context', Field: 'Active term', Value: context.activeTerm || 'All loaded terms' },
-      { Section: 'Report Context', Field: 'As-of date', Value: context.asOfDate },
-      { Section: 'Report Context', Field: 'Historical terms', Value: termListLabel(getSelectedValues('ftesHistoricalTerms')) },
-      { Section: 'Report Context', Field: 'Like-term only', Value: context.likeTermOnly ? 'Yes' : 'No' },
-      { Section: 'Report Context', Field: 'SP/Supplemental', Value: context.includeSupplemental ? `${context.supplementalTerm || 'Selected'} (${context.supplementalTreatment})` : 'Not included' },
-      { Section: 'Methodology', Field: 'FTES calculation warning', Value: 'FTES projection requires attendance accounting method, contact hours, census status, and special handling for positive attendance and open-entry/open-exit sections.' },
-      ...state.ftesProjectionSummaryRows.map(row => ({ Section: 'By Attendance Accounting Type', ...row })),
-      ...state.ftesProjectionTermRows.map(row => ({ Section: 'By Term', ...row })),
-      ...state.ftesProjectionDivisionRows.map(row => ({ Section: 'By Division / Subject', ...row })),
-      ...state.ftesProjectionRiskRows.map(row => ({ Section: 'FTES at Risk', ...row })),
-      ...state.ftesProjectionDetailRows.map(row => ({ Section: 'Section-Level Detail', ...row }))
-    ];
-    exportRowsWithoutMethodology(rows, `ftes-projection-${context.activeTerm || 'selected-scope'}.csv`);
-  }
-
   function exportRowsExcel(rows, columns, filename) {
     const contextRows = reportContextToExportRows();
     const contextTable = contextRows.length
@@ -14455,7 +14018,6 @@
       selected === REPORTS.attrition ? 'attritionLegend' :
       selected === REPORTS.consolidation ? 'consolidationLegend' :
       selected === REPORTS.demand ? 'demandLegend' :
-      selected === REPORTS.ftesProjection ? 'ftesProjectionLegend' :
       selected === REPORTS.conflictCheck ? 'conflictLegend' :
       selected === REPORTS.studentPresence ? 'studentPresenceLegend' :
       selected === REPORTS.instructorAvailability ? 'instructorAvailabilityLegend' : '';
@@ -14469,7 +14031,6 @@
       selectedReport === REPORTS.consolidation ? 'con' :
       selectedReport === REPORTS.conflictCheck ? 'conflict' :
       selectedReport === REPORTS.studentPresence ? 'sp' :
-      selectedReport === REPORTS.ftesProjection ? 'ftes' :
       selectedReport === REPORTS.demand ? 'dem' : '';
     if (!prefix || !document.getElementById(prefix + 'Division')) return '';
     return [
@@ -14709,7 +14270,6 @@
     setReportDisplay(REPORTS.attrition, 'attritionReport');
     setReportDisplay(REPORTS.consolidation, 'consolidationReport');
     setReportDisplay(REPORTS.demand, 'demandReport');
-    setReportDisplay(REPORTS.ftesProjection, 'ftesProjectionReport');
     setReportDisplay(REPORTS.conflictCheck, 'conflictCheckReport');
     setReportDisplay(REPORTS.archiveInspection, 'archiveInspectionReport');
     setReportDisplay(REPORTS.roomFit, 'roomFitReport');
@@ -14754,15 +14314,6 @@
       populateAnalyticsFilters('dem', rows);
       document.getElementById('demandTable').innerHTML = '<p class="analytics-empty">Upload or select archived historical CSV files, then click Run.</p>';
       renderDemandLegend();
-    }
-    if (selected === REPORTS.ftesProjection && !state.ftesProjectionRan) {
-      const rows = rowsWithWorkExperience(state.ftesProjectionRows.length ? state.ftesProjectionRows : currentRows().filter(row => !isOmittedInstructionalMethod(row)), 'ftes');
-      updateFtesTermOptions(collectRowTerms(rows));
-      populateAnalyticsFilters('ftes', rows);
-      const asOf = document.getElementById('ftesAsOfDate');
-      if (asOf && !asOf.value) asOf.value = new Date().toISOString().slice(0, 10);
-      document.getElementById('ftesProjectionDetail').innerHTML = '<p class="analytics-empty">Upload or select archived Section Seating files, then click Run.</p>';
-      renderFtesProjectionLegend();
     }
     if (selected === REPORTS.conflictCheck && !state.conflictRan) {
       loadConflictRows().then(() => {
@@ -15272,33 +14823,6 @@
     });
     document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
-    document.getElementById('runFtesProjection')?.addEventListener('click', () => runFtesProjection().catch(err => alert(err.message || 'FTES Projection failed.')));
-    document.getElementById('ftesCsv')?.addEventListener('change', () => loadFtesProjectionRows().catch(err => console.warn(err)));
-    document.getElementById('ftesArchiveTerms')?.addEventListener('change', () => loadFtesProjectionRows().catch(err => console.warn(err)));
-    document.getElementById('archiveFtesUploads')?.addEventListener('click', () => archiveUploads('ftesCsv').catch(err => alert(err.message || 'Archive failed.')));
-    document.getElementById('clearFtesProjection')?.addEventListener('click', () => {
-      resetAnalyticsControls('ftes');
-      state.ftesProjectionRows = [];
-      state.ftesProjectionDetailRows = [];
-      state.ftesProjectionSummaryRows = [];
-      state.ftesProjectionTermRows = [];
-      state.ftesProjectionDivisionRows = [];
-      state.ftesProjectionRiskRows = [];
-      state.ftesProjectionRan = false;
-      document.getElementById('ftesProjectionMetrics')?.replaceChildren();
-      const context = document.getElementById('ftesProjectionContext');
-      const tables = document.getElementById('ftesProjectionTables');
-      const detail = document.getElementById('ftesProjectionDetail');
-      if (context) context.innerHTML = '';
-      if (tables) tables.innerHTML = '';
-      if (detail) detail.innerHTML = '<p class="analytics-empty">FTES projection filters cleared. Click Run to calculate again.</p>';
-    });
-    document.getElementById('exportFtesProjection')?.addEventListener('click', exportFtesProjectionRows);
-    ['ftesActiveTerm', 'ftesAsOfDate', 'ftesHistoricalTerms', 'ftesLikeTermOnly', 'ftesIncludePriorYear', 'ftesIncludeSupplemental', 'ftesSupplementalTerm', 'ftesSupplementalTreatment', 'ftesPositiveMethod', 'ftesCompletionRatio', 'ftesTarget'].forEach(id => {
-      document.getElementById(id)?.addEventListener('change', () => {
-        if (state.ftesProjectionRan) runFtesProjection().catch(err => console.warn(err));
-      });
-    });
     document.getElementById('runConflictCheck')?.addEventListener('click', () => runConflictCheck().catch(err => alert(err.message || 'Conflict check failed.')));
     document.getElementById('conflictCsv')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
     document.getElementById('conflictArchiveTerms')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
@@ -15361,7 +14885,7 @@
     document.getElementById('snapSeason')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('snapYear')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('viewStoredSnapshots')?.addEventListener('click', () => renderSnapshotManager());
-    document.getElementById('exportStoredSnapshots')?.addEventListener('click', () => exportRows(visibleSnapshotRecords(state.enrollmentSnapshots), 'enrollment-snapshots.csv'));
+    document.getElementById('exportStoredSnapshots')?.addEventListener('click', () => exportRows(state.enrollmentSnapshots, 'enrollment-snapshots.csv'));
     document.getElementById('clearSnapshotBatch')?.addEventListener('click', () => clearSelectedSnapshotBatch().catch(err => alert(err.message || 'Snapshot clear failed.')));
     document.getElementById('iaDivision')?.addEventListener('change', () => {
       populateInstructorAvailabilityFilters(currentRows());
@@ -15554,7 +15078,7 @@
       });
     });
     document.getElementById('clearFacultyHeatmap')?.addEventListener('click', clearFacultyScheduleHeatmap);
-    document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(attritionExportRows(state.attritionRows), `enrollment-attrition-trend-${attritionDecisionTerm() || currentTerm() || 'term'}.csv`));
+    document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-trend-${attritionDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${consolidationDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, `enrollment-planning-forecast-${demandTargetSlug()}.csv`));
     document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, demandExportColumns(), `enrollment-planning-forecast-${demandTargetSlug()}.xls`));
@@ -15604,7 +15128,6 @@
   }
 
   window.COSEnrollmentAnalytics = {
-    showCensus2: SHOW_CENSUS2,
     ROLE_LEVEL,
     ROLE_LABEL,
     REPORT_ACCESS,
@@ -15676,11 +15199,6 @@
     demandPopulationSummary,
     demandPlanningBreakdowns,
     formatDemandFtesRange,
-    ftesAccountingCategory,
-    ftesSectionStatus,
-    ftesHistoricalCompletionRatio,
-    ftesProjectionForSection,
-    summarizeFtesProjection,
     parseDemandPattern,
     buildEnrollmentTrendChartData,
     buildFtesTrendChartData,
