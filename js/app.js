@@ -13,6 +13,7 @@ let heatmapCellFilter = null;
 let heatmapDataTableFilterRegistered = false;
 
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const hmDayCodeToName = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
 const ROOM_CATALOG_BACKUP_KEY = 'cos-room-catalog-backup-v1';
 const CAL_GETC_BACKUP_KEY = 'cos-cal-getc-mapping-backup-v1';
 const CURRICULUM_CROSSWALK_BACKUP_KEY = 'cos-curriculum-crosswalk-backup-v1';
@@ -166,6 +167,30 @@ function normalizeHeaderKey(key) {
   return String(key || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
 
+function normalizeHeatmapDayNames(value, options = {}) {
+  if (window.COSDayUtils?.normalizeDays) {
+    return window.COSDayUtils.normalizeDays(value, options).map(code => hmDayCodeToName[code]).filter(Boolean);
+  }
+  const dayNames = hmDays;
+  const codeMap = {
+    U: 'Sunday', SU: 'Sunday', SUNDAY: 'Sunday',
+    M: 'Monday', MO: 'Monday', MONDAY: 'Monday',
+    T: 'Tuesday', TU: 'Tuesday', TUESDAY: 'Tuesday',
+    W: 'Wednesday', WE: 'Wednesday', WEDNESDAY: 'Wednesday',
+    R: 'Thursday', TH: 'Thursday', THURSDAY: 'Thursday',
+    F: 'Friday', FR: 'Friday', FRIDAY: 'Friday',
+    S: 'Saturday', SA: 'Saturday', SATURDAY: 'Saturday'
+  };
+  let recDays = Array.isArray(value) ? value : (typeof value === 'string' ? value.split(/[,\s/]+/) : []);
+  recDays = recDays.map(day => String(day || '').trim()).filter(Boolean);
+  recDays = recDays.map(day => codeMap[day.toUpperCase()] || day);
+  if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !dayNames.includes(recDays[0])) {
+    const abbrevDayMap = { U:'Sunday', M:'Monday', T:'Tuesday', W:'Wednesday', R:'Thursday', F:'Friday', S:'Saturday' };
+    recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
+  }
+  return recDays.filter(day => dayNames.includes(day));
+}
+
 function isValidRoom(building, room) {
   if (!room) return false;
   const r = room.toUpperCase();
@@ -296,7 +321,7 @@ function getCourseKey(section) {
 
 const TUTORING_OPEN_LAB_CONFIG = {
   label: 'Tutoring / Open Lab Sections',
-  defaultExcludedCourses: ['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425']
+  defaultExcludedCourses: ['MATH 400', 'ENGL 400', 'LA 425']
 };
 const tutoringOpenLabCourseSet = new Set(TUTORING_OPEN_LAB_CONFIG.defaultExcludedCourses.map(value => String(value).trim().toUpperCase()));
 
@@ -655,8 +680,6 @@ function getUniqueRooms(data) {
 
 function normalizeRow(r) {
   const canonicalSection = window.COSSectionModel?.normalizeSection?.(r);
-  // Convert DAYS like "MW" to ["Monday","Wednesday"]
-  const daysMap = {M:"Monday",T:"Tuesday",W:"Wednesday",R:"Thursday",F:"Friday",U:"Sunday",S:"Saturday"};
   const dayColumnMap = [
     ['MONDAY', 'Monday'],
     ['TUESDAY', 'Tuesday'],
@@ -672,20 +695,9 @@ function normalizeRow(r) {
   ]);
   let daysArr = [];
   if (rawDays) {
-    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const normalizedDayTokens = rawDays
-      .split(/[,\s/]+/)
-      .map(day => day.trim())
-      .filter(Boolean)
-      .map(day => dayNames.find(name => name.toLowerCase().startsWith(day.toLowerCase())) || day);
-    const hasNamedDay = normalizedDayTokens.some(day => dayNames.includes(day));
-    daysArr = normalizedDayTokens.length > 1 || hasNamedDay
-      ? normalizedDayTokens
-      : rawDays.replace(/TH/gi, 'R').split('').map(d => daysMap[d.toUpperCase()] || d);
-  } else if (Array.isArray(r.Days)) {
-    daysArr = r.Days;
-  } else if (Array.isArray(r.days)) {
-    daysArr = r.days;
+    daysArr = normalizeHeatmapDayNames(rawDays, { row: r });
+  } else if (Array.isArray(r.Days) || Array.isArray(r.days) || Array.isArray(canonicalSection?.days)) {
+    daysArr = normalizeHeatmapDayNames(r.Days || r.days || canonicalSection?.days, { row: r });
   } else {
     daysArr = dayColumnMap
       .filter(([column]) => extractField(r, [column]))
@@ -4914,44 +4926,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function normalizeMeetingDays(days) {
-    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    const codeMap = {
-      U: 'Sunday',
-      SU: 'Sunday',
-      SUNDAY: 'Sunday',
-      M: 'Monday',
-      MO: 'Monday',
-      MON: 'Monday',
-      MONDAY: 'Monday',
-      T: 'Tuesday',
-      TU: 'Tuesday',
-      TUE: 'Tuesday',
-      TUESDAY: 'Tuesday',
-      W: 'Wednesday',
-      WE: 'Wednesday',
-      WED: 'Wednesday',
-      WEDNESDAY: 'Wednesday',
-      R: 'Thursday',
-      TH: 'Thursday',
-      THU: 'Thursday',
-      THURSDAY: 'Thursday',
-      F: 'Friday',
-      FR: 'Friday',
-      FRI: 'Friday',
-      FRIDAY: 'Friday',
-      S: 'Saturday',
-      SA: 'Saturday',
-      SAT: 'Saturday',
-      SATURDAY: 'Saturday'
-    };
-    let recDays = Array.isArray(days) ? days : (typeof days === 'string' ? days.split(',') : []);
-    recDays = recDays.map(day => String(day || '').trim()).filter(Boolean);
-    recDays = recDays.map(day => codeMap[day.toUpperCase()] || day);
-    if (recDays.length === 1 && recDays[0].length > 1 && recDays[0].length <= 7 && !dayNames.includes(recDays[0])) {
-      const abbrevDayMap = { U:'Sunday', M:'Monday', T:'Tuesday', W:'Wednesday', R:'Thursday', F:'Friday', S:'Saturday' };
-      recDays = recDays[0].split('').map(abbr => abbrevDayMap[abbr] || abbr);
-    }
-    return recDays.filter(day => dayNames.includes(day));
+    return normalizeHeatmapDayNames(days);
   }
 
   function initHeatmap() {

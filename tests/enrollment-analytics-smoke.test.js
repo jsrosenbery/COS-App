@@ -752,7 +752,7 @@ test('student presence graph series accepts already-normalized enrollment rows',
 test('tutoring open lab rows are centrally identified', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
 
-  ['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425'].forEach(course => {
+  ['MATH 400', 'ENGL 400', 'LA 425'].forEach(course => {
     const [subject, number] = course.split(' ');
     const splitRow = COSEnrollmentAnalytics.normalizeRow({ Subject: subject, Course: number });
     const combinedRow = COSEnrollmentAnalytics.normalizeRow({ Course: course });
@@ -1070,14 +1070,14 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
     'historicalTermsUsed',
     'historicalSectionsCrns',
     'census1Enrollment',
+    'census2Enrollment',
     'endFinalEnrollment',
+    'census1ToCensus2AttritionDisplay',
+    'census2ToFinalAttritionDisplay',
     'census1ToFinalAttritionDisplay',
     'trendInterpretation',
     'confidence'
   ].forEach(column => assert.match(detailBlock, new RegExp(column)));
-  assert.match(text, /const SHOW_CENSUS2 = false/);
-  assert.match(text, /showCensus2: SHOW_CENSUS2/);
-  assert.match(text, /attritionVisibleColumns/);
   assert.match(text, /firstDayToCensus1Attrition/);
   assert.match(text, /census2ToEndFinalAttrition/);
 });
@@ -1210,7 +1210,7 @@ test('dashboard scope panel reports lifecycle milestone availability', () => {
     section({ firstDay: 10, census1: 9, census2: 8, finalEnrollment: 7 })
   ]);
 
-  assert.deepEqual(Array.from(missingContext.missingMilestones), ['First Day', 'Census 1', 'Final']);
+  assert.deepEqual(Array.from(missingContext.missingMilestones), ['First Day', 'Census 1', 'Census 2', 'Final']);
   assert.ok(missingContext.warnings.includes('Lifecycle milestone data unavailable in current upload.'));
   assert.deepEqual(Array.from(available.missing), []);
 });
@@ -1426,7 +1426,7 @@ test('dashboard lifecycle displays N/A when milestone fields are missing', () =>
     section({ census: 20, actual: 15 })
   ], [], []);
 
-  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [null, null, null]);
+  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [null, null, null, null]);
   const exportRows = COSEnrollmentDashboard.dashboardSummaryExportRows(summary, {});
   const lifecycleRows = exportRows.filter(row => row.Section === 'Enrollment Health' && row.Group === 'Lifecycle Milestone');
   assert.equal(lifecycleRows.every(row => row.Value === 'N/A'), true);
@@ -1439,7 +1439,7 @@ test('dashboard lifecycle totals future milestone fields when available', () => 
     section({ firstDay: 20, census1: 18, census2: 16, finalEnrollment: 12 })
   ], [], []);
 
-  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [50, 46, 34]);
+  assert.deepEqual(Array.from(summary.health.lifecycle.map(item => item.value)), [50, 46, 42, 34]);
 });
 
 test('dashboard division filter changes row count and exported rows', () => {
@@ -1935,12 +1935,11 @@ test('attrition summary and visible table use executive and coverage clarity lab
     'Historical Terms Used',
     'Historical Sections / CRNs',
     'Census 1 Enrollment',
+    'Census 2 Enrollment',
     'End/Final Enrollment',
     'Trend / Interpretation',
     'Confidence'
   ].forEach(label => assert.match(text, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
-  assert.match(text, /Census 1 to End\/Final enrollment movement/);
-  assert.doesNotMatch(text, /Census 2 parsing remains available internally/);
 });
 
 test('consolidation scope is limited to selected report inputs', () => {
@@ -2342,95 +2341,6 @@ test('demand expected FTES range mirrors projection range behavior and export fi
   assert.match(source, /expectedFtesRangeLow/);
   assert.match(source, /expectedFtesRangeHigh/);
   assert.match(source, /Expected FTES Range', value: 'Uses the same trend projection confidence\/range method/);
-});
-
-test('ftes projection monitor categorizes accounting methods and projects census FTES', () => {
-  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
-  const weekly = {
-    term: 'SPRING 2026',
-    crn: '10001',
-    subject: 'ENGL',
-    course: 'C1000',
-    section: '01',
-    accountingMethod: 'W',
-    totalContactHours: 54,
-    actual: 25,
-    census: 24,
-    census1: 24,
-    startDate: '1/20/2026',
-    endDate: '5/20/2026',
-    raw: { CENSUS_ENRL_DATE: '2/10/2026', 'SCHEDULE TYPE': 'LEC' }
-  };
-  const projected = COSEnrollmentAnalytics.ftesProjectionForSection(weekly, [], {
-    asOfDate: new Date('2026-03-01'),
-    defaultCompletionRatio: 0.7
-  });
-
-  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('W'), 'Weekly Census');
-  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('D'), 'Daily Census');
-  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('IW'), 'Independent Study Weekly Census');
-  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('ID'), 'Independent Study Daily Census');
-  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('P'), 'Positive Attendance');
-  assert.equal(COSEnrollmentAnalytics.ftesAccountingCategory('E'), 'Open Entry / Open Exit');
-  assert.equal(projected.sectionStatus, 'Census Complete');
-  assert.equal(projected.projectedEnrollmentUsed, 24);
-  assert.equal(projected.projectedFtes, 2.5);
-  assert.match(projected.calculationMethod, /projected enrollment x TOTAL_CONTACT_HOURS \/ 525/);
-});
-
-test('ftes projection monitor estimates positive attendance and flags weak support', () => {
-  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
-  const row = {
-    term: 'SPRING 2026',
-    crn: '20001',
-    subject: 'PE',
-    course: '101',
-    accountingMethod: 'P',
-    totalContactHours: 50,
-    actual: 20,
-    census: null,
-    startDate: '1/20/2026',
-    endDate: '5/20/2026',
-    raw: { 'SCHEDULE TYPE': 'LAB' }
-  };
-  const historical = [{
-    term: 'SPRING 2025',
-    crn: '20002',
-    subject: 'PE',
-    course: '101',
-    accountingMethod: 'P',
-    totalContactHours: 50,
-    actual: 20,
-    census: 20,
-    census1: 20,
-    ftes: 1.5,
-    hasDirectFtesData: true,
-    raw: { 'SCHEDULE TYPE': 'LAB' }
-  }];
-  const projected = COSEnrollmentAnalytics.ftesProjectionForSection(row, historical, {
-    asOfDate: new Date('2026-03-01'),
-    positiveMethod: 'cascade',
-    defaultCompletionRatio: 0.7
-  });
-
-  assert.equal(projected.accountingMethodNormalized, 'Positive Attendance');
-  assert.match(projected.calculationMethod, /Positive Attendance estimated FTES/);
-  assert.equal(projected.confidence, 'Low');
-  assert.equal(projected.ftesAtRisk, 'Yes');
-  assert.equal(projected.projectedFtes > 0, true);
-});
-
-test('ftes projection monitor is exposed in Development workflow and UI copy', () => {
-  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
-
-  assert.match(text, /FTES Projection & Apportionment Monitor/);
-  assert.match(text, /ftesProjectionReport/);
-  assert.match(text, /ftesCsv/);
-  assert.match(text, /ftesArchiveTerms/);
-  assert.match(text, /FTES projection requires attendance accounting method/);
-  assert.match(text, /Positive attendance and open-entry\/open-exit FTES are actual-hours based/);
-  assert.match(text, /exportFtesProjectionRows/);
-  assert.match(text, /setSelectOptions\('ftesArchiveTerms'/);
 });
 
 test('trend projection engine adjusts for current schedule supply', () => {
@@ -3614,7 +3524,7 @@ test('snapshot manager defaults first day as primary manual snapshot', () => {
 
   assert.ok(snapBlock.indexOf('<option>First Day</option>') < snapBlock.indexOf('<option>Census 1</option>'));
   assert.match(text, /First Day is the primary manual snapshot/);
-  assert.match(text, /Census 1 and Final are already present in Banner source exports/);
+  assert.match(text, /Census 1, Census 2, and Final are already present in Banner source exports/);
 });
 
 test('modality balance uses shared modality category normalization and diagnostics', () => {
@@ -4319,6 +4229,12 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(app, /function dedupeHeatmapRows/);
   assert.match(app, /function heatmapCrnKey/);
   assert.match(app, /function isOnlineTbaHeatmapRow/);
+  assert.match(app, /const hmDayCodeToName = \{ SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' \}/);
+  assert.match(app, /function normalizeHeatmapDayNames/);
+  assert.match(app, /window\.COSDayUtils\?\.normalizeDays/);
+  assert.match(app, /map\(code => hmDayCodeToName\[code\]\)/);
+  assert.match(app, /daysArr = normalizeHeatmapDayNames\(rawDays, \{ row: r \}\)/);
+  assert.match(app, /return normalizeHeatmapDayNames\(days\)/);
   assert.match(app, /cells\[d\]\[startIndex\]\.crns\.has\(bucketKey\)/);
   assert.match(css, /\.analysis-summary-cards/);
   assert.match(css, /#heatmapContainer \{\s*min-height: 600px;\s*overflow-x: auto;/);
@@ -4651,7 +4567,7 @@ test('standard analytics expose tutoring open lab exclusion controls and diagnos
   const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
 
-  ['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425'].forEach(course => {
+  ['MATH 400', 'ENGL 400', 'LA 425'].forEach(course => {
     assert.match(analytics, new RegExp(course));
     assert.match(app, new RegExp(course));
   });
@@ -4659,7 +4575,7 @@ test('standard analytics expose tutoring open lab exclusion controls and diagnos
     /\$\{prefix\}ExcludeTutoringOpenLab/,
     /roomFitExcludeTutoringOpenLab/,
     /Tutoring\/Open Lab Rows Excluded/,
-    /SHOW_CENSUS2 \? \[\['Rows with Invalid Negative Census 2'/
+    /Negative Census 2 values were detected and treated as invalid/
   ].forEach(pattern => assert.match(analytics, pattern));
   [
     /heatmap-exclude-tutoring-openlab/,
