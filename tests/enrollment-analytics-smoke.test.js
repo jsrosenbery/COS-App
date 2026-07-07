@@ -2259,12 +2259,44 @@ test('demand forecast context separates current snapshot from historical trend p
   assert.equal(snapshot.estimatedFtes, 8);
   assert.ok(warnings.some(item => /Historical Trend Expected Enrollment/.test(item)));
   assert.ok(warnings.some(item => /planning estimate/.test(item)));
-  assert.ok(confidence.lowered.some(item => /trend-based/.test(item)));
-  assert.ok(exportRows.some(row => row.Section === 'Report Context' && row.Field === 'Forecast Type' && row.Value === 'Schedule-Adjusted Historical Trend Projection'));
+  assert.ok(confidence.lowered.some(item => /No weekly registration snapshots/.test(item)));
+  assert.ok(exportRows.some(row => row.Section === 'Report Context' && row.Field === 'Forecast Type' && row.Value === 'Historical Benchmark Projection'));
   assert.ok(exportRows.some(row => row.Section === 'Report Context' && row.Field === 'Current Snapshot Enrollment' && row.Value === 75));
   assert.ok(exportRows.some(row => row.Section === 'Confidence Factors - Lowered'));
   assert.ok(exportRows.some(row => row.Section === 'Projection Warnings'));
   assert.ok(exportRows.some(row => row.Section === 'Calculation Path' && row.Field === 'Final Projected Value'));
+});
+
+test('demand historical benchmark caps growth above historical max without material schedule increase', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const termRows = [
+    { term: 'FALL 2023', census: 100, final: 98, ftes: 10, capacity: 130, sections: 5, fillRate: 0.77 },
+    { term: 'FALL 2024', census: 104, final: 101, ftes: 10.4, capacity: 130, sections: 5, fillRate: 0.8 },
+    { term: 'FALL 2025', census: 108, final: 106, ftes: 10.8, capacity: 130, sections: 5, fillRate: 0.83 }
+  ];
+  const projection = COSEnrollmentAnalytics.demandHistoricalBenchmarkProjection(termRows, { enrollment: 80, scheduledClassOfferings: 5, seatsOffered: 130, ftes: 8 }, { growthModifier: 0.1 });
+
+  assert.equal(projection.method, 'Historical Benchmark Projection');
+  assert.equal(projection.projectedGrowthCapped, true);
+  assert.equal(projection.materialScheduleIncrease, false);
+  assert.ok(projection.uncappedAdjustedForecastGrowth > projection.historicalMaxGrowth);
+  assert.ok(projection.finalExpectedProjection.enrollment < projection.uncappedExpectedEnrollment);
+  assert.equal(Math.round(projection.expectedRange.mostLikely), Math.round(projection.finalExpectedProjection.enrollment));
+  assert.ok(projection.confidenceFactors.lowered.some(item => /weekly registration snapshots/.test(item)));
+});
+
+test('demand historical benchmark allows higher growth when schedule size materially increases', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const termRows = [
+    { term: 'FALL 2023', census: 100, final: 98, ftes: 10, capacity: 130, sections: 5, fillRate: 0.77 },
+    { term: 'FALL 2024', census: 104, final: 101, ftes: 10.4, capacity: 130, sections: 5, fillRate: 0.8 },
+    { term: 'FALL 2025', census: 108, final: 106, ftes: 10.8, capacity: 130, sections: 5, fillRate: 0.83 }
+  ];
+  const projection = COSEnrollmentAnalytics.demandHistoricalBenchmarkProjection(termRows, { enrollment: 80, scheduledClassOfferings: 6, seatsOffered: 150, ftes: 8 }, { growthModifier: 0.1 });
+
+  assert.equal(projection.materialScheduleIncrease, true);
+  assert.equal(projection.projectedGrowthCapped, false);
+  assert.ok(projection.finalExpectedProjection.enrollment >= projection.uncappedExpectedEnrollment - 0.001);
 });
 
 test('demand redesign helpers distinguish lifecycle expected enrollment and confidence', () => {

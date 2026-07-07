@@ -11164,11 +11164,20 @@
     renderReportContext(REPORTS.demand, demandReportContextOverrides(config));
     const metricRows = [
       ['Forecast Type', [
-        ['Forecast Type', 'Schedule-Adjusted Historical Trend Projection', 'trend-projection'],
+        ['Forecast Type', 'Historical Benchmark Projection', 'trend-projection'],
+        ['Registration Pace Basis', 'Not registration-pace based', 'warning'],
         ['Historical Trend Expected Enrollment', Math.round(summary.projected || collegeRow.expectedEnrollmentNextTerm || 0), 'projected-final-enrollment'],
         ['Historical Trend Estimated FTES', round1(config.forecastFtes || collegeRow.expectedFtesNextTerm || 0), 'ftes'],
         ['Projected Growth vs Historical Baseline', pct(collegeRow.adjustedForecastGrowth || 0), 'trend-projection'],
         ['Confidence', `${confidenceDetails.label || 'Low'}${confidenceDetails.score ? ` (${confidenceDetails.score})` : ''}`, 'forecast-confidence']
+      ]],
+      ['Expected Range - Planning Estimates', [
+        ['Conservative Estimate', Math.round(collegeRow.expectedRangeConservative ?? collegeRow.expectedRangeLow ?? summary.projected ?? 0), 'expected-projection-range'],
+        ['Most Likely Estimate', Math.round(collegeRow.expectedRangeMostLikely ?? collegeRow.expectedEnrollmentNextTerm ?? summary.projected ?? 0), 'projected-final-enrollment'],
+        ['High Estimate', Math.round(collegeRow.expectedRangeHigh ?? summary.projected ?? 0), 'expected-projection-range'],
+        ['Historical Average Growth', pct(collegeRow.historicalAverageGrowth || 0), 'trend-projection'],
+        ['Historical CAGR', pct(collegeRow.historicalCagr || 0), 'trend-projection'],
+        ['Historical Max Year-over-Year Growth', pct(collegeRow.historicalMaxGrowth || 0), 'trend-projection']
       ]],
       ['Current Snapshot', [
         ['Current Snapshot Enrollment', Math.round(activeSnapshot.currentEnrollment || 0), 'current-enrollment'],
@@ -11189,7 +11198,7 @@
         ['Projected Waitlist', Math.round(collegeRow.avgWaitlistCount || 0), 'waitlist'],
         ['Projected Growth vs Historical Baseline', pct(collegeRow.adjustedForecastGrowth || 0), 'trend-projection'],
         ['Forecast Confidence', summary.confidence?.label || collegeRow.forecastConfidence || 'Low', 'forecast-confidence'],
-        ['Expected Projection Range', `${Math.round(collegeRow.expectedRangeLow || summary.projected || 0)}-${Math.round(collegeRow.expectedRangeHigh || summary.projected || 0)}`, 'expected-projection-range']
+        ['Expected Projection Range', `${Math.round(collegeRow.expectedRangeConservative ?? collegeRow.expectedRangeLow ?? summary.projected ?? 0)} / ${Math.round(collegeRow.expectedRangeMostLikely ?? collegeRow.expectedEnrollmentNextTerm ?? summary.projected ?? 0)} / ${Math.round(collegeRow.expectedRangeHigh ?? summary.projected ?? 0)}`, 'expected-projection-range']
       ]],
       ['Scope', [
         ['Courses Reviewed', rows.filter(row => row.forecastLevel === 'Course').length, 'course-choice-count'],
@@ -11247,9 +11256,9 @@
         { label: 'Physical Campuses', value: selections.physical ? 'Included' : 'Excluded' }
       ],
       method: [
-        { label: 'Forecast type', value: 'Schedule-Adjusted Historical Trend Projection' },
-        { label: 'Forecast method', value: 'Historical trend benchmark with schedule adjustment' },
-        { label: 'Projection method', value: 'Weighted historical projection plus schedule adjustment' },
+        { label: 'Forecast type', value: 'Historical Benchmark Projection' },
+        { label: 'Forecast method', value: 'Completed like-term historical benchmark with current schedule-size context' },
+        { label: 'Projection method', value: 'Historical average growth, historical CAGR, historical max growth, and conservative schedule-size adjustment' },
         { label: 'Forecast scope', value: document.getElementById('demForecastScope')?.value === 'year' ? 'Academic year' : 'Single term' },
         { label: 'Active term rows', value: activeSnapshot.rows ?? 'N/A' },
         { label: 'Active term distinct CRNs', value: activeSnapshot.distinctCrns ?? 'N/A' },
@@ -11268,7 +11277,8 @@
       notes: [
         config.executiveSummary?.explanation || '',
         `Population selections: ${demandPopulationSelectionLabel(selections)}`,
-        'This projection estimates expected enrollment/FTES from prior like-term history, weighted growth, and current schedule size. It is not the same as actual current enrollment.',
+        'This forecast is not registration-pace based because weekly enrollment snapshots are not loaded.',
+        'This projection estimates expected enrollment/FTES from completed like-term history, current active-term snapshot, current sections, seats offered, fill rate, historical enrollment per section, and historical growth patterns.',
         ...(config.projectionWarnings || [])
       ].filter(Boolean)
     };
@@ -11387,7 +11397,8 @@
       }
       const growthModifier = Number(document.getElementById('demGrowthModifier')?.value || 0) / 100;
       const ftesCap = Number(document.getElementById('demFtesCap')?.value || 0);
-      const context = demandGrowthContext(rows);
+      const activeTargetRows = filtered.filter(row => new Set(demandTargetTerms(target)).has(normalizeTermLabel(row.sourceTerm || row.term)));
+      const context = { ...demandGrowthContext(rows), activeRows: activeTargetRows, activeSnapshot };
       state.demandRows = demandForecastRowsForLevels(rows, context, growthModifier);
       const expanding = state.demandRows.filter(row => /expanding|increase/i.test(row.capacityGuidance));
       const softening = state.demandRows.filter(row => /softening/i.test(row.capacityGuidance));
@@ -11480,7 +11491,7 @@
   }
 
   function demandColumns() {
-    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeHigh', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'recencyWeightedGrowth', 'adjustedForecastGrowth', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeConservative', 'expectedRangeMostLikely', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeHigh', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'historicalAverageGrowth', 'historicalCagr', 'historicalMaxGrowth', 'recencyWeightedGrowth', 'uncappedAdjustedForecastGrowth', 'adjustedForecastGrowth', 'projectedGrowthCapped', 'materialScheduleIncrease', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
   }
 
   function demandExportColumns() {
@@ -11507,6 +11518,154 @@
     return out.sort((a, b) => (order[a.forecastLevel] - order[b.forecastLevel]) || b.adjustedForecastGrowth - a.adjustedForecastGrowth || a.groupName.localeCompare(b.groupName));
   }
 
+  function demandActiveRowsForGroup(activeRows = [], level = 'College', groupName = '', sample = {}) {
+    if (!activeRows.length || level === 'College') return activeRows;
+    if (level === 'Division') return activeRows.filter(row => (row.division || 'UNKNOWN') === groupName);
+    if (level === 'Discipline') return activeRows.filter(row => (row.subject || 'UNKNOWN') === groupName);
+    if (level === 'Course') return activeRows.filter(row => courseKey(row) === groupName || (sample.subject && sample.course && courseKey(row) === courseKey(sample)));
+    return activeRows;
+  }
+
+  function demandCurrentTotals(rows = []) {
+    const distinct = distinctDemandSections(rows);
+    const enrollment = rows.reduce((total, row) => total + (Number.isFinite(Number(row.census)) && Number(row.census) > 0 ? Number(row.census) : Number(row.actual || 0)), 0);
+    return {
+      enrollment,
+      censusEnrollment: rows.reduce((total, row) => total + (Number.isFinite(Number(row.census)) ? Math.max(0, Number(row.census)) : 0), 0),
+      actualEnrollment: sum(rows, 'actual'),
+      seatsOffered: sum(rows, 'cap'),
+      scheduledClassOfferings: distinct.length || rows.length,
+      ftes: sum(rows, 'ftes')
+    };
+  }
+
+  function distinctDemandSections(rows = []) {
+    const seen = new Set();
+    const out = [];
+    rows.forEach(row => {
+      const key = row.crn ? `${normalizeTermLabel(row.sourceTerm || row.term)}|${row.crn}` : `${normalizeTermLabel(row.sourceTerm || row.term)}|${row.subject}|${row.course}|${row.section || ''}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(row);
+    });
+    return out;
+  }
+
+  function growthStatsFromTermRows(termRows = []) {
+    const ordered = [...termRows].sort((a, b) => termSortValue(a.term) - termSortValue(b.term));
+    const growth = [];
+    for (let index = 1; index < ordered.length; index += 1) {
+      const previous = Number(ordered[index - 1].census || 0);
+      const current = Number(ordered[index].census || 0);
+      if (previous > 0) {
+        growth.push({
+          fromTerm: ordered[index - 1].term,
+          toTerm: ordered[index].term,
+          previous,
+          current,
+          rate: (current - previous) / previous
+        });
+      }
+    }
+    const first = Number(ordered[0]?.census || 0);
+    const last = Number(ordered.at(-1)?.census || 0);
+    const periods = Math.max(1, ordered.length - 1);
+    const cagr = first > 0 && last > 0 && ordered.length > 1 ? (last / first) ** (1 / periods) - 1 : 0;
+    return {
+      yearOverYearGrowth: growth,
+      averageGrowth: average(growth.map(row => row.rate)),
+      cagr,
+      maxGrowth: growth.length ? Math.max(...growth.map(row => row.rate)) : 0
+    };
+  }
+
+  function demandHistoricalBenchmarkProjection(termRows = [], currentTotals = {}, options = {}) {
+    const trend = buildTrendProjection(termRows, currentTotals, { growthModifier: options.growthModifier || 0 }) || {};
+    const stats = growthStatsFromTermRows(termRows);
+    const baselineEnrollment = Number(trend.historicalBaseline?.enrollment || average(termRows.map(row => row.census)) || 0);
+    const baselineFtes = Number(trend.historicalBaseline?.ftes || average(termRows.map(row => row.ftes)) || 0);
+    const scheduleAdjustment = trend.scheduleAdjustment || { offeringFactor: 1, seatFactor: 1, combinedFactor: 1 };
+    const threshold = Number(options.scheduleIncreaseThreshold ?? 0.05);
+    const materialScheduleIncrease = Number(scheduleAdjustment.offeringFactor || 1) >= 1 + threshold || Number(scheduleAdjustment.seatFactor || 1) >= 1 + threshold;
+    const uncappedMostLikely = Number(trend.finalExpectedProjection?.enrollment || baselineEnrollment * (1 + stats.cagr) * Number(scheduleAdjustment.combinedFactor || 1));
+    const uncappedGrowth = safeDiv(uncappedMostLikely, baselineEnrollment) - 1;
+    const cappedGrowth = !materialScheduleIncrease && uncappedGrowth > stats.maxGrowth + 0.01 ? stats.maxGrowth : uncappedGrowth;
+    const projectedGrowthCapped = cappedGrowth !== uncappedGrowth;
+    const scheduleFactor = Number(scheduleAdjustment.combinedFactor || 1);
+    const currentEnrollment = Number(currentTotals.enrollment || 0);
+    const hasCensus = Number(currentTotals.censusEnrollment || 0) > 0;
+    const conservativeBenchmark = baselineEnrollment * Math.max(1, Math.min(scheduleFactor, 1 + threshold));
+    const conservative = hasCensus
+      ? conservativeBenchmark
+      : Math.max(currentEnrollment || 0, conservativeBenchmark);
+    const mostLikely = Math.max(0, baselineEnrollment * (1 + cappedGrowth));
+    const high = Math.max(mostLikely, baselineEnrollment * (1 + (materialScheduleIncrease ? Math.max(stats.maxGrowth, uncappedGrowth) : stats.maxGrowth)));
+    const ftesScale = baselineEnrollment > 0 ? safeDiv(mostLikely, baselineEnrollment) : 1;
+    const confidenceFactors = demandBenchmarkConfidenceFactors(termRows, currentTotals, trend, {
+      stats,
+      materialScheduleIncrease,
+      projectedGrowthCapped,
+      currentEnrollment,
+      baselineEnrollment
+    });
+    return {
+      ...trend,
+      method: 'Historical Benchmark Projection',
+      confidence: confidenceFactors.label,
+      confidenceFactors,
+      historicalAverageGrowth: stats.averageGrowth,
+      historicalCagr: stats.cagr,
+      historicalMaxGrowth: stats.maxGrowth,
+      uncappedAdjustedForecastGrowth: uncappedGrowth,
+      uncappedExpectedEnrollment: uncappedMostLikely,
+      projectedGrowthCapped,
+      materialScheduleIncrease,
+      scheduleIncreaseThreshold: threshold,
+      finalExpectedProjection: {
+        ...(trend.finalExpectedProjection || {}),
+        enrollment: mostLikely,
+        ftes: baselineFtes * ftesScale
+      },
+      expectedRange: {
+        conservative,
+        low: conservative,
+        mostLikely,
+        high
+      },
+      expectedFtesRange: {
+        low: baselineEnrollment > 0 ? baselineFtes * safeDiv(conservative, baselineEnrollment) : baselineFtes,
+        mostLikely: baselineFtes * ftesScale,
+        high: baselineEnrollment > 0 ? baselineFtes * safeDiv(high, baselineEnrollment) : baselineFtes
+      }
+    };
+  }
+
+  function demandBenchmarkConfidenceFactors(termRows = [], currentTotals = {}, trend = {}, details = {}) {
+    const raised = [];
+    const lowered = ['No weekly registration snapshots are loaded; this is a historical benchmark projection, not a registration-pace forecast.'];
+    const termCount = termRows.length;
+    const fillRates = termRows.map(row => Number(row.fillRate || 0)).filter(value => Number.isFinite(value));
+    const fillVolatility = average(fillRates.map(value => Math.abs(value - average(fillRates))));
+    const stableSchedule = Math.abs(Number(trend.scheduleAdjustment?.combinedFactor || 1) - 1) <= 0.05;
+    if (termCount >= 4 && fillVolatility <= 0.05 && stableSchedule) raised.push('Multiple like-term historical terms, low fill-rate volatility, and stable schedule size are present.');
+    else if (termCount >= 3 && stableSchedule) raised.push('At least 3 like-term historical terms and stable schedule size are present.');
+    else lowered.push('Fewer than 3 stable like-term historical terms are available.');
+    if (Number(currentTotals.censusEnrollment || 0) > 0) raised.push('Census enrollment is available for the active/current snapshot.');
+    else lowered.push('Active term has not reached census or census enrollment is unavailable.');
+    if (details.projectedGrowthCapped) lowered.push('Uncapped projected growth exceeded historical maximum growth and was capped for planning conservatism.');
+    if (details.baselineEnrollment > 0 && details.currentEnrollment > 0 && Math.abs(safeDiv(details.currentEnrollment - details.baselineEnrollment, details.baselineEnrollment)) > 0.1) {
+      lowered.push('Current snapshot differs from historical benchmark by more than 10%.');
+    }
+    lowered.push('FTES is estimated here; use the FTES Projection & Apportionment Monitor for FTES-specific planning.');
+    const label = raised.some(item => /Multiple/.test(item)) && Number(currentTotals.censusEnrollment || 0) > 0 && lowered.length <= 2
+      ? 'High'
+      : termCount >= 3 && stableSchedule && !details.projectedGrowthCapped
+        ? 'Medium'
+        : 'Low';
+    const score = label === 'High' ? 85 : label === 'Medium' ? 65 : 40;
+    return { label, score, raised, lowered };
+  }
+
   function demandForecastRow(level, groupName, rows, context, modifierGrowth = 0) {
     const byTerm = group(rows, row => row.term || 'UNKNOWN');
     const termRows = [...byTerm.entries()]
@@ -11530,7 +11689,9 @@
     const avgSections = average(termRows.map(row => row.sections));
     const waitlistTerms = termRows.filter(row => row.waitlist > 0).length;
     const trend = demandTrend(termRows.map(row => row.census));
-    const trendModel = buildTrendProjection(termRows, {}, { growthModifier: modifierGrowth });
+    const activeRows = demandActiveRowsForGroup(context.activeRows || [], level, groupName, rows[0] || {});
+    const currentTotals = demandCurrentTotals(activeRows);
+    const trendModel = demandHistoricalBenchmarkProjection(termRows, currentTotals, { growthModifier: modifierGrowth });
     const hasWaitlistData = rows.some(row => row.hasWaitlistData);
     const divisionGrowth = level === 'Division'
       ? context.division.get(groupName) ?? context.collegeGrowth
@@ -11581,7 +11742,9 @@
       trendProjectionEnrollment: Math.round(trendModel?.trendProjection?.enrollment ?? expectedEnrollmentNextTerm),
       scheduleAdjustedProjectionEnrollment: Math.round(trendModel?.scheduleAdjustedProjection?.enrollment ?? expectedEnrollmentNextTerm),
       expectedRangeLow: Math.round(trendModel?.expectedRange?.low ?? expectedEnrollmentNextTerm),
+      expectedRangeMostLikely: Math.round(trendModel?.expectedRange?.mostLikely ?? expectedEnrollmentNextTerm),
       expectedRangeHigh: Math.round(trendModel?.expectedRange?.high ?? expectedEnrollmentNextTerm),
+      expectedRangeConservative: Math.round(trendModel?.expectedRange?.conservative ?? trendModel?.expectedRange?.low ?? expectedEnrollmentNextTerm),
       avgCensusEnrollment,
       avgFinalEnrollment,
       avgFtes,
@@ -11608,12 +11771,23 @@
       expectedSectionsNeeded,
       suggestedSectionCount,
       forecastConfidence: trendModel?.confidence || forecastConfidence,
-      forecastMethod: trendModel?.method || 'Trend Projection',
+      confidenceFactorsRaised: trendModel?.confidenceFactors?.raised || [],
+      confidenceFactorsLowered: trendModel?.confidenceFactors?.lowered || [],
+      forecastMethod: trendModel?.method || 'Historical Benchmark Projection',
       expectedRange: trendModel?.expectedRange || null,
       expectedFtesRange,
       yearOverYearGrowth: trendModel?.yearOverYearGrowth || [],
       recencyWeights: trendModel?.recencyWeights || [],
       scheduleAdjustment: trendModel?.scheduleAdjustment || null,
+      historicalAverageGrowth: trendModel?.historicalAverageGrowth ?? null,
+      historicalCagr: trendModel?.historicalCagr ?? null,
+      historicalMaxGrowth: trendModel?.historicalMaxGrowth ?? null,
+      uncappedAdjustedForecastGrowth: trendModel?.uncappedAdjustedForecastGrowth ?? adjustedForecastGrowth,
+      uncappedExpectedEnrollmentNextTerm: Math.round(trendModel?.uncappedExpectedEnrollment ?? expectedEnrollmentNextTerm),
+      projectedGrowthCapped: Boolean(trendModel?.projectedGrowthCapped),
+      materialScheduleIncrease: Boolean(trendModel?.materialScheduleIncrease),
+      scheduleIncreaseThreshold: trendModel?.scheduleIncreaseThreshold ?? 0.05,
+      noRegistrationPaceSnapshots: true,
       capacityGuidance,
       hasWaitlistData: hasWaitlistData ? 'Yes' : 'No',
       enrollmentTrend: trend.label
@@ -11777,6 +11951,9 @@
     if (Math.abs(Number(college.adjustedForecastGrowth || 0)) > threshold) {
       warnings.push(`Projected Growth vs Historical Baseline is ${pct(college.adjustedForecastGrowth || 0)}, above the ${pct(threshold)} review threshold.`);
     }
+    if (college.projectedGrowthCapped) {
+      warnings.push('Projected growth exceeds historical growth patterns and is capped for planning conservatism because no registration-pace snapshots are available.');
+    }
     const scheduleAdjustment = college.scheduleAdjustment || {};
     if (Number.isFinite(Number(scheduleAdjustment.combinedFactor)) && Math.abs(Number(scheduleAdjustment.combinedFactor) - 1) > threshold) {
       warnings.push(`Current schedule size differs materially from historical schedule size; schedule adjustment factor is ${round1(Number(scheduleAdjustment.combinedFactor) * 100)}%.`);
@@ -11785,6 +11962,7 @@
       warnings.push('Current snapshot uses current/actual enrollment because census enrollment is unavailable.');
     }
     if (!snapshot.snapshotDate) warnings.push('Current snapshot date is missing.');
+    warnings.push('This forecast is not registration-pace based because weekly enrollment snapshots are not loaded.');
     warnings.push('FTES shown here is a planning estimate and should not be treated as reportable FTES.');
     return warnings;
   }
@@ -11800,11 +11978,13 @@
     else lowered.push('Fewer than 3 like-term historical terms are available.');
     if (volatility <= 0.05 && trends.length >= 3) raised.push('Historical fill-rate volatility is low.');
     else if (trends.length) lowered.push('Historical volatility is moderate or high.');
+    (college.confidenceFactorsRaised || []).forEach(item => raised.push(item));
+    (college.confidenceFactorsLowered || []).forEach(item => lowered.push(item));
     if (snapshot.hasRows) raised.push('Current snapshot rows are available for side-by-side context.');
     else lowered.push('No active-term current snapshot is available.');
     if (snapshot.snapshotDate) raised.push('Current snapshot/as-of date is available.');
     else lowered.push('Current snapshot date is missing.');
-    lowered.push('Projection is trend-based rather than live registration-pace based.');
+    lowered.push('No weekly registration snapshots are available; forecast does not use registration pacing.');
     lowered.push('FTES is estimated in the planning forecast; use the FTES Projection & Apportionment Monitor for formal FTES-specific projections.');
     if ((context.populationSelections || {}).dual) lowered.push('Dual Enrollment is included; confirm comparability before using totals for broad planning.');
     if (!rows.some(row => Number(row.expectedFtesNextTerm || 0) > 0)) lowered.push('FTES inputs are missing or unavailable.');
@@ -11819,11 +11999,12 @@
       improve: [
         'Load like-term historical files.',
         'Load current census enrollment when available.',
-        'Load a current snapshot with a clear as-of date.',
-        'Validate accounting method mappings and TOTAL_CONTACT_HOURS.',
-        'Add actual positive attendance/open-entry hours when available.',
-        'Confirm whether Dual Enrollment should be included in totals.',
-        'Use the FTES Projection & Apportionment Monitor for FTES-specific projections.'
+        'Load census enrollment after census date.',
+        'Load final enrollment after term end.',
+        'Load additional like-term historical files.',
+        'Validate section caps and seats offered.',
+        'Use FTES Projection & Apportionment Monitor for FTES.',
+        'Optional future enhancement: add dated enrollment snapshot uploads if the college begins preserving weekly snapshots.'
       ]
     };
   }
@@ -12574,7 +12755,8 @@
       { Section: 'Executive Recommendation Summary', Field: 'Forecast Target', Value: context.target?.label || '' }
     );
     [
-      ['Forecast Type', 'Schedule-Adjusted Historical Trend Projection'],
+      ['Forecast Type', 'Historical Benchmark Projection'],
+      ['Registration Pace Basis', 'Not registration-pace based; weekly enrollment snapshots are not loaded'],
       ['Historical Terms Used', termListLabel(context.diagnostics?.termsUsedInForecast || [])],
       ['Comparison Terms Used', termListLabel(context.diagnostics?.termsIncludedAfterFilters || [])],
       ['Current Snapshot Enrollment', Math.round(activeSnapshot.currentEnrollment || 0)],
@@ -12584,10 +12766,18 @@
       ['Current Snapshot Estimated FTES', activeSnapshot.estimatedFtes ? round1(activeSnapshot.estimatedFtes) : 'N/A'],
       ['Snapshot Date / As-of Date', activeSnapshot.snapshotDate || 'N/A'],
       ['Historical Trend Expected Enrollment', Math.round(college.expectedEnrollmentNextTerm || config.summary?.projected || 0)],
+      ['Conservative Estimate', Math.round(college.expectedRangeConservative ?? college.expectedRangeLow ?? 0)],
+      ['Most Likely Estimate', Math.round(college.expectedRangeMostLikely ?? college.expectedEnrollmentNextTerm ?? 0)],
+      ['High Estimate', Math.round(college.expectedRangeHigh ?? 0)],
       ['Historical Trend Estimated FTES', round1(college.expectedFtesNextTerm || context.forecastFtes || 0)],
       ['FTES Methodology Label', 'Historical Trend Estimated FTES - planning estimate, not reportable FTES'],
       ['Dual Enrollment Inclusion Status', context.populationSelections?.dual ? 'Included as subset of total' : 'Excluded from total'],
       ['Projected Growth vs Historical Baseline', pct(college.adjustedForecastGrowth || 0)],
+      ['Historical Average Growth', pct(college.historicalAverageGrowth || 0)],
+      ['Historical CAGR', pct(college.historicalCagr || 0)],
+      ['Historical Max Year-over-Year Growth', pct(college.historicalMaxGrowth || 0)],
+      ['Uncapped Growth', pct(college.uncappedAdjustedForecastGrowth || 0)],
+      ['Growth Capped for Conservatism', college.projectedGrowthCapped ? 'Yes' : 'No'],
       ['Confidence Label', confidence.label || 'Low'],
       ['Confidence Score', confidence.score || 'N/A']
     ].forEach(([field, value]) => rows.push({ Section: 'Report Context', Field: field, Value: value }));
@@ -12601,6 +12791,8 @@
       ['Historical Baseline', Math.round(college.historicalBaselineEnrollment || 0)],
       ['Trend Projection', Math.round(college.trendProjectionEnrollment || 0)],
       ['Schedule Adjustment Factor', college.scheduleAdjustment?.combinedFactor == null ? 'N/A' : `${round1(Number(college.scheduleAdjustment.combinedFactor) * 100)}%`],
+      ['Material Schedule Increase', college.materialScheduleIncrease ? 'Yes' : 'No'],
+      ['Uncapped Projected Value', Math.round(college.uncappedExpectedEnrollmentNextTerm || college.expectedEnrollmentNextTerm || 0)],
       ['Final Projected Value', Math.round(college.expectedEnrollmentNextTerm || 0)]
     ].forEach(([field, value]) => rows.push({ Section: 'Calculation Path', Field: field, Value: value }));
     (recommendation.keyIndicators || []).forEach((item, index) => rows.push({ Section: 'Key Supporting Indicators', Field: `Indicator ${index + 1}`, Value: item }));
@@ -12711,8 +12903,9 @@
 
   function demandForecastTypePanel(context = {}) {
     return `<section class="demand-method-card demand-forecast-type-panel">
-      <h4>Forecast Type: Schedule-Adjusted Historical Trend Projection</h4>
-      <p>This projection estimates what enrollment/FTES would be expected based on prior like-term history, weighted growth, and current schedule size. It is not the same as actual current enrollment.</p>
+      <h4>Forecast Type: Historical Benchmark Projection</h4>
+      <p><strong>This forecast is not registration-pace based because weekly enrollment snapshots are not loaded.</strong></p>
+      <p>This projection estimates what enrollment/FTES would be expected based on completed like-term history, current active-term snapshot, current section count, current seats offered, historical enrollment per section, historical fill rate, and historical year-over-year growth. It is not the same as actual current enrollment.</p>
       <dl>
         <div><dt>Historical terms used</dt><dd>${escapeAttr(termListLabel(context.diagnostics?.termsUsedInForecast || []))}</dd></div>
         <div><dt>FTES methodology</dt><dd>Historical Trend Estimated FTES - planning estimate, not reportable FTES</dd></div>
@@ -12760,18 +12953,30 @@
     const scheduleFactor = college.scheduleAdjustment?.combinedFactor == null ? 'N/A' : `${round1(Number(college.scheduleAdjustment.combinedFactor) * 100)}%`;
     return `<section class="demand-method-card" data-collapsible-title="How This Projection Was Calculated" data-collapsible-id="demand-projection-calculation-path" data-collapsible-default-open="false">
       <h4>How This Projection Was Calculated</h4>
-      <p>${escapeAttr(context.target?.label || 'Forecast')} expected enrollment is based on ${escapeAttr(termListLabel(terms))} history, weighted toward more recent terms, then adjusted for current schedule size when available.</p>
+      <p>${escapeAttr(context.target?.label || 'Forecast')} expected enrollment is based on ${escapeAttr(termListLabel(terms))} completed like-term history. The displayed most-likely estimate is capped at historical maximum growth unless current sections or seats offered increased materially.</p>
       <dl>
         <div><dt>Historical terms included</dt><dd>${escapeAttr(termListLabel(terms))}</dd></div>
         <div><dt>Historical values by term</dt><dd>${escapeAttr(historicalValues.join('; ') || 'N/A')}</dd></div>
         <div><dt>Recency weights</dt><dd>${escapeAttr(weights.join('; ') || 'N/A')}</dd></div>
         <div><dt>Year-over-year growth rates</dt><dd>${escapeAttr(yoy.join('; ') || 'N/A')}</dd></div>
+        <div><dt>Historical average growth</dt><dd>${pct(college.historicalAverageGrowth || 0)}</dd></div>
+        <div><dt>Historical CAGR</dt><dd>${pct(college.historicalCagr || 0)}</dd></div>
+        <div><dt>Historical max year-over-year growth</dt><dd>${pct(college.historicalMaxGrowth || 0)}</dd></div>
         <div><dt>Recency-weighted growth rate</dt><dd>${pct(college.recencyWeightedGrowth || 0)}</dd></div>
+        <div><dt>Uncapped projected growth</dt><dd>${pct(college.uncappedAdjustedForecastGrowth || 0)}</dd></div>
+        <div><dt>Displayed expected growth</dt><dd>${pct(college.adjustedForecastGrowth || 0)}</dd></div>
+        <div><dt>Growth capped for conservatism</dt><dd>${college.projectedGrowthCapped ? 'Yes' : 'No'}</dd></div>
         <div><dt>Historical baseline</dt><dd>${Math.round(college.historicalBaselineEnrollment || summary.expected || 0)}</dd></div>
         <div><dt>Most recent historical value</dt><dd>${Math.round(trends.at(-1)?.census || 0)}</dd></div>
         <div><dt>Trend projection</dt><dd>${Math.round(college.trendProjectionEnrollment || 0)}</dd></div>
         <div><dt>Current schedule adjustment factor</dt><dd>${escapeAttr(scheduleFactor)}</dd></div>
+        <div><dt>Material schedule increase threshold</dt><dd>${pct(college.scheduleIncreaseThreshold ?? 0.05)}</dd></div>
+        <div><dt>Material schedule increase detected</dt><dd>${college.materialScheduleIncrease ? 'Yes' : 'No'}</dd></div>
         <div><dt>Growth modifier</dt><dd>${pct(context.growthModifier || 0)}</dd></div>
+        <div><dt>Conservative estimate</dt><dd>${Math.round(college.expectedRangeConservative ?? college.expectedRangeLow ?? 0)}</dd></div>
+        <div><dt>Most likely estimate</dt><dd>${Math.round(college.expectedRangeMostLikely ?? college.expectedEnrollmentNextTerm ?? 0)}</dd></div>
+        <div><dt>High estimate</dt><dd>${Math.round(college.expectedRangeHigh ?? 0)}</dd></div>
+        <div><dt>Uncapped projected value</dt><dd>${Math.round(college.uncappedExpectedEnrollmentNextTerm || college.expectedEnrollmentNextTerm || 0)}</dd></div>
         <div><dt>Final projected value</dt><dd>${Math.round(college.expectedEnrollmentNextTerm || summary.projected || 0)}</dd></div>
       </dl>
     </section>`;
@@ -12782,9 +12987,10 @@
     return `<section class="demand-method-card">
       <h4>Forecast Method</h4>
       <dl>
-        <div><dt>Forecast method used</dt><dd>Schedule-Adjusted Historical Trend Projection</dd></div>
+        <div><dt>Forecast method used</dt><dd>Historical Benchmark Projection</dd></div>
         <div><dt>Historical aggregation mode</dt><dd>${target.scope === 'year' ? 'Academic-year buckets' : 'Same-season terms'}</dd></div>
-        <div><dt>Trend model</dt><dd>Year-over-year growth, recency-weighted growth, expected range, and current schedule size adjustment</dd></div>
+        <div><dt>Trend model</dt><dd>Historical average growth, historical CAGR, historical max year-over-year growth, expected range, and current schedule size context</dd></div>
+        <div><dt>Registration pace</dt><dd>Not used because weekly enrollment snapshots are not loaded.</dd></div>
         <div><dt>Growth modifier</dt><dd>${pct(context.growthModifier || 0)}</dd></div>
         <div><dt>Schedule basis</dt><dd>Scheduled Class Offerings use unique CRNs; enrollment uses census first and actual/current fallback</dd></div>
         <div><dt>Confidence level</dt><dd>${escapeAttr(summary.confidence?.label || 'Low')}${summary.confidence?.score ? ` (${summary.confidence.score})` : ''}</dd></div>
@@ -14083,10 +14289,18 @@
       enrollmentShareOfTotal: 'Share of Total',
       expectedEnrollmentNextTerm: 'Historical Trend Expected Enrollment',
       expectedFtesNextTerm: 'Historical Trend Estimated FTES',
+      expectedRangeConservative: 'Conservative Estimate',
+      expectedRangeMostLikely: 'Most Likely Estimate',
       trendProjectionEnrollment: 'Trend Projection Enrollment',
       scheduleAdjustedProjectionEnrollment: 'Schedule-Adjusted Trend Enrollment',
       trendProjectionFtes: 'Trend Projection FTES',
       scheduleAdjustedProjectionFtes: 'Schedule-Adjusted Trend FTES',
+      historicalAverageGrowth: 'Historical Average Growth',
+      historicalCagr: 'Historical CAGR',
+      historicalMaxGrowth: 'Historical Max Year-over-Year Growth',
+      uncappedAdjustedForecastGrowth: 'Uncapped Growth',
+      projectedGrowthCapped: 'Growth Capped',
+      materialScheduleIncrease: 'Material Schedule Increase',
       adjustedForecastGrowth: 'Projected Growth vs Historical Baseline',
       firstDayToCensus1Attrition: 'First Day to Census 1 Attrition',
       firstDayToCensus2Attrition: 'First Day to Census 2 Attrition',
@@ -14196,6 +14410,8 @@
       adjustedForecastGrowth: 'Projected Growth vs Historical Baseline',
       expectedEnrollmentNextTerm: 'Historical Trend Expected Enrollment',
       expectedFtesNextTerm: 'Historical Trend Estimated FTES',
+      expectedRangeConservative: 'Conservative Estimate',
+      expectedRangeMostLikely: 'Most Likely Estimate',
       expectedFtesRangeDisplay: 'Expected FTES Range',
       expectedFtesRangeLow: 'Expected FTES Range Low',
       expectedFtesRangeHigh: 'Expected FTES Range High',
@@ -15517,6 +15733,7 @@
     demandActiveSnapshot,
     demandProjectionWarnings,
     demandConfidenceDetails,
+    demandHistoricalBenchmarkProjection,
     demandForecastConfidenceScore,
     demandExecutiveSummary,
     demandRecommendationSummary,
