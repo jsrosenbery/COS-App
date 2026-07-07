@@ -4235,6 +4235,7 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(app, /map\(code => hmDayCodeToName\[code\]\)/);
   assert.match(app, /daysArr = normalizeHeatmapDayNames\(rawDays, \{ row: r \}\)/);
   assert.match(app, /return normalizeHeatmapDayNames\(days\)/);
+  assert.match(app, /cell\.value = cellValue\(cell\)/);
   assert.match(app, /cells\[d\]\[startIndex\]\.crns\.has\(bucketKey\)/);
   assert.match(css, /\.analysis-summary-cards/);
   assert.match(css, /#heatmapContainer \{\s*min-height: 600px;\s*overflow-x: auto;/);

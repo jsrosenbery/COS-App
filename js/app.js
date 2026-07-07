@@ -5438,7 +5438,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     };
     const allCells = [];
     Object.entries(cells).forEach(([day, row]) => {
-      row.forEach((cell, index) => allCells.push({ ...cell, day, hour: hours[index], value: cellValue(cell) }));
+      row.forEach((cell, index) => {
+        cell.value = cellValue(cell);
+        allCells.push({ ...cell, day, hour: hours[index], value: cell.value });
+      });
     });
     return { cells, allCells, nonEmptyCells: allCells.filter(cell => cell.sections > 0) };
   }
