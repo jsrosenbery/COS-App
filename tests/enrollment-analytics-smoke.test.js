@@ -1070,15 +1070,19 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
     'courseGroup',
     'historicalTermsUsed',
     'historicalSectionsCrns',
-    'census1Enrollment',
-    'census2Enrollment',
-    'endFinalEnrollment',
-    'census1ToCensus2AttritionDisplay',
-    'census2ToFinalAttritionDisplay',
+    'firstDayToCensus1AttritionDisplay',
+    'firstDayToEndAttritionDisplay',
     'census1ToFinalAttritionDisplay',
     'trendInterpretation',
     'confidence'
   ].forEach(column => assert.match(detailBlock, new RegExp(column)));
+  assert.doesNotMatch(detailBlock, /census1Enrollment/);
+  assert.doesNotMatch(detailBlock, /census2Enrollment/);
+  assert.doesNotMatch(detailBlock, /endFinalEnrollment/);
+  assert.match(text, /typeof value === 'number' && \/attrition\/i\.test\(column\)\) return pct\(value\)/);
+  assert.match(text, /const SHOW_CENSUS2 = false/);
+  assert.match(text, /showCensus2: SHOW_CENSUS2/);
+  assert.match(text, /attritionVisibleColumns/);
   assert.match(text, /firstDayToCensus1Attrition/);
   assert.match(text, /census2ToEndFinalAttrition/);
 });
@@ -1211,7 +1215,7 @@ test('dashboard scope panel reports lifecycle milestone availability', () => {
     section({ firstDay: 10, census1: 9, census2: 8, finalEnrollment: 7 })
   ]);
 
-  assert.deepEqual(Array.from(missingContext.missingMilestones), ['First Day', 'Census 1', 'Census 2', 'Final']);
+  assert.deepEqual(Array.from(missingContext.missingMilestones), ['First Day', 'Census 1', 'Final']);
   assert.ok(missingContext.warnings.includes('Lifecycle milestone data unavailable in current upload.'));
   assert.deepEqual(Array.from(available.missing), []);
 });
@@ -3536,7 +3540,7 @@ test('snapshot manager defaults first day as primary manual snapshot', () => {
 
   assert.ok(snapBlock.indexOf('<option>First Day</option>') < snapBlock.indexOf('<option>Census 1</option>'));
   assert.match(text, /First Day is the primary manual snapshot/);
-  assert.match(text, /Census 1, Census 2, and Final are already present in Banner source exports/);
+  assert.match(text, /Census 1 and Final are already present in Banner source exports/);
 });
 
 test('modality balance uses shared modality category normalization and diagnostics', () => {
