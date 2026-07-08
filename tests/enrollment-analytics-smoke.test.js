@@ -5034,8 +5034,8 @@ test('schedule change form exports DOCX first and converts PDF server-side', () 
   const form = fs.readFileSync(path.join(__dirname, '..', 'js/schedule-change-form.js'), 'utf8');
 
   assert.match(form, /<option value="docx" selected>Export DOCX<\/option>/);
-  assert.match(form, /<option value="pdf" disabled hidden>Export PDF from DOCX<\/option>/);
-  assert.match(form, /<option value="both" disabled hidden>Export both DOCX and PDF<\/option>/);
+  assert.match(form, /<option value="pdf" disabled>Export PDF from DOCX<\/option>/);
+  assert.match(form, /<option value="both" disabled>Export both DOCX and PDF<\/option>/);
   assert.match(form, /scfBuildOfficialDocx\(shadow\)/);
   assert.match(form, /scfConvertDocxBlobToPdf\(blob, baseName\)/);
   assert.match(form, /Generating PDF from DOCX/);
@@ -5044,7 +5044,8 @@ test('schedule change form exports DOCX first and converts PDF server-side', () 
   assert.match(form, /PDF conversion is unavailable on the server\. Please export DOCX and save as PDF from Word\./);
   assert.match(form, /\/api\/export-capabilities/);
   assert.match(form, /option\.disabled = !pdfAvailable/);
-  assert.match(form, /option\.hidden = !pdfAvailable/);
+  assert.match(form, /option\.hidden = false/);
+  assert.match(form, /class="footer-actions"/);
 });
 
 test('schedule change form shows draft-first email UI with mailto fallback', () => {
@@ -5064,12 +5065,15 @@ test('schedule change form shows draft-first email UI with mailto fallback', () 
   assert.match(form, /id="emailBody"/);
   assert.match(form, /id="emailAttachmentMode"/);
   assert.match(form, /<option value="none">No attachment \/ draft only<\/option>/);
+  assert.match(form, /<option value="pdf" selected>PDF from DOCX<\/option>/);
   assert.match(form, /SCF_EMAIL_DEFAULTS|scheduleChangeEmailDefaults/);
   assert.match(form, /function buildScheduleChangeMailtoUrl/);
   assert.match(form, /mailto:/);
   assert.match(form, /Attachments cannot be added automatically through the email draft fallback/);
-  assert.match(form, /Mail draft opened without attachments\. Please attach the exported DOCX\/PDF manually\./);
-  assert.match(form, /Microsoft 365 draft creation is not configured\. Opening local email draft instead\./);
+  assert.match(form, /downloadEmailFallbackAttachments/);
+  assert.match(form, /The selected attachment was downloaded for you to attach manually/);
+  assert.match(form, /PDF from DOCX will be attached to the email draft/);
+  assert.match(form, /Microsoft 365 draft creation is not configured/);
   assert.match(form, /\/api\/schedule-change\/create-email-draft/);
   assert.match(form, /microsoftGraphDraftSupported/);
   assert.match(form, /emailDraftSupported: true/);
