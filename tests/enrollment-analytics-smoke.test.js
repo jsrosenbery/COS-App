@@ -3016,13 +3016,58 @@ test('instructor availability supports all full-time and part-time faculty filte
   assert.equal(scheduleRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, '')).length, 2);
   assert.equal(scheduleRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, 'FULL_TIME')).length, 1);
   assert.equal(scheduleRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, 'PART_TIME')).length, 1);
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityDivision({ divisionId: 'MATH' }), 'MATH');
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityCampus({ campus: 'COS' }), 'COS');
+
+  const facultyRows = COSEnrollmentAnalytics.instructorScheduleRows([
+    {
+      sourceTerm: 'FALL 2027',
+      crn: '81001',
+      subject: 'MATH',
+      course: '021',
+      courseCode: 'MATH 021',
+      instructor: 'FULL FACULTY',
+      days: ['MO'],
+      dayPattern: 'MO',
+      start: '08:00',
+      end: '09:00',
+      facultyType: 'FULL_TIME',
+      divisionId: 'STEM',
+      campus: 'COS'
+    },
+    {
+      sourceTerm: 'FALL 2027',
+      crn: '81002',
+      subject: 'MATH',
+      course: '022',
+      courseCode: 'MATH 022',
+      instructor: 'PART FACULTY',
+      days: ['TU'],
+      dayPattern: 'TU',
+      start: '08:00',
+      end: '09:00',
+      facultyType: 'PART_TIME',
+      divisionId: 'STEM',
+      campus: 'COS'
+    }
+  ]);
+  assert.equal(facultyRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, 'FULL_TIME')).length, 1);
+  assert.equal(facultyRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, 'PART_TIME')).length, 1);
 
   const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  assert.match(source, /id="iaFacultyScheduleCsv"/);
+  assert.match(source, /id="iaFacultyArchiveTerm"/);
+  assert.match(source, /loadSavedInstructorAvailabilityFaculty/);
+  assert.match(source, /loadInstructorAvailabilityFaculty/);
+  assert.match(source, /Using Section Seating fallback until Faculty Schedule Data is loaded/);
+  assert.match(source, /state\.instructorAvailabilityFacultyRows/);
   assert.match(source, /id="iaFacultyType"/);
   assert.match(source, /Full-Time Faculty/);
   assert.match(source, /Part-Time Faculty/);
+  assert.match(source, /Faculty Schedule Data/);
   assert.match(source, /instructorAvailabilityMatchesFacultyType\(row, facultyType\)/);
   assert.match(source, /document\.getElementById\('iaFacultyType'\)\?\.addEventListener\('change'/);
+  assert.match(source, /document\.getElementById\('iaFacultyScheduleCsv'\)\?\.addEventListener\('change'/);
   assert.match(source, /\['Faculty Type', facultyType \? instructorAvailabilityFacultyTypeLabel\(facultyType\) : 'All faculty'\]/);
 });
 

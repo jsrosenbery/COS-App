@@ -213,6 +213,7 @@
     facultyScheduleArchiveTerms: [],
     facultyScheduleRows: [],
     facultyScheduleMetadata: null,
+    instructorAvailabilityFacultyRows: [],
     facultyHeatmapRows: [],
     facultyHeatmapBucketRows: [],
     facultyHeatmapRan: false,
@@ -1666,13 +1667,13 @@
         <div id="instructorAvailabilityReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Instructor Availability - Planning View</h2>
-            <p>This first-layer planning view uses the loaded schedule/class data to identify when instructors are already scheduled. It does not prove contractual or personal availability; it only separates known schedule conflicts from open windows where no loaded teaching assignment is found.</p>
-            <p class="analytics-direction"><strong><u>Instructor Availability depends on the term selected for the Room Availability Grid at the top of the page.</u></strong></p>
+            <p>This first-layer planning view uses Faculty Schedule Data when loaded to identify when instructors are already scheduled. It does not prove contractual or personal availability; it only separates known schedule conflicts from open windows where no loaded teaching assignment is found.</p>
+            <p class="analytics-direction"><strong><u>Use the Faculty Schedule upload or saved Faculty Schedule term for Full-Time and Part-Time filtering. Section Seating / Schedule Data is used only as a fallback when no Faculty Schedule Data is loaded.</u></strong></p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Select one or more instructors, then select a day and time window to find known teaching conflicts and shared open schedule windows.</li>
+                  <li>Upload a Faculty Schedule CSV or load a saved Faculty Schedule term, then select one or more instructors and a day/time window.</li>
                   <li>Leave all instructors selected for a broad first pass, or select a smaller group to compare schedules side by side.</li>
                   <li>Online/TBA rows are excluded from day/time conflict checks because they do not provide a fixed meeting window.</li>
                 </ul>
@@ -1683,12 +1684,18 @@
                   <li>Known Busy means a loaded section for that instructor meets on the selected day and overlaps the selected time range.</li>
                   <li>Potentially Available means the instructor appears in the loaded schedule but has no overlapping scheduled section in the selected window.</li>
                   <li>The weekly grid shows loaded meetings by instructor and day. Shared available time windows are calculated by subtracting the combined loaded meetings for all selected instructors from 8:00 AM-6:00 PM, Monday-Friday.</li>
-                  <li>Availability is inferred only from uploaded schedule rows; it does not include faculty preferences, office hours, reassigned time, leave, overload limits, or department-specific rules.</li>
+                  <li>Full-Time and Part-Time filters use FCNT_CODE from Faculty Schedule Data: FT and TE are Full-Time, JP is Part-Time, and AE/X rows are excluded.</li>
+                  <li>Availability is inferred only from uploaded Faculty Schedule rows or fallback schedule rows; it does not include faculty preferences, office hours, reassigned time, leave, overload limits, or department-specific rules.</li>
                 </ul>
               </div>
             </div>
           </div>
           <div class="analytics-toolbar">
+            <label>Faculty Schedule CSV(s) <input id="iaFacultyScheduleCsv" type="file" accept=".csv" multiple></label>
+            <label>Saved Faculty Schedule Term <select id="iaFacultyArchiveTerm"></select></label>
+            <button id="loadSavedInstructorAvailabilityFaculty" type="button">Load Saved Faculty Schedule</button>
+            <button id="loadInstructorAvailabilityFaculty" type="button">Load Faculty Schedule</button>
+            <span id="iaFacultyScheduleStatus" class="analytics-note">Using Section Seating fallback until Faculty Schedule Data is loaded.</span>
             <label>Faculty Type
               <select id="iaFacultyType">
                 <option value="">All faculty</option>
@@ -7521,6 +7528,7 @@
   function facultyScheduleArchiveSelectIds() {
     return [
       'facultyScheduleArchiveTerm',
+      'iaFacultyArchiveTerm',
       'facultyModalityArchiveTerm',
       'primeTimeArchiveTerm',
       'busyTimeFacultyArchiveTerm',
@@ -10494,8 +10502,70 @@
     return instructorAvailabilityFacultyType(row) === selectedType;
   }
 
+  function instructorAvailabilityFacultySourceRows() {
+    return reportableFacultyRows([
+      ...(state.instructorAvailabilityFacultyRows || []),
+      ...(!(state.instructorAvailabilityFacultyRows || []).length ? (state.facultyScheduleRows || []) : []),
+      ...(!(state.instructorAvailabilityFacultyRows || []).length && !(state.facultyScheduleRows || []).length ? (state.facultyHeatmapRows || []) : [])
+    ]).filter(row => row && row.facultyType !== 'OMIT');
+  }
+
+  function instructorAvailabilitySourceRows(fallbackRows = currentRows()) {
+    const facultyRows = instructorAvailabilityFacultySourceRows();
+    if (facultyRows.length) {
+      return {
+        rows: instructorScheduleRows(facultyRows),
+        source: 'Faculty Schedule Data',
+        facultyBacked: true
+      };
+    }
+    return {
+      rows: instructorScheduleRows(fallbackRows),
+      source: 'Section Seating / Schedule Data fallback',
+      facultyBacked: false
+    };
+  }
+
+  function instructorAvailabilityDivision(row) {
+    return row?.division || row?.divisionId || row?.department || row?.departmentId || '';
+  }
+
+  function instructorAvailabilitySubject(row) {
+    return row?.subject || '';
+  }
+
+  function instructorAvailabilityCampus(row) {
+    return row?.campus || '';
+  }
+
+  function instructorAvailabilityCourseLabel(row) {
+    return row?.courseCode || [row?.subject, row?.course, row?.section].filter(Boolean).join(' ');
+  }
+
+  function instructorAvailabilityConflictLabel(row) {
+    return [
+      instructorAvailabilityCourseLabel(row) || row?.crn || 'Course N/A',
+      row?.dayPattern || '',
+      `${row?.start || row?.startTime || ''}-${row?.end || row?.endTime || ''}`,
+      instructorAvailabilityCampus(row) || 'Campus N/A'
+    ].filter(Boolean).join(' / ');
+  }
+
+  function updateInstructorAvailabilitySourceStatus(sourceInfo = null) {
+    const status = document.getElementById('iaFacultyScheduleStatus');
+    if (!status) return;
+    const info = sourceInfo || instructorAvailabilitySourceRows();
+    if (info.facultyBacked) {
+      const terms = [...new Set((info.rows || []).map(facultyTerm).filter(Boolean))].sort().join(', ');
+      status.textContent = `Using ${info.rows.length} Faculty Schedule meeting row(s)${terms ? ` for ${terms}` : ''}. FT/PT filters are available.`;
+    } else {
+      status.textContent = 'Using Section Seating fallback. Load Faculty Schedule Data to use reliable Full-Time / Part-Time filters.';
+    }
+  }
+
   function populateInstructorAvailabilityFilters(rows = currentRows()) {
-    const scheduleRows = instructorScheduleRows(rows);
+    const sourceInfo = instructorAvailabilitySourceRows(rows);
+    const scheduleRows = sourceInfo.rows;
     const instructorSelect = document.getElementById('iaInstructor');
     const facultyTypeSelect = document.getElementById('iaFacultyType');
     const divisionSelect = document.getElementById('iaDivision');
@@ -10508,9 +10578,9 @@
     const subjectPrior = subjectSelect?.value || '';
     const campusPrior = campusSelect.value;
     const typeScopedRows = scheduleRows.filter(row => instructorAvailabilityMatchesFacultyType(row, facultyTypePrior));
-    const divisions = [...new Set(typeScopedRows.map(row => row.division).filter(Boolean))].sort();
-    const subjectsForDivision = typeScopedRows.filter(row => !divisionPrior || row.division === divisionPrior);
-    const subjects = [...new Set(subjectsForDivision.map(row => row.subject).filter(Boolean))].sort();
+    const divisions = [...new Set(typeScopedRows.map(instructorAvailabilityDivision).filter(Boolean))].sort();
+    const subjectsForDivision = typeScopedRows.filter(row => !divisionPrior || instructorAvailabilityDivision(row) === divisionPrior);
+    const subjects = [...new Set(subjectsForDivision.map(instructorAvailabilitySubject).filter(Boolean))].sort();
     if (facultyTypeSelect) facultyTypeSelect.value = facultyTypePrior;
     if (divisionSelect) {
       divisionSelect.replaceChildren(new Option('All divisions', ''));
@@ -10523,11 +10593,11 @@
       if (subjects.includes(subjectPrior)) subjectSelect.value = subjectPrior;
     }
     const scoped = typeScopedRows.filter(row =>
-      (!divisionSelect?.value || row.division === divisionSelect.value) &&
-      (!subjectSelect?.value || row.subject === subjectSelect.value)
+      (!divisionSelect?.value || instructorAvailabilityDivision(row) === divisionSelect.value) &&
+      (!subjectSelect?.value || instructorAvailabilitySubject(row) === subjectSelect.value)
     );
     const instructors = [...new Set(scoped.map(row => row.instructor).filter(Boolean))].sort();
-    const campuses = [...new Set(scoped.map(row => row.campus).filter(Boolean))].sort();
+    const campuses = [...new Set(scoped.map(instructorAvailabilityCampus).filter(Boolean))].sort();
     instructorSelect.replaceChildren();
     instructors.forEach(instructor => instructorSelect.add(new Option(instructor, instructor)));
     [...instructorSelect.options].forEach(option => {
@@ -10536,6 +10606,7 @@
     campusSelect.replaceChildren(new Option('All campuses', ''));
     campuses.forEach(campus => campusSelect.add(new Option(campus, campus)));
     if (campuses.includes(campusPrior)) campusSelect.value = campusPrior;
+    updateInstructorAvailabilitySourceStatus(sourceInfo);
   }
 
   function instructorScheduleRows(rows) {
@@ -10552,8 +10623,9 @@
   }
 
   function runInstructorAvailability() {
-    const rows = instructorScheduleRows(currentRows());
-    populateInstructorAvailabilityFilters(rows);
+    const sourceInfo = instructorAvailabilitySourceRows(currentRows());
+    const rows = sourceInfo.rows;
+    populateInstructorAvailabilityFilters(currentRows());
     const selectedInstructors = selectedInstructorAvailabilityInstructors();
     const facultyType = document.getElementById('iaFacultyType')?.value || '';
     const division = document.getElementById('iaDivision')?.value || '';
@@ -10566,6 +10638,7 @@
     const endMinutes = minutesFromTime(end);
     if (!start || !end || startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
       metric('instructorAvailabilityMetrics', [
+        ['Data Source', sourceInfo.source],
         ['Status', 'Needs Time'],
         ['Known Busy', 0],
         ['Potentially Available', 0]
@@ -10578,10 +10651,10 @@
     }
     const scopedRows = rows.filter(row =>
       instructorAvailabilityMatchesFacultyType(row, facultyType) &&
-      (!division || row.division === division) &&
-      (!subject || row.subject === subject) &&
+      (!division || instructorAvailabilityDivision(row) === division) &&
+      (!subject || instructorAvailabilitySubject(row) === subject) &&
       (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) &&
-      (!campus || row.campus === campus)
+      (!campus || instructorAvailabilityCampus(row) === campus)
     );
     const instructors = selectedInstructors.length ? selectedInstructors : [...new Set(scopedRows.map(row => row.instructor).filter(Boolean))].sort();
     const conflictsByInstructor = group(scopedRows.filter(row => instructorHasConflict(row, day, startMinutes, endMinutes)), row => row.instructor);
@@ -10594,13 +10667,14 @@
         day: dayLabels[day] || day,
         requestedWindow: `${start}-${end}`,
         conflictCount: conflicts.length,
-        conflicts: conflicts.map(row => `${row.subject} ${row.course} ${row.section} / ${row.dayPattern} / ${row.start}-${row.end} / ${row.campus || 'Campus N/A'}`).join('; ') || 'No loaded schedule conflict found',
+        conflicts: conflicts.map(instructorAvailabilityConflictLabel).join('; ') || 'No loaded schedule conflict found',
         facultyType: instructorAvailabilityFacultyTypeLabel(instructorAvailabilityFacultyType(conflicts[0] || scopedRows.find(row => row.instructor === name) || {})),
         campus: campus || 'All'
       };
     }).sort((a, b) => a.status.localeCompare(b.status) || a.instructor.localeCompare(b.instructor));
     const busy = results.filter(row => row.status === 'Known Busy').length;
     metric('instructorAvailabilityMetrics', [
+      ['Data Source', sourceInfo.source],
       ['Faculty Type', facultyType ? instructorAvailabilityFacultyTypeLabel(facultyType) : 'All faculty'],
       ['Day/Time Checked', `${dayLabels[day] || day} ${start}-${end}`],
       ['Known Busy', busy],
@@ -10665,6 +10739,24 @@
     runInstructorAvailability();
   }
 
+  async function loadInstructorAvailabilityFacultySchedule() {
+    const input = document.getElementById('iaFacultyScheduleCsv');
+    const rows = input?.files?.length
+      ? await readFacultyScheduleFiles(input)
+      : await readSavedFacultyScheduleRows('iaFacultyArchiveTerm');
+    state.instructorAvailabilityFacultyRows = rows;
+    state.facultyScheduleRows = rows;
+    populateInstructorAvailabilityFilters(currentRows());
+    runInstructorAvailability();
+  }
+
+  async function loadSavedInstructorAvailabilityFacultySchedule() {
+    const rows = await readSavedFacultyScheduleRows('iaFacultyArchiveTerm');
+    state.instructorAvailabilityFacultyRows = rows;
+    populateInstructorAvailabilityFilters(currentRows());
+    runInstructorAvailability();
+  }
+
   function renderInstructorAvailabilityCalendar(instructors, rows, campus) {
     const node = document.getElementById('instructorAvailabilityCalendar');
     if (!node) return;
@@ -10689,7 +10781,7 @@
     ).join('')).join('');
     const events = [];
     rows
-      .filter(row => instructors.includes(row.instructor) && (!campus || row.campus === campus))
+      .filter(row => instructors.includes(row.instructor) && (!campus || instructorAvailabilityCampus(row) === campus))
       .forEach(row => {
         days.filter(day => row.days?.includes(day)).forEach(day => {
           const meeting = instructorMeetingMinutes(row);
@@ -10719,8 +10811,8 @@
       return `
         <div class="instructor-grid-event" data-instructor-event="${index}" tabindex="0" style="grid-column:${dayIndex + 2};grid-row:${startRow} / span ${span};width:${width};margin-left:${left};margin-top:${topOffset}px;height:${eventHeight}px">
           <strong>${escapeAttr(event.instructor)}</strong>
-          <span>${escapeAttr(`${event.subject} ${event.course} ${event.section}`)}</span>
-          <small>${escapeAttr(`${event.start}-${event.end} ${event.campus || ''}`)}</small>
+          <span>${escapeAttr(instructorAvailabilityCourseLabel(event))}</span>
+          <small>${escapeAttr(`${event.start || event.startTime}-${event.end || event.endTime} ${instructorAvailabilityCampus(event) || ''}`)}</small>
         </div>`;
     }).join('');
     node.innerHTML = `
@@ -10780,12 +10872,14 @@
   }
 
   function instructorTooltipLines(event) {
-    const course = `${event.subject || ''} ${event.course || ''}`.trim();
+    const course = instructorAvailabilityCourseLabel(event);
     const section = event.section ? `Section: ${event.section}` : '';
     const crn = event.crn ? `CRN: ${event.crn}` : '';
     const time = `Time: ${formatMinutes(event.startMinutes)} - ${formatMinutes(event.endMinutes)}`;
     const dateRange = instructorDateRange(event);
-    const fill = event.cap > 0 ? `Fill: ${event.actual}/${event.cap} (${pct(event.actual / event.cap)})` : '';
+    const seats = event.cap ?? event.maxEnroll ?? 0;
+    const enrollment = event.actual ?? event.actualEnroll ?? 0;
+    const fill = seats > 0 ? `Fill: ${enrollment}/${seats} (${pct(enrollment / seats)})` : '';
     return [
       { text: course, bold: true },
       { text: event.title },
@@ -10798,11 +10892,11 @@
       { text: `Instructor: ${event.instructor || 'N/A'}` },
       { text: `Faculty Type: ${instructorAvailabilityFacultyTypeLabel(instructorAvailabilityFacultyType(event))}` },
       { text: event.room ? `Room: ${event.room}` : '' },
-      { text: event.campus ? `Campus: ${event.campus}` : '' },
+      { text: instructorAvailabilityCampus(event) ? `Campus: ${instructorAvailabilityCampus(event)}` : '' },
       { text: event.modality ? `Modality: ${event.modality}` : '' },
-      { text: event.cap ? `Capacity: ${event.cap}` : '' },
+      { text: seats ? `Capacity: ${seats}` : '' },
       { text: event.census != null ? `Census Enrollment: ${event.census}` : '' },
-      { text: `Current/Final Enrollment: ${event.actual || 0}` },
+      { text: `Current/Final Enrollment: ${enrollment || 0}` },
       { text: event.hasWaitlistData ? `Waitlist: ${event.waitlist || 0}` : '' },
       { text: fill }
     ];
@@ -10856,7 +10950,7 @@
     }
     const dayItems = days.map(day => {
       const busy = rows
-        .filter(row => instructors.includes(row.instructor) && (!campus || row.campus === campus) && row.days?.includes(day))
+        .filter(row => instructors.includes(row.instructor) && (!campus || instructorAvailabilityCampus(row) === campus) && row.days?.includes(day))
         .map(row => instructorMeetingMinutes(row))
         .filter(Boolean)
         .sort((a, b) => a[0] - b[0]);
@@ -15612,6 +15706,9 @@
     });
     document.getElementById('runInstructorAvailability')?.addEventListener('click', runInstructorAvailability);
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
+    document.getElementById('loadSavedInstructorAvailabilityFaculty')?.addEventListener('click', () => loadSavedInstructorAvailabilityFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
+    document.getElementById('loadInstructorAvailabilityFaculty')?.addEventListener('click', () => loadInstructorAvailabilityFacultySchedule().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
+    document.getElementById('iaFacultyScheduleCsv')?.addEventListener('change', () => loadInstructorAvailabilityFacultySchedule().catch(err => console.warn(err)));
     document.getElementById('loadSavedFacultyModality')?.addEventListener('click', () => loadSavedFacultyModality().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('loadFacultyModality')?.addEventListener('click', () => loadFacultyModality().catch(err => alert(err.message || 'Faculty Modality load failed.')));
     document.getElementById('facultyModalityCsv')?.addEventListener('change', () => loadFacultyModality().catch(err => console.warn(err)));
@@ -15885,6 +15982,9 @@
     instructorScheduleRows,
     instructorAvailabilityFacultyType,
     instructorAvailabilityMatchesFacultyType,
+    instructorAvailabilitySourceRows,
+    instructorAvailabilityDivision,
+    instructorAvailabilityCampus,
     dashboardAvailableTerms,
     dashboardCurrentRows,
     dashboardHistoricalRows,
