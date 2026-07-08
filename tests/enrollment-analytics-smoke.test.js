@@ -5136,6 +5136,10 @@ test('schedule change form exports DOCX first and converts PDF server-side', () 
   assert.match(form, /\/api\/schedule-change\/convert-docx-to-pdf/);
   assert.doesNotMatch(form, /jspdf|html2canvas|new\s+jsPDF/i);
   assert.match(form, /PDF conversion is unavailable on the server\. Please export DOCX and save as PDF from Word\./);
+  assert.match(form, /function pdfUnavailableReason/);
+  assert.match(form, /pdfConversionUnavailableReason/);
+  assert.match(form, /payload\.reason/);
+  assert.match(form, /payload\.capabilities\?\.pdfConversionUnavailableReason/);
   assert.match(form, /\/api\/export-capabilities/);
   assert.match(form, /option\.disabled = !pdfAvailable/);
   assert.match(form, /option\.hidden = false/);

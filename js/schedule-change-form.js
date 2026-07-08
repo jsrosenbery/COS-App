@@ -414,6 +414,13 @@
   const PDF_CONVERSION_UNAVAILABLE_MESSAGE = 'PDF conversion is unavailable on the server. Please export DOCX and save as PDF from Word.';
   let exportCapabilitiesPromise = null;
 
+  function pdfUnavailableReason(capabilities) {
+    return capabilities?.pdfConversionUnavailableReason ||
+      capabilities?.reason ||
+      capabilities?.notes?.find(note => /LibreOffice|soffice|converter|PDF conversion/i.test(note)) ||
+      PDF_CONVERSION_UNAVAILABLE_MESSAGE;
+  }
+
   const CHANGE_FIELD_INDEX = CHANGE_FIELDS.reduce((acc, label, index) => {
     acc[label] = index;
     return acc;
@@ -451,7 +458,8 @@
               directBackendSend: false,
               attachments: false
             },
-            notes: [PDF_CONVERSION_UNAVAILABLE_MESSAGE]
+            pdfConversionUnavailableReason: err.message || PDF_CONVERSION_UNAVAILABLE_MESSAGE,
+            notes: [err.message || PDF_CONVERSION_UNAVAILABLE_MESSAGE]
           };
         });
     }
@@ -492,13 +500,13 @@
       if (option.value === 'pdf' || option.value === 'both') {
         option.disabled = !pdfAvailable;
         option.hidden = false;
-        option.title = pdfAvailable ? '' : PDF_CONVERSION_UNAVAILABLE_MESSAGE;
+        option.title = pdfAvailable ? '' : pdfUnavailableReason(capabilities);
       }
     });
     if (!pdfAvailable && (mode.value === 'pdf' || mode.value === 'both')) mode.value = 'docx';
     const note = pdfAvailable
       ? `PDF conversion available: ${capabilities.converter || 'server converter'}.`
-      : PDF_CONVERSION_UNAVAILABLE_MESSAGE;
+      : pdfUnavailableReason(capabilities);
     setExportStatus(shadow, note, pdfAvailable ? 'ok' : '');
     updateExportButtonLabel(shadow);
     applyEmailCapabilities(shadow, capabilities);
@@ -602,7 +610,7 @@
       if (option.value === 'pdf' || option.value === 'both') {
         option.disabled = !pdfAvailable;
         option.hidden = false;
-        option.title = pdfAvailable ? '' : PDF_CONVERSION_UNAVAILABLE_MESSAGE;
+        option.title = pdfAvailable ? '' : pdfUnavailableReason(capabilities);
       }
     });
     if (attachmentMode) {
@@ -613,10 +621,10 @@
     const message = canAttachToDraft && pdfAvailable
       ? 'PDF from DOCX will be attached to the email draft when you create it.'
       : canAttachToDraft
-        ? 'Email draft creation is available. PDF conversion is unavailable, so DOCX is the default attachment.'
+        ? `Email draft creation is available. PDF conversion is unavailable, so DOCX is the default attachment. ${pdfUnavailableReason(capabilities)}`
         : pdfAvailable
           ? 'Local email drafts cannot receive attachments automatically. The app will download the selected PDF/DOCX first so you can attach it.'
-          : 'Microsoft 365 draft creation is not configured and PDF conversion is unavailable. Opening local email draft instead; attach the exported DOCX manually.';
+          : `Microsoft 365 draft creation is not configured and PDF conversion is unavailable. ${pdfUnavailableReason(capabilities)} Opening local email draft instead; attach the exported DOCX manually.`;
     setEmailStatus(shadow, message, canAttachToDraft || pdfAvailable ? 'ok' : '');
   }
 
@@ -660,7 +668,7 @@
     }
     if (email.attachmentMode === 'pdf' || email.attachmentMode === 'both') {
       if (!capabilities?.pdfFromDocx) {
-        throw new Error(PDF_CONVERSION_UNAVAILABLE_MESSAGE);
+        throw new Error(pdfUnavailableReason(capabilities));
       }
       const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName);
       window.saveAs(pdfBlob, `${baseName}.pdf`);
@@ -919,8 +927,11 @@ async function scfFetchPdfBlobFromDocx(blob, baseName) {
     });
     if (!res.ok) {
       const contentType = res.headers.get('Content-Type') || '';
-      const message = contentType.includes('application/json')
-        ? (await res.json()).error
+      const payload = contentType.includes('application/json')
+        ? await res.json()
+        : null;
+      const message = payload
+        ? [payload.error, payload.reason, payload.capabilities?.pdfConversionUnavailableReason].filter(Boolean).join(' ')
         : await res.text();
       throw new Error(message || `PDF conversion failed (${res.status})`);
     }
@@ -938,7 +949,7 @@ async function scfExportSelected(shadow) {
       return;
     }
     const capabilities = await scfFetchExportCapabilities();
-    if (!capabilities.pdfFromDocx) throw new Error(PDF_CONVERSION_UNAVAILABLE_MESSAGE);
+    if (!capabilities.pdfFromDocx) throw new Error(pdfUnavailableReason(capabilities));
     setExportLoading(shadow, true, 'Generating PDF from DOCX...');
     const { blob, baseName } = await scfBuildOfficialDocx(shadow);
     if (mode === 'both') window.saveAs(blob, `${baseName}.docx`);
