@@ -43,7 +43,8 @@ function loadCoreModules() {
   return {
     csv: require('../js/core/csv-normalizer.js'),
     modality: require('../js/core/modality-normalizer.js'),
-    sectionModel: require('../js/core/section-model.js')
+    sectionModel: require('../js/core/section-model.js'),
+    roomEvents: require('../js/core/event-layer.js')
   };
 }
 
@@ -342,12 +343,13 @@ function loadScheduleAppRuntime() {
   context.window.jQuery = context.$;
   context.window.COSUtils = { renderStandardMethodologyPanel() {} };
   vm.createContext(context);
-  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/core/metric-definitions.js', 'js/core/metric-help.js', 'js/app.js'].forEach(file => {
+  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/core/event-layer.js', 'js/core/metric-definitions.js', 'js/core/metric-help.js', 'js/app.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
   return Object.assign(context.window.COSScheduleApp.modalityBalanceTestHooks, {
     roomCatalogTestHooks: context.window.COSScheduleApp.roomCatalogTestHooks,
+    roomEventsTestHooks: context.window.COSScheduleApp.roomEventsTestHooks,
     testDocument: context.document
   });
 }
@@ -455,6 +457,101 @@ test('shared CSV normalizer builds canonical section fields from all-columns sea
   assert.equal(sectionRow.end, '10:25');
   assert.equal(sectionRow.modality, 'IN PERSON');
   assert.equal(sectionRow.timeBlock, '09:00-09:59');
+});
+
+test('room event parser normalizes term room day time and validation fields', () => {
+  const { roomEvents } = loadCoreModules();
+  const rows = roomEvents.normalizeEvents([
+    {
+      Term: 'Fall 2026',
+      Campus: 'COS',
+      Building: 'HACVEB',
+      Room: '101',
+      'Event ID': 'EVT-1',
+      'Event Name': 'Community Meeting',
+      'Day(s)': 'MW',
+      'Begin Time': '9:00 AM',
+      'End Time': '10:30 AM',
+      'Effective Start Date': '08/17/2026',
+      'Effective End Date': '12/11/2026',
+      'Event Type': 'External',
+      Notes: 'Soft hold'
+    }
+  ]);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].term, 'FALL 2026');
+  assert.equal(rows[0].roomKey, 'HACVEB-101');
+  assert.deepEqual(rows[0].days, ['Monday', 'Wednesday']);
+  assert.equal(rows[0].start, '09:00');
+  assert.equal(rows[0].end, '10:30');
+  assert.equal(rows[0].valid, true);
+});
+
+test('room event storage is term-specific and supports replace versus append', () => {
+  const { roomEvents } = loadCoreModules();
+  const fall = roomEvents.normalizeEvents([{ Term: 'FALL 2026', Building: 'A', Room: '1', Days: 'M', 'Begin Time': '09:00', 'End Time': '10:00' }]);
+  const spring = roomEvents.normalizeEvents([{ Term: 'SPRING 2027', Building: 'A', Room: '2', Days: 'T', 'Begin Time': '09:00', 'End Time': '10:00' }]);
+  let store = roomEvents.storagePayloadByTerm({}, 'FALL 2026', fall, 'replace');
+  store = roomEvents.storagePayloadByTerm(store, 'SPRING 2027', spring, 'replace');
+  store = roomEvents.storagePayloadByTerm(store, 'FALL 2026', fall, 'append');
+
+  assert.equal(roomEvents.eventsForTerm(store, 'FALL 2026').length, 2);
+  assert.equal(roomEvents.eventsForTerm(store, 'SPRING 2027').length, 1);
+});
+
+test('room event overlap detects soft reservations by room day time and date range', () => {
+  const { roomEvents } = loadCoreModules();
+  const events = roomEvents.normalizeEvents([{
+    Term: 'FALL 2026',
+    Building: 'HACVEB',
+    Room: '101',
+    Days: 'MW',
+    'Begin Time': '09:00',
+    'End Time': '10:30',
+    'Effective Start Date': '2026-08-17',
+    'Effective End Date': '2026-12-11'
+  }]);
+
+  assert.equal(roomEvents.overlappingEvents(events, {
+    roomKey: 'HACVEB-101',
+    days: ['Monday'],
+    startMinutes: 9 * 60 + 30,
+    endMinutes: 10 * 60,
+    requestedStart: '2026-09-01',
+    requestedEnd: '2026-09-01'
+  }).length, 1);
+  assert.equal(roomEvents.overlappingEvents(events, {
+    roomKey: 'HACVEB-101',
+    days: ['Tuesday'],
+    startMinutes: 9 * 60 + 30,
+    endMinutes: 10 * 60
+  }).length, 0);
+});
+
+test('room event availability status distinguishes soft events from instructional conflicts', () => {
+  const runtime = loadScheduleAppRuntime();
+  const hooks = runtime.roomEventsTestHooks;
+  const instructionMap = new Map([['HACVEB-101', [{ CRN: '12345' }]]]);
+  const eventMap = new Map([['HACVEB-102', [{ eventId: 'EVT-1' }]], ['HACVEB-103', [{ eventId: 'EVT-2' }]]]);
+  const mixedInstruction = new Map([['HACVEB-103', [{ CRN: '22345' }]]]);
+
+  const available = hooks.availabilityStatusForRoom('HACVEB-100', instructionMap, eventMap, false);
+  const instruction = hooks.availabilityStatusForRoom('HACVEB-101', instructionMap, eventMap, false);
+  const softEvent = hooks.availabilityStatusForRoom('HACVEB-102', instructionMap, eventMap, false);
+  const hardEvent = hooks.availabilityStatusForRoom('HACVEB-102', instructionMap, eventMap, true);
+  const mixed = hooks.availabilityStatusForRoom('HACVEB-103', mixedInstruction, eventMap, false);
+
+  assert.equal(available.status, 'Available');
+  assert.equal(available.available, true);
+  assert.equal(instruction.status, 'Instruction Scheduled');
+  assert.equal(instruction.available, false);
+  assert.equal(softEvent.status, 'Event Scheduled');
+  assert.equal(softEvent.available, true);
+  assert.equal(hardEvent.status, 'Event Scheduled');
+  assert.equal(hardEvent.available, false);
+  assert.equal(mixed.status, 'Mixed');
+  assert.equal(mixed.available, false);
 });
 
 test('shared modality normalizer maps every known app instructional method code', () => {

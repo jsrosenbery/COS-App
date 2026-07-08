@@ -15,6 +15,7 @@ let heatmapDataTableFilterRegistered = false;
 const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const hmDayCodeToName = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
 const ROOM_CATALOG_BACKUP_KEY = 'cos-room-catalog-backup-v1';
+const ROOM_EVENTS_BACKUP_KEY = 'cos-room-events-by-term-v1';
 const CAL_GETC_BACKUP_KEY = 'cos-cal-getc-mapping-backup-v1';
 const CURRICULUM_CROSSWALK_BACKUP_KEY = 'cos-curriculum-crosswalk-backup-v1';
 
@@ -941,6 +942,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const uploadDiv    = document.getElementById('upload-container');
   const tsDiv        = document.getElementById('upload-timestamp');
   const roomCatalogAdminDiv = document.getElementById('room-catalog-admin');
+  const roomEventsAdminDiv = document.getElementById('room-events-admin');
   const calGetcAdminDiv = document.getElementById('cal-getc-admin');
   const curriculumCrosswalkAdminDiv = document.getElementById('curriculum-crosswalk-admin');
   const roomDiv      = document.getElementById('room-filter');
@@ -955,6 +957,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const availCampusSelect = document.getElementById('avail-campus-select');
   const availTypeSelect = document.getElementById('avail-type-select');
   const availCapacityInput = document.getElementById('avail-capacity-input');
+  const eventsShowGridInput = document.getElementById('events-show-grid');
+  const eventsIncludeSearchInput = document.getElementById('events-include-search');
+  const eventsHardConflictInput = document.getElementById('events-hard-conflict');
   const utilizationCampusSelect = document.getElementById('utilization-campus-select');
   const utilizationTypeSelect = document.getElementById('utilization-type-select');
   const utilizationBuildingSelect = document.getElementById('utilization-building-select');
@@ -1007,6 +1012,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let modalityLoadedSourceRows = null;
   let scheduleAnalysisRows = null;
   let roomFitReportRows = null;
+  let roomEventsByTerm = loadRoomEventsBackup();
   const selectedUtilizationCategories = new Set();
   const utilizationCategoryLabels = [
     'Not Utilized',
@@ -1022,6 +1028,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initLineChartChoices();
   initAvailabilityAttributeFilters();
   setupRoomCatalogAdmin();
+  setupRoomEventsAdmin();
   setupCalGetcAdmin();
   setupCurriculumCrosswalkAdmin();
   loadRoomCatalogFromBackend();
@@ -1059,6 +1066,12 @@ document.addEventListener('DOMContentLoaded', () => {
       getRoomCatalogEntries,
       roomCatalogToCsv,
       setupRoomCatalogAdmin
+    },
+    roomEventsTestHooks: {
+      getRoomEventsForCurrentTerm,
+      setRoomEventsForTerm,
+      availabilityStatusForRoom,
+      sectionEventSoftConflicts
     },
     modalityBalanceTestHooks: {
       normalizeTermLabel,
@@ -1107,6 +1120,12 @@ document.addEventListener('DOMContentLoaded', () => {
     .forEach(input => input.addEventListener('input', renderUtilizationMap));
   document.getElementById('utilization-exclude-tutoring-openlab')?.addEventListener('change', renderUtilizationMap);
   if (roomFitExportBtn) roomFitExportBtn.addEventListener('click', exportRoomFitAnalysis);
+  [eventsShowGridInput, eventsIncludeSearchInput, eventsHardConflictInput].filter(Boolean).forEach(input => {
+    input.addEventListener('change', () => {
+      renderSchedule();
+      resultsDiv.textContent = '';
+    });
+  });
   if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
   if (modalityDecisionTermSelect) modalityDecisionTermSelect.addEventListener('change', renderModalityTool);
   modalityComparisonSelects.forEach(select => select.addEventListener('change', renderModalityTool));
@@ -2434,6 +2453,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     tabElem.classList.add('active');
     clearSchedule();
     setupUpload();
+    updateRoomEventsStatus();
+    renderRoomEventValidation();
     loadScheduleFromBackend(term);
   }
 
@@ -2503,7 +2524,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function clearSchedule() {
     table.innerHTML = '';
-    container.querySelectorAll('.class-block').forEach(e => e.remove());
+    container.querySelectorAll('.class-block,.event-block').forEach(e => e.remove());
     const header = table.insertRow();
     header.insertCell().outerHTML = '<th>Time</th>';
     daysOfWeek.forEach(d => header.insertCell().outerHTML = `<th>${d}</th>`);
@@ -2647,6 +2668,134 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         container.appendChild(b);
       });
     });
+    renderRoomEventBlocks(filt, rect);
+  }
+
+  function renderRoomEventBlocks(selectedRoom, containerRect) {
+    if (eventsShowGridInput && !eventsShowGridInput.checked) return;
+    if (!window.COSRoomEvents) return;
+    const filt = selectedRoom || 'All';
+    const events = getRoomEventsForCurrentTerm()
+      .filter(event => event.valid)
+      .filter(event => filt === 'All' || event.roomKey === filt);
+    if (!events.length) return;
+    daysOfWeek.forEach((day, dIdx) => {
+      let dayEvents = events
+        .filter(event => event.days.includes(day))
+        .map(event => ({ ...event }))
+        .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);
+      dayEvents.forEach(event => {
+        event.overlaps = dayEvents.filter(other => other.startMinutes < event.endMinutes && other.endMinutes > event.startMinutes);
+      });
+      dayEvents.forEach(event => {
+        const overlaps = event.overlaps || [event];
+        event.colIndex = Math.max(0, overlaps.findIndex(other => other.eventId === event.eventId && other.start === event.start && other.end === event.end));
+        event.colCount = Math.max(1, Math.min(3, overlaps.length));
+      });
+      dayEvents.forEach(event => {
+        const offset = event.startMinutes - 360;
+        const rowIndex = Math.floor(offset / 30) + 1;
+        const rem = offset % 30;
+        if (rowIndex < 1 || rowIndex >= table.rows.length) return;
+        const cell = table.rows[rowIndex].cells[dIdx + 1];
+        const cr = cell.getBoundingClientRect();
+        const topPx = cr.top - containerRect.top + (rem / 30) * cr.height;
+        const columnWidth = cr.width / event.colCount;
+        const leftPx = cr.left - containerRect.left + (event.colIndex * columnWidth) + Math.max(2, columnWidth * 0.08);
+        const widthPx = Math.max(24, columnWidth * 0.88);
+        const heightPx = Math.max(22, ((event.endMinutes - event.startMinutes) / 30) * cr.height);
+        const block = document.createElement('div');
+        block.className = 'event-block';
+        block.style.top = `${topPx}px`;
+        block.style.left = `${leftPx}px`;
+        block.style.width = `${widthPx}px`;
+        block.style.height = `${heightPx}px`;
+        appendLine(block, 'EVENT', true);
+        appendLine(block, event.name || event.type || 'Room Event');
+        appendLine(block, `${format12(event.start)} - ${format12(event.end)}`);
+
+        block.addEventListener('mouseenter', e => showEventTooltip(block, event, e));
+        block.addEventListener('mousemove', e => {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.style.left = `${e.pageX + 12}px`;
+          tooltip.style.top = `${e.pageY + 12}px`;
+        });
+        block.addEventListener('mouseleave', () => {
+          const tooltip = document.getElementById('class-block-tooltip');
+          tooltip.style.display = 'none';
+        });
+        container.appendChild(block);
+      });
+    });
+  }
+
+  function showEventTooltip(block, event, mouseEvent) {
+    const tooltip = document.getElementById('class-block-tooltip');
+    setTooltipLines(tooltip, [
+      { text: event.name || 'Room Event', bold: true },
+      { text: `Event ID: ${event.eventId || 'N/A'}` },
+      { text: `Room: ${event.roomKey || 'N/A'}` },
+      { text: `Days: ${event.days.join(', ') || 'N/A'}` },
+      { text: `Time: ${format12(event.start)} - ${format12(event.end)}` },
+      { text: `Date Range: ${event.startDate || 'N/A'} - ${event.endDate || 'N/A'}` },
+      { text: event.type ? `Type: ${event.type}` : '' },
+      { text: event.notes ? `Notes: ${event.notes}` : '' }
+    ]);
+    tooltip.style.display = 'block';
+    const rect = block.getBoundingClientRect();
+    tooltip.style.left = `${mouseEvent?.pageX || rect.right + window.scrollX + 8}px`;
+    tooltip.style.top = `${mouseEvent?.pageY || rect.top + window.scrollY - 10}px`;
+  }
+
+  function isoDateOnly(date) {
+    if (!date) return null;
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
+  function availabilityStatusForRoom(roomKey, instructionMap, eventMap, hardEvents = false) {
+    const hasInstruction = Boolean(instructionMap?.get(roomKey)?.length);
+    const hasEvent = Boolean(eventMap?.get(roomKey)?.length);
+    if (hasInstruction && hasEvent) return { status: 'Mixed', available: false };
+    if (hasInstruction) return { status: 'Instruction Scheduled', available: false };
+    if (hasEvent) return { status: 'Event Scheduled', available: !hardEvents };
+    return { status: 'Available', available: true };
+  }
+
+  function sectionEventSoftConflicts(sections = currentData, events = getRoomEventsForCurrentTerm()) {
+    const rows = [];
+    (sections || []).forEach(section => {
+      if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return;
+      const roomKey = getRoomKey(section);
+      const days = Array.isArray(section.Days) ? section.Days : [];
+      if (!roomKey || !days.length) return;
+      const startMinutes = parseTime(section.Start_Time || '');
+      const endMinutes = parseTime(section.End_Time || '');
+      if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) return;
+      const sectionStart = isoDateOnly(parseDateOnly(extractField(section, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start'])));
+      const sectionEnd = isoDateOnly(parseDateOnly(extractField(section, ['End_Date', 'End Date', 'End', 'end_date', 'end'])));
+      window.COSRoomEvents.overlappingEvents(events, { roomKey, days, startMinutes, endMinutes, requestedStart: sectionStart, requestedEnd: sectionEnd })
+        .forEach(event => {
+          const overlap = Math.max(0, Math.min(endMinutes, event.endMinutes) - Math.max(startMinutes, event.startMinutes));
+          rows.push({
+            Term: currentTerm,
+            Day: days.filter(day => event.days.includes(day)).join(', '),
+            'Overlap Minutes': overlap,
+            CRN: section.CRN || '',
+            Course: section.Subject_Course || '',
+            Building: section.Building || section.BUILDING || '',
+            Room: section.Room || section.ROOM || '',
+            'Class Time': `${section.Start_Time || ''}-${section.End_Time || ''}`,
+            'Class Date Range': `${sectionStart || 'N/A'} - ${sectionEnd || 'N/A'}`,
+            'Event ID': event.eventId,
+            'Event Name': event.name,
+            'Event Time': `${event.start}-${event.end}`,
+            'Event Date Range': `${event.startDate || 'N/A'} - ${event.endDate || 'N/A'}`,
+            'Event Type': event.type,
+            Notes: event.notes
+          });
+        });
+    });
+    return rows;
   }
 
   function handleAvailability() {
@@ -2681,32 +2830,50 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const selectedCampus = availCampusSelect?.value || '';
     const selectedType = availTypeSelect?.value || '';
     const minCapacity = Number(availCapacityInput?.value || 0);
-    const occ   = new Set();
+    const instructionMap = new Map();
     currentData.forEach(i => {
       if (!isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM)) return;
       if (Array.isArray(i.Days) && i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
         if (!(ei <= sMin || si >= eMin)) {
           if (isShortTerm && !sectionOverlapsRequestedDates(i, requestedStart, requestedEnd)) return;
-          occ.add(getRoomKey(i));
+          const key = getRoomKey(i);
+          if (!instructionMap.has(key)) instructionMap.set(key, []);
+          instructionMap.get(key).push(i);
         }
       }
     });
-    const avail = catalogRooms
-      .filter(room => !occ.has(room.buildingRoom))
+    const eventMap = new Map();
+    if (!eventsIncludeSearchInput || eventsIncludeSearchInput.checked) {
+      const requestedStartIso = isShortTerm ? isoDateOnly(requestedStart) : null;
+      const requestedEndIso = isShortTerm ? isoDateOnly(requestedEnd) : null;
+      getRoomEventsForCurrentTerm().forEach(event => {
+        if (!window.COSRoomEvents?.eventOverlapsRequest?.(event, days, sMin, eMin, requestedStartIso, requestedEndIso)) return;
+        if (!eventMap.has(event.roomKey)) eventMap.set(event.roomKey, []);
+        eventMap.get(event.roomKey).push(event);
+      });
+    }
+    const hardEvents = Boolean(eventsHardConflictInput?.checked);
+    const rows = catalogRooms
       .filter(room => !selectedCampus || room.campus === selectedCampus)
       .filter(room => !selectedType || room.type === selectedType)
-      .filter(room => !minCapacity || (room.capacity != null && room.capacity >= minCapacity));
-    if (avail.length) {
+      .filter(room => !minCapacity || (room.capacity != null && room.capacity >= minCapacity))
+      .map(room => ({ room, ...availabilityStatusForRoom(room.buildingRoom, instructionMap, eventMap, hardEvents) }))
+      .sort((a, b) => (a.available === b.available ? 0 : a.available ? -1 : 1) || a.status.localeCompare(b.status) || a.room.buildingRoom.localeCompare(b.room.buildingRoom, undefined, { numeric: true }));
+    if (rows.length) {
       const list = document.createElement('ul');
-      avail.forEach(room => {
+      list.className = 'availability-status-list';
+      rows.forEach(row => {
         const item = document.createElement('li');
-        item.textContent = getRoomDisplay(room.buildingRoom);
+        item.className = row.status.toLowerCase().replace(/\s+/g, '-') + (row.available ? ' is-available' : ' is-unavailable');
+        const eventCount = eventMap.get(row.room.buildingRoom)?.length || 0;
+        const classCount = instructionMap.get(row.room.buildingRoom)?.length || 0;
+        item.textContent = `${getRoomDisplay(row.room.buildingRoom)} - ${row.status}${eventCount ? ` (${eventCount} event${eventCount === 1 ? '' : 's'})` : ''}${classCount ? ` (${classCount} class block${classCount === 1 ? '' : 's'})` : ''}`;
         list.appendChild(item);
       });
       resultsDiv.replaceChildren(list);
     } else {
-      resultsDiv.textContent = 'No rooms available.';
+      resultsDiv.textContent = 'No rooms match the selected filters.';
     }
   }
 
@@ -3769,6 +3936,156 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       rowsAfterCourseFilter: 0,
       finalRows: 0
     };
+  }
+
+  function loadRoomEventsBackup() {
+    try {
+      const payload = JSON.parse(localStorage.getItem(ROOM_EVENTS_BACKUP_KEY) || '{}');
+      return payload && typeof payload === 'object' ? payload : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveRoomEventsBackup() {
+    try {
+      localStorage.setItem(ROOM_EVENTS_BACKUP_KEY, JSON.stringify(roomEventsByTerm || {}));
+    } catch (err) {
+      console.warn('Room events backup save failed:', err);
+    }
+  }
+
+  function getRoomEventsForTerm(term = currentTerm) {
+    return window.COSRoomEvents?.eventsForTerm
+      ? window.COSRoomEvents.eventsForTerm(roomEventsByTerm, term)
+      : [];
+  }
+
+  function getRoomEventsForCurrentTerm() {
+    return getRoomEventsForTerm(currentTerm);
+  }
+
+  function setRoomEventsForTerm(term, events, mode = 'replace') {
+    if (!window.COSRoomEvents?.storagePayloadByTerm) return;
+    roomEventsByTerm = window.COSRoomEvents.storagePayloadByTerm(roomEventsByTerm, term, events, mode);
+    saveRoomEventsBackup();
+    updateRoomEventsStatus();
+    renderSchedule();
+    if (document.getElementById('viewSelect')?.value === 'fullcalendar') renderFullCalendar();
+  }
+
+  function setupRoomEventsAdmin() {
+    if (!roomEventsAdminDiv || !window.COSRoomEvents) return;
+    roomEventsAdminDiv.replaceChildren();
+    const title = document.createElement('strong');
+    title.textContent = 'Room Events';
+
+    const modeLabel = document.createElement('label');
+    modeLabel.append('Import Mode:');
+    const modeSelect = document.createElement('select');
+    modeSelect.id = 'room-events-import-mode';
+    modeSelect.append(new Option('Replace term events', 'replace'), new Option('Append to term events', 'append'));
+    modeLabel.appendChild(modeSelect);
+
+    const importLabel = document.createElement('label');
+    importLabel.append('Import Events:');
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.accept = '.csv,text/csv';
+    importLabel.appendChild(importInput);
+
+    const exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.textContent = 'Export Events CSV';
+
+    const usageBtn = document.createElement('button');
+    usageBtn.type = 'button';
+    usageBtn.textContent = 'Export Usage CSV';
+
+    const softConflictBtn = document.createElement('button');
+    softConflictBtn.type = 'button';
+    softConflictBtn.textContent = 'Export Soft Conflicts CSV';
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.textContent = 'Clear Term Events';
+
+    const status = document.createElement('span');
+    status.id = 'room-events-status';
+    status.className = 'room-events-status';
+
+    const validation = document.createElement('p');
+    validation.id = 'room-events-validation';
+    validation.className = 'event-validation-summary';
+
+    const note = document.createElement('p');
+    note.className = 'event-methodology-note';
+    note.textContent = 'Events are term-specific soft reservations by default. They display separately from instructional sections and do not change uploaded class data.';
+
+    roomEventsAdminDiv.append(title, modeLabel, importLabel, exportBtn, usageBtn, softConflictBtn, clearBtn, status, validation, note);
+    updateRoomEventsStatus();
+
+    importInput.addEventListener('change', async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const password = await requestPassword('Enter upload password to import room events:', 'Room events import cancelled.');
+      if (!password) {
+        importInput.value = '';
+        return;
+      }
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: result => {
+          const rows = (result.data || []).map(row => ({ ...row, __sourceTerm: currentTerm }));
+          const events = window.COSRoomEvents.normalizeEvents(rows, { term: currentTerm, source: file.name });
+          setRoomEventsForTerm(currentTerm, events, modeSelect.value || 'replace');
+          renderRoomEventValidation(events);
+          importInput.value = '';
+        },
+        error: err => {
+          alert(`Room events import failed: ${err.message || err}`);
+          importInput.value = '';
+        }
+      });
+    });
+
+    exportBtn.addEventListener('click', () => {
+      const rows = window.COSRoomEvents.exportRows(getRoomEventsForCurrentTerm());
+      downloadTextFile(`room-events-${currentTerm || 'term'}.csv`, Papa.unparse(rows), 'text/csv;charset=utf-8');
+    });
+    usageBtn.addEventListener('click', () => {
+      const rows = window.COSRoomEvents.usageRows(getRoomEventsForCurrentTerm());
+      downloadTextFile(`room-event-usage-${currentTerm || 'term'}.csv`, Papa.unparse(rows), 'text/csv;charset=utf-8');
+    });
+    softConflictBtn.addEventListener('click', () => {
+      const rows = sectionEventSoftConflicts(currentData, getRoomEventsForCurrentTerm());
+      downloadTextFile(`room-event-soft-conflicts-${currentTerm || 'term'}.csv`, Papa.unparse(rows), 'text/csv;charset=utf-8');
+    });
+    clearBtn.addEventListener('click', () => {
+      if (!confirm(`Clear room events for ${currentTerm}?`)) return;
+      roomEventsByTerm = { ...(roomEventsByTerm || {}), [currentTerm]: [] };
+      saveRoomEventsBackup();
+      updateRoomEventsStatus();
+      renderRoomEventValidation([]);
+      renderSchedule();
+      if (document.getElementById('viewSelect')?.value === 'fullcalendar') renderFullCalendar();
+    });
+  }
+
+  function updateRoomEventsStatus() {
+    const status = document.getElementById('room-events-status');
+    if (!status) return;
+    const events = getRoomEventsForCurrentTerm();
+    const summary = window.COSRoomEvents?.summarizeValidation?.(events) || { totalRows: 0, validRows: 0, invalidRows: 0, roomKeys: [] };
+    status.textContent = `${summary.validRows} valid event row(s) for ${currentTerm || 'selected term'}; ${summary.invalidRows} invalid. ${summary.roomKeys.length} room(s) affected.`;
+  }
+
+  function renderRoomEventValidation(events = getRoomEventsForCurrentTerm()) {
+    const node = document.getElementById('room-events-validation');
+    if (!node || !window.COSRoomEvents) return;
+    const summary = window.COSRoomEvents.summarizeValidation(events);
+    node.textContent = `Validation: ${summary.totalRows} row(s), ${summary.validRows} usable, ${summary.invalidRows} invalid; missing room ${summary.missingRoom}, missing days ${summary.missingDays}, missing/invalid time ${summary.missingTime}.`;
   }
 
   function modalityFilteredSections(options = {}) {
@@ -5730,6 +6047,42 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         }
       });
     });
+    if (!eventsShowGridInput || eventsShowGridInput.checked) {
+      const fallbackStart = termStartDates[currentTerm] || new Date().toISOString().slice(0, 10);
+      getRoomEventsForCurrentTerm()
+        .filter(event => event.valid)
+        .filter(event => !filt || filt === 'All' || event.roomKey === filt)
+        .forEach(event => {
+          let start = event.startDate || fallbackStart;
+          let end = event.endDate || start;
+          const endDate = new Date(end);
+          if (!Number.isNaN(endDate.getTime())) {
+            endDate.setDate(endDate.getDate() + 1);
+            end = endDate.toISOString().slice(0, 10);
+          }
+          events.push({
+            title: `EVENT: ${event.name || event.type || 'Room Event'}\n${event.roomKey}`,
+            startTime: event.start,
+            endTime: event.end,
+            daysOfWeek: event.days.map(day => daysMap[day]).filter(day => day !== undefined),
+            startRecur: start,
+            endRecur: end,
+            color: '#0891b2',
+            textColor: '#ffffff',
+            extendedProps: {
+              isRoomEvent: true,
+              subject_course: 'EVENT',
+              crn: event.eventId || '',
+              bldg_room: event.roomKey,
+              displayTime: `${format12(event.start)} - ${format12(event.end)}`,
+              instructor: '',
+              title: event.name || event.type || 'Room Event',
+              dateRange: `${event.startDate || 'N/A'} - ${event.endDate || 'N/A'}`,
+              notes: event.notes || ''
+            }
+          });
+        });
+    }
     // Snap to official term start date if available, else fallback to today
     const initialDate = termStartDates[currentTerm] || new Date().toISOString().slice(0, 10);
     if (calendarEl._fullCalendar) {

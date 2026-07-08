@@ -100,6 +100,11 @@
           <input type="number" id="avail-capacity-input" min="0" step="1" placeholder="Any">
         </label>
       </div>
+      <div class="event-layer-controls">
+        <label><input type="checkbox" id="events-show-grid" checked> Show events on grid</label>
+        <label><input type="checkbox" id="events-include-search" checked> Include events in availability search</label>
+        <label><input type="checkbox" id="events-hard-conflict"> Treat events as hard conflicts</label>
+      </div>
     </div>
     <div id="avail-results" class="avail-results"></div>
   </div>
@@ -544,6 +549,7 @@
     <div id="upload-container"></div>
     <div id="upload-timestamp" class="upload-timestamp"></div>
     <div id="room-catalog-admin" class="room-catalog-admin"></div>
+    <div id="room-events-admin" class="room-catalog-admin"></div>
     <div id="cal-getc-admin" class="room-catalog-admin"></div>
     <div id="curriculum-crosswalk-admin" class="room-catalog-admin"></div>
   </section>
@@ -571,6 +577,7 @@
   <script src="js/core/faculty-model.js"></script>
   <script src="js/core/faculty-parser.js"></script>
   <script src="js/core/section-model.js"></script>
+  <script src="js/core/event-layer.js"></script>
   <script src="js/core/metric-definitions.js"></script>
   <script src="js/core/metric-help.js"></script>
   <script src="js/core/schedule-optimization.js"></script>
