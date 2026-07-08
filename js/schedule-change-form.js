@@ -69,6 +69,14 @@
     .status{ font-size:.85rem; color:#4b5563; min-height:1.2rem }
     .status.ok{ color:#047857 }
     .status.err{ color:#b91c1c }
+    .export-group{ display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-right:auto }
+    .export-group select{ border:1px solid #dcdfe6; border-radius:.5rem; padding:.55rem .6rem; font-size:.95rem; background:#fff; }
+    .export-group .status{ min-width:220px }
+    .email-panel{ border:1px solid #d7e8f4; border-radius:.75rem; padding:.85rem; background:#f8fcff; margin-top:1rem }
+    .email-panel summary{ cursor:pointer; font-weight:700; color:#123367 }
+    .email-panel .email-actions{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-top:.75rem }
+    .email-panel .note{ margin:.75rem 0 }
+    .btn[disabled]{ opacity:.55; cursor:not-allowed }
 
     @media print{
       .modal{ all:unset }
@@ -314,12 +322,63 @@
               </div>
             </div>
           </form>
+          <details id="emailPanel" class="email-panel">
+            <summary>Email Draft</summary>
+            <p class="note">Prepare an Outlook / Microsoft 365 or local email draft. Recipients are editable; the app does not send automatically or enforce an approval route.</p>
+            <div class="row" style="margin-top:.75rem">
+              <div class="field" style="grid-column: span 6;">
+                <label>To</label>
+                <input id="emailTo" type="text" placeholder="recipient@college.edu" />
+              </div>
+              <div class="field" style="grid-column: span 3;">
+                <label>CC</label>
+                <input id="emailCc" type="text" placeholder="optional" />
+              </div>
+              <div class="field" style="grid-column: span 3;">
+                <label>BCC</label>
+                <input id="emailBcc" type="text" placeholder="optional" />
+              </div>
+            </div>
+            <div class="row">
+              <div class="field" style="grid-column: span 6;">
+                <label>Subject</label>
+                <input id="emailSubject" type="text" />
+              </div>
+              <div class="field" style="grid-column: span 6;">
+                <label>Attachment option</label>
+                <select id="emailAttachmentMode">
+                  <option value="none">No attachment / draft only</option>
+                  <option value="docx" selected>DOCX</option>
+                  <option value="pdf" disabled hidden>PDF from DOCX</option>
+                  <option value="both" disabled hidden>Both DOCX and PDF</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>Message body</label>
+              <textarea id="emailBody">Attached is the schedule change request for review.</textarea>
+            </div>
+            <div class="email-actions">
+              <button id="previewEmailBtn" class="btn" type="button">Open Outlook Draft / Email Draft</button>
+              <div id="emailStatus" class="status" aria-live="polite">Microsoft 365 draft creation is not configured. Use the local email draft fallback and attach exported files manually.</div>
+            </div>
+          </details>
         </main>
         <footer>
+          <div class="export-group">
+            <label for="exportMode" class="muted">Export</label>
+            <select id="exportMode">
+              <option value="docx" selected>Export DOCX</option>
+              <option value="pdf" disabled hidden>Export PDF from DOCX</option>
+              <option value="both" disabled hidden>Export both DOCX and PDF</option>
+            </select>
+            <button id="exportScheduleChangeBtn" class="btn" type="button">Export DOCX</button>
+            <button id="openEmailPanelBtn" class="btn" type="button" aria-controls="emailPanel" aria-expanded="false">Create Outlook Draft / Email Draft</button>
+            <div id="exportStatus" class="status" aria-live="polite"></div>
+          </div>
           <button id="printBtn" class="btn" type="button">Print</button>
           <button id="clearBtn" class="btn" type="button">Clear</button>
           <button id="closeBtn2" class="btn" type="button">Close</button>
-          <button id="exportDocxBtn" class="btn" type="button">Export to Official Form (DOCX)</button>
         </footer>
       </div>
     </div>
@@ -344,11 +403,257 @@
 
   const CHANGE_FIELDS = CHANGE_FIELD_DEFS.map(([label]) => label);
   const CHANGE_FIELD_EXPORT_KEYS = CHANGE_FIELD_DEFS.map(([, key]) => key);
+  const PDF_CONVERSION_UNAVAILABLE_MESSAGE = 'PDF conversion is unavailable on the server. Please export DOCX and save as PDF from Word.';
+  let exportCapabilitiesPromise = null;
 
   const CHANGE_FIELD_INDEX = CHANGE_FIELDS.reduce((acc, label, index) => {
     acc[label] = index;
     return acc;
   }, {});
+
+  function scfBackendBaseUrl() {
+    return window.BACKEND_BASE_URL ||
+      window.COS_APP_CONFIG?.backendBaseUrl ||
+      window.COS_BACKEND_BASE_URL ||
+      'https://app-backend-pp98.onrender.com';
+  }
+
+  async function scfFetchExportCapabilities() {
+    if (!exportCapabilitiesPromise) {
+      exportCapabilitiesPromise = fetch(`${scfBackendBaseUrl()}/api/export-capabilities`, { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) throw new Error(`Export capability check failed (${res.status})`);
+          return res.json();
+        })
+        .catch(err => {
+          console.warn('[SCF] Export capability check failed:', err);
+          return {
+            docxExport: true,
+            pdfFromDocx: false,
+            converter: 'unavailable',
+            emailDraftSupported: true,
+            microsoftGraphDraftSupported: false,
+            mailtoFallbackSupported: true,
+            directBackendSendSupported: false,
+            emailDelivery: {
+              draftSupported: true,
+              graphDraft: false,
+              mailto: true,
+              backendSend: false,
+              directBackendSend: false,
+              attachments: false
+            },
+            notes: [PDF_CONVERSION_UNAVAILABLE_MESSAGE]
+          };
+        });
+    }
+    return exportCapabilitiesPromise;
+  }
+
+  function setExportStatus(shadow, message = '', type = '') {
+    const status = shadow.getElementById('exportStatus');
+    if (!status) return;
+    status.textContent = message;
+    status.className = `status ${type}`.trim();
+  }
+
+  function setExportLoading(shadow, loading, message = '') {
+    const button = shadow.getElementById('exportScheduleChangeBtn');
+    const mode = shadow.getElementById('exportMode');
+    if (button) button.disabled = Boolean(loading);
+    if (mode) mode.disabled = Boolean(loading);
+    if (message) setExportStatus(shadow, message);
+  }
+
+  function updateExportButtonLabel(shadow) {
+    const mode = shadow.getElementById('exportMode')?.value || 'docx';
+    const button = shadow.getElementById('exportScheduleChangeBtn');
+    if (!button) return;
+    button.textContent = mode === 'pdf'
+      ? 'Export PDF'
+      : mode === 'both'
+        ? 'Export DOCX and PDF'
+        : 'Export DOCX';
+  }
+
+  function applyExportCapabilities(shadow, capabilities) {
+    const mode = shadow.getElementById('exportMode');
+    if (!mode) return;
+    const pdfAvailable = Boolean(capabilities?.pdfFromDocx);
+    Array.from(mode.options || []).forEach(option => {
+      if (option.value === 'pdf' || option.value === 'both') {
+        option.disabled = !pdfAvailable;
+        option.hidden = !pdfAvailable;
+      }
+    });
+    if (!pdfAvailable && (mode.value === 'pdf' || mode.value === 'both')) mode.value = 'docx';
+    const note = pdfAvailable
+      ? `PDF conversion available: ${capabilities.converter || 'server converter'}.`
+      : PDF_CONVERSION_UNAVAILABLE_MESSAGE;
+    setExportStatus(shadow, note, pdfAvailable ? 'ok' : '');
+    updateExportButtonLabel(shadow);
+    applyEmailCapabilities(shadow, capabilities);
+  }
+
+  function scfEmailDefaults() {
+    const config = window.SCF_EMAIL_DEFAULTS || window.COS_APP_CONFIG?.scheduleChangeEmailDefaults || {};
+    return {
+      to: config.to || config.recipients || '',
+      cc: config.cc || '',
+      bcc: config.bcc || '',
+      subjectPrefix: config.subjectPrefix || 'Schedule Change Request',
+      body: config.body || 'Attached is the schedule change request for review.'
+    };
+  }
+
+  function selectedRadioValue(form, name) {
+    return [...form.querySelectorAll(`[name="${name}"]`)].find(input => input.checked)?.value || '';
+  }
+
+  function scfEmailContext(shadow) {
+    const form = shadow.getElementById('scf');
+    const data = scfGetMergeData(shadow);
+    return {
+      term: selectedRadioValue(form, 'term'),
+      crn: data.crn || '',
+      course: data.subject_course || '',
+      user: '',
+      data
+    };
+  }
+
+  function defaultEmailSubject(shadow) {
+    const defaults = scfEmailDefaults();
+    const context = scfEmailContext(shadow);
+    const parts = [defaults.subjectPrefix, context.term, context.crn || context.course].filter(Boolean);
+    return parts.join(' - ');
+  }
+
+  function seedEmailFields(shadow) {
+    const defaults = scfEmailDefaults();
+    const fields = [
+      ['emailTo', defaults.to],
+      ['emailCc', defaults.cc],
+      ['emailBcc', defaults.bcc],
+      ['emailBody', defaults.body]
+    ];
+    fields.forEach(([id, value]) => {
+      const node = shadow.getElementById(id);
+      if (node && !node.value) node.value = Array.isArray(value) ? value.join(', ') : String(value || '');
+    });
+    const subject = shadow.getElementById('emailSubject');
+    if (subject && !subject.value) subject.value = defaultEmailSubject(shadow);
+  }
+
+  function setEmailStatus(shadow, message = '', type = '') {
+    const status = shadow.getElementById('emailStatus');
+    if (!status) return;
+    status.textContent = message;
+    status.className = `status ${type}`.trim();
+  }
+
+  function parseEmailList(value) {
+    return String(value || '').split(/[;,]/).map(item => item.trim()).filter(Boolean);
+  }
+
+  function validEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+  }
+
+  function readEmailFields(shadow) {
+    const email = {
+      recipients: parseEmailList(shadow.getElementById('emailTo')?.value),
+      cc: parseEmailList(shadow.getElementById('emailCc')?.value),
+      bcc: parseEmailList(shadow.getElementById('emailBcc')?.value),
+      subject: shadow.getElementById('emailSubject')?.value || defaultEmailSubject(shadow),
+      body: shadow.getElementById('emailBody')?.value || '',
+      attachmentMode: shadow.getElementById('emailAttachmentMode')?.value || 'docx'
+    };
+    const invalid = [...email.recipients, ...email.cc, ...email.bcc].filter(item => !validEmail(item));
+    if (!email.recipients.length) throw new Error('Enter at least one recipient.');
+    if (invalid.length) throw new Error(`Invalid email address: ${invalid[0]}`);
+    return email;
+  }
+
+  function buildScheduleChangeMailtoUrl(email) {
+    const params = new URLSearchParams();
+    if (email.cc.length) params.set('cc', email.cc.join(','));
+    if (email.bcc.length) params.set('bcc', email.bcc.join(','));
+    params.set('subject', email.subject);
+    params.set('body', `${email.body || ''}\n\nAttachments cannot be added automatically through the email draft fallback. Download the DOCX/PDF from the app and attach it manually.`);
+    return `mailto:${encodeURIComponent(email.recipients.join(','))}?${params.toString()}`;
+  }
+
+  function applyEmailCapabilities(shadow, capabilities) {
+    const pdfAvailable = Boolean(capabilities?.pdfFromDocx);
+    const graphDraft = Boolean(capabilities?.microsoftGraphDraftSupported || capabilities?.emailDelivery?.graphDraft);
+    const attachmentMode = shadow.getElementById('emailAttachmentMode');
+    Array.from(attachmentMode?.options || []).forEach(option => {
+      if (option.value === 'pdf' || option.value === 'both') {
+        option.disabled = !pdfAvailable;
+        option.hidden = !pdfAvailable;
+      }
+    });
+    if (!pdfAvailable && (attachmentMode?.value === 'pdf' || attachmentMode?.value === 'both')) attachmentMode.value = 'docx';
+    setEmailStatus(shadow, graphDraft
+      ? 'Microsoft 365 draft creation is available. Review recipients before opening the draft.'
+      : 'Microsoft 365 draft creation is not configured. Opening local email draft instead. Attach exported DOCX/PDF manually.', graphDraft ? 'ok' : '');
+  }
+
+  async function createMicrosoftGraphDraft(shadow, email) {
+    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+    const attachments = email.attachmentMode === 'none'
+      ? []
+      : await scheduleChangeEmailAttachments(shadow, email.attachmentMode, blob, baseName);
+    const context = scfEmailContext(shadow);
+    const response = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/create-email-draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipients: email.recipients,
+        cc: email.cc,
+        bcc: email.bcc,
+        subject: email.subject,
+        body: email.body,
+        attachments,
+        metadata: {
+          term: context.term,
+          crn: context.crn,
+          course: context.course,
+          timestamp: new Date().toISOString()
+        }
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.error || `Email draft creation failed (${response.status})`);
+    }
+    return payload;
+  }
+
+  async function openEmailDraft(shadow) {
+    try {
+      const email = readEmailFields(shadow);
+      const capabilities = await scfFetchExportCapabilities();
+      const graphDraft = Boolean(capabilities?.microsoftGraphDraftSupported || capabilities?.emailDelivery?.graphDraft);
+      if (graphDraft) {
+        try {
+          setEmailStatus(shadow, 'Creating Microsoft 365 draft...');
+          const draft = await createMicrosoftGraphDraft(shadow, email);
+          if (draft.webLink) window.open(draft.webLink, '_blank', 'noopener');
+          setEmailStatus(shadow, 'Microsoft 365 draft created. Review and send from Outlook.', 'ok');
+          return;
+        } catch (draftErr) {
+          console.warn('[SCF] Microsoft 365 draft failed, falling back to mailto:', draftErr);
+          setEmailStatus(shadow, 'Microsoft 365 draft creation failed. Opening local email draft instead.');
+        }
+      }
+      window.location.href = buildScheduleChangeMailtoUrl(email);
+      setEmailStatus(shadow, 'Mail draft opened without attachments. Please attach the exported DOCX/PDF manually.', 'ok');
+    } catch (err) {
+      setEmailStatus(shadow, `${err.message || 'Email draft could not be opened.'} Please download the form and send manually.`, 'err');
+    }
+  }
 
   // ===== Exports =====
   function scfMark(b){ return b ? "☒" : "☐"; }
@@ -530,6 +835,7 @@ async function scfExportDocx(shadow){
   try {
     const { blob, baseName } = await scfBuildOfficialDocx(shadow);
     window.saveAs(blob, `${baseName}.docx`);
+    setExportStatus(shadow, 'DOCX exported.', 'ok');
   } catch (e) {
     // scfBuildOfficialDocx already alerts with details.
   }
@@ -545,31 +851,139 @@ function blobToBase64(blob) {
 }
 
 async function scfExportPdf(shadow) {
-  const BACKEND_BASE_URL = window.BACKEND_BASE_URL ||
-    window.COS_APP_CONFIG?.backendBaseUrl ||
-    window.COS_BACKEND_BASE_URL ||
-    'https://app-backend-pp98.onrender.com';
   try {
     const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+    await scfConvertDocxBlobToPdf(blob, baseName);
+    setExportStatus(shadow, 'PDF exported from DOCX.', 'ok');
+  } catch (e) {
+    console.error('[SCF] PDF export failed:', e);
+    setExportStatus(shadow, e.message || 'PDF conversion failed.', 'err');
+    alert(
+      'PDF export failed while converting the official DOCX form.\n\n' +
+      `${e.message || e}\n\n` +
+      PDF_CONVERSION_UNAVAILABLE_MESSAGE
+    );
+  }
+}
+
+async function scfConvertDocxBlobToPdf(blob, baseName) {
+    const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName);
+    window.saveAs(pdfBlob, `${baseName}.pdf`);
+}
+
+async function scfFetchPdfBlobFromDocx(blob, baseName) {
     const docxBase64 = await blobToBase64(blob);
-    const res = await fetch(`${BACKEND_BASE_URL}/api/convert/docx-to-pdf`, {
+    const res = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/convert-docx-to-pdf`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename: `${baseName}.docx`, docxBase64 })
     });
     if (!res.ok) {
-      const message = await res.text();
+      const contentType = res.headers.get('Content-Type') || '';
+      const message = contentType.includes('application/json')
+        ? (await res.json()).error
+        : await res.text();
       throw new Error(message || `PDF conversion failed (${res.status})`);
     }
-    const pdfBlob = await res.blob();
-    window.saveAs(pdfBlob, `${baseName}.pdf`);
+    return res.blob();
+}
+
+async function scfExportSelected(shadow) {
+  const mode = shadow.getElementById('exportMode')?.value || 'docx';
+  try {
+    if (mode === 'docx') {
+      setExportLoading(shadow, true, 'Generating DOCX...');
+      const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+      window.saveAs(blob, `${baseName}.docx`);
+      setExportStatus(shadow, 'DOCX exported.', 'ok');
+      return;
+    }
+    const capabilities = await scfFetchExportCapabilities();
+    if (!capabilities.pdfFromDocx) throw new Error(PDF_CONVERSION_UNAVAILABLE_MESSAGE);
+    setExportLoading(shadow, true, 'Generating PDF from DOCX...');
+    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+    if (mode === 'both') window.saveAs(blob, `${baseName}.docx`);
+    await scfConvertDocxBlobToPdf(blob, baseName);
+    setExportStatus(shadow, mode === 'both' ? 'DOCX and PDF exported.' : 'PDF exported from DOCX.', 'ok');
   } catch (e) {
-    console.error('[SCF] PDF export failed:', e);
-    alert(
-      'PDF export failed while converting the official DOCX form.\n\n' +
-      `${e.message || e}\n\n` +
-      'The DOCX export still uses the official form template. If this persists, the backend likely needs LibreOffice available for DOCX-to-PDF conversion.'
-    );
+    console.error('[SCF] Export failed:', e);
+    const message = e.message || 'Schedule Change Form export failed.';
+    setExportStatus(shadow, message, 'err');
+    if (mode !== 'docx') {
+      alert(
+        'PDF export failed while converting the official DOCX form.\n\n' +
+        `${message}\n\n` +
+        PDF_CONVERSION_UNAVAILABLE_MESSAGE
+      );
+    }
+  } finally {
+    setExportLoading(shadow, false);
+    updateExportButtonLabel(shadow);
+  }
+}
+
+async function scheduleChangeEmailAttachments(shadow, mode, blob, baseName) {
+  const attachments = [];
+  if (mode === 'docx' || mode === 'both') {
+    attachments.push({
+      filename: `${baseName}.docx`,
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      contentBase64: await blobToBase64(blob)
+    });
+  }
+  if (mode === 'pdf' || mode === 'both') {
+    const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName);
+    attachments.push({
+      filename: `${baseName}.pdf`,
+      contentType: 'application/pdf',
+      contentBase64: await blobToBase64(pdfBlob)
+    });
+  }
+  return attachments;
+}
+
+async function sendScheduleChangeEmail(shadow) {
+  try {
+    const capabilities = await scfFetchExportCapabilities();
+    if (!capabilities.directBackendSendSupported && !capabilities.emailDelivery?.directBackendSend) {
+      throw new Error('Direct backend sending is disabled. Use Open Email Draft or download the DOCX/PDF and send manually.');
+    }
+    const email = readEmailFields(shadow);
+    if (!confirm('Send this schedule change request to the listed recipients?')) {
+      setEmailStatus(shadow, 'Email send cancelled.');
+      return;
+    }
+    setEmailStatus(shadow, 'Preparing email attachment...');
+    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+    const attachments = await scheduleChangeEmailAttachments(shadow, email.attachmentMode, blob, baseName);
+    setEmailStatus(shadow, 'Sending email...');
+    const context = scfEmailContext(shadow);
+    const response = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/send-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipients: email.recipients,
+        cc: email.cc,
+        bcc: email.bcc,
+        subject: email.subject,
+        body: email.body,
+        attachments,
+        metadata: {
+          term: context.term,
+          crn: context.crn,
+          course: context.course,
+          timestamp: new Date().toISOString()
+        }
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.error || `Email send failed (${response.status})`);
+    }
+    setEmailStatus(shadow, `Email sent${payload.providerMessageId ? ` (${payload.providerMessageId})` : ''}.`, 'ok');
+  } catch (err) {
+    console.error('[SCF] Email send failed:', err);
+    setEmailStatus(shadow, `${err.message || 'Email send failed.'} Download DOCX/PDF or open an email draft to send manually.`, 'err');
   }
 }
 
@@ -749,18 +1163,25 @@ function buildRows(tbody){
     const closeBtn = shadow.getElementById('closeBtn');
     const closeBtn2 = shadow.getElementById('closeBtn2');
     const printBtn = shadow.getElementById('printBtn');
+    const exportMode = shadow.getElementById('exportMode');
+    const exportScheduleChangeBtn = shadow.getElementById('exportScheduleChangeBtn');
+    const openEmailPanelBtn = shadow.getElementById('openEmailPanelBtn');
     const clearBtn = shadow.getElementById('clearBtn');
-    const exportDocxBtn = shadow.getElementById('exportDocxBtn');
     const lookupBtn = shadow.getElementById('lookupBtn');
     const crnLookup = shadow.getElementById('crnLookup');
     const crnOptions = shadow.getElementById('crnOptions');
     const lookupStatus = shadow.getElementById('lookupStatus');
+    const emailPanel = shadow.getElementById('emailPanel');
+    const previewEmailBtn = shadow.getElementById('previewEmailBtn');
+    const emailSubject = shadow.getElementById('emailSubject');
     const form = shadow.getElementById('scf');
     const tbody = shadow.getElementById('rows');
     const getScheduleData = opts?.getScheduleData || (() => []);
     const getCurrentTerm = opts?.getCurrentTerm || (() => '');
 
     buildRows(tbody);
+    updateExportButtonLabel(shadow);
+    scfFetchExportCapabilities().then(capabilities => applyExportCapabilities(shadow, capabilities));
 
     function resetFormState() {
       form.reset();
@@ -776,6 +1197,7 @@ function buildRows(tbody){
       modal.classList.add('open');
       openBtn.setAttribute('aria-expanded','true');
       populateCrnOptions(crnOptions, getScheduleData);
+      seedEmailFields(shadow);
       setTimeout(()=>crnLookup?.focus(), 50);
       focusTrap(modal, crnLookup);
     }
@@ -790,11 +1212,15 @@ function buildRows(tbody){
     [closeBtn, closeBtn2].forEach(b=>b.addEventListener('click', close));
     modal.addEventListener('click', (e)=>{ if(e.target===modal) close(); });
 
-    lookupBtn.addEventListener('click', () => autofillFromCrn(shadow, getScheduleData, getCurrentTerm));
+    lookupBtn.addEventListener('click', () => {
+      autofillFromCrn(shadow, getScheduleData, getCurrentTerm);
+      if (emailSubject) emailSubject.value = defaultEmailSubject(shadow);
+    });
     crnLookup.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         e.preventDefault();
         autofillFromCrn(shadow, getScheduleData, getCurrentTerm);
+        if (emailSubject) emailSubject.value = defaultEmailSubject(shadow);
       }
     });
     clearBtn.addEventListener('click', ()=>{
@@ -803,7 +1229,21 @@ function buildRows(tbody){
       }
     });
     printBtn.addEventListener('click', ()=>window.print());
-    if (exportDocxBtn) exportDocxBtn.addEventListener('click', ()=>scfExportDocx(shadow));
+    if (exportMode) exportMode.addEventListener('change', () => updateExportButtonLabel(shadow));
+    if (exportScheduleChangeBtn) exportScheduleChangeBtn.addEventListener('click', () => scfExportSelected(shadow));
+    if (openEmailPanelBtn && emailPanel) {
+      openEmailPanelBtn.addEventListener('click', () => {
+        emailPanel.open = true;
+        openEmailPanelBtn.setAttribute('aria-expanded', 'true');
+        seedEmailFields(shadow);
+        emailPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setTimeout(() => shadow.getElementById('emailTo')?.focus(), 100);
+      });
+      emailPanel.addEventListener('toggle', () => {
+        openEmailPanelBtn.setAttribute('aria-expanded', emailPanel.open ? 'true' : 'false');
+      });
+    }
+    if (previewEmailBtn) previewEmailBtn.addEventListener('click', () => openEmailDraft(shadow));
 
     // expose for debugging if needed
     shadow.host.open = open;

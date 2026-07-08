@@ -1250,6 +1250,12 @@
     }));
   }
 
+  function demandGrowthSeriesLabel(target = demandForecastTarget()) {
+    if (target.scope === 'year') return 'Entire Academic Year scope - FY/AY totals compared year-over-year';
+    const season = target.season || 'TERM';
+    return `${season.charAt(0)}${season.slice(1).toLowerCase()} scope - ${season.charAt(0)}${season.slice(1).toLowerCase()}-to-${season.charAt(0)}${season.slice(1).toLowerCase()} history only`;
+  }
+
   function ensureOptions() {
     // Enrollment Management reports are intentionally kept out of the main Scheduling view selector.
   }
@@ -4393,6 +4399,8 @@
       termTotals: trendProjectionTermTotals(summaries),
       currentTotals,
       growthModifier: Number(options.growthModifier) || 0,
+      selectedGrowthSeries: options.selectedGrowthSeries || '',
+      forecastScopeLabel: options.forecastScopeLabel || '',
       termSortValue
     });
   }
@@ -11305,11 +11313,89 @@
     return (terms || []).length ? terms.join(', ') : 'None';
   }
 
+  function forecastAuditNumber(value, decimals = 1) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0';
+    return number.toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
+  }
+
+  function forecastAuditRate(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0.00%';
+    return `${(number * 100).toFixed(2)}%`;
+  }
+
+  function forecastAuditMetricSummary(metricAudit = {}) {
+    if (!metricAudit) return null;
+    const rows = (metricAudit.growthRows || []).map(row => {
+      const from = row.fromTerm || row.from || '';
+      const to = row.toTerm || row.to || '';
+      return `${from} -> ${to}: ${forecastAuditNumber(row.previous)} to ${forecastAuditNumber(row.current)}, delta ${forecastAuditNumber(row.delta)}, growth ${forecastAuditRate(row.rate)}, weight ${forecastAuditNumber(row.weight, 2)}, weighted contribution ${forecastAuditRate(row.weightedRateContribution)}`;
+    });
+    return {
+      termTotals: (metricAudit.termTotals || [])
+        .map(row => `${row.term}: ${forecastAuditNumber(row.value)}`),
+      growthRows: rows,
+      finalGrowthRateUsed: metricAudit.finalGrowthRateUsed,
+      projectionBeforeScheduleAdjustment: metricAudit.projectionBeforeScheduleAdjustment,
+      scheduleAdjustmentFactor: metricAudit.scheduleAdjustmentFactor,
+      manualGrowthModifier: metricAudit.manualGrowthModifier,
+      finalExpectedProjection: metricAudit.finalExpectedProjection
+    };
+  }
+
+  function demandForecastGrowthAudit(collegeRow = {}, target = demandForecastTarget()) {
+    const audit = collegeRow.forecastGrowthAudit || {};
+    return {
+      selectedGrowthSeries: audit.selectedGrowthSeries || demandGrowthSeriesLabel(target),
+      termsIncluded: audit.termsIncluded || [],
+      warning: audit.warning || 'Growth is calculated from one selected comparable series only. Fall and Spring growth rates are not summed or averaged together.',
+      enrollment: forecastAuditMetricSummary(audit.enrollment),
+      ftes: forecastAuditMetricSummary(audit.ftes)
+    };
+  }
+
+  function renderForecastMetricAudit(title, metric = {}) {
+    if (!metric) return '';
+    const termTotals = (metric.termTotals || []).length ? metric.termTotals.join('; ') : 'None';
+    const growthRows = (metric.growthRows || []).length
+      ? metric.growthRows.map(row => escapeAttr(row)).join('<br>')
+      : 'Not enough terms to calculate year-over-year growth.';
+    return `
+      <div class="demand-growth-audit-block">
+        <h4>${escapeAttr(title)}</h4>
+        <dl>
+          <div><dt>Term totals used</dt><dd>${escapeAttr(termTotals)}</dd></div>
+          <div><dt>Historical growth steps</dt><dd>${growthRows}</dd></div>
+          <div><dt>Final growth rate used</dt><dd>${forecastAuditRate(metric.finalGrowthRateUsed)}</dd></div>
+          <div><dt>Projected before schedule adjustment</dt><dd>${forecastAuditNumber(metric.projectionBeforeScheduleAdjustment)}</dd></div>
+          <div><dt>Schedule adjustment factor</dt><dd>${forecastAuditNumber(metric.scheduleAdjustmentFactor, 3)}</dd></div>
+          <div><dt>Manual growth modifier</dt><dd>${forecastAuditRate(metric.manualGrowthModifier)}</dd></div>
+          <div><dt>Final projection</dt><dd>${forecastAuditNumber(metric.finalExpectedProjection)}</dd></div>
+        </dl>
+      </div>`;
+  }
+
   function renderDemandDiagnosticsPanel(diagnostics = {}) {
     const node = document.getElementById('demandDiagnostics');
     if (!node) return;
     const failed = (diagnostics.termsFailedToLoad || [])
       .map(item => `${item.term}${item.error ? ` (${item.error})` : ''}`);
+    const growthAudit = diagnostics.growthAudit || null;
+    const growthAuditHtml = growthAudit ? `
+      <div class="demand-growth-audit">
+        <h3>Forecast Growth Calculation Audit</h3>
+        <dl>
+          <div><dt>Selected growth series</dt><dd>${escapeAttr(growthAudit.selectedGrowthSeries || 'N/A')}</dd></div>
+          <div><dt>Forecast terms included</dt><dd>${escapeAttr(termListLabel(growthAudit.termsIncluded || []))}</dd></div>
+          <div><dt>Audit rule</dt><dd>${escapeAttr(growthAudit.warning || '')}</dd></div>
+        </dl>
+        ${renderForecastMetricAudit('Enrollment Growth', growthAudit.enrollment)}
+        ${renderForecastMetricAudit('FTES Growth', growthAudit.ftes)}
+      </div>` : '';
     node.innerHTML = `
       <h3>Data Scope & Term Diagnostics</h3>
       <dl>
@@ -11324,8 +11410,8 @@
         <div><dt>Forecast method</dt><dd>Blended historical same-season trend forecast</dd></div>
         <div><dt>Aggregation mode</dt><dd>Single-term forecasts use same-season terms; academic-year forecasts use Summer/Fall/Spring annual buckets.</dd></div>
         <div><dt>Historical term weights</dt><dd>${escapeAttr((diagnostics.termsUsedInForecast || []).map((term, index, list) => `${term}: ${index + 1}/${list.length}`).join('; ') || 'None')}</dd></div>
-        <div><dt>Terms excluded by forecast target/window</dt><dd>${escapeAttr(termListLabel([...(diagnostics.termsExcludedByForecastTarget || []), ...(diagnostics.termsExcludedByAnalysisWindow || [])]))}</dd></div>
-      </dl>`;
+      </dl>
+      ${growthAuditHtml}`;
   }
 
   async function loadDemandRows() {
@@ -11398,7 +11484,7 @@
       const growthModifier = Number(document.getElementById('demGrowthModifier')?.value || 0) / 100;
       const ftesCap = Number(document.getElementById('demFtesCap')?.value || 0);
       const activeTargetRows = filtered.filter(row => new Set(demandTargetTerms(target)).has(normalizeTermLabel(row.sourceTerm || row.term)));
-      const context = { ...demandGrowthContext(rows), activeRows: activeTargetRows, activeSnapshot };
+      const context = { ...demandGrowthContext(rows, target), activeRows: activeTargetRows, activeSnapshot };
       state.demandRows = demandForecastRowsForLevels(rows, context, growthModifier);
       const expanding = state.demandRows.filter(row => /expanding|increase/i.test(row.capacityGuidance));
       const softening = state.demandRows.filter(row => /softening/i.test(row.capacityGuidance));
@@ -11413,6 +11499,7 @@
       const trends = demandTrendSeries(rows);
       const confidenceDetails = demandConfidenceDetails(state.demandRows, trends, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, populationSelections }, termDiagnostics, activeSnapshot);
       const projectionWarnings = demandProjectionWarnings({}, collegeRow || {}, activeSnapshot);
+      termDiagnostics.growthAudit = demandForecastGrowthAudit(collegeRow, target);
       const executiveSummary = demandExecutiveSummary(state.demandRows, trends, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, activeSnapshot, confidenceDetails, projectionWarnings }, termDiagnostics);
       renderDemandMetricGroups({
         target,
@@ -11491,7 +11578,7 @@
   }
 
   function demandColumns() {
-    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeConservative', 'expectedRangeMostLikely', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeHigh', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'historicalAverageGrowth', 'historicalCagr', 'historicalMaxGrowth', 'recencyWeightedGrowth', 'uncappedAdjustedForecastGrowth', 'adjustedForecastGrowth', 'projectedGrowthCapped', 'materialScheduleIncrease', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'growthSeriesUsed', 'growthTermsUsed', 'finalEnrollmentGrowthRateUsed', 'finalFtesGrowthRateUsed', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeConservative', 'expectedRangeMostLikely', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeHigh', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'historicalAverageGrowth', 'historicalCagr', 'historicalMaxGrowth', 'recencyWeightedGrowth', 'uncappedAdjustedForecastGrowth', 'adjustedForecastGrowth', 'projectedGrowthCapped', 'materialScheduleIncrease', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
   }
 
   function demandExportColumns() {
@@ -11580,7 +11667,12 @@
   }
 
   function demandHistoricalBenchmarkProjection(termRows = [], currentTotals = {}, options = {}) {
-    const trend = buildTrendProjection(termRows, currentTotals, { growthModifier: options.growthModifier || 0 }) || {};
+    const selectedGrowthSeries = options.selectedGrowthSeries || options.forecastScopeLabel || '';
+    const trend = buildTrendProjection(termRows, currentTotals, {
+      growthModifier: options.growthModifier || 0,
+      selectedGrowthSeries,
+      forecastScopeLabel: selectedGrowthSeries
+    }) || {};
     const stats = growthStatsFromTermRows(termRows);
     const baselineEnrollment = Number(trend.historicalBaseline?.enrollment || average(termRows.map(row => row.census)) || 0);
     const baselineFtes = Number(trend.historicalBaseline?.ftes || average(termRows.map(row => row.ftes)) || 0);
@@ -11601,6 +11693,7 @@
     const mostLikely = Math.max(0, baselineEnrollment * (1 + cappedGrowth));
     const high = Math.max(mostLikely, baselineEnrollment * (1 + (materialScheduleIncrease ? Math.max(stats.maxGrowth, uncappedGrowth) : stats.maxGrowth)));
     const ftesScale = baselineEnrollment > 0 ? safeDiv(mostLikely, baselineEnrollment) : 1;
+    const mostLikelyFtes = baselineFtes * ftesScale;
     const confidenceFactors = demandBenchmarkConfidenceFactors(termRows, currentTotals, trend, {
       stats,
       materialScheduleIncrease,
@@ -11624,7 +11717,7 @@
       finalExpectedProjection: {
         ...(trend.finalExpectedProjection || {}),
         enrollment: mostLikely,
-        ftes: baselineFtes * ftesScale
+        ftes: mostLikelyFtes
       },
       expectedRange: {
         conservative,
@@ -11634,9 +11727,21 @@
       },
       expectedFtesRange: {
         low: baselineEnrollment > 0 ? baselineFtes * safeDiv(conservative, baselineEnrollment) : baselineFtes,
-        mostLikely: baselineFtes * ftesScale,
+        mostLikely: mostLikelyFtes,
         high: baselineEnrollment > 0 ? baselineFtes * safeDiv(high, baselineEnrollment) : baselineFtes
-      }
+      },
+      audit: trend.audit ? {
+        ...trend.audit,
+        selectedGrowthSeries: trend.audit.selectedGrowthSeries || selectedGrowthSeries,
+        enrollment: {
+          ...trend.audit.enrollment,
+          finalExpectedProjection: mostLikely
+        },
+        ftes: {
+          ...trend.audit.ftes,
+          finalExpectedProjection: mostLikelyFtes
+        }
+      } : null
     };
   }
 
@@ -11691,7 +11796,12 @@
     const trend = demandTrend(termRows.map(row => row.census));
     const activeRows = demandActiveRowsForGroup(context.activeRows || [], level, groupName, rows[0] || {});
     const currentTotals = demandCurrentTotals(activeRows);
-    const trendModel = demandHistoricalBenchmarkProjection(termRows, currentTotals, { growthModifier: modifierGrowth });
+    const selectedGrowthSeries = context.selectedGrowthSeries || '';
+    const trendModel = demandHistoricalBenchmarkProjection(termRows, currentTotals, {
+      growthModifier: modifierGrowth,
+      selectedGrowthSeries,
+      forecastScopeLabel: selectedGrowthSeries
+    });
     const hasWaitlistData = rows.some(row => row.hasWaitlistData);
     const divisionGrowth = level === 'Division'
       ? context.division.get(groupName) ?? context.collegeGrowth
@@ -11736,6 +11846,10 @@
       courseNumber,
       courseTitle,
       terms: termRows.length,
+      growthSeriesUsed: trendModel?.audit?.selectedGrowthSeries || selectedGrowthSeries,
+      growthTermsUsed: (trendModel?.audit?.termsIncluded || termRows.map(row => row.term)).join(', '),
+      finalEnrollmentGrowthRateUsed: trendModel?.audit?.enrollment?.finalGrowthRateUsed ?? trendModel?.recencyWeightedGrowth ?? adjustedForecastGrowth,
+      finalFtesGrowthRateUsed: trendModel?.audit?.ftes?.finalGrowthRateUsed ?? 0,
       totalSectionsOffered: sum(termRows, 'sections'),
       avgSectionsOffered: round1(avgSections),
       historicalBaselineEnrollment: Math.round(trendModel?.historicalBaseline?.enrollment ?? avgCensusEnrollment),
@@ -11776,6 +11890,7 @@
       forecastMethod: trendModel?.method || 'Historical Benchmark Projection',
       expectedRange: trendModel?.expectedRange || null,
       expectedFtesRange,
+      forecastGrowthAudit: trendModel?.audit || null,
       yearOverYearGrowth: trendModel?.yearOverYearGrowth || [],
       recencyWeights: trendModel?.recencyWeights || [],
       scheduleAdjustment: trendModel?.scheduleAdjustment || null,
@@ -11827,8 +11942,10 @@
     return { delta, rate, label: delta > 2 ? 'Increasing' : delta < -2 ? 'Declining' : 'Flat' };
   }
 
-  function demandGrowthContext(rows) {
+  function demandGrowthContext(rows, target = demandForecastTarget()) {
     return {
+      target,
+      selectedGrowthSeries: demandGrowthSeriesLabel(target),
       collegeGrowth: aggregateGrowth(rows),
       division: growthMap(rows, row => row.division || 'UNKNOWN'),
       discipline: growthMap(rows, row => row.subject || 'UNKNOWN')

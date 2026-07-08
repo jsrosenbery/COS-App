@@ -2488,7 +2488,10 @@ test('trend projection engine replaces simple historical average for planning fo
   ];
   const downward = upward.map((row, index) => ({ ...row, enrollment: [145, 130, 115, 100][index] }));
   const flat = upward.map(row => ({ ...row, enrollment: 120 }));
-  const upProjection = engine.buildProjection({ termTotals: upward });
+  const upProjection = engine.buildProjection({
+    termTotals: upward,
+    selectedGrowthSeries: 'Fall scope - Fall-to-Fall history only'
+  });
   const downProjection = engine.buildProjection({ termTotals: downward });
   const flatProjection = engine.buildProjection({ termTotals: flat });
 
@@ -2501,6 +2504,27 @@ test('trend projection engine replaces simple historical average for planning fo
   assert.ok(upProjection.expectedRange.high > upProjection.expectedRange.mostLikely);
   assert.ok(upProjection.expectedFtesRange.low < upProjection.expectedFtesRange.mostLikely);
   assert.ok(upProjection.expectedFtesRange.high > upProjection.expectedFtesRange.mostLikely);
+  assert.equal(upProjection.audit.selectedGrowthSeries, 'Fall scope - Fall-to-Fall history only');
+  assert.deepEqual(upProjection.audit.termsIncluded, ['FALL 2022', 'FALL 2023', 'FALL 2024', 'FALL 2025']);
+  assert.equal(upProjection.audit.enrollment.finalGrowthRateUsed, upProjection.recencyWeightedGrowth);
+  assert.equal(upProjection.audit.enrollment.growthRows.length, 3);
+  assert.match(upProjection.audit.warning, /one selected comparable series only/);
+});
+
+test('forecast growth audit documents same-season or academic-year growth series only', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(source, /parts\.season === target\.season && termSortValue\(row\.term\) < target\.sortValue/);
+  assert.match(source, /term: academicYearLabel\(academicYearTrailingYear\(row\.term\)\)/);
+  assert.match(source, /Entire Academic Year scope - FY\/AY totals compared year-over-year/);
+  assert.match(source, /history only/);
+  assert.match(source, /selectedGrowthSeries: demandGrowthSeriesLabel\(target\)/);
+  assert.match(source, /selectedGrowthSeries,\s+forecastScopeLabel: selectedGrowthSeries/s);
+  assert.match(source, /Forecast Growth Calculation Audit/);
+  assert.match(source, /Fall and Spring growth rates are not summed or averaged together/);
+  assert.match(source, /growthSeriesUsed/);
+  assert.match(source, /finalEnrollmentGrowthRateUsed/);
+  assert.match(source, /finalFtesGrowthRateUsed/);
 });
 
 test('demand expected FTES range mirrors projection range behavior and export fields', () => {
@@ -4959,4 +4983,52 @@ test('index owns enrollment analytics script order', () => {
   assert.deepEqual([...positions].sort((a, b) => a - b), positions);
   assert.equal(parser.includes('loadScriptOnce'), false);
   assert.equal(parser.includes('js/enrollment-analytics.js'), false);
+});
+
+test('schedule change form exports DOCX first and converts PDF server-side', () => {
+  const form = fs.readFileSync(path.join(__dirname, '..', 'js/schedule-change-form.js'), 'utf8');
+
+  assert.match(form, /<option value="docx" selected>Export DOCX<\/option>/);
+  assert.match(form, /<option value="pdf" disabled hidden>Export PDF from DOCX<\/option>/);
+  assert.match(form, /<option value="both" disabled hidden>Export both DOCX and PDF<\/option>/);
+  assert.match(form, /scfBuildOfficialDocx\(shadow\)/);
+  assert.match(form, /scfConvertDocxBlobToPdf\(blob, baseName\)/);
+  assert.match(form, /Generating PDF from DOCX/);
+  assert.match(form, /\/api\/schedule-change\/convert-docx-to-pdf/);
+  assert.doesNotMatch(form, /jspdf|html2canvas|new\s+jsPDF/i);
+  assert.match(form, /PDF conversion is unavailable on the server\. Please export DOCX and save as PDF from Word\./);
+  assert.match(form, /\/api\/export-capabilities/);
+  assert.match(form, /option\.disabled = !pdfAvailable/);
+  assert.match(form, /option\.hidden = !pdfAvailable/);
+});
+
+test('schedule change form shows draft-first email UI with mailto fallback', () => {
+  const form = fs.readFileSync(path.join(__dirname, '..', 'js/schedule-change-form.js'), 'utf8');
+
+  assert.match(form, /<details id="emailPanel" class="email-panel">/);
+  assert.match(form, /id="openEmailPanelBtn"/);
+  assert.match(form, /Create Outlook Draft \/ Email Draft/);
+  assert.match(form, /Email Draft/);
+  assert.match(form, /Recipients are editable/);
+  assert.match(form, /does not send automatically/);
+  assert.doesNotMatch(form, /id="sendEmailBtn"/);
+  assert.match(form, /id="emailTo"/);
+  assert.match(form, /id="emailCc"/);
+  assert.match(form, /id="emailBcc"/);
+  assert.match(form, /id="emailSubject"/);
+  assert.match(form, /id="emailBody"/);
+  assert.match(form, /id="emailAttachmentMode"/);
+  assert.match(form, /<option value="none">No attachment \/ draft only<\/option>/);
+  assert.match(form, /SCF_EMAIL_DEFAULTS|scheduleChangeEmailDefaults/);
+  assert.match(form, /function buildScheduleChangeMailtoUrl/);
+  assert.match(form, /mailto:/);
+  assert.match(form, /Attachments cannot be added automatically through the email draft fallback/);
+  assert.match(form, /Mail draft opened without attachments\. Please attach the exported DOCX\/PDF manually\./);
+  assert.match(form, /Microsoft 365 draft creation is not configured\. Opening local email draft instead\./);
+  assert.match(form, /\/api\/schedule-change\/create-email-draft/);
+  assert.match(form, /microsoftGraphDraftSupported/);
+  assert.match(form, /emailDraftSupported: true/);
+  assert.match(form, /mailtoFallbackSupported: true/);
+  assert.match(form, /directBackendSendSupported: false/);
+  assert.match(form, /Direct backend sending is disabled/);
 });
