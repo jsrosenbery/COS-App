@@ -2981,6 +2981,51 @@ test('instructor availability keeps Monday-only lab separate from MWF lecture', 
   ]));
 });
 
+test('instructor availability supports all full-time and part-time faculty filters', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2027',
+      CRN: '71001',
+      Subject: 'ENGL',
+      Course: '001',
+      Section: '01',
+      Instructor: 'FULLTIME, F',
+      Days: 'MW',
+      Start_Time: '09:00',
+      End_Time: '10:00',
+      FCNT_CODE: 'FT'
+    }),
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2027',
+      CRN: '71002',
+      Subject: 'ENGL',
+      Course: '002',
+      Section: '01',
+      Instructor: 'PARTTIME, P',
+      Days: 'TR',
+      Start_Time: '09:00',
+      End_Time: '10:00',
+      FCNT_CODE: 'JP'
+    })
+  ];
+  const scheduleRows = COSEnrollmentAnalytics.instructorScheduleRows(rows);
+
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityFacultyType(scheduleRows[0]), 'FULL_TIME');
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityFacultyType(scheduleRows[1]), 'PART_TIME');
+  assert.equal(scheduleRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, '')).length, 2);
+  assert.equal(scheduleRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, 'FULL_TIME')).length, 1);
+  assert.equal(scheduleRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, 'PART_TIME')).length, 1);
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  assert.match(source, /id="iaFacultyType"/);
+  assert.match(source, /Full-Time Faculty/);
+  assert.match(source, /Part-Time Faculty/);
+  assert.match(source, /instructorAvailabilityMatchesFacultyType\(row, facultyType\)/);
+  assert.match(source, /document\.getElementById\('iaFacultyType'\)\?\.addEventListener\('change'/);
+  assert.match(source, /\['Faculty Type', facultyType \? instructorAvailabilityFacultyTypeLabel\(facultyType\) : 'All faculty'\]/);
+});
+
 test('TIMBER report organization moves analytics tools into enrollment management', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
