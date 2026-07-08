@@ -1689,6 +1689,13 @@
             </div>
           </div>
           <div class="analytics-toolbar">
+            <label>Faculty Type
+              <select id="iaFacultyType">
+                <option value="">All faculty</option>
+                <option value="FULL_TIME">Full-Time Faculty</option>
+                <option value="PART_TIME">Part-Time Faculty</option>
+              </select>
+            </label>
             <label>Division <select id="iaDivision"></select></label>
             <label>Discipline <select id="iaSubject"></select></label>
             <label>Instructor <select id="iaInstructor" multiple size="4"></select></label>
@@ -10456,19 +10463,55 @@
     return map[groupBy] || map.COURSE;
   }
 
+  function instructorAvailabilityFacultyType(row) {
+    const direct = canon(row?.facultyType || row?.raw?.facultyType || row?.raw?.FacultyType || '');
+    if (direct === 'FULL_TIME' || direct === 'FULL TIME' || direct === 'FULL-TIME') return 'FULL_TIME';
+    if (direct === 'PART_TIME' || direct === 'PART TIME' || direct === 'PART-TIME') return 'PART_TIME';
+    if (direct === 'OMIT') return 'OMIT';
+    const raw = row?.raw || row || {};
+    const fcnt = val(raw, ['FCNT_CODE', 'FCNT CODE', 'Faculty Type Code', 'Faculty Type', 'Faculty Status', 'Faculty Category', 'Instructor Type', 'Employee Class']);
+    if (window.COSFacultyUtils?.facultyTypeFromFcnt && fcnt) {
+      return window.COSFacultyUtils.facultyTypeFromFcnt(fcnt);
+    }
+    const code = canon(fcnt);
+    if (code === 'FT' || code === 'TE') return 'FULL_TIME';
+    if (code === 'JP') return 'PART_TIME';
+    if (code === 'AE' || code === 'X') return 'OMIT';
+    if (/FULL[-\s]?TIME|FULL TIME FACULTY|TENURED|TENURE/.test(code)) return 'FULL_TIME';
+    if (/PART[-\s]?TIME|PART TIME FACULTY|PT FACULTY/.test(code)) return 'PART_TIME';
+    return 'UNKNOWN';
+  }
+
+  function instructorAvailabilityFacultyTypeLabel(type) {
+    if (type === 'FULL_TIME') return 'Full-Time';
+    if (type === 'PART_TIME') return 'Part-Time';
+    if (type === 'OMIT') return 'Omitted';
+    return 'Unknown/Unmapped';
+  }
+
+  function instructorAvailabilityMatchesFacultyType(row, selectedType = '') {
+    if (!selectedType) return instructorAvailabilityFacultyType(row) !== 'OMIT';
+    return instructorAvailabilityFacultyType(row) === selectedType;
+  }
+
   function populateInstructorAvailabilityFilters(rows = currentRows()) {
+    const scheduleRows = instructorScheduleRows(rows);
     const instructorSelect = document.getElementById('iaInstructor');
+    const facultyTypeSelect = document.getElementById('iaFacultyType');
     const divisionSelect = document.getElementById('iaDivision');
     const subjectSelect = document.getElementById('iaSubject');
     const campusSelect = document.getElementById('iaCampus');
     if (!instructorSelect || !campusSelect) return;
     const selectedPrior = [...instructorSelect.selectedOptions].map(option => option.value);
+    const facultyTypePrior = facultyTypeSelect?.value || '';
     const divisionPrior = divisionSelect?.value || '';
     const subjectPrior = subjectSelect?.value || '';
     const campusPrior = campusSelect.value;
-    const divisions = [...new Set(rows.map(row => row.division).filter(Boolean))].sort();
-    const subjectsForDivision = rows.filter(row => !divisionPrior || row.division === divisionPrior);
+    const typeScopedRows = scheduleRows.filter(row => instructorAvailabilityMatchesFacultyType(row, facultyTypePrior));
+    const divisions = [...new Set(typeScopedRows.map(row => row.division).filter(Boolean))].sort();
+    const subjectsForDivision = typeScopedRows.filter(row => !divisionPrior || row.division === divisionPrior);
     const subjects = [...new Set(subjectsForDivision.map(row => row.subject).filter(Boolean))].sort();
+    if (facultyTypeSelect) facultyTypeSelect.value = facultyTypePrior;
     if (divisionSelect) {
       divisionSelect.replaceChildren(new Option('All divisions', ''));
       divisions.forEach(division => divisionSelect.add(new Option(division, division)));
@@ -10479,12 +10522,12 @@
       subjects.forEach(subject => subjectSelect.add(new Option(subject, subject)));
       if (subjects.includes(subjectPrior)) subjectSelect.value = subjectPrior;
     }
-    const scoped = rows.filter(row =>
+    const scoped = typeScopedRows.filter(row =>
       (!divisionSelect?.value || row.division === divisionSelect.value) &&
       (!subjectSelect?.value || row.subject === subjectSelect.value)
     );
     const instructors = [...new Set(scoped.map(row => row.instructor).filter(Boolean))].sort();
-    const campuses = [...new Set(rows.map(row => row.campus).filter(Boolean))].sort();
+    const campuses = [...new Set(scoped.map(row => row.campus).filter(Boolean))].sort();
     instructorSelect.replaceChildren();
     instructors.forEach(instructor => instructorSelect.add(new Option(instructor, instructor)));
     [...instructorSelect.options].forEach(option => {
@@ -10512,6 +10555,7 @@
     const rows = instructorScheduleRows(currentRows());
     populateInstructorAvailabilityFilters(rows);
     const selectedInstructors = selectedInstructorAvailabilityInstructors();
+    const facultyType = document.getElementById('iaFacultyType')?.value || '';
     const division = document.getElementById('iaDivision')?.value || '';
     const subject = document.getElementById('iaSubject')?.value || '';
     const day = document.getElementById('iaDay')?.value || 'MO';
@@ -10533,6 +10577,7 @@
       return;
     }
     const scopedRows = rows.filter(row =>
+      instructorAvailabilityMatchesFacultyType(row, facultyType) &&
       (!division || row.division === division) &&
       (!subject || row.subject === subject) &&
       (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) &&
@@ -10550,11 +10595,13 @@
         requestedWindow: `${start}-${end}`,
         conflictCount: conflicts.length,
         conflicts: conflicts.map(row => `${row.subject} ${row.course} ${row.section} / ${row.dayPattern} / ${row.start}-${row.end} / ${row.campus || 'Campus N/A'}`).join('; ') || 'No loaded schedule conflict found',
+        facultyType: instructorAvailabilityFacultyTypeLabel(instructorAvailabilityFacultyType(conflicts[0] || scopedRows.find(row => row.instructor === name) || {})),
         campus: campus || 'All'
       };
     }).sort((a, b) => a.status.localeCompare(b.status) || a.instructor.localeCompare(b.instructor));
     const busy = results.filter(row => row.status === 'Known Busy').length;
     metric('instructorAvailabilityMetrics', [
+      ['Faculty Type', facultyType ? instructorAvailabilityFacultyTypeLabel(facultyType) : 'All faculty'],
       ['Day/Time Checked', `${dayLabels[day] || day} ${start}-${end}`],
       ['Known Busy', busy],
       ['Potentially Available', results.length - busy],
@@ -10569,6 +10616,7 @@
       'requestedWindow',
       'conflictCount',
       'conflicts',
+      'facultyType',
       'campus'
     ]);
     renderInstructorAvailabilityLegend();
@@ -10599,10 +10647,12 @@
 
   function clearInstructorAvailability() {
     const instructor = document.getElementById('iaInstructor');
+    const facultyType = document.getElementById('iaFacultyType');
     const division = document.getElementById('iaDivision');
     const subject = document.getElementById('iaSubject');
     const campus = document.getElementById('iaCampus');
     if (instructor) [...instructor.options].forEach(option => { option.selected = true; });
+    if (facultyType) facultyType.value = '';
     if (division) division.value = '';
     if (subject) subject.value = '';
     if (campus) campus.value = '';
@@ -10746,6 +10796,7 @@
       { text: time },
       { text: dateRange ? `Date Range: ${dateRange}` : '' },
       { text: `Instructor: ${event.instructor || 'N/A'}` },
+      { text: `Faculty Type: ${instructorAvailabilityFacultyTypeLabel(instructorAvailabilityFacultyType(event))}` },
       { text: event.room ? `Room: ${event.room}` : '' },
       { text: event.campus ? `Campus: ${event.campus}` : '' },
       { text: event.modality ? `Modality: ${event.modality}` : '' },
@@ -15542,6 +15593,10 @@
     document.getElementById('viewStoredSnapshots')?.addEventListener('click', () => renderSnapshotManager());
     document.getElementById('exportStoredSnapshots')?.addEventListener('click', () => exportRows(state.enrollmentSnapshots, 'enrollment-snapshots.csv'));
     document.getElementById('clearSnapshotBatch')?.addEventListener('click', () => clearSelectedSnapshotBatch().catch(err => alert(err.message || 'Snapshot clear failed.')));
+    document.getElementById('iaFacultyType')?.addEventListener('change', () => {
+      populateInstructorAvailabilityFilters(currentRows());
+      runInstructorAvailability();
+    });
     document.getElementById('iaDivision')?.addEventListener('change', () => {
       populateInstructorAvailabilityFilters(currentRows());
       runInstructorAvailability();
@@ -15828,6 +15883,8 @@
     tutoringOpenLabConfig: TUTORING_OPEN_LAB_CONFIG,
     isTutoringOpenLabSection,
     instructorScheduleRows,
+    instructorAvailabilityFacultyType,
+    instructorAvailabilityMatchesFacultyType,
     dashboardAvailableTerms,
     dashboardCurrentRows,
     dashboardHistoricalRows,
