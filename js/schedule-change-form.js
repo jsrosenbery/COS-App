@@ -43,7 +43,7 @@
     header{ display:flex; justify-content:space-between; align-items:center; padding:1rem 1.25rem; border-bottom:1px solid #dcdfe6; }
     header h2{ margin:0; font-weight:700; font-size:1.15rem; letter-spacing:.2px }
     main{ padding:1rem 1.25rem; overflow:auto }
-    footer{ display:flex; gap:.5rem; justify-content:flex-end; align-items:center; padding:.75rem 1.25rem; border-top:1px solid #dcdfe6; background:#fafafa; }
+    footer{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.75rem; align-items:start; padding:.75rem 1.25rem; border-top:1px solid #dcdfe6; background:#fafafa; }
 
     form{ --gap:.65rem; }
     .row{ display:grid; grid-template-columns:repeat(12,1fr); gap:var(--gap); align-items:center }
@@ -69,14 +69,20 @@
     .status{ font-size:.85rem; color:#4b5563; min-height:1.2rem }
     .status.ok{ color:#047857 }
     .status.err{ color:#b91c1c }
-    .export-group{ display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-right:auto }
+    .export-group{ display:grid; grid-template-columns:auto minmax(190px,240px) auto auto minmax(220px,1fr); gap:.5rem; align-items:center; min-width:0 }
     .export-group select{ border:1px solid #dcdfe6; border-radius:.5rem; padding:.55rem .6rem; font-size:.95rem; background:#fff; }
-    .export-group .status{ min-width:220px }
+    .export-group .status{ min-width:0 }
+    .footer-actions{ display:flex; gap:.5rem; justify-content:flex-end; align-items:center; flex-wrap:wrap }
     .email-panel{ border:1px solid #d7e8f4; border-radius:.75rem; padding:.85rem; background:#f8fcff; margin-top:1rem }
     .email-panel summary{ cursor:pointer; font-weight:700; color:#123367 }
     .email-panel .email-actions{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-top:.75rem }
     .email-panel .note{ margin:.75rem 0 }
     .btn[disabled]{ opacity:.55; cursor:not-allowed }
+    @media (max-width: 900px){
+      footer{ grid-template-columns:1fr }
+      .export-group{ grid-template-columns:1fr; align-items:stretch }
+      .footer-actions{ justify-content:flex-start }
+    }
 
     @media print{
       .modal{ all:unset }
@@ -348,9 +354,9 @@
                 <label>Attachment option</label>
                 <select id="emailAttachmentMode">
                   <option value="none">No attachment / draft only</option>
-                  <option value="docx" selected>DOCX</option>
-                  <option value="pdf" disabled hidden>PDF from DOCX</option>
-                  <option value="both" disabled hidden>Both DOCX and PDF</option>
+                  <option value="docx">DOCX</option>
+                  <option value="pdf" selected>PDF from DOCX</option>
+                  <option value="both">Both DOCX and PDF</option>
                 </select>
               </div>
             </div>
@@ -369,16 +375,18 @@
             <label for="exportMode" class="muted">Export</label>
             <select id="exportMode">
               <option value="docx" selected>Export DOCX</option>
-              <option value="pdf" disabled hidden>Export PDF from DOCX</option>
-              <option value="both" disabled hidden>Export both DOCX and PDF</option>
+              <option value="pdf" disabled>Export PDF from DOCX</option>
+              <option value="both" disabled>Export both DOCX and PDF</option>
             </select>
             <button id="exportScheduleChangeBtn" class="btn" type="button">Export DOCX</button>
             <button id="openEmailPanelBtn" class="btn" type="button" aria-controls="emailPanel" aria-expanded="false">Create Outlook Draft / Email Draft</button>
             <div id="exportStatus" class="status" aria-live="polite"></div>
           </div>
-          <button id="printBtn" class="btn" type="button">Print</button>
-          <button id="clearBtn" class="btn" type="button">Clear</button>
-          <button id="closeBtn2" class="btn" type="button">Close</button>
+          <div class="footer-actions">
+            <button id="printBtn" class="btn" type="button">Print</button>
+            <button id="clearBtn" class="btn" type="button">Clear</button>
+            <button id="closeBtn2" class="btn" type="button">Close</button>
+          </div>
         </footer>
       </div>
     </div>
@@ -483,7 +491,8 @@
     Array.from(mode.options || []).forEach(option => {
       if (option.value === 'pdf' || option.value === 'both') {
         option.disabled = !pdfAvailable;
-        option.hidden = !pdfAvailable;
+        option.hidden = false;
+        option.title = pdfAvailable ? '' : PDF_CONVERSION_UNAVAILABLE_MESSAGE;
       }
     });
     if (!pdfAvailable && (mode.value === 'pdf' || mode.value === 'both')) mode.value = 'docx';
@@ -587,17 +596,28 @@
   function applyEmailCapabilities(shadow, capabilities) {
     const pdfAvailable = Boolean(capabilities?.pdfFromDocx);
     const graphDraft = Boolean(capabilities?.microsoftGraphDraftSupported || capabilities?.emailDelivery?.graphDraft);
+    const backendSend = Boolean(capabilities?.directBackendSendSupported || capabilities?.emailDelivery?.directBackendSend);
     const attachmentMode = shadow.getElementById('emailAttachmentMode');
     Array.from(attachmentMode?.options || []).forEach(option => {
       if (option.value === 'pdf' || option.value === 'both') {
         option.disabled = !pdfAvailable;
-        option.hidden = !pdfAvailable;
+        option.hidden = false;
+        option.title = pdfAvailable ? '' : PDF_CONVERSION_UNAVAILABLE_MESSAGE;
       }
     });
-    if (!pdfAvailable && (attachmentMode?.value === 'pdf' || attachmentMode?.value === 'both')) attachmentMode.value = 'docx';
-    setEmailStatus(shadow, graphDraft
-      ? 'Microsoft 365 draft creation is available. Review recipients before opening the draft.'
-      : 'Microsoft 365 draft creation is not configured. Opening local email draft instead. Attach exported DOCX/PDF manually.', graphDraft ? 'ok' : '');
+    if (attachmentMode) {
+      if (pdfAvailable) attachmentMode.value = 'pdf';
+      else if (attachmentMode.value === 'pdf' || attachmentMode.value === 'both') attachmentMode.value = 'docx';
+    }
+    const canAttachToDraft = graphDraft || backendSend;
+    const message = canAttachToDraft && pdfAvailable
+      ? 'PDF from DOCX will be attached to the email draft when you create it.'
+      : canAttachToDraft
+        ? 'Email draft creation is available. PDF conversion is unavailable, so DOCX is the default attachment.'
+        : pdfAvailable
+          ? 'Local email drafts cannot receive attachments automatically. The app will download the selected PDF/DOCX first so you can attach it.'
+          : 'Microsoft 365 draft creation is not configured and PDF conversion is unavailable. Opening local email draft instead; attach the exported DOCX manually.';
+    setEmailStatus(shadow, message, canAttachToDraft || pdfAvailable ? 'ok' : '');
   }
 
   async function createMicrosoftGraphDraft(shadow, email) {
@@ -631,6 +651,22 @@
     return payload;
   }
 
+  async function downloadEmailFallbackAttachments(shadow, email, capabilities) {
+    if (email.attachmentMode === 'none') return;
+    setEmailStatus(shadow, 'Preparing selected attachment for manual email draft...');
+    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+    if (email.attachmentMode === 'docx' || email.attachmentMode === 'both') {
+      window.saveAs(blob, `${baseName}.docx`);
+    }
+    if (email.attachmentMode === 'pdf' || email.attachmentMode === 'both') {
+      if (!capabilities?.pdfFromDocx) {
+        throw new Error(PDF_CONVERSION_UNAVAILABLE_MESSAGE);
+      }
+      const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName);
+      window.saveAs(pdfBlob, `${baseName}.pdf`);
+    }
+  }
+
   async function openEmailDraft(shadow) {
     try {
       const email = readEmailFields(shadow);
@@ -648,8 +684,11 @@
           setEmailStatus(shadow, 'Microsoft 365 draft creation failed. Opening local email draft instead.');
         }
       }
+      await downloadEmailFallbackAttachments(shadow, email, capabilities);
       window.location.href = buildScheduleChangeMailtoUrl(email);
-      setEmailStatus(shadow, 'Mail draft opened without attachments. Please attach the exported DOCX/PDF manually.', 'ok');
+      setEmailStatus(shadow, email.attachmentMode === 'none'
+        ? 'Mail draft opened without attachments.'
+        : 'Mail draft opened. The selected attachment was downloaded for you to attach manually.', 'ok');
     } catch (err) {
       setEmailStatus(shadow, `${err.message || 'Email draft could not be opened.'} Please download the form and send manually.`, 'err');
     }
@@ -1190,6 +1229,7 @@ function buildRows(tbody){
         lookupStatus.textContent = '';
         lookupStatus.className = 'status';
       }
+      scfFetchExportCapabilities().then(capabilities => applyExportCapabilities(shadow, capabilities));
     }
 
     function open(){
