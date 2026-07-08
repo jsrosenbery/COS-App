@@ -106,6 +106,13 @@
     const trendProjection = Math.max(0, recent * (1 + weightedGrowth));
     const vol = volatility(values);
     const rangeWidth = Math.max(Math.abs(trendProjection) * vol, Math.abs(trendProjection) * 0.03);
+    const growthWeights = weights.slice(1);
+    const growthDiagnostics = growth.map((row, index) => ({
+      ...row,
+      weight: growthWeights[index] || 0,
+      weightedRateContribution: row.rate * (growthWeights[index] || 0)
+    }));
+    const totalGrowthWeight = growthWeights.reduce((total, value) => total + num(value), 0);
     return {
       metric,
       terms,
@@ -116,6 +123,20 @@
       recencyWeights: rows.map((row, index) => ({ term: row.term, weight: weights[index] })),
       recencyWeightedGrowth: weightedGrowth,
       trendProjection,
+      audit: {
+        metric,
+        selectedGrowthSeries: options.selectedGrowthSeries || options.forecastScopeLabel || 'Provided comparable series',
+        terms,
+        termTotals: rows.map(row => ({ term: row.term, value: num(row[metric]) })),
+        baseline,
+        mostRecentValue: recent,
+        growthRows: growthDiagnostics,
+        growthWeights,
+        totalGrowthWeight,
+        finalGrowthRateUsed: weightedGrowth,
+        formula: 'mostRecentValue * (1 + finalGrowthRateUsed)',
+        projectionBeforeScheduleAdjustment: trendProjection
+      },
       expectedRange: {
         low: Math.max(0, trendProjection - rangeWidth),
         mostLikely: trendProjection,
@@ -159,6 +180,28 @@
     const scheduleAdjustedFtes = ftes.trendProjection * adjustment.combinedFactor;
     const finalExpectedFtes = scheduleAdjustedFtes * (1 + growthModifier);
     const confidence = confidenceLabel(rows.length, enrollment.volatility, 0);
+    const audit = {
+      method: 'Trend Projection',
+      selectedGrowthSeries: config.selectedGrowthSeries || config.forecastScopeLabel || 'Provided comparable series',
+      termsIncluded: rows.map(row => row.term),
+      warning: 'Growth is calculated from one selected comparable series only. Single-term scopes use like-term history only; academic-year scopes use annual FY/AY totals.',
+      enrollment: {
+        ...enrollment.audit,
+        scheduleAdjustmentFactor: adjustment.combinedFactor,
+        scheduleAdjustedProjection: scheduleAdjustedEnrollment,
+        manualGrowthModifier: growthModifier,
+        finalExpectedProjection: finalExpectedEnrollment
+      },
+      ftes: {
+        ...ftes.audit,
+        scheduleAdjustmentFactor: adjustment.combinedFactor,
+        scheduleAdjustedProjection: scheduleAdjustedFtes,
+        manualGrowthModifier: growthModifier,
+        finalExpectedProjection: finalExpectedFtes
+      },
+      seatsOffered: seats.audit,
+      scheduledClassOfferings: offerings.audit
+    };
     return {
       method: 'Trend Projection',
       termsIncluded: rows.map(row => row.term),
@@ -193,6 +236,7 @@
         mostLikely: finalExpectedFtes,
         high: ftes.expectedRange.high * adjustment.combinedFactor * (1 + growthModifier)
       },
+      audit,
       confidence,
       currentVariance: num(config.currentTotals?.enrollment) - enrollment.trendProjection,
       projectedVariance: finalExpectedEnrollment - enrollment.trendProjection
