@@ -2364,6 +2364,27 @@ test('demand forecast context separates current snapshot from historical trend p
   assert.ok(exportRows.some(row => row.Section === 'Calculation Path' && row.Field === 'Final Projected Value'));
 });
 
+test('demand active snapshot uses upload timestamp when explicit snapshot date is missing', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    CRN: '10001',
+    Subject: 'ART',
+    Course: '101',
+    ACTUAL_ENROLL: '40',
+    CENSUS_ENROLL: '',
+    MAX_ENROLL: '50',
+    FTES: '4.2',
+    __sourceFileName: 'fall-2026-active.csv',
+    __uploadedAt: '2026-07-05T12:00:00.000Z'
+  });
+  const snapshot = COSEnrollmentAnalytics.demandActiveSnapshot([row], { label: 'FALL 2026' });
+
+  assert.equal(snapshot.snapshotDate, 'Uploaded 2026-07-05T12:00:00.000Z');
+  assert.equal(JSON.stringify(snapshot.sourceFiles), JSON.stringify(['fall-2026-active.csv']));
+  assert.equal(snapshot.isIncompleteActiveTerm, true);
+});
+
 test('demand historical benchmark caps growth above historical max without material schedule increase', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const termRows = [
@@ -2380,6 +2401,31 @@ test('demand historical benchmark caps growth above historical max without mater
   assert.ok(projection.finalExpectedProjection.enrollment < projection.uncappedExpectedEnrollment);
   assert.equal(Math.round(projection.expectedRange.mostLikely), Math.round(projection.finalExpectedProjection.enrollment));
   assert.ok(projection.confidenceFactors.lowered.some(item => /weekly registration snapshots/.test(item)));
+});
+
+test('demand historical benchmark documents ratio-based FTES and divergence warnings', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const termRows = [
+    { term: 'FALL 2023', census: 100, final: 98, ftes: 10, capacity: 130, sections: 5, fillRate: 0.77 },
+    { term: 'FALL 2024', census: 105, final: 101, ftes: 10.5, capacity: 130, sections: 5, fillRate: 0.8 },
+    { term: 'FALL 2025', census: 110, final: 106, ftes: 11, capacity: 130, sections: 5, fillRate: 0.83 }
+  ];
+  const projection = COSEnrollmentAnalytics.demandHistoricalBenchmarkProjection(termRows, {
+    enrollment: 80,
+    censusEnrollment: 0,
+    scheduledClassOfferings: 5,
+    seatsOffered: 130,
+    ftes: 20
+  });
+
+  assert.equal(projection.ftesProjectionMethod, 'Historical FTES per Enrollment Ratio');
+  assert.match(projection.ftesProjectionFormula, /Historical Trend Expected Enrollment x Historical FTES per Enrollment Ratio/);
+  assert.equal(
+    Math.round(projection.finalExpectedProjection.ftes * 10) / 10,
+    Math.round((projection.finalExpectedProjection.enrollment * projection.ftesPerEnrollmentDiagnostics.historicalFtesPerEnrollment) * 10) / 10
+  );
+  assert.ok(projection.ftesProjectionWarnings.some(item => /Projected enrollment is higher/.test(item)));
+  assert.ok(projection.ftesPerEnrollmentDiagnostics.currentFtesPerEnrollment > projection.ftesPerEnrollmentDiagnostics.historicalFtesPerEnrollment);
 });
 
 test('demand historical benchmark allows higher growth when schedule size materially increases', () => {
@@ -2472,7 +2518,7 @@ test('demand redesign sections and metric definitions are wired', () => {
   ['current-enrollment', 'projected-final-enrollment', 'historical-expected-enrollment', 'historical-baseline', 'year-over-year-growth', 'recency-weighted-growth', 'trend-projection', 'schedule-adjusted-projection', 'final-expected-projection', 'expected-range', 'expected-ftes-range', 'current-variance', 'projected-variance', 'forecast-confidence', 'forecast-gap', 'ftes-cap-position', 'expanding-demand', 'softening-demand', 'demand-above-expected', 'demand-below-expected'].forEach(id => {
     assert.ok(registry.get(id), `${id} definition missing`);
   });
-  assert.match(text, /Expected FTES Range/);
+  assert.match(text, /Conservative-High FTES Range/);
   assert.match(text, /expectedFtesRangeDisplay/);
   assert.match(text, /expectedFtesRangeLow/);
   assert.match(text, /expectedFtesRangeHigh/);
@@ -2554,11 +2600,14 @@ test('demand expected FTES range mirrors projection range behavior and export fi
   assert.ok(stable.expectedFtesRange.low < stable.expectedFtesRange.high);
   assert.ok(volatileWidth > stableWidth, 'FTES range should widen when FTES volatility increases');
   assert.match(COSEnrollmentAnalytics.formatDemandFtesRange(4480, 4760), /^4480\.0–4760\.0$/);
-  assert.match(source, /\['Expected FTES Range', formatDemandFtesRange/);
+  assert.match(source, /Conservative-High FTES Range/);
   assert.match(source, /expectedFtesRangeDisplay/);
   assert.match(source, /expectedFtesRangeLow/);
+  assert.match(source, /expectedFtesRangeMostLikely/);
   assert.match(source, /expectedFtesRangeHigh/);
-  assert.match(source, /Expected FTES Range', value: 'Uses the same trend projection confidence\/range method/);
+  assert.match(source, /Historical Trend Estimated FTES = Historical Trend Expected Enrollment x Historical FTES per Enrollment Ratio/);
+  assert.doesNotMatch(source, /Projected Growth vs Historical Baseline/);
+  assert.doesNotMatch(source, /Expected FTES Range/);
 });
 
 test('trend projection engine adjusts for current schedule supply', () => {
