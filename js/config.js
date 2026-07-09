@@ -9,7 +9,7 @@
   );
 
   window.COS_APP_CONFIG = {
-    backendBaseUrl: 'https://app-backend-pp98.onrender.com',
+    backendBaseUrl: 'https://app-backend-docker-fgh0.onrender.com',
     environment,
     flags: {
       isDevelopment: environment === 'development',

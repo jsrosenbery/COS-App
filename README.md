@@ -25,7 +25,7 @@ Frontend API calls read `window.BACKEND_BASE_URL`, initialized by `js/config.js`
 
 ```js
 window.COS_APP_CONFIG = {
-  backendBaseUrl: 'https://app-backend-pp98.onrender.com'
+  backendBaseUrl: 'https://app-backend-docker-fgh0.onrender.com'
 };
 ```
 
@@ -55,7 +55,7 @@ For a different backend, override `window.COS_APP_CONFIG.backendBaseUrl` before 
 
 ## Backend
 
-Production API: `https://app-backend-pp98.onrender.com`
+Production API: `https://app-backend-docker-fgh0.onrender.com`
 
 Repository: `jsrosenbery/App-Backend`
 
