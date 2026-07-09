@@ -488,6 +488,37 @@ test('room event parser normalizes term room day time and validation fields', ()
   assert.equal(rows[0].valid, true);
 });
 
+test('room event parser accepts Room List Events export headers', () => {
+  const { roomEvents } = loadCoreModules();
+  const rows = roomEvents.normalizeEvents([
+    {
+      Day: 'Monday 08/10',
+      Campus: 'COS',
+      Building: 'HOSPRK',
+      Room: 'HR108',
+      Begins: '8:00AM',
+      End: '6:00PM',
+      'Event Description': 'Nurs 400 Open Skills-See',
+      Days: 'M T W R F',
+      Starts: '08/10/2026',
+      Ends: '09/04/2026',
+      'Event ID #': 'D2486'
+    }
+  ], { term: 'Fall 2026', source: 'Room List Events export' });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].term, 'FALL 2026');
+  assert.equal(rows[0].campus, 'COS');
+  assert.equal(rows[0].roomKey, 'HOSPRK-HR108');
+  assert.equal(rows[0].eventId, 'D2486');
+  assert.deepEqual(rows[0].days, ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
+  assert.equal(rows[0].start, '08:00');
+  assert.equal(rows[0].end, '18:00');
+  assert.equal(rows[0].startDate, '2026-08-10');
+  assert.equal(rows[0].endDate, '2026-09-04');
+  assert.equal(rows[0].valid, true);
+});
+
 test('room event storage is term-specific and supports replace versus append', () => {
   const { roomEvents } = loadCoreModules();
   const fall = roomEvents.normalizeEvents([{ Term: 'FALL 2026', Building: 'A', Room: '1', Days: 'M', 'Begin Time': '09:00', 'End Time': '10:00' }]);

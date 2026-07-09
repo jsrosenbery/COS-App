@@ -24,13 +24,13 @@
     building: ['Building', 'BUILDING', 'Bldg', 'Bldg Code', 'Facility Building'],
     room: ['Room', 'ROOM', 'Room Number', 'Facility Room'],
     roomKey: ['Room Key', 'RoomKey', 'Building-Room', 'Bldg-Room', 'Location', 'Facility'],
-    eventId: ['Event ID', 'EventID', 'ID', 'Reservation ID', 'ReservationID'],
+    eventId: ['Event ID', 'Event ID #', 'EventID', 'ID', 'Reservation ID', 'ReservationID'],
     name: ['Event Description', 'Event Name', 'Description', 'Name', 'Title', 'EVENT_DESCRIPTION', 'EVENT_NAME'],
     days: ['Days', 'DAYS', 'Day(s)', 'Day', 'Meeting Days', 'Event Days'],
-    begin: ['Begin Time', 'Start Time', 'STARTTIME', 'START_TIME', 'Start', 'Begin'],
+    begin: ['Begin Time', 'Start Time', 'STARTTIME', 'START_TIME', 'Start', 'Begin', 'Begins'],
     end: ['End Time', 'Stop Time', 'ENDTIME', 'END_TIME', 'End', 'Stop'],
-    startDate: ['Effective Start Date', 'Start Date', 'Begin Date', 'Event Start Date'],
-    endDate: ['Effective End Date', 'End Date', 'Stop Date', 'Event End Date'],
+    startDate: ['Effective Start Date', 'Start Date', 'Begin Date', 'Event Start Date', 'Starts'],
+    endDate: ['Effective End Date', 'End Date', 'Stop Date', 'Event End Date', 'Ends'],
     type: ['Event Type', 'Type', 'Category'],
     notes: ['Notes', 'Note', 'Comments', 'Comment']
   };
