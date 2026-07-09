@@ -4269,6 +4269,17 @@ test('room catalog table is collapsed separately from import export controls', (
   assert.equal(tableSection.classList.contains('is-collapsed'), true);
 });
 
+test('configuration exports do not prompt for upload password', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  const roomExport = app.match(/async function exportRoomCatalog[\s\S]*?function setModalityDefinitionsStatus/)?.[0] || '';
+  assert.match(roomExport, /\/api\/rooms\/export/);
+  assert.doesNotMatch(roomExport, /getRoomCatalogPassword\('export'\)/);
+  assert.doesNotMatch(roomExport, /requestPassword/);
+
+  const eventsExport = app.match(/exportBtn\.addEventListener\('click', \(\) => \{[\s\S]*?downloadTextFile\(`room-events/)?.[0] || '';
+  assert.doesNotMatch(eventsExport, /requestPassword/);
+});
+
 test('modality comparison rows include class offering counts and shares', () => {
   const hooks = loadScheduleAppRuntime();
   const current = hooks.calculateModalityBalanceFromItems([

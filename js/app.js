@@ -1883,15 +1883,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   async function exportRoomCatalog(format = 'csv') {
-    const password = await getRoomCatalogPassword('export');
-    if (!password) return;
-    fetch(`${BACKEND_BASE_URL}/api/rooms/export`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
-    })
+    fetch(`${BACKEND_BASE_URL}/api/rooms/export`)
       .then(res => {
-        if (!res.ok) throw new Error(res.status === 403 ? 'Unauthorized' : 'Export failed');
+        if (!res.ok) throw new Error('Export failed');
         return res.json();
       })
       .then(({ data }) => {
