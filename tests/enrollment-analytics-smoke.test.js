@@ -5209,6 +5209,8 @@ test('schedule change form shows draft-first email UI with mailto fallback', () 
   assert.match(form, /SCF_EMAIL_DEFAULTS|scheduleChangeEmailDefaults/);
   assert.match(form, /function buildScheduleChangeMailtoUrl/);
   assert.match(form, /mailto:/);
+  assert.match(form, /const recipients = email\.recipients\.length \? encodeURIComponent\(email\.recipients\.join\(','\)\) : ''/);
+  assert.match(form, /return `mailto:\$\{recipients\}\?\$\{params\.toString\(\)\}`/);
   assert.match(form, /Attachments cannot be added automatically through the email draft fallback/);
   assert.match(form, /downloadEmailFallbackAttachments/);
   assert.match(form, /The selected attachment was downloaded for you to attach manually/);
@@ -5220,4 +5222,6 @@ test('schedule change form shows draft-first email UI with mailto fallback', () 
   assert.match(form, /mailtoFallbackSupported: true/);
   assert.match(form, /directBackendSendSupported: false/);
   assert.match(form, /Direct backend sending is disabled/);
+  assert.match(form, /readEmailFields\(shadow, \{ requireRecipient: graphDraft \}\)/);
+  assert.match(form, /openEmailDraft\(shadow\)/);
 });

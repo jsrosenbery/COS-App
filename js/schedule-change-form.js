@@ -577,7 +577,8 @@
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
   }
 
-  function readEmailFields(shadow) {
+  function readEmailFields(shadow, options = {}) {
+    const requireRecipient = options.requireRecipient !== false;
     const email = {
       recipients: parseEmailList(shadow.getElementById('emailTo')?.value),
       cc: parseEmailList(shadow.getElementById('emailCc')?.value),
@@ -587,7 +588,7 @@
       attachmentMode: shadow.getElementById('emailAttachmentMode')?.value || 'docx'
     };
     const invalid = [...email.recipients, ...email.cc, ...email.bcc].filter(item => !validEmail(item));
-    if (!email.recipients.length) throw new Error('Enter at least one recipient.');
+    if (requireRecipient && !email.recipients.length) throw new Error('Enter at least one recipient.');
     if (invalid.length) throw new Error(`Invalid email address: ${invalid[0]}`);
     return email;
   }
@@ -598,7 +599,8 @@
     if (email.bcc.length) params.set('bcc', email.bcc.join(','));
     params.set('subject', email.subject);
     params.set('body', `${email.body || ''}\n\nAttachments cannot be added automatically through the email draft fallback. Download the DOCX/PDF from the app and attach it manually.`);
-    return `mailto:${encodeURIComponent(email.recipients.join(','))}?${params.toString()}`;
+    const recipients = email.recipients.length ? encodeURIComponent(email.recipients.join(',')) : '';
+    return `mailto:${recipients}?${params.toString()}`;
   }
 
   function applyEmailCapabilities(shadow, capabilities) {
@@ -677,10 +679,10 @@
 
   async function openEmailDraft(shadow) {
     try {
-      const email = readEmailFields(shadow);
       const capabilities = await scfFetchExportCapabilities();
       const graphDraft = Boolean(capabilities?.microsoftGraphDraftSupported || capabilities?.emailDelivery?.graphDraft);
-      if (graphDraft) {
+      const email = readEmailFields(shadow, { requireRecipient: graphDraft });
+      if (graphDraft && email.recipients.length) {
         try {
           setEmailStatus(shadow, 'Creating Microsoft 365 draft...');
           const draft = await createMicrosoftGraphDraft(shadow, email);
@@ -1287,8 +1289,8 @@ function buildRows(tbody){
         emailPanel.open = true;
         openEmailPanelBtn.setAttribute('aria-expanded', 'true');
         seedEmailFields(shadow);
-        emailPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        setTimeout(() => shadow.getElementById('emailTo')?.focus(), 100);
+        setEmailStatus(shadow, 'Preparing email draft...');
+        openEmailDraft(shadow);
       });
       emailPanel.addEventListener('toggle', () => {
         openEmailPanelBtn.setAttribute('aria-expanded', emailPanel.open ? 'true' : 'false');
