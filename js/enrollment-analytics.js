@@ -29,34 +29,36 @@
   };
   const ROLE_LEVEL = {
     general: 1,
-    dean: 2,
+    divchair: 2,
+    dean: 3,
     em: 3,
     development: 4,
     admin: 5
   };
   const ROLE_LABEL = {
     general: 'General',
-    dean: 'Dean / Division Chair',
-    em: 'Enrollment Management',
-    development: 'Development',
-    admin: 'Administrator'
+    divchair: 'Division Chair / Administrative Assistant',
+    dean: 'Dean / Enrollment Management',
+    em: 'Dean / Enrollment Management',
+    development: 'Developer',
+    admin: 'System Administrator'
   };
   const REPORT_ACCESS = {
     [REPORTS.archiveInspection]: 'admin',
     [REPORTS.snapshotManager]: 'admin',
     [REPORTS.workExperience]: 'admin',
-    [REPORTS.dashboard]: 'em',
-    [REPORTS.duration]: 'dean',
-    [REPORTS.heatmap]: 'dean',
-    [REPORTS.instructorAvailability]: 'dean',
-    [REPORTS.modality]: 'dean',
-    [REPORTS.conflictCheck]: 'em',
-    [REPORTS.attrition]: 'em',
-    [REPORTS.demand]: 'em',
+    [REPORTS.dashboard]: 'dean',
+    [REPORTS.duration]: 'divchair',
+    [REPORTS.heatmap]: 'divchair',
+    [REPORTS.instructorAvailability]: 'divchair',
+    [REPORTS.modality]: 'divchair',
+    [REPORTS.conflictCheck]: 'dean',
+    [REPORTS.attrition]: 'dean',
+    [REPORTS.demand]: 'dean',
     [REPORTS.roomFit]: 'dean',
     [REPORTS.utilization]: 'dean',
-    [REPORTS.consolidation]: 'em',
-    [REPORTS.studentPresence]: 'dean',
+    [REPORTS.consolidation]: 'dean',
+    [REPORTS.studentPresence]: 'divchair',
     [REPORTS.facultyModality]: 'development',
     [REPORTS.instructionalMethodValidation]: 'admin',
     [REPORTS.primeTimeAnalysis]: 'development',
@@ -65,115 +67,113 @@
     [REPORTS.studentChoiceOpportunity]: 'development',
     [REPORTS.recommendationEngine]: 'development',
     [REPORTS.scheduleOptimizationLab]: 'development',
-    [REPORTS.facultyHeatmap]: 'development'
+    [REPORTS.facultyHeatmap]: 'divchair'
   };
   const REPORT_LABEL = {
-    [REPORTS.archiveInspection]: 'Archived Schedule Inspector',
+    [REPORTS.archiveInspection]: 'Archived Schedule',
     [REPORTS.conflictCheck]: 'Conflict Check Report',
-    [REPORTS.duration]: 'Course Duration / Concurrent Courses',
+    [REPORTS.duration]: 'Course Duration',
     [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
-    [REPORTS.attrition]: 'Enrollment Attrition Trend',
+    [REPORTS.attrition]: 'Enrollment Attrition',
     [REPORTS.demand]: 'Enrollment Planning Forecast',
-    [REPORTS.snapshotManager]: 'Enrollment Snapshot Manager',
+    [REPORTS.snapshotManager]: 'Enrollment Snapshot',
     [REPORTS.heatmap]: 'Heatmap Analytics',
-    [REPORTS.instructorAvailability]: 'Instructor Availability - Planning View',
+    [REPORTS.instructorAvailability]: 'Instructor Availability',
     [REPORTS.modality]: 'Modality Balance',
     [REPORTS.roomFit]: 'Room Fit Analysis',
     [REPORTS.utilization]: 'Room Utilization Map',
-    [REPORTS.consolidation]: 'Section Consolidation Opportunities',
-    [REPORTS.studentPresence]: 'Student Presence Analytics',
+    [REPORTS.consolidation]: 'Section Consolidation',
+    [REPORTS.studentPresence]: 'Student Presence',
     [REPORTS.facultyModality]: 'Faculty Modality',
-    [REPORTS.instructionalMethodValidation]: 'Data Validation & Mapping',
+    [REPORTS.instructionalMethodValidation]: 'Data Validation',
     [REPORTS.primeTimeAnalysis]: 'Prime Time Analysis',
-    [REPORTS.supplyDemand]: 'Supply vs Demand',
+    [REPORTS.supplyDemand]: 'Supply vs. Demand',
     [REPORTS.busyTimeDashboard]: 'Busy Time Dashboard',
-    [REPORTS.studentChoiceOpportunity]: 'Schedule Opportunity Analysis',
-    [REPORTS.recommendationEngine]: 'Scheduling Recommendation Engine',
-    [REPORTS.scheduleOptimizationLab]: 'Schedule Optimization Lab',
+    [REPORTS.studentChoiceOpportunity]: 'Schedule Opportunity',
+    [REPORTS.recommendationEngine]: 'Schedule Recommendation',
+    [REPORTS.scheduleOptimizationLab]: 'Schedule Optimization',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
   const REPORT_ORDER = [
-    REPORTS.heatmap,
-    REPORTS.duration,
+    REPORTS.instructorAvailability,
+    REPORTS.facultyHeatmap,
     REPORTS.studentPresence,
+    REPORTS.modality,
+    REPORTS.duration,
+    REPORTS.dashboard,
+    REPORTS.demand,
+    REPORTS.attrition,
+    REPORTS.consolidation,
     REPORTS.utilization,
     REPORTS.roomFit,
-    REPORTS.modality,
-    REPORTS.instructorAvailability,
-    REPORTS.dashboard,
-    REPORTS.attrition,
-    REPORTS.demand,
-    REPORTS.consolidation,
     REPORTS.conflictCheck,
-    REPORTS.facultyHeatmap,
-    REPORTS.facultyModality,
+    REPORTS.busyTimeDashboard,
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
     REPORTS.studentChoiceOpportunity,
-    REPORTS.busyTimeDashboard,
     REPORTS.recommendationEngine,
     REPORTS.scheduleOptimizationLab,
+    REPORTS.facultyModality,
     REPORTS.instructionalMethodValidation,
-    REPORTS.archiveInspection,
     REPORTS.snapshotManager,
+    REPORTS.archiveInspection,
     REPORTS.workExperience
   ];
   const REPORT_WORKFLOW_GROUPS = [
     {
-      key: 'schedule-analysis',
-      label: 'Dean / Schedule Analysis',
+      key: 'division-chair',
+      label: 'Division Chair / Administrative Assistant',
       reports: [
-        REPORTS.heatmap,
-        REPORTS.duration,
+        REPORTS.instructorAvailability,
+        REPORTS.facultyHeatmap,
         REPORTS.studentPresence,
-        REPORTS.utilization,
-        REPORTS.roomFit,
         REPORTS.modality,
-        REPORTS.instructorAvailability
+        REPORTS.duration
       ]
     },
     {
-      key: 'enrollment-management',
-      label: 'Enrollment Management',
+      key: 'dean-enrollment',
+      label: 'Dean / Enrollment Management',
       reports: [
         REPORTS.dashboard,
-        REPORTS.attrition,
         REPORTS.demand,
+        REPORTS.attrition,
         REPORTS.consolidation,
+        REPORTS.utilization,
+        REPORTS.roomFit,
         REPORTS.conflictCheck
       ]
     },
     {
       key: 'development',
-      label: 'Development',
+      label: 'Developer',
       reports: [
-        REPORTS.facultyHeatmap,
-        REPORTS.facultyModality,
+        REPORTS.busyTimeDashboard,
         REPORTS.primeTimeAnalysis,
         REPORTS.supplyDemand,
         REPORTS.studentChoiceOpportunity,
-        REPORTS.busyTimeDashboard,
         REPORTS.recommendationEngine,
-        REPORTS.scheduleOptimizationLab
+        REPORTS.scheduleOptimizationLab,
+        REPORTS.facultyModality
       ]
     },
     {
       key: 'admin',
-      label: 'Admin',
+      label: 'System Administrator',
       reports: [
         REPORTS.instructionalMethodValidation,
-        REPORTS.archiveInspection,
         REPORTS.snapshotManager,
+        REPORTS.archiveInspection,
         REPORTS.workExperience
       ]
     }
   ];
   const REPORT_GROUP_SUBTITLES = {
-    'schedule-analysis': 'Primary Audience: Dean / Division Chair',
-    'enrollment-management': 'Primary Audience: Enrollment Management',
-    development: 'Status: In Development',
-    admin: 'Primary Audience: Administrator'
+    'division-chair': 'Daily scheduling, instructor planning, and department-level monitoring.',
+    'dean-enrollment': 'Strategic enrollment management, schedule planning, and room optimization.',
+    development: 'Planning algorithms, feature testing, and scheduling model development.',
+    admin: 'System administration, imports, auditing, and maintenance.'
   };
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
   const ROLE_STORAGE_KEY = 'cos-access-role';
@@ -1276,18 +1276,19 @@
   function reportGroupsHtml() {
     return REPORT_WORKFLOW_GROUPS.map(group => {
       const reports = group.reports.filter(report => REPORT_ORDER.includes(report));
-      const subtitle = reportSubtitleForGroup(group.key);
+      const purpose = reportSubtitleForGroup(group.key);
       const buttons = reports.length
         ? reports.map(report => `
             <button type="button" class="em-report-button" data-report-target="${report}" data-report-group="${group.key}" data-required-role="${REPORT_ACCESS[report] || 'general'}">
               <span>${escapeAttr(lockedReportLabel(report))}</span>
-              <small>${escapeAttr(subtitle)}</small>
+              <small>${escapeAttr(purpose)}</small>
             </button>
           `).join('')
         : '<p class="em-report-empty">No reports assigned.</p>';
       return `
         <section class="em-report-group" data-report-role="${group.key}">
           <h3>${escapeAttr(group.label)}</h3>
+          <p class="em-report-group-purpose">${escapeAttr(purpose)}</p>
           <div class="em-report-button-list">${buttons}</div>
         </section>
       `;
@@ -1313,7 +1314,7 @@
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="emAccessPanel" class="em-access-panel">
           <div class="em-access-status">
-            <span>Access Level</span>
+            <span>Logged in as</span>
             <strong id="currentAccessLevel">General</strong>
             <small id="currentAccessExpiration">No active unlock session</small>
           </div>
@@ -1373,7 +1374,7 @@
                   <li>Part-Time Faculty terminology is used for part-time instructional staffing references.</li>
                   <li>Student Presence Analytics excludes online rows and summarizes in-person/hybrid sections by campus, day, and hour.</li>
                   <li>Dashboard exports include the selected term, division, campus, modality, data source, and methodology version when methodology export is enabled.</li>
-                  <li>Access tiers: General supports file upload and maintenance passwords only; Dean / Division Chair supports division-level analytics and planning; Enrollment Management supports institution-wide planning and scheduling; Development is for experimental and in-progress reports; Administrator is reserved for system configuration, archive inspection, snapshot management, Work Experience uploads, and application management.</li>
+                  <li>Role access: Division Chair / Administrative Assistant supports daily scheduling, instructor planning, and department monitoring; Dean / Enrollment Management supports strategic enrollment planning and room optimization; Developer supports planning algorithms and model development; System Administrator supports imports, auditing, archives, and maintenance.</li>
                 </ul>
               </div>
             </div>
@@ -1399,7 +1400,7 @@
           </div>
           <div class="dashboard-actions">
             <button type="button" data-report-target="${REPORTS.demand}">Enrollment Planning Forecast</button>
-            <button type="button" data-report-target="${REPORTS.attrition}">Enrollment Attrition Trend</button>
+            <button type="button" data-report-target="${REPORTS.attrition}">Enrollment Attrition</button>
             <button type="button" data-report-target="${REPORTS.consolidation}">Consolidation</button>
             <button type="button" data-report-target="${REPORTS.utilization}">Room Utilization</button>
             <button type="button" data-report-target="${REPORTS.dashboard}" data-scroll-target="dashboardRotationTable">Course Rotation Analysis</button>
@@ -1413,7 +1414,7 @@
         </div>
         <div id="snapshotManagerReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Snapshot Manager</h2>
+            <h2>Enrollment Snapshot</h2>
             <p>Stores partial lifecycle enrollment snapshots by term, CRN, snapshot type, and snapshot date. First Day snapshots are uploaded from Section Seating files pulled on the actual section start date.</p>
             <div class="analytics-methodology">
               <div>
@@ -1521,7 +1522,7 @@
         </div>
         <div id="archiveInspectionReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Archived Schedule Inspector</h2>
+            <h2>Archived Schedule</h2>
             <p>Inspect one archived Section Seating upload exactly as the app parses it. Use this before running analytics when a term appears missing, duplicated, or misclassified.</p>
             <div class="analytics-methodology">
               <div>
@@ -1735,7 +1736,7 @@
         <div id="facultyHeatmapReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Faculty Schedule Heatmap</h2>
-            <p>Uses Faculty Schedule Data to show when faculty instructional activity is concentrated by half-hour interval. Faculty Schedule Data is a separate optional dataset from Section Seating / Schedule Data and is used only for faculty-pattern and Development reports.</p>
+            <p>Uses Faculty Schedule Data to show when faculty instructional activity is concentrated by half-hour interval. Faculty Schedule Data is a separate optional dataset from Section Seating / Schedule Data and is used only for faculty-pattern and Developer reports.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -1850,7 +1851,7 @@
         </div>
         <div id="instructionalMethodValidationReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Data Validation &amp; Mapping</h2>
+            <h2>Data Validation</h2>
             <p>Admin diagnostic for reviewing instructional method mappings, faculty type mappings, and meeting type mappings before analytics calculations use them. This view is read-only for mappings.</p>
             <div class="analytics-methodology">
               <div>
@@ -1958,7 +1959,7 @@
         </div>
         <div id="supplyDemandReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Supply vs Demand</h2>
+            <h2>Supply vs. Demand</h2>
             <p>Compares scheduled instructional supply against realized student demand by half-hour interval. This report is for pattern diagnosis: enrollment alone cannot prove student preference because available section supply strongly shapes observed demand.</p>
             <div class="analytics-methodology">
               <div>
@@ -1975,7 +1976,7 @@
                 <ul>
                   <li>Only rows with fixed meeting days and start/end times contribute to the half-hour grid. Online/TBA/no-time rows are not placed into physical day/time blocks.</li>
                   <li>Each section contributes to every 30-minute interval it overlaps on every scheduled day. Duplicate rows for the same CRN/day/start/end are counted once per active meeting interval.</li>
-                  <li>By default, Supply vs Demand excludes Saturday/Sunday, starts before 8:00 AM, Friday intervals after 3:00 PM, and Monday-Thursday intervals after 8:00 PM because those periods are usually constrained by staffing, contracts, and student demand.</li>
+                  <li>By default, Supply vs. Demand excludes Saturday/Sunday, starts before 8:00 AM, Friday intervals after 3:00 PM, and Monday-Thursday intervals after 8:00 PM because those periods are usually constrained by staffing, contracts, and student demand.</li>
                   <li>Student Presence uses census enrollment when available and current enrollment otherwise. Fill Rate = enrollment / seats offered. Empty Seats = seats offered - enrollment.</li>
                   <li>Interpretation labels compare supply and demand indicators. They are planning prompts, not proof of student preference or automatic scheduling decisions.</li>
                 </ul>
@@ -2085,7 +2086,7 @@
         </div>
         <div id="studentChoiceOpportunityReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Schedule Opportunity Analysis</h2>
+            <h2>Schedule Opportunity</h2>
             <p>Evaluates whether the schedule provides meaningful student opportunity by comparing planned offerings, historical demand, student choice, enrollment pressure, and schedule distribution.</p>
             <div class="analytics-methodology">
               <div>
@@ -2215,7 +2216,7 @@
         </div>
         <div id="recommendationEngineReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Scheduling Recommendation Engine</h2>
+            <h2>Schedule Recommendation</h2>
             <p>Produces advisory-only, evidence-informed scheduling observations from supply, demand, choice, faculty, modality, prime-time, room, fill-rate, waitlist, and consolidation-style indicators. It does not automatically change schedules and does not claim to prove student preference.</p>
             <div class="analytics-methodology">
               <div>
@@ -2281,7 +2282,7 @@
         </div>
         <div id="scheduleOptimizationLabReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Schedule Optimization Lab</h2>
+            <h2>Schedule Optimization</h2>
             <p>Recommends room moves, small time shifts, and add-a-class placement options using the existing Room Catalog and uploaded schedule data. Recommendations are planning suggestions only and never change source schedule rows.</p>
             <div class="analytics-methodology">
               <div>
@@ -2396,7 +2397,7 @@
         </div>
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Attrition Trend</h2>
+            <h2>Enrollment Attrition</h2>
             <p>Upload historical enrollment snapshot CSV files to review Census 1 and End/Final movement over time. This report is a historical trend baseline for planning; current or future planning terms are excluded from the trend rather than treated as the analysis target.</p>
             <div class="analytics-methodology">
               <div>
@@ -2455,7 +2456,7 @@
         </div>
         <div id="consolidationReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Section Consolidation Opportunities</h2>
+            <h2>Section Consolidation</h2>
             <p>Use this planning view to identify low-filled sections and possible receiving sections. Recommendations are review prompts, not automatic cancellation decisions.</p>
             <div class="analytics-methodology">
               <div>
@@ -4155,7 +4156,7 @@
 
   async function loadInstructionalMethodValidationRows() {
     const uploadedRows = await readCsv(document.getElementById('instructionalMethodValidationCsv'), { sourceType: 'INSTRUCTIONAL_METHOD_VALIDATION_UPLOAD' });
-    const archivedRows = await readArchivedRows('instructionalMethodValidationArchiveTerms', { reportLabel: 'Data Validation & Mapping' });
+    const archivedRows = await readArchivedRows('instructionalMethodValidationArchiveTerms', { reportLabel: 'Data Validation' });
     state.instructionalMethodValidationRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     return state.instructionalMethodValidationRows;
   }
@@ -4185,7 +4186,7 @@
       'flags'
     ]);
     renderMethodologyPanel(document.getElementById('instructionalMethodValidationLegend'), {
-      title: 'Data Validation & Mapping Methodology & Data Dictionary',
+      title: 'Data Validation Methodology & Data Dictionary',
       purpose: 'Admin diagnostic for showing which raw instructional method codes are mapped into In-Person, Hybrid, Online, Omitted, or Unknown before reports use them. It also documents available Faculty Schedule faculty type and meeting type mappings.',
       metricsUsed: ['Raw instructional method code', 'Normalized modality', 'Count of rows', 'Count of CRNs', 'Faculty type mapping', 'Meeting type mapping', 'Included by default in physical time-based analysis'],
       calculationRules: 'Rows are normalized with the shared TIMBER modality normalizer. Codes mapped to In-Person or Hybrid are included by default in physical time-based analysis. Online is excluded from physical time analysis unless selected. Omitted and Unknown are excluded from standard analytics and surfaced here for review. Faculty type mapping uses FCNT_CODE; meeting type mapping uses SCHD_CODE_SSRMEET.',
@@ -4967,9 +4968,9 @@
       }).join('');
       return `<tr><th class="heatmap-day-cell">${built.dayNames[day]}</th>${cells}</tr>`;
     }).join('');
-    node.innerHTML = `<section class="presence-curve" data-collapsible-title="Supply vs Demand Heatmap" data-collapsible-id="supply-demand-heatmap-generated"><h3>Supply vs Demand Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    node.innerHTML = `<section class="presence-curve" data-collapsible-title="Supply vs. Demand Heatmap" data-collapsible-id="supply-demand-heatmap-generated"><h3>Supply vs. Demand Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
     attachHeatmapExportToolbar('supplyDemandHeatmap', built.rows, {
-      title: 'Supply vs Demand Heatmap',
+      title: 'Supply vs. Demand Heatmap',
       term: document.getElementById('sdTerm')?.value || 'All terms',
       filters: heatmapScopeFilters('sd', [`CAL-GETC: ${selectedFilterLabel('sdCalGetc')}`, `Planning Window: ${built.planningWindowLabel}`]),
       metric: metricDisplayLabel(metricName),
@@ -5030,10 +5031,10 @@
     }).join('');
     const legend = dayNames.map((day, index) => `<span><i style="background:${colors[index]}"></i>${escapeAttr(day)}</span>`).join('');
     node.innerHTML = `
-      <section class="presence-curve supply-demand-line" data-collapsible-title="Supply vs Demand Line Graph" data-collapsible-id="supply-demand-line-generated">
-        <h3>Supply vs Demand Line Graph</h3>
+      <section class="presence-curve supply-demand-line" data-collapsible-title="Supply vs. Demand Line Graph" data-collapsible-id="supply-demand-line-generated">
+        <h3>Supply vs. Demand Line Graph</h3>
         <p>One line per day using the selected metric across half-hour intervals.</p>
-        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Supply vs Demand ${escapeAttr(metricName)} line graph">
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Supply vs. Demand ${escapeAttr(metricName)} line graph">
           <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="#cbd5e1"></line>
           <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="#cbd5e1"></line>
           <text x="8" y="${top + 10}" text-anchor="start">${escapeAttr(metricName === 'fillRate' ? '100%' : String(Math.round(maxValue)))}</text>
@@ -5070,7 +5071,7 @@
 
   async function loadSupplyDemandRows() {
     const uploadedRows = await readCsv(document.getElementById('supplyDemandCsv'), { sourceType: 'SUPPLY_DEMAND_UPLOAD' });
-    const archivedRows = await readArchivedRows('sdArchiveTerms', { reportLabel: 'Supply vs Demand' });
+    const archivedRows = await readArchivedRows('sdArchiveTerms', { reportLabel: 'Supply vs. Demand' });
     state.supplyDemandRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     updateSupplyDemandFilterOptions();
     return state.supplyDemandRows;
@@ -5094,7 +5095,7 @@
     if (tableNode) tableNode.style.display = view === 'all' || view === 'table' ? '' : 'none';
     table('supplyDemandTable', built.rows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), ['day', 'time', 'sections', 'seats', 'enrollment', 'studentPresence', 'fillRate', 'waitlist', 'emptySeats', 'interpretation']);
     renderMethodologyPanel(document.getElementById('supplyDemandLegend'), {
-      title: 'Supply vs Demand Methodology & Data Dictionary',
+      title: 'Supply vs. Demand Methodology & Data Dictionary',
       purpose: 'Compares scheduled instructional supply against realized student demand by half-hour interval.',
       metricsUsed: ['Sections Active', 'Seats Offered', 'Enrollment Present', 'Student Presence', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Hidden Demand', 'Oversupply'],
       calculationRules: `Supply is scheduled sections and seats offered. Realized demand is census enrollment when available, otherwise current enrollment, plus waitlist when present. Each section contributes to every half-hour interval it overlaps, with duplicate CRN/day/start/end rows counted once. Active planning window: ${built.planningWindowLabel}.`,
@@ -5102,7 +5103,7 @@
       limitations: 'Interpretation labels are planning prompts. They do not prove preference or recommend schedule changes by themselves.',
       items: [
         ['Standard Planning Window', supplyDemandPlanningWindowLabel()],
-        ['Rows Outside Planning Window', 'Fixed-time rows outside the standard planning window are excluded from the default Supply vs Demand equation. Clear the Standard planning window checkbox to inspect all scheduled fixed-time rows.'],
+        ['Rows Outside Planning Window', 'Fixed-time rows outside the standard planning window are excluded from the default Supply vs. Demand equation. Clear the Standard planning window checkbox to inspect all scheduled fixed-time rows.'],
         ['High Demand', 'A day/time block with strong fill or waitlist indicators relative to offered seats.'],
         ['Balanced', 'A day/time block where supply and enrollment pressure appear reasonably aligned.'],
         ['Low Activity', 'A day/time block with little or no section activity after filters.']
@@ -5525,7 +5526,7 @@
       title: 'Busy Time Dashboard Methodology & Data Dictionary',
       purpose: 'Summarizes busy-time patterns by combining student presence, course duration, faculty concentration, supply/demand, prime time, and room utilization signals.',
       metricsUsed: ['Historical Aggregation Mode', 'Student Presence', 'Scheduled Class Offerings, Unique CRNs', 'Instructional Meetings', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Choice Diversity Index', 'Faculty Count', 'Prime-Time Concentration'],
-      calculationRules: 'Student Presence and Supply vs Demand use 30-minute intervals from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by 30-minute interval. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Historical Aggregation defaults to Average per Selected Term for planning comparisons.',
+      calculationRules: 'Student Presence and Supply vs. Demand use 30-minute intervals from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by 30-minute interval. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Historical Aggregation defaults to Average per Selected Term for planning comparisons.',
       assumptions: 'Dashboard observations are descriptive summaries only. They are intended to show alignment or contrast among supply, demand, faculty concentration, student concentration, and room utilization.',
       limitations: 'This dashboard does not make scheduling recommendations and does not include every operational constraint, such as budget, program sequencing, instructor availability, or room setup requirements.',
       items: [
@@ -6096,7 +6097,7 @@
     }).join('');
     node.innerHTML = `<section class="presence-curve" data-collapsible-title="Opportunity Heatmap" data-collapsible-id="schedule-opportunity-heatmap-generated"><h3>Opportunity Heatmap</h3><div class="heatmap-wrap"><table class="heatmap heatmap-table"><thead><tr><th class="heatmap-day-header">Day</th>${headers}</tr></thead><tbody>${body}</tbody></table></div></section>`;
     attachHeatmapExportToolbar('studentChoiceHeatmap', rows, {
-      title: 'Schedule Opportunity Analysis Heatmap',
+      title: 'Schedule Opportunity Heatmap',
       term: document.getElementById('studentChoiceTerm')?.value || 'All terms',
       filters: heatmapScopeFilters('studentChoice', [
         `CAL-GETC: ${selectedFilterLabel('studentChoiceCalGetc')}`,
@@ -6325,7 +6326,7 @@
       refreshGeneratedCollapsibleSections(recommendationNode);
     }
     renderMethodologyPanel(document.getElementById('studentChoiceLegend'), {
-      title: 'Schedule Opportunity Analysis Methodology & Data Dictionary',
+      title: 'Schedule Opportunity Methodology & Data Dictionary',
       purpose: 'Measures schedule opportunity by comparing planned offerings, historical demand, student choice, enrollment pressure, and schedule distribution. This report measures schedule opportunity, not pure student preference.',
       metricsUsed: ['Scheduled Class Offerings', 'Unique Courses Available', 'Unique Subjects Available', 'Unique CAL-GETC/GE Courses Available', 'Seats Offered', 'Enrollment', 'Projected Enrollment', 'Student Presence', 'Projected Student Presence', 'Fill Rate', 'Projected Fill Rate', 'Waitlist', 'Enrollment per Class Offering', 'Empty Seats', 'Campus Choices', 'Modality Choices', 'Choice Diversity Index', 'Demand Pressure Score', 'Opportunity Gap Score'],
       calculationRules: 'Census enrollment is preferred and actual/current enrollment is the fallback. Duplicate CRNs are counted once for class offerings unless distinct meeting times/components are being analyzed in the heatmap. Fixed meeting rows are placed into every half-hour interval they overlap. By default, the heatmap renders only the active instructional window after filters are applied. Show inactive hours restores the full 12:00 AM-11:30 PM axis. Future terms without enrollment show No current enrollment yet and use selected historical demand projections.',
@@ -6369,7 +6370,7 @@
 
   async function loadStudentChoiceRows() {
     const uploadedRows = await readCsv(document.getElementById('studentChoiceCsv'), { sourceType: 'STUDENT_CHOICE_UPLOAD' });
-    const archivedRows = await readArchivedRows('studentChoiceArchiveTerms', { reportLabel: 'Schedule Opportunity Analysis' });
+    const archivedRows = await readArchivedRows('studentChoiceArchiveTerms', { reportLabel: 'Schedule Opportunity' });
     state.studentChoiceRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     const facultyInput = document.getElementById('studentChoiceFacultyCsv');
     state.studentChoiceFacultyRows = facultyInput?.files?.length
@@ -6778,7 +6779,7 @@
     table('recommendationTable', filteredRecommendations, ['recommendationTitle', 'category', 'confidenceLevel', 'aggregationMode', 'selectedHistoricalTerms', 'historicalTermWeights', 'affectedTermSource', 'campus', 'divisionDepartmentDiscipline', 'courseOrCourseGroup', 'dayTimeBlock', 'evidenceSummary', 'metricsUsed', 'whyThisMatters', 'suggestedAction', 'cautionsLimitations']);
     const outsideItems = outsidePlanningDiagnostics.slice(0, 8).map(row => `<li>${escapeAttr(row.category)} - ${escapeAttr(row.timeBlock)}: ${escapeAttr(row.reason)}</li>`).join('');
     renderMethodologyPanel(document.getElementById('recommendationLegend'), {
-      title: 'Scheduling Recommendation Engine Methodology & Data Dictionary',
+      title: 'Schedule Recommendation Methodology & Data Dictionary',
       purpose: 'Produces advisory-only, evidence-informed scheduling observations from supply, demand, choice, faculty, modality, prime-time, room, fill-rate, waitlist, and consolidation-style indicators.',
       metricsUsed: ['Historical Aggregation Mode', 'Hidden Demand', 'Oversupply', 'Choice Gap', 'Expansion Candidate', 'Consolidation Candidate', 'Scheduled Class Offerings, Unique CRNs', 'Instructional Meetings', 'Student Presence', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Faculty Count', 'Prime-Time Concentration'],
       calculationRules: `Recommendations distinguish observed enrollment, available supply, student choice opportunity, faculty assignment pattern, room availability, historical/current fill rates, waitlists when available, and consolidation-style low-fill indicators. Historical Aggregation is recorded as ${historicalAggregationLabel(aggregationMode)} for multi-term evidence context. Time-based expansion, choice-gap, hidden-demand, and room-opportunity recommendations use a planning window of ${formatPresenceHourLabel(planningWindow.earliest / 60)}-${formatPresenceHourLabel(planningWindow.latest / 60)}. Candidates outside that window are suppressed from active recommendations and listed in diagnostics.`,
@@ -6808,7 +6809,7 @@
 
   async function loadRecommendationRows() {
     const uploadedRows = await readCsv(document.getElementById('recommendationCsv'), { sourceType: 'RECOMMENDATION_UPLOAD' });
-    const archivedRows = await readArchivedRows('recommendationArchiveTerms', { reportLabel: 'Scheduling Recommendation Engine' });
+    const archivedRows = await readArchivedRows('recommendationArchiveTerms', { reportLabel: 'Schedule Recommendation' });
     state.recommendationRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     const facultyInput = document.getElementById('recommendationFacultyCsv');
     state.recommendationFacultyRows = facultyInput?.files?.length
@@ -6876,7 +6877,7 @@
 
   async function loadOptimizationRows() {
     const uploadedRows = await readCsv(document.getElementById('optimizationCsv'), { sourceType: 'SCHEDULE_OPTIMIZATION_UPLOAD' });
-    const archiveLoad = await readArchivedRowsWithDiagnostics('optimizationArchiveTerms', { reportLabel: 'Schedule Optimization Lab' });
+    const archiveLoad = await readArchivedRowsWithDiagnostics('optimizationArchiveTerms', { reportLabel: 'Schedule Optimization' });
     const rows = [...uploadedRows, ...archiveLoad.rows].map(normalize);
     state.optimizationArchiveLoad = archiveLoad;
     state.optimizationRows = dedupeEnrollmentRows(rows);
@@ -7087,7 +7088,7 @@
 
   function renderOptimizationMethodology() {
     renderMethodologyPanel(document.getElementById('optimizationMethodology'), {
-      title: 'Schedule Optimization Lab Methodology & Data Dictionary',
+      title: 'Schedule Optimization Methodology & Data Dictionary',
       purpose: 'Recommends possible room moves, small time shifts, and add-a-class placements for executive planning review.',
       methodology: 'Room fit treats campus and room type as hard constraints before scoring. By default, only same-campus rooms are evaluated; cross-campus options appear only when the cross-campus setting is enabled and are flagged for administrative approval. SCHD Code / Schedule Type is the primary room-type driver: SCHD 02/2 requires lecture/classroom-compatible rooms and SCHD 04/4 requires lab-compatible rooms. Capacity fit, section cap, historical cap/peak enrollment, room priority, historical demand, availability, and confidence are scored only after invalid candidates are pruned.',
       assumptions: 'One active optimization term is analyzed for possible changes. Historical comparison and demand terms are read-only evidence sources for demand, fill-rate, caps, and prior room usage. Recommendations are advisory and do not automatically change schedules, archives, Room Availability, Room Catalog, or uploaded data. Room Catalog is treated as the primary room inventory source. Cross-listed/shared meetings are evaluated as a unit when a cross-list ID is present or when rows share the same room, day/time, and instructor.',
@@ -8456,7 +8457,7 @@
     const legend = document.getElementById('snapshotLegend');
     if (!legend) return;
     renderMethodologyPanel(legend, {
-      title: 'Enrollment Snapshot Manager Methodology & Data Dictionary',
+      title: 'Enrollment Snapshot Methodology & Data Dictionary',
       purpose: 'Captures lifecycle enrollment points that are not available as standing fields in the source system, especially First Day enrollment.',
       methodology: 'Records are stored by Term + CRN + Snapshot Type. New CRNs append. Existing Term + CRN + Snapshot Type records update with the latest snapshot date/enrollment. Missing CRNs in later partial uploads are not deleted.',
       assumptions: SHOW_CENSUS2
@@ -14228,7 +14229,7 @@
     renderMethodologyPanel(legend, {
       title: 'Enrollment Analytics Dashboard Methodology & Data Dictionary',
       purpose: 'Provides a compact decision-support landing view for enrollment health, registration pace, capacity pressure, consolidation summary, physical student presence, schedule structure, and course rotation health.',
-      methodology: 'Prepared using TIMBER Enrollment Analytics. Dashboard calculations use the currently selected filters. Growth prompts compare waitlist pressure to existing open seats before suggesting added capacity. Reduction prompts summarize the existing Section Consolidation Opportunities output and do not introduce separate reduction logic.',
+      methodology: 'Prepared using TIMBER Enrollment Analytics. Dashboard calculations use the currently selected filters. Growth prompts compare waitlist pressure to existing open seats before suggesting added capacity. Reduction prompts summarize the existing Section Consolidation output and do not introduce separate reduction logic.',
       assumptions: 'Current enrollment uses census enrollment when available and current enrollment otherwise. Expected enrollment uses same-season historical comparison terms and excludes the selected focus term. Student Presence Analytics includes in-person and hybrid rows only. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM.',
       limitations: 'The dashboard is a planning summary, not an automatic add, cancel, consolidation, or staffing directive. It does not include student intent, budget constraints, contractual constraints, equity review, or leadership decisions unless those factors are represented in the uploaded data.',
       items: [
@@ -14311,11 +14312,11 @@
       ['Empty Seats at Final', 'Total Seats minus Final Enrollment, floored at zero.']
     ]);
     renderMethodologyPanel(legend, {
-      title: 'Enrollment Attrition Trend Methodology & Data Dictionary',
+      title: 'Enrollment Attrition Methodology & Data Dictionary',
       purpose: 'Reviews completed historical milestone enrollment movement and data coverage so attrition trends can be interpreted for planning.',
       methodology: SHOW_CENSUS2
-        ? 'Enrollment Attrition Trend is intended to review completed historical milestone enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Because milestone populations may differ, attrition rates are diagnostic and should be interpreted alongside CRN coverage counts. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Negative Census 2 values are treated as invalid/missing. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.'
-        : 'Enrollment Attrition Trend is intended to review completed historical Census 1 to End/Final enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 is captured from CENSUS_ENROLL. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.',
+        ? 'Enrollment Attrition is intended to review completed historical milestone enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 and Census 2 are Banner-captured milestone values from CENSUS_ENROLL and CENSUS_ENROLL2. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Because milestone populations may differ, attrition rates are diagnostic and should be interpreted alongside CRN coverage counts. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Negative Census 2 values are treated as invalid/missing. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.'
+        : 'Enrollment Attrition is intended to review completed historical Census 1 to End/Final enrollment movement and data coverage. A planning term can be selected only to exclude active, future, or otherwise non-final data from the historical trend. Census 1 is captured from CENSUS_ENROLL. End/Final uses ACTUAL_ENROLL/current enrollment after term completion and should be treated as final only for completed historical terms. Attrition percentages use matched CRNs for each comparison so the numerator and denominator are apples-to-apples. Negative attrition indicates enrollment growth between milestones. Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled instruction. Work Experience upload rows are flagged as Work Experience source rows and included only when the report toggle is on.',
       assumptions: 'CENSUS_ENROLL is treated as census enrollment. ACTUAL_ENROLL is treated as final enrollment when the source file is final and as current enrollment when the source file is an in-progress snapshot.',
       limitations: 'This report does not know why students left, whether a term file is final unless the uploaded source reflects that, or whether external retention interventions occurred.',
       items,
@@ -14572,11 +14573,11 @@
       { selector: '#dashboardMetrics', id: 'dashboard-summary-cards', title: 'Enrollment Dashboard Summary Cards' },
       { selector: '#dashboardInsights', id: 'dashboard-blocks', title: 'Dashboard Detail Blocks' },
       { selector: '#dashboardLegend', id: 'dashboard-methodology', title: 'Dashboard Methodology & Definitions' },
-      { selector: '#supplyDemandMetrics', id: 'supply-demand-summary-cards', title: 'Supply vs Demand Summary Cards' },
-      { selector: '#supplyDemandHeatmap', id: 'supply-demand-heatmap', title: 'Supply vs Demand Heatmap' },
-      { selector: '#supplyDemandLineGraph', id: 'supply-demand-line-graph', title: 'Supply vs Demand Line Graph' },
-      { selector: '#supplyDemandTable', id: 'supply-demand-summary-table', title: 'Supply vs Demand Summary Table' },
-      { selector: '#supplyDemandLegend', id: 'supply-demand-methodology', title: 'Supply vs Demand Definitions and Methodology' },
+      { selector: '#supplyDemandMetrics', id: 'supply-demand-summary-cards', title: 'Supply vs. Demand Summary Cards' },
+      { selector: '#supplyDemandHeatmap', id: 'supply-demand-heatmap', title: 'Supply vs. Demand Heatmap' },
+      { selector: '#supplyDemandLineGraph', id: 'supply-demand-line-graph', title: 'Supply vs. Demand Line Graph' },
+      { selector: '#supplyDemandTable', id: 'supply-demand-summary-table', title: 'Supply vs. Demand Summary Table' },
+      { selector: '#supplyDemandLegend', id: 'supply-demand-methodology', title: 'Supply vs. Demand Definitions and Methodology' },
       { selector: '#busyTimeMetrics', id: 'busy-time-summary-cards', title: 'Busy Time Dashboard Summary Cards' },
       { selector: '#busyTimeCharts', id: 'busy-time-dashboard-blocks', title: 'Busy Time Dashboard Blocks' },
       { selector: '#busyTimeObservations', id: 'busy-time-observations', title: 'Busy Time Observations' },
@@ -15012,6 +15013,8 @@
 
   function normalizeRole(role) {
     const key = String(role || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (key === 'divisionchair' || key === 'divchair' || key === 'administrativeassistant') return 'divchair';
+    if (key === 'deanenrollmentmanagement' || key === 'enrollmentmanagement') return 'dean';
     if (key === 'developer') return 'development';
     return ROLE_LEVEL[key] ? key : 'general';
   }
@@ -15033,7 +15036,7 @@
     const legacyExpiresAt = Number(sessionStorage.getItem(LEGACY_EM_EXPIRES_KEY) || 0);
     const legacyToken = sessionStorage.getItem(LEGACY_EM_TOKEN_KEY) || '';
     if (!token && legacyToken && legacyExpiresAt > Date.now()) {
-      return { role: 'em', token: legacyToken, expiresAt: legacyExpiresAt };
+      return { role: 'dean', token: legacyToken, expiresAt: legacyExpiresAt };
     }
     return { role, token, expiresAt };
   }
@@ -15106,7 +15109,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password, requestedRole })
     });
-    if (response.status === 404 && ROLE_LEVEL[requestedRole] <= ROLE_LEVEL.em) {
+    if (response.status === 404 && ROLE_LEVEL[requestedRole] <= ROLE_LEVEL.dean) {
       response = await fetch(`${window.BACKEND_BASE_URL}/api/auth/enrollment-management`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -15118,7 +15121,7 @@
       return;
     }
     const payload = await response.json();
-    const role = normalizeRole(payload.role || (ROLE_LEVEL[requestedRole] <= ROLE_LEVEL.em ? 'em' : requestedRole));
+    const role = normalizeRole(payload.role || (ROLE_LEVEL[requestedRole] <= ROLE_LEVEL.dean ? 'dean' : requestedRole));
     sessionStorage.setItem(ROLE_STORAGE_KEY, role);
     sessionStorage.setItem(ROLE_TOKEN_KEY, payload.token || '');
     sessionStorage.setItem(ROLE_EXPIRES_KEY, String(Date.parse(payload.expiresAt || '') || Date.now()));
@@ -15218,7 +15221,7 @@
     if (expiration) expiration.textContent = currentAccessExpirationLabel();
     const note = document.querySelector('.em-access-note');
     if (note) note.textContent = selectedAccessible
-      ? `${ROLE_LABEL[role]} access is active for this browser session.`
+      ? `Logged in as: ${ROLE_LABEL[role]}.`
       : `A locked report requires ${ROLE_LABEL[REPORT_ACCESS[selected] || 'general']} access.`;
     renderLockedReportPanel(selected);
     setReportDisplay(REPORTS.dashboard, 'dashboardReport');
@@ -15388,7 +15391,8 @@
       .sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
       .em-report-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;flex-basis:100%}
       .em-report-group{min-width:0;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:10px}
-      .em-report-group h3{margin:0 0 8px;color:#123367;font-size:14px}
+      .em-report-group h3{margin:0 0 4px;color:#123367;font-size:14px}
+      .em-report-group-purpose{margin:0 0 8px;color:#51657c;font-size:12px;line-height:1.35}
       .em-report-button-list{display:grid;gap:7px}
       .em-report-button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:44px;border:1px solid #c7d5e4;border-radius:8px;background:#fff;color:#123367;text-align:left;padding:8px 10px;cursor:pointer}
       .em-report-button span{font-weight:800;line-height:1.2}
@@ -15878,7 +15882,7 @@
     });
     document.getElementById('clearFacultyModality')?.addEventListener('click', clearFacultyModality);
     document.getElementById('exportFacultyModality')?.addEventListener('click', () => exportRowsWithoutMethodology(state.facultyModalityTableRows, 'faculty-modality.csv'));
-    document.getElementById('runInstructionalMethodValidation')?.addEventListener('click', () => runInstructionalMethodValidation().catch(err => alert(err.message || 'Data Validation & Mapping failed.')));
+    document.getElementById('runInstructionalMethodValidation')?.addEventListener('click', () => runInstructionalMethodValidation().catch(err => alert(err.message || 'Data Validation failed.')));
     document.getElementById('instructionalMethodValidationCsv')?.addEventListener('change', () => runInstructionalMethodValidation().catch(err => console.warn(err)));
     document.getElementById('instructionalMethodValidationArchiveTerms')?.addEventListener('change', () => runInstructionalMethodValidation().catch(err => console.warn(err)));
     document.getElementById('archiveInstructionalMethodValidationUploads')?.addEventListener('click', () => archiveUploads('instructionalMethodValidationCsv').catch(err => alert(err.message || 'Archive failed.')));
@@ -15902,7 +15906,7 @@
     document.querySelectorAll('.ptDay').forEach(node => node.addEventListener('change', renderPrimeTimeAnalysis));
     document.getElementById('clearPrimeTimeAnalysis')?.addEventListener('click', clearPrimeTimeAnalysis);
     document.getElementById('exportPrimeTimeAnalysis')?.addEventListener('click', () => exportRowsWithoutMethodology(state.primeTimeTableRows, 'prime-time-analysis.csv'));
-    document.getElementById('runSupplyDemand')?.addEventListener('click', () => runSupplyDemand().catch(err => alert(err.message || 'Supply vs Demand failed.')));
+    document.getElementById('runSupplyDemand')?.addEventListener('click', () => runSupplyDemand().catch(err => alert(err.message || 'Supply vs. Demand failed.')));
     document.getElementById('supplyDemandCsv')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
     document.getElementById('sdArchiveTerms')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
     document.getElementById('archiveSupplyDemandUploads')?.addEventListener('click', () => archiveUploads('supplyDemandCsv').catch(err => alert(err.message || 'Archive failed.')));
@@ -15934,7 +15938,7 @@
     });
     document.getElementById('clearBusyTimeDashboard')?.addEventListener('click', clearBusyTimeDashboard);
     document.getElementById('exportBusyTimeDashboard')?.addEventListener('click', () => exportRowsWithoutMethodology(state.busyTimeTableRows, 'busy-time-dashboard.csv'));
-    document.getElementById('runStudentChoiceOpportunity')?.addEventListener('click', () => runStudentChoiceOpportunity().catch(err => alert(err.message || 'Schedule Opportunity Analysis failed.')));
+    document.getElementById('runStudentChoiceOpportunity')?.addEventListener('click', () => runStudentChoiceOpportunity().catch(err => alert(err.message || 'Schedule Opportunity failed.')));
     document.getElementById('studentChoiceCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('studentChoiceFacultyCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('loadSavedStudentChoiceFaculty')?.addEventListener('click', () => loadSavedStudentChoiceFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
@@ -15970,7 +15974,7 @@
     document.getElementById('exportRecommendationCsv')?.addEventListener('click', () => exportRowsWithoutMethodology(state.recommendationOutputRows, 'scheduling-recommendations.csv'));
     document.getElementById('exportRecommendationPdf')?.addEventListener('click', () => exportRecommendationPdf().catch(err => alert(err.message || 'PDF export failed.')));
     document.getElementById('runScheduleOptimizationLab')?.addEventListener('click', () => {
-      runScheduleOptimizationLab().catch(err => alert(err.message || 'Schedule Optimization Lab failed.'));
+      runScheduleOptimizationLab().catch(err => alert(err.message || 'Schedule Optimization failed.'));
     });
     document.getElementById('runOptimizationPlacement')?.addEventListener('click', () => {
       runOptimizationPlacement().catch(err => alert(err.message || 'Add-a-class placement failed.'));

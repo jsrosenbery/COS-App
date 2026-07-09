@@ -1187,7 +1187,7 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
   const detailEnd = text.indexOf('renderAttritionLegend', detailStart);
   const detailBlock = text.slice(detailStart, detailEnd);
 
-  assert.match(text, /Enrollment Attrition Trend/);
+  assert.match(text, /Enrollment Attrition/);
   assert.match(text, /Diagnostic Attrition Rates/);
   assert.match(text, /Planning Term Excluded/);
   assert.match(text, /Attrition Executive Summary/);
@@ -1959,10 +1959,10 @@ test('enrollment analytics report labels are operational', () => {
   assert.doesNotMatch(text, /WIP/);
   assert.match(text, /Enrollment Analytics Dashboard/);
   assert.match(text, /Enrollment Planning Forecast/);
-  assert.match(text, /Enrollment Attrition Trend/);
+  assert.match(text, /Enrollment Attrition/);
   assert.match(text, /Diagnostic Attrition Rates/);
   assert.match(text, /attritionDiagnosticRates/);
-  assert.match(text, /Section Consolidation Opportunities/);
+  assert.match(text, /Section Consolidation/);
   assert.match(text, /Room Utilization Map/);
   assert.match(text, /Conflict Check Report/);
   assert.match(text, /REPORTS\.conflictCheck/);
@@ -1970,7 +1970,7 @@ test('enrollment analytics report labels are operational', () => {
   assert.match(text, /Open Student Presence Report/);
   assert.match(text, /REPORTS\.studentPresence/);
   assert.match(text, /Instructor Availability - Planning View/);
-  assert.match(text, /Enrollment Snapshot Manager/);
+  assert.match(text, /Enrollment Snapshot/);
   assert.match(text, /REPORTS\.snapshotManager/);
   assert.match(text, /snapSeason/);
   assert.match(text, /snapYear/);
@@ -2659,7 +2659,7 @@ test('archive inspection exposes parsed archived schedule validation', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(text, /archiveInspection: 'archive-inspection'/);
-  assert.match(text, /Archived Schedule Inspector/);
+  assert.match(text, /Archived Schedule/);
   assert.match(text, /archiveInspectionTerm/);
   assert.match(text, /archiveInspectionCsv/);
   assert.match(text, /inspectArchivedSchedule/);
@@ -3161,49 +3161,49 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   const reportOrderBlock = text.slice(reportOrderStart, reportOrderEnd);
 
   assert.match(text, /const REPORT_WORKFLOW_GROUPS = \[/);
-  assert.match(text, /label: 'Dean \/ Schedule Analysis'/);
-  assert.match(text, /label: 'Enrollment Management'/);
-  assert.match(text, /label: 'Development'/);
-  assert.match(text, /label: 'Admin'/);
+  assert.match(text, /label: 'Division Chair \/ Administrative Assistant'/);
+  assert.match(text, /label: 'Dean \/ Enrollment Management'/);
+  assert.match(text, /label: 'Developer'/);
+  assert.match(text, /label: 'System Administrator'/);
   assert.match(text, /function reportGroupsHtml/);
   assert.match(text, /const REPORT_GROUP_SUBTITLES = \{/);
-  assert.match(text, /'schedule-analysis': 'Primary Audience: Dean \/ Division Chair'/);
-  assert.match(text, /'enrollment-management': 'Primary Audience: Enrollment Management'/);
-  assert.match(text, /development: 'Status: In Development'/);
-  assert.match(text, /admin: 'Primary Audience: Administrator'/);
+  assert.match(text, /'division-chair': 'Daily scheduling, instructor planning, and department-level monitoring\.'/);
+  assert.match(text, /'dean-enrollment': 'Strategic enrollment management, schedule planning, and room optimization\.'/);
+  assert.match(text, /development: 'Planning algorithms, feature testing, and scheduling model development\.'/);
+  assert.match(text, /admin: 'System administration, imports, auditing, and maintenance\.'/);
   assert.match(text, /function reportSubtitleForGroup/);
   assert.match(text, /function reportSubtitleForReport/);
   assert.match(text, /class="em-report-groups"/);
+  assert.match(text, /class="em-report-group-purpose"/);
   assert.match(text, /class="em-report-button"/);
   assert.match(text, /data-report-role="\$\{group\.key\}"/);
   assert.match(text, /data-report-group="\$\{group\.key\}"/);
   assert.match(text, /data-required-role="\$\{REPORT_ACCESS\[report\] \|\| 'general'\}"/);
-  assert.match(text, /<small>\$\{escapeAttr\(subtitle\)\}<\/small>/);
+  assert.match(text, /<small>\$\{escapeAttr\(purpose\)\}<\/small>/);
   assert.match(text, /id="emReportSelect" hidden/);
   [
-    'REPORTS.heatmap',
-    'REPORTS.duration',
+    'REPORTS.instructorAvailability',
+    'REPORTS.facultyHeatmap',
     'REPORTS.studentPresence',
+    'REPORTS.modality',
+    'REPORTS.duration',
+    'REPORTS.dashboard',
+    'REPORTS.demand',
+    'REPORTS.attrition',
+    'REPORTS.consolidation',
     'REPORTS.utilization',
     'REPORTS.roomFit',
-    'REPORTS.modality',
-    'REPORTS.instructorAvailability',
-    'REPORTS.dashboard',
-    'REPORTS.attrition',
-    'REPORTS.demand',
-    'REPORTS.consolidation',
     'REPORTS.conflictCheck',
-    'REPORTS.facultyHeatmap',
-    'REPORTS.facultyModality',
+    'REPORTS.busyTimeDashboard',
     'REPORTS.primeTimeAnalysis',
     'REPORTS.supplyDemand',
     'REPORTS.studentChoiceOpportunity',
-    'REPORTS.busyTimeDashboard',
     'REPORTS.recommendationEngine',
     'REPORTS.scheduleOptimizationLab',
+    'REPORTS.facultyModality',
     'REPORTS.instructionalMethodValidation',
-    'REPORTS.archiveInspection',
     'REPORTS.snapshotManager',
+    'REPORTS.archiveInspection',
     'REPORTS.workExperience'
   ].reduce((lastIndex, report) => {
     const indexOfReport = reportOrderBlock.indexOf(report);
@@ -3252,17 +3252,17 @@ test('report tiles use standardized category subtitles without changing navigati
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   [
-    ["'schedule-analysis'", "'Primary Audience: Dean / Division Chair'"],
-    ["'enrollment-management'", "'Primary Audience: Enrollment Management'"],
-    ['development', "'Status: In Development'"],
-    ['admin', "'Primary Audience: Administrator'"]
+    ["'division-chair'", "'Daily scheduling, instructor planning, and department-level monitoring.'"],
+    ["'dean-enrollment'", "'Strategic enrollment management, schedule planning, and room optimization.'"],
+    ['development', "'Planning algorithms, feature testing, and scheduling model development.'"],
+    ['admin', "'System administration, imports, auditing, and maintenance.'"]
   ].forEach(([key, subtitle]) => {
     assert.ok(text.includes(`${key}: ${subtitle}`), `${key} should map to ${subtitle}`);
   });
-  assert.match(text, /const subtitle = reportSubtitleForGroup\(group\.key\)/);
+  assert.match(text, /const purpose = reportSubtitleForGroup\(group\.key\)/);
   assert.match(text, /data-report-target="\$\{report\}"/);
   assert.match(text, /data-report-group="\$\{group\.key\}"/);
-  assert.match(text, /<small>\$\{escapeAttr\(subtitle\)\}<\/small>/);
+  assert.match(text, /<small>\$\{escapeAttr\(purpose\)\}<\/small>/);
   assert.match(text, /note\.textContent = reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
   assert.doesNotMatch(text, /<small>\$\{canAccess\(report\)/);
   assert.doesNotMatch(text, /Locked - unlock to view name/);
@@ -3273,20 +3273,23 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   const backend = fs.readFileSync(path.join(__dirname, '..', '..', 'App-Backend', 'server.js'), 'utf8');
 
   assert.match(text, /const ROLE_LEVEL = \{/);
+  assert.match(text, /divchair: 2/);
+  assert.match(text, /dean: 3/);
   assert.match(text, /development: 4/);
   assert.match(text, /const REPORT_ACCESS = \{/);
-  assert.match(text, /\[REPORTS\.dashboard\]: 'em'/);
-  assert.match(text, /\[REPORTS\.studentPresence\]: 'dean'/);
+  assert.match(text, /\[REPORTS\.dashboard\]: 'dean'/);
+  assert.match(text, /\[REPORTS\.studentPresence\]: 'divchair'/);
   assert.match(text, /\[REPORTS\.utilization\]: 'dean'/);
   assert.match(text, /\[REPORTS\.roomFit\]: 'dean'/);
-  assert.match(text, /\[REPORTS\.modality\]: 'dean'/);
-  assert.match(text, /\[REPORTS\.consolidation\]: 'em'/);
+  assert.match(text, /\[REPORTS\.modality\]: 'divchair'/);
+  assert.match(text, /\[REPORTS\.consolidation\]: 'dean'/);
+  assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'divchair'/);
   assert.match(text, /\[REPORTS\.archiveInspection\]: 'admin'/);
   assert.match(text, /\[REPORTS\.snapshotManager\]: 'admin'/);
   assert.match(text, /\[REPORTS\.workExperience\]: 'admin'/);
   assert.match(text, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
   assert.match(text, /function canAccess\(reportName\)/);
-  assert.match(text, /Access Level/);
+  assert.match(text, /Logged in as/);
   assert.match(text, /id="currentAccessLevel"/);
   assert.match(text, /id="currentAccessExpiration"/);
   assert.match(text, /function currentAccessExpirationLabel/);
@@ -3305,12 +3308,11 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.doesNotMatch(text, /\[Locked\] \$\{escapeAttr\(REPORT_LABEL/);
   assert.match(text, /data-unlock-report/);
   assert.match(text, /api\/auth\/role/);
-  assert.match(text, /General supports file upload and maintenance passwords only/);
-  assert.match(text, /Administrator is reserved for system configuration, archive inspection, snapshot management, Work Experience uploads/);
-  assert.match(text, /Development is for experimental and in-progress reports/);
-  assert.doesNotMatch(text, /Developer/);
+  assert.match(text, /System Administrator supports imports, auditing, archives, and maintenance/);
+  assert.match(text, /Developer supports planning algorithms and model development/);
   assert.doesNotMatch(text, /Upload2025/);
   assert.match(backend, /GENERAL_PASSWORD/);
+  assert.match(backend, /DIV_CHAIR_PASSWORD/);
   assert.match(backend, /DEAN_PASSWORD/);
   assert.match(backend, /EM_PASSWORD/);
   assert.match(backend, /DEV_PASSWORD/);
@@ -3325,10 +3327,10 @@ test('data validation and mapping report is an Admin diagnostic', () => {
 
   assert.match(app, /instructionalMethodValidation: 'instructional-method-validation'/);
   assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
-  assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'Data Validation & Mapping'/);
+  assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'Data Validation'/);
   assert.match(adminBlock, /REPORTS\.instructionalMethodValidation/);
   assert.doesNotMatch(developmentBlock, /REPORTS\.instructionalMethodValidation/);
-  assert.match(app, /<h2>Data Validation &amp; Mapping<\/h2>/);
+  assert.match(app, /<h2>Data Validation<\/h2>/);
   assert.match(app, /Admin diagnostic for reviewing instructional method mappings, faculty type mappings, and meeting type mappings/);
   assert.match(app, /This view is read-only for mappings/);
   assert.match(app, /Faculty Type Mapping/);
@@ -3372,11 +3374,11 @@ test('backend keeps faculty schedule archives isolated from section schedule sto
   assert.doesNotMatch(pathHelper, /getSchedulePath/);
 });
 
-test('faculty schedule heatmap is a standalone Development report', () => {
+test('faculty schedule heatmap is a Division Chair report', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(text, /facultyHeatmap: 'faculty-schedule-heatmap'/);
-  assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'development'/);
+  assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'divchair'/);
   assert.match(text, /Faculty Schedule Heatmap/);
   assert.match(text, /id="facultyHeatmapReport"/);
   assert.match(text, /id="facultyScheduleCsv"/);
@@ -3602,7 +3604,7 @@ test('supply vs demand is a standalone Development report with heatmap line and 
 
   assert.match(text, /supplyDemand: 'supply-demand-analysis'/);
   assert.match(text, /\[REPORTS\.supplyDemand\]: 'development'/);
-  assert.match(text, /Supply vs Demand/);
+  assert.match(text, /Supply vs. Demand/);
   assert.match(text, /id="supplyDemandReport"/);
   assert.match(text, /id="supplyDemandCsv"/);
   assert.match(text, /id="sdArchiveTerms"/);
@@ -3674,7 +3676,7 @@ test('schedule opportunity analysis is a standalone Development report with plan
 
   assert.match(text, /studentChoiceOpportunity: 'student-choice-opportunity'/);
   assert.match(text, /\[REPORTS\.studentChoiceOpportunity\]: 'development'/);
-  assert.match(text, /Schedule Opportunity Analysis/);
+  assert.match(text, /Schedule Opportunity/);
   assert.match(text, /id="studentChoiceOpportunityReport"/);
   assert.match(text, /id="studentChoiceCsv"/);
   assert.match(text, /id="studentChoiceArchiveTerms"/);
@@ -3823,7 +3825,7 @@ test('scheduling recommendation engine is advisory and covers recommendation cat
 
   assert.match(text, /recommendationEngine: 'scheduling-recommendation-engine'/);
   assert.match(text, /\[REPORTS\.recommendationEngine\]: 'development'/);
-  assert.match(text, /Scheduling Recommendation Engine/);
+  assert.match(text, /Schedule Recommendation/);
   assert.match(text, /id="recommendationEngineReport"/);
   assert.match(text, /id="recommendationCsv"/);
   assert.match(text, /id="recommendationArchiveTerms"/);
@@ -4009,7 +4011,7 @@ test('schedule optimization lab is a standalone Development planning tool', () =
   assert.match(index, /js\/core\/schedule-optimization\.js/);
   assert.match(text, /scheduleOptimizationLab: 'schedule-optimization-lab'/);
   assert.match(text, /\[REPORTS\.scheduleOptimizationLab\]: 'development'/);
-  assert.match(text, /\[REPORTS\.scheduleOptimizationLab\]: 'Schedule Optimization Lab'/);
+  assert.match(text, /\[REPORTS\.scheduleOptimizationLab\]: 'Schedule Optimization'/);
   assert.match(text, /id="scheduleOptimizationLabReport"/);
   assert.match(text, /Room priority behavior/);
   assert.match(text, /Advisory only/);
@@ -4387,7 +4389,7 @@ test('data validation and mapping keeps instructional method diagnostics availab
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   assert.match(app, /instructionalMethodValidation: 'instructional-method-validation'/);
   assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
-  assert.match(app, /Data Validation & Mapping/);
+  assert.match(app, /Data Validation/);
   assert.match(app, /id="instructionalMethodValidationReport"/);
   assert.match(app, /id="instructionalMethodValidationCsv"/);
   assert.match(app, /id="instructionalMethodValidationArchiveTerms"/);

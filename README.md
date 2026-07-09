@@ -84,13 +84,13 @@ Important endpoints used by the frontend:
 
 Write endpoints are protected by the backend `GENERAL_PASSWORD` environment variable, with `UPLOAD_PASSWORD` retained as a compatibility fallback. Do not commit upload or admin passwords to this public frontend repository.
 
-TIMBER role unlock uses `POST /api/auth/role`. Configure `GENERAL_PASSWORD`, `DEAN_PASSWORD`, `EM_PASSWORD`, `DEV_PASSWORD`, and `ADMIN_PASSWORD` in the backend environment. Higher roles inherit lower permissions. The legacy `POST /api/auth/enrollment-management` endpoint remains available for Enrollment Management-compatible sessions. The frontend stores only the short-lived token, expiration, and resolved role in `sessionStorage`; passwords are not stored.
+TIMBER role unlock uses `POST /api/auth/role`. Configure `GENERAL_PASSWORD`, `DIV_CHAIR_PASSWORD`, `DEAN_PASSWORD`, `EM_PASSWORD`, `DEV_PASSWORD`, and `ADMIN_PASSWORD` in the backend environment. Higher roles inherit lower permissions. The legacy `POST /api/auth/enrollment-management` endpoint remains available for Enrollment Management-compatible sessions. The frontend stores only the short-lived token, expiration, and resolved role in `sessionStorage`; passwords are not stored.
 
 ## Data Notes
 
 Schedule uploads are expected to include fields such as term, CRN, subject/course, title, division, campus, building, room, days, meeting time, date range, instructor, modality/instructional method, capacity, enrollment, census, waitlist, FTES/contact-hour fields, and accounting method. The frontend contains normalization helpers for common header variants.
 
-Faculty Schedule Data is a separate optional dataset used only for faculty-pattern and Development reports such as Faculty Schedule Heatmap, Faculty Modality, Prime Time Analysis, Busy Time Dashboard, Student Choice Opportunity, and Scheduling Recommendation Engine. It is not the same as Section Seating / Schedule Data used for Room Availability, and it is stored through separate `/api/faculty-schedules` endpoints and backend storage. Faculty Schedule files must include `FCNT_CODE`, faculty identity, `CRN`, `DAYS`, `STARTTIME`, `ENDTIME`, and `SCHD_CODE_SSRMEET`.
+Faculty Schedule Data is a separate optional dataset used only for faculty-pattern and Developer reports such as Faculty Modality, Prime Time Analysis, Busy Time Dashboard, Schedule Opportunity, and Schedule Recommendation. It is not the same as Section Seating / Schedule Data used for Room Availability, and it is stored through separate `/api/faculty-schedules` endpoints and backend storage. Faculty Schedule files must include `FCNT_CODE`, faculty identity, `CRN`, `DAYS`, `STARTTIME`, `ENDTIME`, and `SCHD_CODE_SSRMEET`.
 
 Schema references:
 
