@@ -3168,6 +3168,62 @@ test('instructor availability suppresses shared windows shorter than 30 minutes'
   assert.doesNotMatch(availableWindowsBody, /MIN_SHARED_AVAILABILITY_MINUTES/);
 });
 
+test('instructor availability flags hybrid meetings without changing overlap behavior', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const hybrid = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2027',
+    CRN: '72001',
+    Subject: 'PHIL',
+    Course: '005',
+    Section: '01',
+    Instructor: 'HYBRID, H',
+    Days: 'M',
+    Start_Time: '11:10',
+    End_Time: '12:25',
+    INSTRUCTIONAL_METHOD_CODE: 'HYB'
+  });
+  const inPerson = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2027',
+    CRN: '72002',
+    Subject: 'MATH',
+    Course: '021',
+    Section: '01',
+    Instructor: 'PERSON, I',
+    Days: 'M',
+    Start_Time: '11:10',
+    End_Time: '12:25',
+    INSTRUCTIONAL_METHOD_CODE: 'IP'
+  });
+  const onlinePlaceholder = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2027',
+    CRN: '72003',
+    Subject: 'HIST',
+    Course: '017',
+    Section: '01',
+    Instructor: 'ONLINE, O',
+    Days: 'M',
+    Start_Time: '00:00',
+    End_Time: '19:00',
+    INSTRUCTIONAL_METHOD_CODE: 'ONL'
+  });
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityModality(hybrid), 'HYBRID');
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityModalityLabel(hybrid), 'Hybrid');
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityRequiresDateVerification(hybrid), true);
+  assert.match(COSEnrollmentAnalytics.instructorAvailabilityConflictLabel(hybrid), /Hybrid - Verify hybrid meeting dates\/pattern\./);
+  assert.equal(COSEnrollmentAnalytics.instructorHasConflict(hybrid, 'MO', 11 * 60, 12 * 60), true);
+  assert.equal(COSEnrollmentAnalytics.instructorHasConflict(inPerson, 'MO', 11 * 60, 12 * 60), true);
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityRequiresDateVerification(inPerson), false);
+  assert.equal(COSEnrollmentAnalytics.instructorHasConflict(onlinePlaceholder, 'MO', 11 * 60, 12 * 60), false);
+  assert.match(source, /class="instructor-grid-event\$\{modalityClass\}"/);
+  assert.match(source, /instructor-modality-badge">HYB/);
+  assert.match(source, /Hybrid sections are flagged because their physical meeting pattern may not occur every week/);
+  assert.match(source, /requiresDateVerification/);
+  assert.match(source, /verificationNote/);
+  assert.match(source, /Future enhancement: optional date-aware or week-by-week instructor availability/);
+});
+
 test('TIMBER report organization moves analytics tools into enrollment management', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');

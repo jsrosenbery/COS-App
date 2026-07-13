@@ -1680,6 +1680,7 @@
                   <li>Upload a Faculty Schedule CSV or load a saved Faculty Schedule term, then select one or more instructors and a day/time window.</li>
                   <li>Leave all instructors selected for a broad first pass, or select a smaller group to compare schedules side by side.</li>
                   <li>Online/TBA rows are excluded from day/time conflict checks because they do not provide a fixed meeting window.</li>
+                  <li>Hybrid fixed-time meetings are flagged in the grid and conflict table because their physical meeting pattern may require date-level verification.</li>
                 </ul>
               </div>
               <div>
@@ -1688,8 +1689,10 @@
                   <li>Known Busy means a loaded section for that instructor meets on the selected day and overlaps the selected time range.</li>
                   <li>Potentially Available means the instructor appears in the loaded schedule but has no overlapping scheduled section in the selected window.</li>
                   <li>The weekly grid shows loaded meetings by instructor and day. Shared available time windows are calculated by subtracting the combined loaded meetings for all selected instructors from 8:00 AM-6:00 PM, Monday-Friday.</li>
+                  <li>Fixed-time hybrid rows are included in overlap calculations, but the report does not evaluate section-specific meeting dates, alternating weeks, or irregular hybrid calendars.</li>
                   <li>Full-Time and Part-Time filters use FCNT_CODE from Faculty Schedule Data: FT and TE are Full-Time, JP is Part-Time, and AE/X rows are excluded.</li>
                   <li>Availability is inferred only from uploaded Faculty Schedule rows or fallback schedule rows; it does not include faculty preferences, office hours, reassigned time, leave, overload limits, or department-specific rules.</li>
+                  <li>Future enhancement: optional date-aware or week-by-week instructor availability using section meeting-date patterns.</li>
                 </ul>
               </div>
             </div>
@@ -10553,13 +10556,40 @@
     return row?.courseCode || [row?.subject, row?.course, row?.section].filter(Boolean).join(' ');
   }
 
+  function instructorAvailabilityModality(row) {
+    const category = rowInstructionModality(row);
+    if (category === 'IN PERSON') return 'IN PERSON';
+    if (category === 'HYBRID') return 'HYBRID';
+    return 'OTHER';
+  }
+
+  function instructorAvailabilityModalityLabel(row) {
+    const category = instructorAvailabilityModality(row);
+    if (category === 'IN PERSON') return 'In-Person';
+    if (category === 'HYBRID') return 'Hybrid';
+    return 'Other/Unknown';
+  }
+
+  function instructorAvailabilityRequiresDateVerification(row) {
+    return instructorAvailabilityModality(row) === 'HYBRID';
+  }
+
+  function instructorAvailabilityVerificationNote(row) {
+    return instructorAvailabilityRequiresDateVerification(row)
+      ? 'Verify hybrid meeting dates/pattern.'
+      : '';
+  }
+
   function instructorAvailabilityConflictLabel(row) {
-    return [
+    const parts = [
       instructorAvailabilityCourseLabel(row) || row?.crn || 'Course N/A',
       row?.dayPattern || '',
       `${row?.start || row?.startTime || ''}-${row?.end || row?.endTime || ''}`,
-      instructorAvailabilityCampus(row) || 'Campus N/A'
-    ].filter(Boolean).join(' / ');
+      instructorAvailabilityCampus(row) || 'Campus N/A',
+      instructorAvailabilityModalityLabel(row)
+    ].filter(Boolean);
+    const note = instructorAvailabilityVerificationNote(row);
+    return `${parts.join(' / ')}${note ? ` - ${note}` : ''}`;
   }
 
   function updateInstructorAvailabilitySourceStatus(sourceInfo = null) {
@@ -10672,6 +10702,8 @@
     const results = instructors.map(name => {
       const conflicts = conflictsByInstructor.get(name) || [];
       const status = conflicts.length ? 'Known Busy' : 'Potentially Available';
+      const hybridConflicts = conflicts.filter(instructorAvailabilityRequiresDateVerification);
+      const conflictModalities = [...new Set(conflicts.map(instructorAvailabilityModalityLabel).filter(Boolean))];
       return {
         instructor: name,
         status,
@@ -10679,6 +10711,9 @@
         requestedWindow: `${start}-${end}`,
         conflictCount: conflicts.length,
         conflicts: conflicts.map(instructorAvailabilityConflictLabel).join('; ') || 'No loaded schedule conflict found',
+        modality: conflictModalities.join(', ') || 'N/A',
+        requiresDateVerification: hybridConflicts.length ? 'Yes' : 'No',
+        verificationNote: hybridConflicts.length ? 'Verify hybrid meeting dates/pattern.' : '',
         facultyType: instructorAvailabilityFacultyTypeLabel(instructorAvailabilityFacultyType(conflicts[0] || scopedRows.find(row => row.instructor === name) || {})),
         campus: campus || 'All'
       };
@@ -10701,6 +10736,9 @@
       'requestedWindow',
       'conflictCount',
       'conflicts',
+      'modality',
+      'requiresDateVerification',
+      'verificationNote',
       'facultyType',
       'campus'
     ]);
@@ -10808,6 +10846,7 @@
         });
       });
     const positioned = positionInstructorEvents(events, days);
+    const hasHybridEvents = positioned.some(instructorAvailabilityRequiresDateVerification);
     const blocks = positioned.map((event, index) => {
       const dayIndex = days.indexOf(event.day);
       const rowHeight = 32;
@@ -10819,15 +10858,24 @@
       const span = Math.max(1, Math.ceil((minuteOffset + event.endMinutes - event.startMinutes) / slotMinutes));
       const width = `calc(${100 / event.columnCount}% - 5px)`;
       const left = `calc(${event.column * 100 / event.columnCount}% + 2px)`;
+      const modality = instructorAvailabilityModality(event);
+      const modalityLabel = instructorAvailabilityModalityLabel(event);
+      const isHybrid = modality === 'HYBRID';
+      const modalityClass = isHybrid ? ' is-hybrid' : (modality === 'OTHER' ? ' is-other-modality' : '');
+      const title = isHybrid
+        ? 'Hybrid section - physical meeting pattern may not occur every week. Verify section dates before treating this as a date-specific conflict.'
+        : `${modalityLabel} meeting`;
       return `
-        <div class="instructor-grid-event" data-instructor-event="${index}" tabindex="0" style="grid-column:${dayIndex + 2};grid-row:${startRow} / span ${span};width:${width};margin-left:${left};margin-top:${topOffset}px;height:${eventHeight}px">
+        <div class="instructor-grid-event${modalityClass}" data-instructor-event="${index}" tabindex="0" title="${escapeAttr(title)}" aria-label="${escapeAttr(`${event.instructor || 'Instructor'} ${instructorAvailabilityCourseLabel(event)} ${modalityLabel}`)}" style="grid-column:${dayIndex + 2};grid-row:${startRow} / span ${span};width:${width};margin-left:${left};margin-top:${topOffset}px;height:${eventHeight}px">
           <strong>${escapeAttr(event.instructor)}</strong>
+          ${isHybrid ? '<em class="instructor-modality-badge">HYB</em>' : ''}
           <span>${escapeAttr(instructorAvailabilityCourseLabel(event))}</span>
           <small>${escapeAttr(`${event.start || event.startTime}-${event.end || event.endTime} ${instructorAvailabilityCampus(event) || ''}`)}</small>
         </div>`;
     }).join('');
     node.innerHTML = `
       <div class="instructor-grid-note">Selected instructors share this grid. Overlapping meetings are shown side by side in the same day/time area.</div>
+      ${hasHybridEvents ? '<div class="instructor-hybrid-warning">Hybrid sections are flagged because their physical meeting pattern may not occur every week. Review the section\'s detailed dates before making a date-specific scheduling decision.</div>' : ''}
       <div class="instructor-calendar-grid" style="grid-template-rows:34px repeat(${slotCount},32px)">
         ${headers}${timeLabels}${cells}${blocks}
       </div>`;
@@ -10904,7 +10952,8 @@
       { text: `Faculty Type: ${instructorAvailabilityFacultyTypeLabel(instructorAvailabilityFacultyType(event))}` },
       { text: event.room ? `Room: ${event.room}` : '' },
       { text: instructorAvailabilityCampus(event) ? `Campus: ${instructorAvailabilityCampus(event)}` : '' },
-      { text: event.modality ? `Modality: ${event.modality}` : '' },
+      { text: `Modality: ${instructorAvailabilityModalityLabel(event)}` },
+      { text: instructorAvailabilityRequiresDateVerification(event) ? 'Hybrid section - physical meeting pattern may not occur every week. Verify section dates before treating this as a date-specific conflict.' : '' },
       { text: seats ? `Capacity: ${seats}` : '' },
       { text: event.census != null ? `Census Enrollment: ${event.census}` : '' },
       { text: `Current/Final Enrollment: ${enrollment || 0}` },
@@ -10972,6 +11021,7 @@
     node.innerHTML = `
       <h3>Shared Available Time Windows</h3>
       <p>Calculated between 8:00 AM and 6:00 PM, Monday-Friday, by subtracting the combined loaded meeting times for all selected instructors. These are times that are open for everyone selected, not confirmed faculty availability.</p>
+      <p class="analytics-note">Shared windows are based on loaded recurring meeting rows. Hybrid sections may require date-level verification. Windows shorter than ${MIN_SHARED_AVAILABILITY_MINUTES} minutes are omitted.</p>
       <div class="instructor-shared-availability">
         <h4>${escapeAttr(instructors.length)} selected instructor${instructors.length === 1 ? '' : 's'}</h4>
         <ul>${dayItems}</ul>
@@ -14260,9 +14310,9 @@
     renderMethodologyPanel(legend, {
       title: 'Instructor Availability - Planning View Methodology & Data Dictionary',
       purpose: 'Provides a first-layer schedule-conflict check for instructors using the currently loaded schedule/class data.',
-      methodology: 'The report compares each instructor scheduled in the loaded data against the selected day and time window. A conflict exists when the section meets on the selected day and its meeting time overlaps the requested window.',
-      assumptions: 'Rows without fixed meeting days or fixed meeting times are not treated as conflicts for a specific day/time search. Rows with 00:00 placeholder start or end times are treated as non-fixed. This keeps Online/TBA rows and placeholder records from blocking an instructor in a physical time slot.',
-      limitations: 'This is not a true faculty availability system. It does not include preference forms, office hours, reassigned time, department rules, leave, contractual limits, overload rules, travel time, or unuploaded assignments.',
+      methodology: 'The report compares each instructor scheduled in the loaded data against the selected day and time window. A conflict exists when the section meets on the selected day and its meeting time overlaps the requested window. Fixed-time hybrid rows remain included in these overlap calculations for this first-layer planning view.',
+      assumptions: 'Rows without fixed meeting days or fixed meeting times are not treated as conflicts for a specific day/time search. Rows with 00:00 placeholder start or end times are treated as non-fixed. This keeps Online/TBA rows and placeholder records from blocking an instructor in a physical time slot. Hybrid sections may not meet physically every listed week, so users should verify detailed section dates before using a hybrid conflict for a date-specific scheduling decision.',
+      limitations: 'This is not a true faculty availability system. It does not include preference forms, office hours, reassigned time, department rules, leave, contractual limits, overload rules, travel time, unuploaded assignments, section-specific meeting dates, alternating weeks, or irregular hybrid calendars.',
       items: [
         ['Instructor', 'Instructor name from the loaded schedule/class data. Only instructors appearing in the loaded data are reviewed.'],
         ['Status', 'Known Busy when at least one loaded section overlaps the selected day/time window. Potentially Available when no loaded overlap is found.'],
@@ -14270,9 +14320,12 @@
         ['Requested Window', 'Selected start and end time used for the overlap check.'],
         ['Conflict Count', 'Number of loaded sections for that instructor that overlap the requested day/time window.'],
         ['Conflicts', 'The overlapping course, section, meeting pattern, time, and campus records. If none are found, the row states that no loaded conflict was found.'],
+        ['Modality', 'Normalized modality for overlapping conflict rows using the shared application modality mapping. Hybrid conflicts are flagged for date verification.'],
+        ['Requires Date Verification', 'Yes when at least one overlapping conflict is Hybrid. Hybrid physical meeting patterns may not occur every week.'],
         ['Campus', 'Optional campus filter. When All is selected, all loaded campuses are included.'],
         ['Overlap Formula', 'A conflict is counted when section start is before requested end AND section end is after requested start, and the section includes the selected day.'],
-        ['Shared Available Time Windows', 'For each day, loaded busy intervals for all selected instructors are merged, then subtracted from the 8:00 AM-6:00 PM planning day. The resulting windows are times that are open for everyone selected, not confirmed faculty availability.']
+        ['Shared Available Time Windows', `For each day, loaded busy intervals for all selected instructors are merged, then subtracted from the 8:00 AM-6:00 PM planning day. The resulting windows are times that are open for everyone selected, not confirmed faculty availability. Windows shorter than ${MIN_SHARED_AVAILABILITY_MINUTES} minutes are omitted from display.`],
+        ['Future Enhancement', 'Optional date-aware or week-by-week instructor availability using section meeting-date patterns.']
       ],
       version: 'Methodology v1.0'
     });
@@ -14913,6 +14966,8 @@
       expectedBenchmark: 'Expected / Benchmark',
       whatItMeans: 'What It Means',
       suggestedAction: 'Suggested Action',
+      requiresDateVerification: 'Requires Date Verification',
+      verificationNote: 'Verification Note',
       before: 'Before',
       after: 'Forecast Scenario',
       change: 'Change',
@@ -15463,9 +15518,13 @@
       .instructor-grid-time{background:#eef5f9;color:#123367;font-weight:800;text-align:center;padding:7px 6px;border-right:1px solid #d8e1ec;border-bottom:1px solid #e6edf5;font-size:12px}
       .instructor-grid-cell{border-right:1px solid #e1e8f0;border-bottom:1px solid #e6edf5;background:#fff}
       .instructor-grid-event{align-self:start;z-index:3;box-sizing:border-box;min-height:26px;border:1px solid #1f7aa8;border-left:4px solid #1f7aa8;border-radius:8px;background:linear-gradient(135deg,#e8f4fb,#cdeffc);box-shadow:0 4px 10px rgba(15,45,75,.14);padding:6px;color:#123367;overflow:hidden}
+      .instructor-grid-event.is-hybrid{border-color:#b45309;border-left-color:#b45309;background:repeating-linear-gradient(135deg,#fff7ed 0,#fff7ed 6px,#fed7aa 6px,#fed7aa 12px);color:#7c2d12}
+      .instructor-grid-event.is-other-modality{border-color:#64748b;border-left-color:#64748b;background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#334155}
       .instructor-grid-event strong,.instructor-grid-event span,.instructor-grid-event small{display:block;line-height:1.15}
       .instructor-grid-event strong{font-size:12px}
       .instructor-grid-event span,.instructor-grid-event small{font-size:11px}
+      .instructor-modality-badge{display:inline-block;margin:2px 0;padding:1px 5px;border:1px solid #92400e;border-radius:999px;background:#fff;color:#7c2d12;font-style:normal;font-size:10px;font-weight:900;letter-spacing:.04em}
+      .instructor-hybrid-warning{margin:0;padding:10px 12px;border-bottom:1px solid #f0c36d;background:#fff7dc;color:#6d4c00;font-size:13px;font-weight:800;line-height:1.35}
       .instructor-available-times{margin:0 0 14px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;color:#334862}
       .instructor-available-times h3{margin:0 0 6px;color:#123367;font-size:15px}
       .instructor-available-times p{margin:0 0 10px;font-size:13px;color:#51657c}
@@ -16150,6 +16209,12 @@
     instructorAvailabilitySourceRows,
     instructorAvailabilityDivision,
     instructorAvailabilityCampus,
+    instructorAvailabilityModality,
+    instructorAvailabilityModalityLabel,
+    instructorAvailabilityRequiresDateVerification,
+    instructorAvailabilityVerificationNote,
+    instructorAvailabilityConflictLabel,
+    instructorHasConflict,
     instructorSharedAvailabilityDisplayWindows,
     minSharedAvailabilityMinutes: MIN_SHARED_AVAILABILITY_MINUTES,
     dashboardAvailableTerms,
