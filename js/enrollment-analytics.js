@@ -67,7 +67,7 @@
     [REPORTS.studentChoiceOpportunity]: 'development',
     [REPORTS.recommendationEngine]: 'development',
     [REPORTS.scheduleOptimizationLab]: 'development',
-    [REPORTS.facultyHeatmap]: 'divchair'
+    [REPORTS.facultyHeatmap]: 'dean'
   };
   const MIN_SHARED_AVAILABILITY_MINUTES = 30;
   const REPORT_LABEL = {
@@ -98,7 +98,7 @@
   };
   const REPORT_ORDER = [
     REPORTS.instructorAvailability,
-    REPORTS.facultyHeatmap,
+    REPORTS.heatmap,
     REPORTS.studentPresence,
     REPORTS.modality,
     REPORTS.duration,
@@ -109,6 +109,7 @@
     REPORTS.utilization,
     REPORTS.roomFit,
     REPORTS.conflictCheck,
+    REPORTS.facultyHeatmap,
     REPORTS.busyTimeDashboard,
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
@@ -127,7 +128,7 @@
       label: 'Division Chair / Administrative Assistant',
       reports: [
         REPORTS.instructorAvailability,
-        REPORTS.facultyHeatmap,
+        REPORTS.heatmap,
         REPORTS.studentPresence,
         REPORTS.modality,
         REPORTS.duration
@@ -143,7 +144,8 @@
         REPORTS.consolidation,
         REPORTS.utilization,
         REPORTS.roomFit,
-        REPORTS.conflictCheck
+        REPORTS.conflictCheck,
+        REPORTS.facultyHeatmap
       ]
     },
     {
@@ -7605,7 +7607,7 @@
     if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so Faculty Schedule data cannot be saved.');
     const token = enrollmentManagementToken();
     if (!token) {
-      requestReportAccess(REPORTS.facultyHeatmap, 'development');
+      requestReportAccess(REPORTS.facultyHeatmap, REPORT_ACCESS[REPORTS.facultyHeatmap] || 'dean');
       throw new Error('Unlock a report role before saving Faculty Schedule data.');
     }
     const input = document.getElementById('facultyScheduleCsv');

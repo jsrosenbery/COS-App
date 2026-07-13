@@ -3256,7 +3256,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(text, /id="emReportSelect" hidden/);
   [
     'REPORTS.instructorAvailability',
-    'REPORTS.facultyHeatmap',
+    'REPORTS.heatmap',
     'REPORTS.studentPresence',
     'REPORTS.modality',
     'REPORTS.duration',
@@ -3267,6 +3267,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
     'REPORTS.utilization',
     'REPORTS.roomFit',
     'REPORTS.conflictCheck',
+    'REPORTS.facultyHeatmap',
     'REPORTS.busyTimeDashboard',
     'REPORTS.primeTimeAnalysis',
     'REPORTS.supplyDemand',
@@ -3352,11 +3353,12 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /const REPORT_ACCESS = \{/);
   assert.match(text, /\[REPORTS\.dashboard\]: 'dean'/);
   assert.match(text, /\[REPORTS\.studentPresence\]: 'divchair'/);
+  assert.match(text, /\[REPORTS\.heatmap\]: 'divchair'/);
   assert.match(text, /\[REPORTS\.utilization\]: 'dean'/);
   assert.match(text, /\[REPORTS\.roomFit\]: 'dean'/);
   assert.match(text, /\[REPORTS\.modality\]: 'divchair'/);
   assert.match(text, /\[REPORTS\.consolidation\]: 'dean'/);
-  assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'divchair'/);
+  assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'dean'/);
   assert.match(text, /\[REPORTS\.archiveInspection\]: 'admin'/);
   assert.match(text, /\[REPORTS\.snapshotManager\]: 'admin'/);
   assert.match(text, /\[REPORTS\.workExperience\]: 'admin'/);
@@ -3447,11 +3449,20 @@ test('backend keeps faculty schedule archives isolated from section schedule sto
   assert.doesNotMatch(pathHelper, /getSchedulePath/);
 });
 
-test('faculty schedule heatmap is a Division Chair report', () => {
+test('course heatmap is Division Chair and faculty schedule heatmap is Dean report', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const divisionBlock = text.slice(text.indexOf("key: 'division-chair'"), text.indexOf("key: 'dean-enrollment'"));
+  const deanBlock = text.slice(text.indexOf("key: 'dean-enrollment'"), text.indexOf("key: 'development'"));
 
+  assert.match(text, /heatmap: 'heatmap-analytics'/);
+  assert.match(text, /\[REPORTS\.heatmap\]: 'divchair'/);
+  assert.match(divisionBlock, /REPORTS\.heatmap/);
+  assert.doesNotMatch(deanBlock, /REPORTS\.heatmap/);
+  assert.match(text, /Heatmap Analytics/);
   assert.match(text, /facultyHeatmap: 'faculty-schedule-heatmap'/);
-  assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'divchair'/);
+  assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'dean'/);
+  assert.match(deanBlock, /REPORTS\.facultyHeatmap/);
+  assert.doesNotMatch(divisionBlock, /REPORTS\.facultyHeatmap/);
   assert.match(text, /Faculty Schedule Heatmap/);
   assert.match(text, /id="facultyHeatmapReport"/);
   assert.match(text, /id="facultyScheduleCsv"/);
