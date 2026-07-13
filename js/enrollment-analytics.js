@@ -69,6 +69,7 @@
     [REPORTS.scheduleOptimizationLab]: 'development',
     [REPORTS.facultyHeatmap]: 'divchair'
   };
+  const MIN_SHARED_AVAILABILITY_MINUTES = 30;
   const REPORT_LABEL = {
     [REPORTS.archiveInspection]: 'Archived Schedule',
     [REPORTS.conflictCheck]: 'Conflict Check Report',
@@ -10964,7 +10965,7 @@
         .map(row => instructorMeetingMinutes(row))
         .filter(Boolean)
         .sort((a, b) => a[0] - b[0]);
-      const windows = availableWindows(busy, dayStart, dayEnd);
+      const windows = instructorSharedAvailabilityDisplayWindows(busy, dayStart, dayEnd);
       const text = windows.map(([start, end]) => `${formatMinutes(start)}-${formatMinutes(end)}`).join(', ') || 'No shared open windows in range';
       return `<li><strong>${escapeAttr(dayLabels[day])}:</strong> ${escapeAttr(text)}</li>`;
     }).join('');
@@ -10995,6 +10996,11 @@
     });
     if (cursor < dayEnd) windows.push([cursor, dayEnd]);
     return windows;
+  }
+
+  function instructorSharedAvailabilityDisplayWindows(busy, dayStart, dayEnd) {
+    return availableWindows(busy, dayStart, dayEnd)
+      .filter(([start, end]) => end - start >= MIN_SHARED_AVAILABILITY_MINUTES);
   }
 
   function formatMinutes(minutes) {
@@ -16144,6 +16150,8 @@
     instructorAvailabilitySourceRows,
     instructorAvailabilityDivision,
     instructorAvailabilityCampus,
+    instructorSharedAvailabilityDisplayWindows,
+    minSharedAvailabilityMinutes: MIN_SHARED_AVAILABILITY_MINUTES,
     dashboardAvailableTerms,
     dashboardCurrentRows,
     dashboardHistoricalRows,

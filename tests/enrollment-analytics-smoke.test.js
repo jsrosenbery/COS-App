@@ -3151,6 +3151,23 @@ test('instructor availability supports all full-time and part-time faculty filte
   assert.match(source, /\['Faculty Type', facultyType \? instructorAvailabilityFacultyTypeLabel\(facultyType\) : 'All faculty'\]/);
 });
 
+test('instructor availability suppresses shared windows shorter than 30 minutes', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const start = 8 * 60;
+  const end = 10 * 60;
+  const shortWindow = COSEnrollmentAnalytics.instructorSharedAvailabilityDisplayWindows([[start, 9 * 60], [9 * 60 + 29, end]], start, end);
+  const exactWindow = COSEnrollmentAnalytics.instructorSharedAvailabilityDisplayWindows([[start, 9 * 60], [9 * 60 + 30, end]], start, end);
+  const longWindow = COSEnrollmentAnalytics.instructorSharedAvailabilityDisplayWindows([[start, 8 * 60 + 20], [9 * 60 + 20, end]], start, end);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const availableWindowsBody = source.slice(source.indexOf('function availableWindows'), source.indexOf('function instructorSharedAvailabilityDisplayWindows'));
+
+  assert.equal(COSEnrollmentAnalytics.minSharedAvailabilityMinutes, 30);
+  assert.equal(shortWindow.length, 0);
+  assert.equal(JSON.stringify(exactWindow), JSON.stringify([[9 * 60, 9 * 60 + 30]]));
+  assert.equal(JSON.stringify(longWindow), JSON.stringify([[8 * 60 + 20, 9 * 60 + 20]]));
+  assert.doesNotMatch(availableWindowsBody, /MIN_SHARED_AVAILABILITY_MINUTES/);
+});
+
 test('TIMBER report organization moves analytics tools into enrollment management', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
