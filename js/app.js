@@ -18,6 +18,37 @@ const ROOM_CATALOG_BACKUP_KEY = 'cos-room-catalog-backup-v1';
 const ROOM_EVENTS_BACKUP_KEY = 'cos-room-events-by-term-v1';
 const CAL_GETC_BACKUP_KEY = 'cos-cal-getc-mapping-backup-v1';
 const CURRICULUM_CROSSWALK_BACKUP_KEY = 'cos-curriculum-crosswalk-backup-v1';
+const ROOM_AVAILABILITY_MODALITY_DISPLAY = {
+  IN_PERSON: {
+    key: 'in-person',
+    className: 'modality-in-person',
+    badge: 'IP',
+    label: 'In-Person',
+    note: ''
+  },
+  HYBRID: {
+    key: 'hybrid',
+    className: 'modality-hybrid',
+    badge: 'HYB',
+    label: 'Hybrid',
+    note: 'Hybrid section - physical meeting pattern may not occur every week. Verify section dates before treating this as a date-specific conflict.',
+    requiresDateVerification: true
+  },
+  SYNC_ONLINE: {
+    key: 'sync-online',
+    className: 'modality-sync-online',
+    badge: 'SYNC',
+    label: 'Synchronous Online',
+    note: 'Synchronous online section with fixed meeting days/times. Physical room display only applies when a valid room is assigned.'
+  },
+  OTHER: {
+    key: 'other',
+    className: 'modality-other',
+    badge: '',
+    label: 'Other/Unknown',
+    note: ''
+  }
+};
 
 // --- Official Term Start Dates ---
 const termStartDates = {
@@ -1071,7 +1102,10 @@ document.addEventListener('DOMContentLoaded', () => {
       getRoomEventsForCurrentTerm,
       setRoomEventsForTerm,
       availabilityStatusForRoom,
-      sectionEventSoftConflicts
+      sectionEventSoftConflicts,
+      getRoomAvailabilityModalityDisplay,
+      getModalityClassName,
+      getModalityDisplayLabel
     },
     modalityBalanceTestHooks: {
       normalizeTermLabel,
@@ -2532,6 +2566,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function renderSchedule() {
+    renderRoomAvailabilityModalityLegend();
     // --- NEW: Large room header above grid ---
     const selectedRoom = snapshotRoomFilter?.value || 'All';
     if (roomHeaderDiv) {
@@ -2618,11 +2653,15 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const widthPx  = (ev.colCount === 1) ? cr.width : cr.width / ev.colCount;
         const heightPx = ((ev.endMin-ev.startMin)/30)*cr.height;
         const b = document.createElement('div');
-        b.className = 'class-block';
+        const modalityDisplay = getRoomAvailabilityModalityDisplay(ev);
+        b.className = ['class-block', modalityDisplay.className].filter(Boolean).join(' ');
+        b.dataset.normalizedModality = modalityDisplay.label;
+        b.dataset.instructionalMethodCode = modalityDisplay.instructionalMethodCode;
         b.style.top    = `${topPx}px`;
         b.style.left   = `${leftPx}px`;
         b.style.width  = `${widthPx}px`;
         b.style.height = `${heightPx}px`;
+        b.setAttribute('aria-label', `${ev.Subject_Course || 'Class'} ${ev.CRN || ''} ${modalityDisplay.label}`.trim());
 
         const title = extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
         const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
@@ -2630,6 +2669,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
 
         appendLine(b, ev.Subject_Course || '', true);
+        const badge = getModalityBadge(modalityDisplay);
+        if (badge) {
+          b.appendChild(badge);
+          b.appendChild(document.createElement('br'));
+        }
         appendLine(b, `CRN: ${ev.CRN || ''}`);
         appendLine(b, `${format12(ev.Start_Time)} - ${format12(ev.End_Time)}`);
         appendLine(b, instructor);
@@ -2640,9 +2684,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
             { text: ev.Subject_Course || '', bold: true },
             { text: title },
             { text: `CRN: ${ev.CRN || ''}` },
+            { text: `Modality: ${modalityDisplay.label}${modalityDisplay.instructionalMethodCode ? ` (${modalityDisplay.instructionalMethodCode})` : ''}` },
             { text: `Time: ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}` },
             { text: `Date Range: ${startDate || 'N/A'} - ${endDate || 'N/A'}` },
-            { text: `Instructor: ${instructor || 'N/A'}` }
+            { text: `Instructor: ${instructor || 'N/A'}` },
+            { text: modalityDisplay.note }
           ]);
           tooltip.style.display = 'block';
           const rect = b.getBoundingClientRect();
@@ -2770,6 +2816,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       window.COSRoomEvents.overlappingEvents(events, { roomKey, days, startMinutes, endMinutes, requestedStart: sectionStart, requestedEnd: sectionEnd })
         .forEach(event => {
           const overlap = Math.max(0, Math.min(endMinutes, event.endMinutes) - Math.max(startMinutes, event.startMinutes));
+          const modalityDisplay = getRoomAvailabilityModalityDisplay(section);
           rows.push({
             Term: currentTerm,
             Day: days.filter(day => event.days.includes(day)).join(', '),
@@ -2778,6 +2825,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
             Course: section.Subject_Course || '',
             Building: section.Building || section.BUILDING || '',
             Room: section.Room || section.ROOM || '',
+            'Normalized Modality': modalityDisplay.label,
+            'Instructional Method Code': modalityDisplay.instructionalMethodCode,
+            'Fixed-Time Meeting': modalityDisplay.fixedTimeMeeting ? 'Yes' : 'No',
+            'Requires Date Verification': modalityDisplay.requiresDateVerification ? 'Yes' : 'No',
+            'Physical Room Assigned': modalityDisplay.physicalRoomAssigned ? 'Yes' : 'No',
+            'Verification Note': modalityDisplay.note || '',
             'Class Time': `${section.Start_Time || ''}-${section.End_Time || ''}`,
             'Class Date Range': `${sectionStart || 'N/A'} - ${sectionEnd || 'N/A'}`,
             'Event ID': event.eventId,
@@ -2861,8 +2914,22 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const item = document.createElement('li');
         item.className = row.status.toLowerCase().replace(/\s+/g, '-') + (row.available ? ' is-available' : ' is-unavailable');
         const eventCount = eventMap.get(row.room.buildingRoom)?.length || 0;
-        const classCount = instructionMap.get(row.room.buildingRoom)?.length || 0;
+        const classRows = instructionMap.get(row.room.buildingRoom) || [];
+        const classCount = classRows.length;
+        const modalityNotes = classRows
+          .map(section => getRoomAvailabilityModalityDisplay(section))
+          .filter(display => display.note)
+          .reduce((items, display) => {
+            if (!items.some(item => item.label === display.label)) items.push({ label: display.label, note: display.note });
+            return items;
+          }, []);
         item.textContent = `${getRoomDisplay(row.room.buildingRoom)} - ${row.status}${eventCount ? ` (${eventCount} event${eventCount === 1 ? '' : 's'})` : ''}${classCount ? ` (${classCount} class block${classCount === 1 ? '' : 's'})` : ''}`;
+        if (modalityNotes.length) {
+          const note = document.createElement('span');
+          note.className = 'availability-modality-note';
+          note.textContent = ` - ${modalityNotes.map(item => `${item.label}: ${item.note}`).join(' ')}`;
+          item.appendChild(note);
+        }
         list.appendChild(item);
       });
       resultsDiv.replaceChildren(list);
@@ -3701,6 +3768,85 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       : '';
     if (window.COSModalityNormalizer?.isReportable?.(category)) return window.COSModalityNormalizer.displayLabel(category);
     return category || 'UNKNOWN';
+  }
+
+  function sectionHasFixedMeetingTime(section) {
+    const days = Array.isArray(section?.Days) ? section.Days : normalizeHeatmapDayNames(extractField(section, ['Days', 'DAYS', 'Meeting Days', 'MEETING_DAYS']));
+    const start = section?.Start_Time || extractField(section, ['Start_Time', 'STARTTIME', 'Start Time', 'START_TIME']);
+    const end = section?.End_Time || extractField(section, ['End_Time', 'ENDTIME', 'End Time', 'END_TIME']);
+    const startMinutes = parseTime(String(start || ''));
+    const endMinutes = parseTime(String(end || ''));
+    return Boolean(days.length && Number.isFinite(startMinutes) && Number.isFinite(endMinutes) && endMinutes > startMinutes);
+  }
+
+  function sectionHasPhysicalRoom(section) {
+    return isValidRoom(section?.Building || section?.BUILDING, section?.Room || section?.ROOM);
+  }
+
+  function getRoomAvailabilityModalityDisplay(section) {
+    const method = getInstructionalMethod(section);
+    const rawCategory = window.COSModalityNormalizer?.normalize
+      ? window.COSModalityNormalizer.normalize(method, section || {})
+      : normalizeModalityCode(getModalityCategory(method));
+    const category = normalizeModalityCode(rawCategory);
+    const fixedTimeMeeting = sectionHasFixedMeetingTime(section);
+    let display = ROOM_AVAILABILITY_MODALITY_DISPLAY.OTHER;
+    if (category === 'IN PERSON') display = ROOM_AVAILABILITY_MODALITY_DISPLAY.IN_PERSON;
+    else if (category === 'HYBRID') display = ROOM_AVAILABILITY_MODALITY_DISPLAY.HYBRID;
+    else if (category === 'ONLINE' && fixedTimeMeeting) display = ROOM_AVAILABILITY_MODALITY_DISPLAY.SYNC_ONLINE;
+    return {
+      ...display,
+      category,
+      instructionalMethodCode: method || '',
+      fixedTimeMeeting,
+      physicalRoomAssigned: sectionHasPhysicalRoom(section),
+      requiresDateVerification: Boolean(display.requiresDateVerification)
+    };
+  }
+
+  function getModalityBadge(display) {
+    if (!display?.badge) return null;
+    const badge = document.createElement('span');
+    badge.className = `class-modality-badge ${display.className || ''}`.trim();
+    badge.textContent = display.badge;
+    badge.title = display.note || display.label;
+    badge.setAttribute('aria-label', display.label);
+    return badge;
+  }
+
+  function getModalityClassName(section) {
+    return getRoomAvailabilityModalityDisplay(section).className;
+  }
+
+  function getModalityDisplayLabel(section) {
+    return getRoomAvailabilityModalityDisplay(section).label;
+  }
+
+  function renderRoomAvailabilityModalityLegend() {
+    const node = document.getElementById('room-availability-modality-legend');
+    if (!node) return;
+    const entries = [
+      ROOM_AVAILABILITY_MODALITY_DISPLAY.IN_PERSON,
+      ROOM_AVAILABILITY_MODALITY_DISPLAY.HYBRID,
+      ROOM_AVAILABILITY_MODALITY_DISPLAY.SYNC_ONLINE
+    ];
+    node.replaceChildren();
+    entries.forEach(entry => {
+      const item = document.createElement('span');
+      item.className = 'room-availability-modality-legend-item';
+      const badge = document.createElement('span');
+      badge.className = `class-modality-badge ${entry.className}`;
+      badge.textContent = entry.badge;
+      badge.setAttribute('aria-hidden', 'true');
+      const label = document.createElement('span');
+      label.textContent = entry.label;
+      item.append(badge, label);
+      node.appendChild(item);
+    });
+    const note = document.createElement('p');
+    note.className = 'room-availability-modality-note';
+    note.textContent = 'Hybrid sections are flagged because physical meeting dates may vary. Synchronous Online appears only when a fixed-time online row also has a valid physical room assignment in the loaded schedule data.';
+    node.appendChild(note);
   }
 
   function isModalityDualEnrollmentSection(section) {

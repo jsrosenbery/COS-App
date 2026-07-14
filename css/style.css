@@ -372,6 +372,34 @@ button:hover,
   text-align: center;
 }
 
+.room-availability-modality-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+  align-items: center;
+  width: min(1480px, calc(100% - 2rem));
+  margin: 0 auto 0.65rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.room-availability-modality-legend:empty {
+  display: none;
+}
+
+.room-availability-modality-legend-item {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.room-availability-modality-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-weight: 600;
+}
+
 .class-block,
 .class-block * {
   font-size: 0.8rem !important;
@@ -388,6 +416,51 @@ button:hover,
   background: linear-gradient(135deg, #ffe8a3, #f59e0b);
   box-shadow: 0 6px 14px rgba(245, 158, 11, 0.25);
   text-align: center;
+}
+
+.class-block.modality-in-person {
+  border-left: 5px solid #2563eb;
+  background: linear-gradient(135deg, #dbeafe, #fef3c7);
+}
+
+.class-block.modality-hybrid {
+  border: 2px solid #7c3aed;
+  border-left-width: 6px;
+  background:
+    repeating-linear-gradient(135deg, rgba(124, 58, 237, 0.16) 0 6px, rgba(124, 58, 237, 0.05) 6px 12px),
+    linear-gradient(135deg, #ede9fe, #fde68a);
+}
+
+.class-block.modality-sync-online {
+  border: 2px dashed #0f766e;
+  border-left-width: 6px;
+  background: linear-gradient(135deg, #ccfbf1, #e0f2fe);
+}
+
+.class-modality-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.15rem;
+  margin: 1px 0;
+  padding: 1px 5px;
+  border: 1px solid rgba(15, 33, 53, 0.24);
+  border-radius: 999px;
+  color: #0f2135;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 0.66rem !important;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.class-modality-badge.modality-hybrid {
+  border-color: #7c3aed;
+}
+
+.class-modality-badge.modality-sync-online {
+  border-color: #0f766e;
+  border-style: dashed;
 }
 
 .event-block {
@@ -461,6 +534,11 @@ button:hover,
 .availability-status-list .mixed-scheduled {
   color: #6b21a8;
   font-weight: 800;
+}
+
+.availability-modality-note {
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .upload-timestamp {

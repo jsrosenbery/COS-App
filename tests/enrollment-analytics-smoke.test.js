@@ -5054,6 +5054,34 @@ test('room availability grid defaults to first actual room instead of all rooms'
   assert.match(app, /: defaultRoom/);
 });
 
+test('room availability grid uses centralized modality display badges without changing room logic', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  assert.match(index, /id="room-availability-modality-legend"/);
+  assert.match(app, /ROOM_AVAILABILITY_MODALITY_DISPLAY/);
+  assert.match(app, /getRoomAvailabilityModalityDisplay/);
+  assert.match(app, /window\.COSModalityNormalizer\.normalize/);
+  assert.match(app, /class-modality-badge/);
+  assert.match(app, /modality-in-person/);
+  assert.match(app, /modality-hybrid/);
+  assert.match(app, /modality-sync-online/);
+  assert.match(app, /Hybrid section - physical meeting pattern may not occur every week/);
+  assert.match(app, /Synchronous online section with fixed meeting days\/times/);
+  assert.match(app, /Normalized Modality/);
+  assert.match(app, /Instructional Method Code/);
+  assert.match(app, /Fixed-Time Meeting/);
+  assert.match(app, /Requires Date Verification/);
+  assert.match(app, /Physical Room Assigned/);
+  assert.match(css, /\.class-block\.modality-hybrid/);
+  assert.match(css, /repeating-linear-gradient/);
+  assert.match(css, /\.class-block\.modality-sync-online/);
+  assert.match(css, /border: 2px dashed #0f766e/);
+  assert.match(css, /\.class-modality-badge/);
+  assert.match(app, /\.filter\(i => isValidRoom\(i\.Building \|\| i\.BUILDING, i\.Room \|\| i\.ROOM\)\)/);
+});
+
 test('development graphics default to container-width responsive layouts', () => {
   const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
