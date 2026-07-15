@@ -7651,6 +7651,10 @@
     const included = (rows || []).filter(row => row.isWorkExperience);
     return {
       rows: included.length,
+      enrollment: included.reduce((total, row) => total + (Number(row.census ?? row.actual) || 0), 0),
+      ftes: included.reduce((total, row) => total + (Number(row.ftes) || 0), 0),
+      terms: collectRowTerms(included),
+      estimatedFtesRows: included.filter(row => !row.hasDirectFtesData && row.hasFtesData).length,
       missingFtes: included.filter(row => row.ftesUnavailable).length
     };
   }
@@ -8423,6 +8427,8 @@
     const uploadedFiles = Array.from(document.getElementById('dashboardCsv')?.files || []).map(file => file.name);
     const selectedArchivedTerms = getSelectedValues('dashArchiveTerms');
     const focusTermNotStarted = dashboardFocusTermNotStarted(currentRows, focusTerm);
+    const workExperienceLoaded = workExperienceSummary(workExperienceRows());
+    const workExperienceIncluded = workExperienceSummary(currentRows);
     return {
       focusTerm,
       focusLabel: focusTerm || 'All Loaded Terms',
@@ -8435,6 +8441,8 @@
       currentTerms,
       comparableBasis: focusTerm ? `${termParts(focusTerm).season || 'Same-season'} historical terms before ${focusTerm}` : 'All loaded terms selected',
       focusTermNotStarted,
+      workExperienceLoaded,
+      workExperienceIncluded,
       missingMilestones: lifecycle.missing,
       warnings: dashboardScopeWarnings({ focusTerm, currentRows, historicalRows, currentTerms, lifecycle, focusTermNotStarted })
     };
@@ -8482,6 +8490,8 @@
     const uploadedFiles = context.uploadedFiles.length ? context.uploadedFiles.join(', ') : 'None selected';
     const sourceTerms = context.sourceTerms.length ? context.sourceTerms.join(', ') : 'Active room-grid term fallback';
     const historicalTerms = context.historicalTerms.length ? context.historicalTerms.join(', ') : 'None';
+    const loadedWorkTerms = context.workExperienceLoaded?.terms?.length ? context.workExperienceLoaded.terms.join(', ') : 'None';
+    const includedWorkTerms = context.workExperienceIncluded?.terms?.length ? context.workExperienceIncluded.terms.join(', ') : 'None';
     const warnings = context.warnings.length
       ? `<div class="dashboard-scope-warnings">${context.warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('')}</div>`
       : '<div class="dashboard-scope-ok"><strong>No scope warnings detected.</strong> The current selection is internally consistent and no obvious data-scope issue was detected.</div>';
@@ -8497,6 +8507,8 @@
         <div><dt>Historical Rows Included</dt><dd>${context.historicalRowsCount}</dd></div>
         <div><dt>Historical Terms Used</dt><dd>${escapeAttr(historicalTerms)}</dd></div>
         <div><dt>Comparable Term Basis</dt><dd>${escapeAttr(context.comparableBasis)}</dd></div>
+        <div><dt>Work Experience Rows Loaded</dt><dd>${context.workExperienceLoaded?.rows || 0}${context.workExperienceLoaded?.rows ? ` (${escapeAttr(loadedWorkTerms)})` : ''}</dd></div>
+        <div><dt>Work Experience Rows Included</dt><dd>${context.workExperienceIncluded?.rows || 0}${context.workExperienceIncluded?.rows ? ` (${escapeAttr(includedWorkTerms)})` : ''}</dd></div>
         <div><dt>Missing Milestone Fields</dt><dd>${escapeAttr(missing)}</dd></div>
       </dl>`;
   }
@@ -8509,12 +8521,16 @@
     const diagnostics = summary.diagnostics || {};
     metric('dashboardMetrics', [
       ['Current Enrollment', health.currentEnrollment ?? 0],
-      ['Expected Enrollment', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment],
-      ['Variance', health.variance == null ? 'N/A' : health.variance],
+      ['Expected Enrollment (Growth-Adjusted)', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment],
+      ['Variance vs Expected', health.expectedVariance == null ? 'N/A' : health.expectedVariance],
+      ['Previous Like-Term Enrollment', health.previousLikeTermEnrollment == null ? 'N/A' : health.previousLikeTermEnrollment],
+      ['Variance vs Previous Like-Term', health.previousLikeTermVariance == null ? 'N/A' : health.previousLikeTermVariance],
       ['Courses Reviewed', health.coursesReviewed ?? 0],
       ['Sections Reviewed', health.sectionsReviewed ?? 0],
       ['FTES', round1(health.ftes || 0)],
       ['Work Experience Rows Included', workExperience.rows],
+      ['Work Experience Enrollment Included', workExperience.enrollment],
+      ['Work Experience FTES Included', round1(workExperience.ftes || 0)],
       ['Work Experience FTES Warnings', workExperience.missingFtes],
       ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded || 0],
       ...lifecycle.map(item => [item.label, item.value == null ? 'N/A' : item.value])

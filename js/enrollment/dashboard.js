@@ -180,12 +180,19 @@
     const currentEnrollment = sum(rows.map(row => ({ value: enrollment(row) })), 'value');
     const expected = expectedTotalEnrollment(historicalRows);
     const expectedEnrollment = expected?.value ?? null;
+    const previous = previousLikeTermEnrollment(historicalRows);
+    const previousEnrollment = previous?.value ?? null;
     return {
       currentEnrollment,
       expectedEnrollment,
       expectedEnrollmentMethod: expected?.method || 'No comparable historical terms',
       expectedEnrollmentBasis: expected?.basis || '',
       variance: expectedEnrollment == null ? null : currentEnrollment - expectedEnrollment,
+      expectedVariance: expectedEnrollment == null ? null : currentEnrollment - expectedEnrollment,
+      previousLikeTermEnrollment: previousEnrollment,
+      previousLikeTerm: previous?.term || '',
+      previousLikeTermVariance: previousEnrollment == null ? null : currentEnrollment - previousEnrollment,
+      previousLikeTermVariancePct: previousEnrollment ? (currentEnrollment - previousEnrollment) / previousEnrollment : null,
       coursesReviewed: group(rows, courseKey).size,
       sectionsReviewed: rows.length,
       ftes: sum(rows, 'ftes'),
@@ -201,6 +208,15 @@
       .map(([term, termRows]) => ({ term, value: termRows.reduce((total, row) => total + enrollment(row), 0) }))
       .sort((a, b) => termValue(a.term) - termValue(b.term));
     return growthAdjustedExpected(series, true);
+  }
+
+  function previousLikeTermEnrollment(historicalRows) {
+    const byTerm = group(historicalRows, row => row.term || 'UNKNOWN');
+    if (!byTerm.size) return null;
+    const series = [...byTerm.entries()]
+      .map(([term, termRows]) => ({ term, value: termRows.reduce((total, row) => total + enrollment(row), 0) }))
+      .sort((a, b) => termValue(a.term) - termValue(b.term));
+    return series[series.length - 1] || null;
   }
 
   function growthAdjustedExpected(series, roundValues = true) {
@@ -806,9 +822,11 @@
 
     const health = summary?.health || {};
     add('Enrollment Health', 'Current Enrollment', 'All Selected Rows', health.currentEnrollment);
-    add('Enrollment Health', 'Expected Enrollment', 'All Selected Rows', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment);
+    add('Enrollment Health', 'Expected Enrollment (Growth-Adjusted)', 'All Selected Rows', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment);
     add('Enrollment Health', 'Expected Enrollment Method', 'All Selected Rows', health.expectedEnrollmentMethod || 'N/A', health.expectedEnrollmentBasis || '');
-    add('Enrollment Health', 'Variance', 'All Selected Rows', health.variance == null ? 'N/A' : health.variance);
+    add('Enrollment Health', 'Variance vs Expected Enrollment', 'All Selected Rows', health.expectedVariance == null ? 'N/A' : health.expectedVariance);
+    add('Enrollment Health', 'Previous Like-Term Enrollment', health.previousLikeTerm || 'Most Recent Comparable Term', health.previousLikeTermEnrollment == null ? 'N/A' : health.previousLikeTermEnrollment);
+    add('Enrollment Health', 'Variance vs Previous Like-Term', health.previousLikeTerm || 'Most Recent Comparable Term', health.previousLikeTermVariance == null ? 'N/A' : health.previousLikeTermVariance, health.previousLikeTermVariancePct == null ? 'N/A' : `${(health.previousLikeTermVariancePct * 100).toFixed(1)}%`);
     add('Enrollment Health', 'Courses Reviewed', 'All Selected Rows', health.coursesReviewed);
     add('Enrollment Health', 'Sections Reviewed', 'All Selected Rows', health.sectionsReviewed);
       add('Enrollment Health', 'FTES', 'All Selected Rows', health.ftes);

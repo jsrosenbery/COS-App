@@ -1235,6 +1235,9 @@ test('dashboard focus term scopes current metrics and excludes focus from histor
   assert.equal(summary.health.ftes, 0);
   assert.equal(summary.health.expectedEnrollment, 125);
   assert.match(summary.health.expectedEnrollmentMethod, /growth-adjusted projection/);
+  assert.equal(summary.health.previousLikeTermEnrollment, 100);
+  assert.equal(summary.health.previousLikeTerm, 'SPRING 2026');
+  assert.equal(summary.health.previousLikeTermVariance, -100);
   const campusPace = summary.pace.find(row => row.dimension === 'Campus' && row.name === 'VIS');
   assert.equal(campusPace.currentEnrollment, 0);
   assert.equal(campusPace.expectedEnrollment, 125);
@@ -1903,6 +1906,9 @@ test('dashboard summary export includes methodology and context rows', () => {
   assert.ok(rows.some(row => row.Section === 'Context' && row.Metric === 'Methodology Version' && row.Value === 'Methodology Version 1.2'));
   assert.ok(rows.some(row => row.Section === 'Context' && row.Metric === 'Selected Division Filter' && row.Value === 'Arts'));
   assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Current Enrollment'));
+  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Expected Enrollment (Growth-Adjusted)'));
+  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Previous Like-Term Enrollment'));
+  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Variance vs Previous Like-Term'));
 });
 
 test('dashboard summary export respects selected division filter', () => {
@@ -5337,6 +5343,13 @@ test('dashboard compact tables use short headers and nowrap CSS', () => {
   assert.match(text, /currentEnrollment: 'Current'/);
   assert.match(text, /expectedEnrollment: 'Expected'/);
   assert.match(text, /estimatedFtesImpact: 'FTES Impact'/);
+  assert.match(text, /Expected Enrollment \(Growth-Adjusted\)/);
+  assert.match(text, /Variance vs Expected/);
+  assert.match(text, /Previous Like-Term Enrollment/);
+  assert.match(text, /Variance vs Previous Like-Term/);
+  assert.match(text, /Work Experience Rows Loaded/);
+  assert.match(text, /Work Experience Enrollment Included/);
+  assert.match(text, /Work Experience FTES Included/);
   assert.match(text, /function registrationPaceMonitorHtml/);
   assert.match(text, /Registration Pace by Campus/);
   assert.match(text, /Registration Pace by Modality/);
