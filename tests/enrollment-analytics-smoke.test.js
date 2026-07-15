@@ -1233,11 +1233,12 @@ test('dashboard focus term scopes current metrics and excludes focus from histor
   assert.equal(summary.health.sectionsReviewed, 1);
   assert.equal(summary.health.coursesReviewed, 1);
   assert.equal(summary.health.ftes, 0);
-  assert.equal(summary.health.expectedEnrollment, 90);
+  assert.equal(summary.health.expectedEnrollment, 125);
+  assert.match(summary.health.expectedEnrollmentMethod, /growth-adjusted projection/);
   const campusPace = summary.pace.find(row => row.dimension === 'Campus' && row.name === 'VIS');
   assert.equal(campusPace.currentEnrollment, 0);
-  assert.equal(campusPace.expectedEnrollment, 90);
-  assert.equal(campusPace.variance, -90);
+  assert.equal(campusPace.expectedEnrollment, 125);
+  assert.equal(campusPace.variance, -125);
   assert.equal(campusPace.variancePct, -1);
   assert.equal(campusPace.status, 'Behind Pace');
   assert.equal(historicalRows.some(row => row.term === 'SPRING 2027'), false);
@@ -3061,6 +3062,25 @@ test('instructor availability keeps Monday-only lab separate from MWF lecture', 
   ]));
 });
 
+test('dashboard breaks FTES out by attendance accounting method and work experience', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2026', crn: '10001', census: 20, ftes: 2.2, accountingMethodLabel: 'Weekly Census', hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: '10002', census: 10, ftes: 1.1, accountingMethodLabel: 'Weekly Census', hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'WX01', census: 5, ftes: 0.5, isWorkExperience: true, modality: 'WORK EXPERIENCE', hasFtesData: true, hasDirectFtesData: false })
+  ];
+  const summary = COSEnrollmentDashboard.dashboardSummary(rows, [], []);
+  const weekly = summary.health.ftesByAccountingMethod.find(row => row.accountingMethod === 'Weekly Census');
+  const work = summary.health.ftesByAccountingMethod.find(row => row.accountingMethod === 'Work Experience');
+
+  assert.equal(Number(summary.health.ftes.toFixed(1)), 3.8);
+  assert.equal(weekly.classOfferings, 2);
+  assert.equal(weekly.enrollment, 30);
+  assert.equal(weekly.directFtesRows, 2);
+  assert.equal(work.ftes, 0.5);
+  assert.equal(work.estimatedFtesRows, 1);
+});
+
 test('instructor availability supports all full-time and part-time faculty filters', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
@@ -3652,9 +3672,82 @@ test('faculty modality is a standalone Development report using INSM codes', () 
   assert.match(text, /faculty-modality-pie-grid/);
   assert.match(text, /faculty-modality-pie-card/);
   assert.match(text, /faculty-modality-bar/);
+  assert.match(text, /Section Seating enrollment\/capacity/);
+  assert.match(text, /Enrollment \/ Capacity Source/);
+  assert.match(text, /Faculty Count counts distinct instructors/);
+  assert.match(text, /table\('facultyModalityTable', tableRows, \['facultyType', 'modality', 'classOfferings', 'facultyCount', 'enrollment', 'seats', 'lhe', 'classOfferingShare', 'enrollmentCapacitySource', 'sourceCodes'\]\)/);
   assert.match(text, /facultyModalityTableRows/);
   assert.match(text, /faculty-modality\.csv/);
   assert.match(text, /INSM_CODE_SSBSECT/);
+});
+
+test('faculty modality enriches enrollment and seats from matching section seating rows', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const facultyRows = [
+    {
+      term: 'FALL 2026',
+      sourceTerm: 'FALL 2026',
+      crn: '10001',
+      facultyType: 'FULL_TIME',
+      facultyId: 'FT001',
+      facultyName: 'Full Faculty',
+      insmCode: '02',
+      actualEnroll: 5,
+      maxEnroll: 10,
+      lhe: 3
+    },
+    {
+      term: 'FALL 2026',
+      sourceTerm: 'FALL 2026',
+      crn: '10001',
+      facultyType: 'FULL_TIME',
+      facultyId: 'FT001',
+      facultyName: 'Full Faculty',
+      insmCode: '02',
+      actualEnroll: 5,
+      maxEnroll: 10,
+      lhe: 1
+    },
+    {
+      term: 'FALL 2026',
+      sourceTerm: 'FALL 2026',
+      crn: '10002',
+      facultyType: 'PART_TIME',
+      facultyId: 'PT001',
+      facultyName: 'Part Faculty',
+      insmCode: 'ONL',
+      actualEnroll: 8,
+      maxEnroll: 15,
+      lhe: 2
+    }
+  ];
+  const sectionRows = [
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'Fall 2026',
+      CRN: '10001',
+      Subject: 'MATH',
+      Course: '021',
+      ACTUAL_ENROLL: '30',
+      CENSUS_ENROLL: '31',
+      MAX_ENROLL: '40'
+    })
+  ];
+
+  const enriched = COSEnrollmentAnalytics.enrichFacultyModalityRowsWithSectionSupport(facultyRows, sectionRows);
+  const rows = COSEnrollmentAnalytics.buildFacultyModalityRows(enriched);
+  const diagnostics = COSEnrollmentAnalytics.facultyModalitySupportDiagnostics(enriched);
+  const fullTimeInPerson = rows.find(row => row.facultyType === 'Full-Time' && row.modality === 'In-Person');
+  const partTimeOnline = rows.find(row => row.facultyType === 'Part-Time' && row.modality === 'Online');
+
+  assert.equal(fullTimeInPerson.classOfferings, 1);
+  assert.equal(fullTimeInPerson.facultyCount, 1);
+  assert.equal(fullTimeInPerson.enrollment, 31);
+  assert.equal(fullTimeInPerson.seats, 40);
+  assert.match(fullTimeInPerson.enrollmentCapacitySource, /section seating/);
+  assert.equal(partTimeOnline.enrollment, 8);
+  assert.match(partTimeOnline.enrollmentCapacitySource, /faculty file/);
+  assert.equal(diagnostics.sectionSeatingMatches, 1);
+  assert.equal(diagnostics.facultyScheduleFallbacks, 1);
 });
 
 test('prime time analysis is a standalone Development report with custom definition controls', () => {
@@ -5260,6 +5353,14 @@ test('dashboard compact tables use short headers and nowrap CSS', () => {
   assert.match(text, /availableReceivingCapacity: 'Receiving Cap\.'/);
   assert.match(text, /studentsPresent: 'Students'/);
   assert.match(text, /availableRoomCapacity: 'Open Cap\.'/);
+  assert.match(text, /FTES by Attendance Accounting Method/);
+  assert.match(text, /accountingMethod: 'Accounting Method'/);
+  assert.match(text, /estimatedFtesRows: 'Estimated'/);
+  assert.match(text, /dashboardVisibleLifecycle/);
+  assert.match(text, /item\.label !== 'Census 2'/);
+  assert.match(text, /Census 1 \(pre-term estimate\)/);
+  assert.match(text, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(text, /dashboard-mini-table-pace\{min-width:640px\}/);
   assert.match(text, /title="\$\{escapeAttr\(full\)\}"/);
   assert.match(text, /aria-label="\$\{escapeAttr\(full\)\}"/);
   assert.match(text, /white-space:nowrap/);

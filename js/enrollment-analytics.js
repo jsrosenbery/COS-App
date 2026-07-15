@@ -1846,7 +1846,7 @@
         <div id="facultyModalityReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Faculty Modality</h2>
-            <p>Uses Faculty Schedule Data to summarize teaching modality by faculty type. This report uses INSM_CODE_SSBSECT as the modality source and does not read or write Section Seating / Schedule Data.</p>
+            <p>Uses Faculty Schedule Data to summarize teaching modality by faculty type. This report uses INSM_CODE_SSBSECT as the modality source and can match loaded Section Seating rows by term + CRN to fill enrollment and capacity context.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -1861,7 +1861,7 @@
                 <ul>
                   <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor.</li>
                   <li>Modality is determined from INSM_CODE_SSBSECT using the shared TIMBER instructional method mapping. Unknown or omitted codes are excluded from standard analytics and should be reviewed through diagnostics.</li>
-                  <li>Sections counts deduped instructional meeting rows. Faculty Count counts distinct faculty in each faculty type and modality bucket. Enrollment uses ActualEnroll, Seats uses MaxEnroll, and LHE uses uploaded LHE.</li>
+                  <li>Class Offerings count distinct term + CRN values. Faculty Count counts distinct faculty in each faculty type and modality bucket. Enrollment and Seats prefer matched Section Seating data by term + CRN, then fall back to Faculty Schedule ActualEnroll and MaxEnroll fields.</li>
                   <li>AE and X faculty type rows are omitted. JP is Part-Time, FT/TE are Full-Time, and unrecognized FCNT_CODE values are Unknown.</li>
                 </ul>
               </div>
@@ -3828,15 +3828,115 @@
 
   function facultyModalityClassOfferingKey(row) {
     const crn = String(row?.crn || row?.CRN || row?.raw?.CRN || '').trim().toUpperCase();
-    if (crn) return `${facultyTerm(row) || 'UNKNOWN'}|${crn}`;
+    if (crn) return `${normalizeTermLabel(facultyTerm(row)) || 'UNKNOWN'}|${crn}`;
     return String(row?.deduplicationKey || [
-      facultyTerm(row) || 'UNKNOWN',
+      normalizeTermLabel(facultyTerm(row)) || 'UNKNOWN',
       facultyCourseValue(row) || '',
       row?.section || row?.raw?.Section || row?.raw?.SECTION || '',
       row?.facultyId || row?.facultyName || row?.instructor || '',
       row?.startTime || row?.start || '',
       row?.endTime || row?.end || ''
     ].join('|')).trim().toUpperCase();
+  }
+
+  function facultyModalitySupportCrn(row) {
+    return String(row?.crn || row?.CRN || row?.raw?.CRN || '').trim().toUpperCase();
+  }
+
+  function facultyModalitySupportTerm(row) {
+    return normalizeTermLabel(row?.term || row?.sourceTerm || row?.__sourceTerm || row?.raw?.Term || row?.raw?.TERM || facultyTerm(row) || currentTerm());
+  }
+
+  function facultyModalitySectionSupportEnrollment(row) {
+    const census = row?.census;
+    const actual = row?.actual;
+    const finalEnrollment = row?.finalEnrollment;
+    if (census != null && Number.isFinite(Number(census))) return Number(census);
+    if (actual != null && Number.isFinite(Number(actual))) return Number(actual);
+    if (finalEnrollment != null && Number.isFinite(Number(finalEnrollment))) return Number(finalEnrollment);
+    return 0;
+  }
+
+  function facultyModalitySectionSupportSeats(row) {
+    const seats = row?.cap ?? row?.maxEnroll ?? row?.MaxEnroll;
+    return Number.isFinite(Number(seats)) ? Number(seats) : 0;
+  }
+
+  function buildFacultyModalitySectionSupportIndex(sectionRows = []) {
+    const index = {
+      byTermCrn: new Map(),
+      byCrn: new Map(),
+      rowCount: 0
+    };
+    (Array.isArray(sectionRows) ? sectionRows : []).forEach(row => {
+      const crn = facultyModalitySupportCrn(row);
+      if (!crn) return;
+      const term = facultyModalitySupportTerm(row) || 'UNKNOWN';
+      const support = {
+        term,
+        crn,
+        enrollment: facultyModalitySectionSupportEnrollment(row),
+        seats: facultyModalitySectionSupportSeats(row),
+        source: 'Section Seating match'
+      };
+      const exactKey = `${term}|${crn}`;
+      index.byTermCrn.set(exactKey, support);
+      if (!index.byCrn.has(crn)) index.byCrn.set(crn, []);
+      index.byCrn.get(crn).push(support);
+      index.rowCount += 1;
+    });
+    return index;
+  }
+
+  function facultyModalityLookupSectionSupport(row, supportIndex) {
+    const crn = facultyModalitySupportCrn(row);
+    if (!crn || !supportIndex) return null;
+    const term = normalizeTermLabel(facultyTerm(row) || facultyModalitySupportTerm(row)) || 'UNKNOWN';
+    const exact = supportIndex.byTermCrn?.get(`${term}|${crn}`);
+    if (exact) return exact;
+    const crnMatches = supportIndex.byCrn?.get(crn) || [];
+    return crnMatches.length === 1 ? crnMatches[0] : null;
+  }
+
+  function enrichFacultyModalityRowsWithSectionSupport(facultyRows = [], sectionRows = []) {
+    const supportIndex = buildFacultyModalitySectionSupportIndex(sectionRows);
+    return (Array.isArray(facultyRows) ? facultyRows : []).map(row => {
+      const support = facultyModalityLookupSectionSupport(row, supportIndex);
+      const hasFacultyFallback = Number(row?.actualEnroll || 0) > 0 || Number(row?.maxEnroll || 0) > 0;
+      if (support) {
+        return {
+          ...row,
+          actualEnroll: support.enrollment,
+          maxEnroll: support.seats,
+          facultyModalityEnrollmentSource: support.source,
+          facultyModalitySectionMatched: true
+        };
+      }
+      return {
+        ...row,
+        facultyModalityEnrollmentSource: hasFacultyFallback ? 'Faculty Schedule fallback' : 'No enrollment/capacity match',
+        facultyModalitySectionMatched: false
+      };
+    });
+  }
+
+  function facultyModalitySupportDiagnostics(rows = []) {
+    const offerings = new Map();
+    reportableFacultyRows(rows).forEach(row => {
+      const key = facultyModalityClassOfferingKey(row);
+      if (!key || offerings.has(key)) return;
+      offerings.set(key, {
+        source: row.facultyModalityEnrollmentSource || 'Faculty Schedule fallback',
+        matched: Boolean(row.facultyModalitySectionMatched)
+      });
+    });
+    const values = [...offerings.values()];
+    return {
+      offerings: offerings.size,
+      sectionSeatingMatches: values.filter(item => item.matched).length,
+      facultyScheduleFallbacks: values.filter(item => item.source === 'Faculty Schedule fallback').length,
+      missingSupport: values.filter(item => item.source === 'No enrollment/capacity match').length
+    };
   }
 
   function facultyModalityClassOfferingSummary(rows) {
@@ -3891,6 +3991,7 @@
           lhe: 0,
           faculty: new Set(),
           sourceCodes: new Set(),
+          enrollmentSources: new Set(),
           classOfferingValues: new Map()
         });
       });
@@ -3908,33 +4009,53 @@
       if (!bucket.classOfferingValues.has(offeringKey)) {
         bucket.classOfferingValues.set(offeringKey, {
           enrollment: row.actualEnroll || 0,
-          seats: row.maxEnroll || 0
+          seats: row.maxEnroll || 0,
+          enrollmentSource: row.facultyModalityEnrollmentSource || 'Faculty Schedule fallback',
+          sectionMatched: Boolean(row.facultyModalitySectionMatched)
         });
       } else {
         const existing = bucket.classOfferingValues.get(offeringKey);
         existing.enrollment = Math.max(existing.enrollment || 0, row.actualEnroll || 0);
         existing.seats = Math.max(existing.seats || 0, row.maxEnroll || 0);
+        if (row.facultyModalitySectionMatched) {
+          existing.enrollmentSource = row.facultyModalityEnrollmentSource || 'Section Seating match';
+          existing.sectionMatched = true;
+        }
       }
       bucket.lhe += row.lhe || 0;
       bucket.faculty.add(row.facultyId || row.facultyName || row.instructor || 'Unknown');
       bucket.facultyCount = bucket.faculty.size;
       if (row.insmCode) bucket.sourceCodes.add(row.insmCode);
+      bucket.enrollmentSources.add(row.facultyModalityEnrollmentSource || 'Faculty Schedule fallback');
     });
     const totalClassOfferings = [...buckets.values()].reduce((total, row) => total + row.classOfferings.size, 0);
-    return [...buckets.values()].map(row => ({
-      facultyType: row.facultyType,
-      modality: row.modality,
-      classOfferings: row.classOfferings.size,
-      sections: row.classOfferings.size,
-      instructionalMeetingRows: row.instructionalMeetingRows,
-      facultyCount: row.facultyCount,
-      enrollment: [...row.classOfferingValues.values()].reduce((total, item) => total + (item.enrollment || 0), 0),
-      seats: [...row.classOfferingValues.values()].reduce((total, item) => total + (item.seats || 0), 0),
-      lhe: Number(row.lhe.toFixed(2)),
-      classOfferingShare: totalClassOfferings ? `${((row.classOfferings.size / totalClassOfferings) * 100).toFixed(1)}%` : '0%',
-      sectionShare: totalClassOfferings ? `${((row.classOfferings.size / totalClassOfferings) * 100).toFixed(1)}%` : '0%',
-      sourceCodes: [...row.sourceCodes].sort().join(', ') || 'N/A'
-    }));
+    return [...buckets.values()].map(row => {
+      const values = [...row.classOfferingValues.values()];
+      const matched = values.filter(item => item.sectionMatched).length;
+      const fallback = values.filter(item => item.enrollmentSource === 'Faculty Schedule fallback').length;
+      const missing = values.filter(item => item.enrollmentSource === 'No enrollment/capacity match').length;
+      const sourceSummary = [
+        matched ? `${matched} section seating` : '',
+        fallback ? `${fallback} faculty file` : '',
+        missing ? `${missing} missing` : ''
+      ].filter(Boolean).join('; ') || 'N/A';
+      return {
+        facultyType: row.facultyType,
+        modality: row.modality,
+        classOfferings: row.classOfferings.size,
+        sections: row.classOfferings.size,
+        instructionalMeetingRows: row.instructionalMeetingRows,
+        meetingComponents: row.instructionalMeetingRows,
+        facultyCount: row.facultyCount,
+        enrollment: values.reduce((total, item) => total + (item.enrollment || 0), 0),
+        seats: values.reduce((total, item) => total + (item.seats || 0), 0),
+        lhe: Number(row.lhe.toFixed(2)),
+        classOfferingShare: totalClassOfferings ? `${((row.classOfferings.size / totalClassOfferings) * 100).toFixed(1)}%` : '0%',
+        sectionShare: totalClassOfferings ? `${((row.classOfferings.size / totalClassOfferings) * 100).toFixed(1)}%` : '0%',
+        enrollmentCapacitySource: sourceSummary,
+        sourceCodes: [...row.sourceCodes].sort().join(', ') || 'N/A'
+      };
+    });
   }
 
   function facultyModalityPieSlicePath(cx, cy, radius, startAngle, endAngle) {
@@ -4052,7 +4173,8 @@
         ['In-Person class offerings', 0],
         ['Hybrid class offerings', 0],
         ['Online class offerings', 0],
-        ['Instructional meeting rows', 0],
+        ['Faculty with assignments', 0],
+        ['Section seating matches', 0],
         ['Unknown/Omitted rows excluded', reportableFacultyRows(sourceRows).filter(row => !['In-Person', 'Hybrid', 'Online'].includes(facultyInstructionModality(row))).length]
       ]);
       document.getElementById('facultyModalityChart').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Modality.</p>';
@@ -4060,14 +4182,21 @@
       document.getElementById('facultyModalityLegend').innerHTML = '';
       return;
     }
+    const rows = facultyModalityFilterRows();
+    const sectionSupportRows = currentRows();
+    const enrichedRows = enrichFacultyModalityRowsWithSectionSupport(rows, sectionSupportRows);
+    const supportDiagnostics = facultyModalitySupportDiagnostics(enrichedRows);
     if (status) {
       const terms = [...new Set(sourceRows.map(facultyTerm))].sort().join(', ');
-      status.textContent = `Loaded ${sourceRows.length} deduped meeting row(s). Terms: ${terms || 'Unspecified'}.`;
+      const supportText = sectionSupportRows.length
+        ? `${supportDiagnostics.sectionSeatingMatches}/${supportDiagnostics.offerings} class offering(s) matched to Section Seating enrollment/capacity; ${supportDiagnostics.facultyScheduleFallbacks} used Faculty Schedule fallback; ${supportDiagnostics.missingSupport} had no enrollment/capacity support.`
+        : 'No Section Seating rows are currently loaded, so enrollment/capacity use Faculty Schedule fields only.';
+      status.textContent = `Loaded ${sourceRows.length} deduped faculty meeting row(s). Terms: ${terms || 'Unspecified'}. ${supportText}`;
     }
-    const rows = facultyModalityFilterRows();
-    const tableRows = buildFacultyModalityRows(rows);
+    const tableRows = buildFacultyModalityRows(enrichedRows);
     state.facultyModalityTableRows = tableRows;
-    const classOfferingSummary = facultyModalityClassOfferingSummary(rows);
+    const classOfferingSummary = facultyModalityClassOfferingSummary(enrichedRows);
+    const facultyWithAssignments = new Set(enrichedRows.map(row => row.facultyId || row.facultyName || row.instructor || '').filter(Boolean));
     metric('facultyModalityMetrics', [
       ['Total class offerings', classOfferingSummary.total.size],
       ['Full-Time class offerings', classOfferingSummary.byType['Full-Time'].size],
@@ -4076,20 +4205,23 @@
       ['In-Person class offerings', classOfferingSummary.byModality['In-Person'].size],
       ['Hybrid class offerings', classOfferingSummary.byModality.Hybrid.size],
       ['Online class offerings', classOfferingSummary.byModality.Online.size],
-      ['Instructional meeting rows', rows.length],
+      ['Faculty with assignments', facultyWithAssignments.size],
+      ['Section seating matches', `${supportDiagnostics.sectionSeatingMatches}/${supportDiagnostics.offerings}`],
       ['Unknown/Omitted rows excluded', sourceRows.filter(row => !['In-Person', 'Hybrid', 'Online'].includes(facultyInstructionModality(row))).length]
     ]);
     renderFacultyModalityChart(tableRows);
-    table('facultyModalityTable', tableRows, ['facultyType', 'modality', 'classOfferings', 'instructionalMeetingRows', 'facultyCount', 'enrollment', 'seats', 'lhe', 'classOfferingShare', 'sourceCodes']);
+    table('facultyModalityTable', tableRows, ['facultyType', 'modality', 'classOfferings', 'facultyCount', 'enrollment', 'seats', 'lhe', 'classOfferingShare', 'enrollmentCapacitySource', 'sourceCodes']);
     renderMethodologyPanel(document.getElementById('facultyModalityLegend'), {
       title: 'Faculty Modality Methodology & Data Dictionary',
       purpose: 'Summarizes teaching modality by faculty type from Faculty Schedule CSV rows.',
       metricsUsed: ['Scheduled Class Offerings', 'Instructional Meetings', 'Faculty Count', 'Enrollment Present', 'Seats Offered', 'LHE', 'Modality Choice Count'],
-      calculationRules: 'Modality is mapped from INSM_CODE_SSBSECT with the shared TIMBER modality normalizer. Class offerings count distinct term + CRN values after filters. Instructional meeting rows count deduplicated CRN + day/time/component/instructor records and can exceed class offerings when one CRN has multiple meeting components.',
-      assumptions: 'User-facing modality results display only In-Person, Hybrid, and Online. Unknown or omitted codes are excluded from standard analytics and should be reviewed in diagnostics/validation outputs.',
+      calculationRules: 'Modality is mapped from INSM_CODE_SSBSECT with the shared TIMBER modality normalizer. Class offerings count distinct term + CRN values after filters. Faculty Count counts distinct instructors within each faculty type/modality bucket, so a row can have more class offerings than faculty because one instructor can teach multiple CRNs. Enrollment and seats are matched from loaded Section Seating rows by term + CRN when available, then fall back to Faculty Schedule ActualEnroll and MaxEnroll. Instructional meeting rows are retained in exports as Meeting Components, but they are not emphasized in the visible table because they can exceed class offerings when one CRN has multiple meeting components.',
+      assumptions: 'User-facing modality results display only In-Person, Hybrid, and Online. Unknown or omitted codes are excluded from standard analytics and should be reviewed in diagnostics/validation outputs. For the most complete enrollment and seat totals, load the matching Section Seating term before reviewing Faculty Modality.',
       limitations: 'This report does not infer faculty preference, load eligibility, or assignment policy. It only summarizes uploaded schedule rows.',
       items: [
         ['Class Offering Share', 'Distinct CRNs in the faculty type/modality row divided by all included displayed class offering rows after filters.'],
+        ['Faculty Count', 'Distinct instructors represented in the row. This is not expected to equal class offerings because faculty may teach more than one CRN.'],
+        ['Enrollment / Seats', 'Preferred source is the matching Section Seating row for the same term + CRN. If no match exists, the report uses Faculty Schedule ActualEnroll and MaxEnroll. The Enrollment/Capacity Source column shows the source mix.'],
         ['FT/PT Share of Class Offerings', 'Pie chart showing Full-Time versus Part-Time share of included class offerings. Unknown faculty rows remain in the table but are not included in the FT/PT pie.'],
         ['Faculty Type Modality Share', 'Pie charts showing each faculty type split across In-Person, Hybrid, and Online class offerings.'],
         ['Source Codes', 'Original INSM_CODE_SSBSECT values that mapped into the displayed modality row.']
@@ -8290,6 +8422,7 @@
     const sourceTerms = collectRowTerms(dashboardSourceRows());
     const uploadedFiles = Array.from(document.getElementById('dashboardCsv')?.files || []).map(file => file.name);
     const selectedArchivedTerms = getSelectedValues('dashArchiveTerms');
+    const focusTermNotStarted = dashboardFocusTermNotStarted(currentRows, focusTerm);
     return {
       focusTerm,
       focusLabel: focusTerm || 'All Loaded Terms',
@@ -8301,9 +8434,20 @@
       historicalTerms,
       currentTerms,
       comparableBasis: focusTerm ? `${termParts(focusTerm).season || 'Same-season'} historical terms before ${focusTerm}` : 'All loaded terms selected',
+      focusTermNotStarted,
       missingMilestones: lifecycle.missing,
-      warnings: dashboardScopeWarnings({ focusTerm, currentRows, historicalRows, currentTerms, lifecycle })
+      warnings: dashboardScopeWarnings({ focusTerm, currentRows, historicalRows, currentTerms, lifecycle, focusTermNotStarted })
     };
+  }
+
+  function dashboardFocusTermNotStarted(rows = [], focusTerm = '') {
+    const today = new Date();
+    const starts = (rows || []).map(row => parseSectionDate(row?.startDate)).filter(Boolean);
+    if (starts.length) return starts.every(date => date > today);
+    const parts = termParts(focusTerm);
+    if (!parts.year || !parts.season) return false;
+    const startMonth = { SPRING: 0, SUMMER: 5, FALL: 7, WINTER: 11 }[parts.season] ?? 0;
+    return new Date(parts.year, startMonth, 1) > today;
   }
 
   function summaryLifecycleAvailability(rows) {
@@ -8326,6 +8470,7 @@
     if (context.focusTerm && !context.historicalRows.length) warnings.push('Expected enrollment has no historical comparison terms for the selected focus term.');
     if (context.currentTerms.length > 1) warnings.push('Current rows include multiple terms. Confirm All Loaded Terms was selected intentionally.');
     if (context.lifecycle.missing.length) warnings.push('Lifecycle milestone data unavailable in current upload.');
+    if (context.focusTermNotStarted) warnings.push('The selected focus term appears not to have started yet. Census and lifecycle values may be source-file estimates or pre-census placeholders, not completed official outcomes.');
     return warnings;
   }
 
@@ -8359,7 +8504,7 @@
   function renderDashboard(summary, scopeContext = null) {
     if (scopeContext) renderDashboardScopePanel(scopeContext);
     const health = summary.health || {};
-    const lifecycle = health.lifecycle || [];
+    const lifecycle = dashboardVisibleLifecycle(health.lifecycle || [], scopeContext);
     const workExperience = workExperienceSummary(state.dashboardRows || []);
     const diagnostics = summary.diagnostics || {};
     metric('dashboardMetrics', [
@@ -8379,6 +8524,7 @@
     const structure = summary.structure || { modality: [] };
     document.getElementById('dashboardInsights').innerHTML = [
       dashboardPanel('Registration Pace Monitor', registrationPaceMonitorHtml(summary.pace || [])),
+      dashboardPanel('FTES by Attendance Accounting Method', ftesAccountingBreakdownHtml(health.ftesByAccountingMethod || [])),
       dashboardPanel('Growth Opportunities', miniTable(summary.growth || [], ['course', 'waitlist', 'openSeats', 'viableOpenSeats', 'sameModalitySeats', 'onlineSeats', 'sameCampusSeats', 'timeWindowSeats', 'fillRate', 'recommendation'], 'growth')),
       dashboardPanel('Reduction Opportunities', `${miniTable(summary.reduction || [], ['type', 'course', 'potentialSectionsRemoved', 'availableReceivingCapacity', 'recommendation'], 'reduction')}<button type="button" data-report-target="${REPORTS.consolidation}">Open Consolidation Report</button>`),
       dashboardPanel('Student Presence Analytics', `${presenceExtremes(presence)}${miniTable(presence.rows || [], ['campus', 'day', 'hour', 'studentsPresent', 'sectionsActive', 'availableRoomCapacity'], 'presence')}<button type="button" data-report-target="${REPORTS.studentPresence}">Open Student Presence Report</button>`),
@@ -8402,8 +8548,24 @@
     renderDashboardLegend();
   }
 
+  function dashboardVisibleLifecycle(lifecycle = [], scopeContext = null) {
+    return (lifecycle || [])
+      .filter(item => item.label !== 'Census 2')
+      .map(item => {
+        if (item.label === 'Census 1' && scopeContext?.focusTermNotStarted) {
+          return { ...item, label: 'Census 1 (pre-term estimate)' };
+        }
+        return item;
+      });
+  }
+
   function dashboardPanel(title, body) {
     return `<section class="dashboard-panel" data-collapsible-title="${escapeAttr(title)}" data-collapsible-id="dashboard-${escapeAttr(slugify(title))}"><h3>${escapeAttr(title)}</h3>${body}</section>`;
+  }
+
+  function ftesAccountingBreakdownHtml(rows = []) {
+    const note = '<p class="dashboard-note">FTES is grouped by attendance accounting method where available. Work Experience rows are shown separately; estimated rows use available units/contact-hour inputs when direct FTES is not provided.</p>';
+    return `${note}${miniTable(rows, ['accountingMethod', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows'], 'ftes')}`;
   }
 
   function registrationPaceMonitorHtml(rows) {
@@ -8565,6 +8727,15 @@
         studentsPresent: 'Students',
         sectionsActive: 'Sections',
         availableRoomCapacity: 'Open Cap.'
+      },
+      ftes: {
+        accountingMethod: 'Accounting Method',
+        classOfferings: 'Offerings',
+        enrollment: 'Enroll.',
+        ftes: 'FTES',
+        directFtesRows: 'Direct',
+        estimatedFtesRows: 'Estimated',
+        unavailableFtesRows: 'Unavailable'
       },
       structure: {
         modality: 'Modality',
@@ -14322,13 +14493,14 @@
       title: 'Enrollment Analytics Dashboard Methodology & Data Dictionary',
       purpose: 'Provides a compact decision-support landing view for enrollment health, registration pace, capacity pressure, consolidation summary, physical student presence, schedule structure, and course rotation health.',
       methodology: 'Prepared using TIMBER Enrollment Analytics. Dashboard calculations use the currently selected filters. Growth prompts compare waitlist pressure to existing open seats before suggesting added capacity. Reduction prompts summarize the existing Section Consolidation output and do not introduce separate reduction logic.',
-      assumptions: 'Current enrollment uses census enrollment when available and current enrollment otherwise. Expected enrollment uses same-season historical comparison terms and excludes the selected focus term. Student Presence Analytics includes in-person and hybrid rows only. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM.',
+      assumptions: 'Current enrollment uses census enrollment when available and current enrollment otherwise. Expected enrollment uses same-season historical comparison terms, excludes the selected focus term, and applies the average same-season year-over-year growth rate to the most recent comparable term when enough history exists. Student Presence Analytics includes in-person and hybrid rows only. Prime time is Monday through Thursday, 9:00 AM through 2:59 PM.',
       limitations: 'The dashboard is a planning summary, not an automatic add, cancel, consolidation, or staffing directive. It does not include student intent, budget constraints, contractual constraints, equity review, or leadership decisions unless those factors are represented in the uploaded data.',
       items: [
         ['Enrollment Health', 'Current enrollment, expected enrollment, variance, courses reviewed, sections reviewed, FTES, and available lifecycle milestones for the selected filters.'],
         ['Work Experience Rows Included', 'Metric card. Count of separate Work Experience Enrollment Upload rows included in the dashboard because the include Work Experience toggle is on. These rows contribute to enrollment and FTES summaries, but not physical room/time reports.'],
         ['Work Experience FTES Warnings', 'Metric card. Count of included Work Experience rows where FTES was not directly provided and could not be estimated from available units/contact-hour fields.'],
-        ['Registration Pace Monitor', 'Current focus-term enrollment versus average expected enrollment from comparable same-season historical terms by Campus, Modality, scheduled Time Block, scheduled Day Pattern, Division, and separate Asynchronous/TBA categories. The selected focus term and future terms are excluded. Status badges display Ahead, Near Target, Behind, or N/A. Time Block analyses only evaluate sections with valid scheduled meeting times. Asynchronous Online and TBA sections are analyzed separately because they have no fixed meeting schedule.'],
+        ['Registration Pace Monitor', 'Current focus-term enrollment versus growth-adjusted expected enrollment from comparable same-season historical terms by Campus, Modality, scheduled Time Block, scheduled Day Pattern, Division, and separate Asynchronous/TBA categories. The selected focus term and future terms are excluded. Status badges display Ahead, Near Target, Behind, or N/A. Time Block analyses only evaluate sections with valid scheduled meeting times. Asynchronous Online and TBA sections are analyzed separately because they have no fixed meeting schedule.'],
+        ['FTES by Attendance Accounting Method', 'Dashboard panel. Breaks total FTES into attendance accounting method categories where available. Work Experience rows are shown separately and may use estimated FTES when direct FTES is missing but units or contact-hour inputs are present.'],
         ['Growth Opportunities', 'Courses with waitlist pressure or very high fill. Added capacity is considered only when viable open seats appear insufficient after reviewing same modality, online, same campus, time-window, and compatible-day seats.'],
         ['Reduction Opportunities', 'Top rows from the existing consolidation report output. Open the consolidation report for the full methodology and candidate details.'],
         ['Student Presence Analytics', 'In-person and hybrid student load by campus, day, and hour. Online rows are excluded.'],
@@ -14747,6 +14919,8 @@
       crnCount: 'Distinct CRNs',
       classOfferings: 'Class Offerings',
       instructionalMeetingRows: 'Instructional Meeting Rows',
+      meetingComponents: 'Meeting Components',
+      enrollmentCapacitySource: 'Enrollment / Capacity Source',
       classOfferingShare: 'Class Offering Share',
       exampleCourses: 'Example Courses',
       exampleCrns: 'Example CRNs',
@@ -15644,17 +15818,18 @@
       .dashboard-scope-warnings{display:grid;gap:6px}
       .dashboard-scope-warnings p{margin:0;padding:8px 10px;border:1px solid #f0c36d;border-radius:8px;background:#fff7dc;color:#6d4c00;font-weight:800;line-height:1.3}
       .dashboard-scope-ok{padding:8px 10px;border:1px solid #b9ddc3;border-radius:8px;background:#eef9f1;color:#245f37;font-weight:800}
-      .dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px;margin-bottom:14px}
+      .dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:14px}
       .dashboard-panel{min-width:0;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;padding:12px;overflow:hidden}
       .dashboard-panel h3{margin:0 0 8px;color:#123367;font-size:15px}
       .dashboard-pace-section{margin:0 0 14px}
       .dashboard-pace-section h4{margin:0 0 6px;color:#123367;font-size:13px;font-weight:900}
       .dashboard-table-wrap{overflow-x:auto;overflow-y:auto;max-height:460px}
       .dashboard-panel table{width:100%;min-width:520px;border-collapse:collapse;background:#fff}
-      .dashboard-mini-table-pace{min-width:760px}
+      .dashboard-mini-table-pace{min-width:640px}
       .dashboard-mini-table-growth{min-width:760px}
       .dashboard-mini-table-reduction{min-width:680px}
       .dashboard-mini-table-presence{min-width:560px}
+      .dashboard-mini-table-ftes{min-width:620px}
       .dashboard-panel th{background:#eaf1f7;color:#123367;text-align:left;padding:7px;font-size:12px;white-space:nowrap;word-break:normal}
       .dashboard-panel th span{white-space:nowrap}
       .dashboard-panel td{border-top:1px solid #e6edf5;padding:7px;font-size:12px;vertical-align:top;word-break:normal;overflow-wrap:normal}
@@ -15756,6 +15931,7 @@
       .methodology-panel-body section{margin-top:8px}
       @media (max-width:760px){
         .analytics-insights{grid-template-columns:1fr}
+        .dashboard-grid{grid-template-columns:1fr}
         .presence-curve .heatmap-wrap{overflow-x:auto}
         .presence-curve table{min-width:720px}
         .supply-demand-line svg{min-height:190px}
@@ -16239,6 +16415,9 @@
     scheduleOpportunityCategory,
     buildSchedulingRecommendations,
     instructionalMethodValidationRows,
+    buildFacultyModalityRows,
+    enrichFacultyModalityRowsWithSectionSupport,
+    facultyModalitySupportDiagnostics,
     buildFacultyHeatmapBuckets,
     primeTimeAnalysisRows,
     tutoringOpenLabConfig: TUTORING_OPEN_LAB_CONFIG,

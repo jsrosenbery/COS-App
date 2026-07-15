@@ -178,14 +178,18 @@
 
   function enrollmentHealth(rows, historicalRows = []) {
     const currentEnrollment = sum(rows.map(row => ({ value: enrollment(row) })), 'value');
-    const expectedEnrollment = expectedTotalEnrollment(historicalRows);
+    const expected = expectedTotalEnrollment(historicalRows);
+    const expectedEnrollment = expected?.value ?? null;
     return {
       currentEnrollment,
       expectedEnrollment,
+      expectedEnrollmentMethod: expected?.method || 'No comparable historical terms',
+      expectedEnrollmentBasis: expected?.basis || '',
       variance: expectedEnrollment == null ? null : currentEnrollment - expectedEnrollment,
       coursesReviewed: group(rows, courseKey).size,
       sectionsReviewed: rows.length,
       ftes: sum(rows, 'ftes'),
+      ftesByAccountingMethod: ftesByAccountingMethod(rows),
       lifecycle: enrollmentLifecycle(rows)
     };
   }
@@ -193,7 +197,67 @@
   function expectedTotalEnrollment(historicalRows) {
     const byTerm = group(historicalRows, row => row.term || 'UNKNOWN');
     if (!byTerm.size) return null;
-    return Math.round(average([...byTerm.values()].map(termRows => termRows.reduce((total, row) => total + enrollment(row), 0))));
+    const series = [...byTerm.entries()]
+      .map(([term, termRows]) => ({ term, value: termRows.reduce((total, row) => total + enrollment(row), 0) }))
+      .sort((a, b) => termValue(a.term) - termValue(b.term));
+    return growthAdjustedExpected(series, true);
+  }
+
+  function growthAdjustedExpected(series, roundValues = true) {
+    const usable = (series || [])
+      .filter(item => item && Number.isFinite(Number(item.value)))
+      .map(item => ({ term: item.term || 'UNKNOWN', value: Number(item.value) }))
+      .sort((a, b) => termValue(a.term) - termValue(b.term));
+    if (!usable.length) return null;
+    const latest = usable[usable.length - 1];
+    if (usable.length === 1) {
+      return {
+        value: roundValues ? Math.round(latest.value) : latest.value,
+        method: 'Single comparable term fallback',
+        basis: `${latest.term}: ${latest.value}`
+      };
+    }
+    const growthRates = [];
+    for (let index = 1; index < usable.length; index += 1) {
+      const previous = usable[index - 1].value;
+      const current = usable[index].value;
+      if (previous > 0) growthRates.push((current - previous) / previous);
+    }
+    if (!growthRates.length) {
+      const fallback = average(usable.map(item => item.value));
+      return {
+        value: roundValues ? Math.round(fallback) : fallback,
+        method: 'Average fallback; growth unavailable',
+        basis: usable.map(item => `${item.term}: ${item.value}`).join('; ')
+      };
+    }
+    const avgGrowth = average(growthRates);
+    const projected = Math.max(0, latest.value * (1 + avgGrowth));
+    return {
+      value: roundValues ? Math.round(projected) : projected,
+      method: `Same-season growth-adjusted projection (${(avgGrowth * 100).toFixed(1)}% average growth)`,
+      basis: usable.map(item => `${item.term}: ${item.value}`).join('; ')
+    };
+  }
+
+  function ftesAccountingLabel(row) {
+    if (row?.isWorkExperience || String(row?.modality || '').toUpperCase() === 'WORK EXPERIENCE') return 'Work Experience';
+    return row?.accountingMethodLabel || row?.accountingCategory || row?.accountingMethod || 'Unknown / Not Provided';
+  }
+
+  function ftesByAccountingMethod(rows = []) {
+    return [...group(rows, ftesAccountingLabel).entries()]
+      .map(([accountingMethod, methodRows]) => ({
+        accountingMethod,
+        rows: methodRows.length,
+        classOfferings: distinctCrnCount(methodRows),
+        enrollment: methodRows.reduce((total, row) => total + enrollment(row), 0),
+        ftes: methodRows.reduce((total, row) => total + ftes(row), 0),
+        directFtesRows: methodRows.filter(row => row.hasDirectFtesData).length,
+        estimatedFtesRows: methodRows.filter(row => !row.hasDirectFtesData && row.hasFtesData).length,
+        unavailableFtesRows: methodRows.filter(row => row.ftesUnavailable).length
+      }))
+      .sort((a, b) => b.ftes - a.ftes || b.enrollment - a.enrollment);
   }
 
   function enrollmentLifecycle(rows) {
@@ -256,13 +320,13 @@
     byTerm.forEach(termRows => {
       group(termRows, keyer).forEach((groupRows, key) => {
         if (!samples.has(key)) samples.set(key, []);
-        samples.get(key).push(groupRows.reduce((total, row) => total + valueGetter(row), 0));
+        samples.get(key).push({ term: termRows[0]?.term || 'UNKNOWN', value: groupRows.reduce((total, row) => total + valueGetter(row), 0) });
       });
     });
     const out = new Map();
-    samples.forEach((values, key) => {
-      const expected = average(values);
-      out.set(key, roundValues ? Math.round(expected) : expected);
+    samples.forEach((series, key) => {
+      const expected = growthAdjustedExpected(series, roundValues);
+      if (expected) out.set(key, expected.value);
     });
     return out;
   }
@@ -743,10 +807,14 @@
     const health = summary?.health || {};
     add('Enrollment Health', 'Current Enrollment', 'All Selected Rows', health.currentEnrollment);
     add('Enrollment Health', 'Expected Enrollment', 'All Selected Rows', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment);
+    add('Enrollment Health', 'Expected Enrollment Method', 'All Selected Rows', health.expectedEnrollmentMethod || 'N/A', health.expectedEnrollmentBasis || '');
     add('Enrollment Health', 'Variance', 'All Selected Rows', health.variance == null ? 'N/A' : health.variance);
     add('Enrollment Health', 'Courses Reviewed', 'All Selected Rows', health.coursesReviewed);
     add('Enrollment Health', 'Sections Reviewed', 'All Selected Rows', health.sectionsReviewed);
-    add('Enrollment Health', 'FTES', 'All Selected Rows', health.ftes);
+      add('Enrollment Health', 'FTES', 'All Selected Rows', health.ftes);
+    (health.ftesByAccountingMethod || []).forEach(row => {
+      add('Enrollment Health', 'FTES by Attendance Accounting Method', row.accountingMethod, row.ftes, `Enrollment: ${row.enrollment}; Class offerings: ${row.classOfferings}`, `Direct FTES rows: ${row.directFtesRows}; Estimated FTES rows: ${row.estimatedFtesRows}; Unavailable FTES rows: ${row.unavailableFtesRows}`);
+    });
     (health.lifecycle || []).forEach(item => add('Enrollment Health', item.label, 'Lifecycle Milestone', item.value == null ? 'N/A' : item.value));
 
     (summary?.pace || []).slice(0, 12).forEach(row => {
