@@ -178,6 +178,38 @@
     development: 'Planning algorithms, feature testing, and scheduling model development.',
     admin: 'System administration, imports, auditing, and maintenance.'
   };
+  const REPORT_GROUP_WORKFLOW_LABELS = {
+    'division-chair': 'Scheduling Reports',
+    'dean-enrollment': 'Enrollment & Resource Planning',
+    development: 'Development Lab',
+    admin: 'Administrative Utilities'
+  };
+  const REPORT_DESCRIPTIONS = {
+    [REPORTS.archiveInspection]: 'Review archived section seating files, validation, and loaded-term diagnostics.',
+    [REPORTS.conflictCheck]: 'Find room and instructor conflicts in fixed-time schedule rows.',
+    [REPORTS.duration]: 'Analyze active class duration and student presence patterns across the week.',
+    [REPORTS.dashboard]: 'Review enrollment health, registration pace, demand, attrition, and schedule signals.',
+    [REPORTS.attrition]: 'Compare census and end/final enrollment movement across completed historical terms.',
+    [REPORTS.demand]: 'Forecast enrollment, FTES, schedule supply, demand, and planning gaps.',
+    [REPORTS.snapshotManager]: 'Manage first-day, census, and enrollment snapshot uploads.',
+    [REPORTS.heatmap]: 'See course start-time concentration and enrollment/capacity heatmaps.',
+    [REPORTS.instructorAvailability]: 'Check instructor teaching conflicts and shared availability windows.',
+    [REPORTS.modality]: 'Compare class offerings and enrollment by in-person, hybrid, online, and Dual Enrollment.',
+    [REPORTS.roomFit]: 'Flag room capacity fit issues and possible room mismatches.',
+    [REPORTS.utilization]: 'Assess room utilization categories, opportunity, and fragmentation.',
+    [REPORTS.consolidation]: 'Identify possible section consolidation and online reduction candidates.',
+    [REPORTS.studentPresence]: 'Estimate nominal and expected physical student presence by time, room, and campus.',
+    [REPORTS.facultyModality]: 'Summarize full-time and part-time faculty class offerings by modality.',
+    [REPORTS.instructionalMethodValidation]: 'Review instructional method, faculty type, and meeting type mappings.',
+    [REPORTS.primeTimeAnalysis]: 'Analyze prime-time scheduling concentration against historical patterns.',
+    [REPORTS.supplyDemand]: 'Compare scheduled supply against demand during practical planning windows.',
+    [REPORTS.busyTimeDashboard]: 'Monitor busy-time signals across faculty, students, rooms, and demand.',
+    [REPORTS.studentChoiceOpportunity]: 'Evaluate schedule choice, hidden demand, oversupply, and opportunity gaps.',
+    [REPORTS.recommendationEngine]: 'Generate advisory scheduling recommendations and priority lists.',
+    [REPORTS.scheduleOptimizationLab]: 'Test room moves, time shifts, and placement options without changing source data.',
+    [REPORTS.facultyHeatmap]: 'Compare all, full-time, and part-time faculty schedule patterns.',
+    [REPORTS.workExperience]: 'Load supplemental Work Experience rows for enrollment and FTES reporting.'
+  };
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
   const ROLE_STORAGE_KEY = 'cos-access-role';
   const ROLE_TOKEN_KEY = 'cos-role-token';
@@ -1283,13 +1315,15 @@
       const buttons = reports.length
         ? reports.map(report => `
             <button type="button" class="em-report-button" data-report-target="${report}" data-report-group="${group.key}" data-required-role="${REPORT_ACCESS[report] || 'general'}">
-              <span>${escapeAttr(lockedReportLabel(report))}</span>
-              <small>${escapeAttr(purpose)}</small>
+              <span class="em-report-button-chevron" aria-hidden="true">›</span>
+              <span class="em-report-button-label">${escapeAttr(lockedReportLabel(report))}</span>
+              <small>${escapeAttr(REPORT_DESCRIPTIONS[report] || purpose)}</small>
             </button>
           `).join('')
         : '<p class="em-report-empty">No reports assigned.</p>';
       return `
         <section class="em-report-group" data-report-role="${group.key}">
+          <span class="em-report-group-kicker">${escapeAttr(REPORT_GROUP_WORKFLOW_LABELS[group.key] || 'Reports')}</span>
           <h3>${escapeAttr(group.label)}</h3>
           <p class="em-report-group-purpose">${escapeAttr(purpose)}</p>
           <div class="em-report-button-list">${buttons}</div>
@@ -14586,7 +14620,7 @@
     ];
     const definitions = methodologyDefinitions(config.items);
     node.innerHTML = `
-      <details class="methodology-panel" open>
+      <details class="methodology-panel">
         <summary>Methodology & Data Dictionary</summary>
         <div class="methodology-panel-body">
           <h3>${escapeAttr(config.title)}</h3>
@@ -14633,17 +14667,17 @@
       { selector: '#dashboardScopePanel', id: 'dashboard-scope-diagnostics', title: 'Data Scope & Diagnostics' },
       { selector: '#dashboardMetrics', id: 'dashboard-summary-cards', title: 'Enrollment Dashboard Summary Cards' },
       { selector: '#dashboardInsights', id: 'dashboard-blocks', title: 'Dashboard Detail Blocks' },
-      { selector: '#dashboardLegend', id: 'dashboard-methodology', title: 'Dashboard Methodology & Definitions' },
+      { selector: '#dashboardLegend', id: 'dashboard-methodology', title: 'Dashboard Methodology & Definitions', defaultOpen: false },
       { selector: '#supplyDemandMetrics', id: 'supply-demand-summary-cards', title: 'Supply vs. Demand Summary Cards' },
       { selector: '#supplyDemandHeatmap', id: 'supply-demand-heatmap', title: 'Supply vs. Demand Heatmap' },
       { selector: '#supplyDemandLineGraph', id: 'supply-demand-line-graph', title: 'Supply vs. Demand Line Graph' },
       { selector: '#supplyDemandTable', id: 'supply-demand-summary-table', title: 'Supply vs. Demand Summary Table' },
-      { selector: '#supplyDemandLegend', id: 'supply-demand-methodology', title: 'Supply vs. Demand Definitions and Methodology' },
+      { selector: '#supplyDemandLegend', id: 'supply-demand-methodology', title: 'Supply vs. Demand Definitions and Methodology', defaultOpen: false },
       { selector: '#busyTimeMetrics', id: 'busy-time-summary-cards', title: 'Busy Time Dashboard Summary Cards' },
       { selector: '#busyTimeCharts', id: 'busy-time-dashboard-blocks', title: 'Busy Time Dashboard Blocks' },
       { selector: '#busyTimeObservations', id: 'busy-time-observations', title: 'Busy Time Observations' },
       { selector: '#busyTimeTable', id: 'busy-time-summary-table', title: 'Busy Time Summary Table' },
-      { selector: '#busyTimeLegend', id: 'busy-time-methodology', title: 'Busy Time Definitions and Methodology' },
+      { selector: '#busyTimeLegend', id: 'busy-time-methodology', title: 'Busy Time Definitions and Methodology', defaultOpen: false },
       { selector: '#studentChoiceMetrics', id: 'schedule-opportunity-summary-cards', title: 'Schedule Opportunity Summary Cards' },
       { selector: '#studentChoiceHeatmap', id: 'schedule-opportunity-heatmap', title: 'Opportunity Heatmap' },
       { selector: '#studentChoiceLineGraph', id: 'schedule-opportunity-line-graph', title: 'Opportunity Line Graph' },
@@ -14652,12 +14686,12 @@
       { selector: '#studentChoiceScenarioTable', id: 'schedule-opportunity-scenario-table', title: 'Scenario Before/After Table' },
       { selector: '#studentChoiceRecommendations', id: 'schedule-opportunity-recommendation-panel', title: 'Recommendation and Interpretation Panel' },
       { selector: '#studentChoiceTable', id: 'schedule-opportunity-summary-table', title: 'Historical Comparison Table' },
-      { selector: '#studentChoiceLegend', id: 'schedule-opportunity-methodology', title: 'Schedule Opportunity Definitions and Methodology' },
+      { selector: '#studentChoiceLegend', id: 'schedule-opportunity-methodology', title: 'Schedule Opportunity Definitions and Methodology', defaultOpen: false },
       { selector: '#recommendationMetrics', id: 'recommendation-summary-cards', title: 'Recommendation Summary Cards' },
       { selector: '#recommendationCards', id: 'recommendation-cards', title: 'Recommendation Cards' },
       { selector: '#recommendationPriorityList', id: 'recommendation-priority-list', title: 'Filterable Priority List' },
       { selector: '#recommendationTable', id: 'recommendation-detail-table', title: 'Recommendation Detail Table' },
-      { selector: '#recommendationLegend', id: 'recommendation-diagnostics-methodology', title: 'Recommendation Diagnostics and Methodology' },
+      { selector: '#recommendationLegend', id: 'recommendation-diagnostics-methodology', title: 'Recommendation Diagnostics and Methodology', defaultOpen: false },
       { selector: '#optimizationContext', id: 'optimization-report-context', title: 'Report Context' },
       { selector: '#optimizationSettingsPanel', id: 'optimization-settings', title: 'Optimization Settings' },
       { selector: '#optimizationPerformanceDetails', id: 'optimization-performance-details', title: 'Performance Details', defaultOpen: false },
@@ -14671,20 +14705,20 @@
       { selector: '#attritionCharts', id: 'attrition-charts', title: 'Attrition Charts' },
       { selector: '#attritionDiagnostics', id: 'attrition-diagnostics', title: 'Attrition Diagnostics' },
       { selector: '#attritionTable', id: 'attrition-detail-table', title: 'Attrition Detail Table' },
-      { selector: '#attritionLegend', id: 'attrition-methodology', title: 'Attrition Methodology and Definitions' },
+      { selector: '#attritionLegend', id: 'attrition-methodology', title: 'Attrition Methodology and Definitions', defaultOpen: false },
       { selector: '#demandSummary', id: 'demand-summary-cards', title: 'Enrollment Planning Forecast Summary Cards' },
       { selector: '#demandDiagnostics', id: 'demand-term-diagnostics', title: 'Data Scope & Term Diagnostics' },
       { selector: '#demandCharts', id: 'demand-forecast-charts', title: 'Enrollment Planning Forecast Charts' },
       { selector: '#demandTable', id: 'demand-detail-table', title: 'Enrollment Planning Forecast Detail Table' },
-      { selector: '#demandLegend', id: 'demand-methodology', title: 'Enrollment Planning Forecast Methodology and Definitions' },
+      { selector: '#demandLegend', id: 'demand-methodology', title: 'Enrollment Planning Forecast Methodology and Definitions', defaultOpen: false },
       { selector: '#facultyHeatmapComparisonTable', id: 'faculty-heatmap-comparison-table', title: 'Faculty Schedule Heatmap Comparison Table' },
       { selector: '#facultyModalityChart', id: 'faculty-modality-chart', title: 'Faculty Modality Chart' },
       { selector: '#facultyModalityTable', id: 'faculty-modality-table', title: 'Faculty Modality Detail Table' },
-      { selector: '#facultyModalityLegend', id: 'faculty-modality-methodology', title: 'Faculty Modality Methodology' },
+      { selector: '#facultyModalityLegend', id: 'faculty-modality-methodology', title: 'Faculty Modality Methodology', defaultOpen: false },
       { selector: '#primeTimeGauges', id: 'prime-time-gauges', title: 'Prime Time Gauges' },
       { selector: '#primeTimeMetrics', id: 'prime-time-summary-cards', title: 'Prime Time Summary Cards' },
       { selector: '#primeTimeTable', id: 'prime-time-table', title: 'Prime Time Detail Table' },
-      { selector: '#primeTimeLegend', id: 'prime-time-methodology', title: 'Prime Time Methodology' }
+      { selector: '#primeTimeLegend', id: 'prime-time-methodology', title: 'Prime Time Methodology', defaultOpen: false }
     ]);
     document.querySelectorAll?.('.analytics-view').forEach(view => {
       if (!view.querySelector('.collapsible-section-controls')) {
@@ -15231,10 +15265,10 @@
       button.classList.toggle('is-locked', locked);
       button.setAttribute('aria-current', report === selected ? 'page' : 'false');
       button.setAttribute('aria-disabled', locked ? 'true' : 'false');
-      const label = button.querySelector('span');
+      const label = button.querySelector('.em-report-button-label');
       if (label) label.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
       const note = button.querySelector('small');
-      if (note) note.textContent = reportSubtitleForGroup(button.dataset.reportGroup) || reportSubtitleForReport(report);
+      if (note) note.textContent = REPORT_DESCRIPTIONS[report] || reportSubtitleForGroup(button.dataset.reportGroup) || reportSubtitleForReport(report);
     });
   }
 
@@ -15435,8 +15469,10 @@
   function injectStyle() {
     if (document.getElementById('analyticsReportStyles')) return;
     document.head.insertAdjacentHTML('beforeend', `<style id="analyticsReportStyles">
-      .analytics-reports{width:min(1480px,calc(100% - 2rem));margin:16px auto 24px;padding:14px;background:rgba(255,255,255,.74);border:1px solid #d8e1ec;border-radius:12px;box-shadow:none}
-      .em-access-panel{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e2eaf3}
+      .analytics-reports{width:min(1480px,calc(100% - 2rem));margin:18px auto 28px;padding:16px;background:rgba(255,255,255,.82);border:1px solid rgba(216,225,236,.78);border-radius:14px;box-shadow:0 10px 26px rgba(16,32,51,.06)}
+      .analytics-reports::before{content:'Analytics & Report Launcher';display:block;margin:0 0 4px;color:#123367;font-size:20px;font-weight:900;line-height:1.2}
+      .analytics-reports::after{content:'Choose a grouped report below. Locked reports keep their permissions and can be unlocked for the current browser session.';display:block;margin:-2px 0 14px;color:#51657c;font-size:13px;line-height:1.35}
+      .em-access-panel{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-bottom:14px;padding:10px;border:1px solid #e2eaf3;border-radius:10px;background:#f8fbff}
       .em-access-status{display:flex;flex-direction:column;gap:2px;margin-right:4px;padding:7px 10px;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;color:#51657c;font-size:11px;text-transform:uppercase;font-weight:800}
       .em-access-status strong{color:#123367;font-size:14px;text-transform:none}
       .em-access-status small{max-width:220px;color:#6b7d91;font-size:11px;font-weight:700;text-transform:none}
@@ -15452,15 +15488,17 @@
       .em-workbench-note{flex-basis:100%;color:#6b7d91;font-size:12px;line-height:1.35}
       .em-report-controls select{min-height:36px;border:1px solid #ccd6e2;border-radius:8px;padding:6px 10px;background:#fff;color:#123367;font-weight:700}
       .sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-      .em-report-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;flex-basis:100%}
-      .em-report-group{min-width:0;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:10px}
-      .em-report-group h3{margin:0 0 4px;color:#123367;font-size:14px}
-      .em-report-group-purpose{margin:0 0 8px;color:#51657c;font-size:12px;line-height:1.35}
-      .em-report-button-list{display:grid;gap:7px}
-      .em-report-button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:44px;border:1px solid #c7d5e4;border-radius:8px;background:#fff;color:#123367;text-align:left;padding:8px 10px;cursor:pointer}
-      .em-report-button span{font-weight:800;line-height:1.2}
-      .em-report-button small{color:#51657c;font-size:11px;line-height:1.2}
-      .em-report-button:hover{border-color:#8ba6c2;background:#fafdff}
+      .em-report-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:14px;flex-basis:100%}
+      .em-report-group{min-width:0;border:1px solid #d8e1ec;border-radius:12px;background:linear-gradient(180deg,#fbfdff,#f5f9fd);padding:13px;box-shadow:0 8px 18px rgba(16,32,51,.04)}
+      .em-report-group-kicker{display:inline-flex;margin-bottom:6px;padding:3px 8px;border:1px solid #cfe0ee;border-radius:999px;background:#fff;color:#51657c;font-size:10px;font-weight:900;letter-spacing:.05em;text-transform:uppercase}
+      .em-report-group h3{margin:0 0 4px;color:#123367;font-size:16px;line-height:1.2}
+      .em-report-group-purpose{margin:0 0 10px;color:#51657c;font-size:12px;line-height:1.35}
+      .em-report-button-list{display:grid;gap:8px}
+      .em-report-button{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:8px;row-gap:2px;align-items:start;width:100%;min-height:54px;border:1px solid #c7d5e4;border-radius:9px;background:#fff;color:#123367;text-align:left;padding:9px 10px;cursor:pointer;box-shadow:none;transition:border-color .16s ease,background .16s ease,box-shadow .16s ease,transform .16s ease}
+      .em-report-button-chevron{grid-row:1/3;color:#1f7aa8;font-size:20px;font-weight:900;line-height:1}
+      .em-report-button-label{font-weight:900;line-height:1.2}
+      .em-report-button small{grid-column:2;color:#51657c;font-size:11px;line-height:1.25}
+      .em-report-button:hover{border-color:#8ba6c2;background:#fafdff;transform:translateY(-1px);box-shadow:0 8px 18px rgba(16,32,51,.08)}
       .em-report-button.is-active{border-color:#1f7aa8;background:#e8f7fc;box-shadow:inset 4px 0 0 #1f7aa8}
       .em-report-button.is-locked{background:#f4f6f8;color:#6b7d91;border-style:dashed;opacity:.78}
       .em-report-button.is-locked small{color:#8a5660}

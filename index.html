@@ -46,6 +46,12 @@
 
   <nav id="term-tabs"></nav>
 
+  <section class="timber-section-intro timber-planning-intro" aria-labelledby="planning-section-title">
+    <span class="timber-section-kicker">Planning</span>
+    <h2 id="planning-section-title">Room Availability & Scheduling Workspace</h2>
+    <p>Start with the active term, room filters, and availability grid. Reports and administrative utilities are grouped below so the planning workspace stays readable.</p>
+  </section>
+
   <div id="view-container">
     <label for="viewSelect">View: </label>
     <select id="viewSelect">
@@ -545,8 +551,12 @@
     </div>
   </div>
 
-  <section id="admin-tools" class="admin-tools">
-    <h2>Admin Tools</h2>
+  <section id="admin-tools" class="admin-tools" aria-labelledby="admin-section-title">
+    <div class="timber-admin-heading">
+      <span class="timber-section-kicker">Administration</span>
+      <h2 id="admin-section-title">Imports, Catalogs & Maintenance</h2>
+      <p>Administrative utilities are grouped here to keep the primary planning workspace focused.</p>
+    </div>
     <div id="upload-container"></div>
     <div id="upload-timestamp" class="upload-timestamp"></div>
     <div id="room-catalog-admin" class="room-catalog-admin"></div>

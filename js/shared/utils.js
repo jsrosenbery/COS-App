@@ -267,7 +267,7 @@
     ];
     const list = values => (values || []).filter(Boolean).map(value => `<li>${escapeHtml(value)}</li>`).join('');
     node.innerHTML = `
-      <details class="methodology-panel" open>
+      <details class="methodology-panel">
         <summary>Methodology & Data Dictionary</summary>
         <div class="methodology-panel-body">
           <h3>${escapeHtml(config.title || 'Report Methodology & Data Dictionary')}</h3>

@@ -3240,6 +3240,8 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(text, /label: 'System Administrator'/);
   assert.match(text, /function reportGroupsHtml/);
   assert.match(text, /const REPORT_GROUP_SUBTITLES = \{/);
+  assert.match(text, /const REPORT_GROUP_WORKFLOW_LABELS = \{/);
+  assert.match(text, /const REPORT_DESCRIPTIONS = \{/);
   assert.match(text, /'division-chair': 'Daily scheduling, instructor planning, and department-level monitoring\.'/);
   assert.match(text, /'dean-enrollment': 'Strategic enrollment management, schedule planning, and room optimization\.'/);
   assert.match(text, /development: 'Planning algorithms, feature testing, and scheduling model development\.'/);
@@ -3247,12 +3249,15 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(text, /function reportSubtitleForGroup/);
   assert.match(text, /function reportSubtitleForReport/);
   assert.match(text, /class="em-report-groups"/);
+  assert.match(text, /class="em-report-group-kicker"/);
   assert.match(text, /class="em-report-group-purpose"/);
   assert.match(text, /class="em-report-button"/);
+  assert.match(text, /class="em-report-button-chevron"/);
+  assert.match(text, /class="em-report-button-label"/);
   assert.match(text, /data-report-role="\$\{group\.key\}"/);
   assert.match(text, /data-report-group="\$\{group\.key\}"/);
   assert.match(text, /data-required-role="\$\{REPORT_ACCESS\[report\] \|\| 'general'\}"/);
-  assert.match(text, /<small>\$\{escapeAttr\(purpose\)\}<\/small>/);
+  assert.match(text, /<small>\$\{escapeAttr\(REPORT_DESCRIPTIONS\[report\] \|\| purpose\)\}<\/small>/);
   assert.match(text, /id="emReportSelect" hidden/);
   [
     'REPORTS.instructorAvailability',
@@ -3336,10 +3341,34 @@ test('report tiles use standardized category subtitles without changing navigati
   assert.match(text, /const purpose = reportSubtitleForGroup\(group\.key\)/);
   assert.match(text, /data-report-target="\$\{report\}"/);
   assert.match(text, /data-report-group="\$\{group\.key\}"/);
-  assert.match(text, /<small>\$\{escapeAttr\(purpose\)\}<\/small>/);
-  assert.match(text, /note\.textContent = reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
+  assert.match(text, /REPORT_GROUP_WORKFLOW_LABELS/);
+  assert.match(text, /REPORT_DESCRIPTIONS/);
+  assert.match(text, /<small>\$\{escapeAttr\(REPORT_DESCRIPTIONS\[report\] \|\| purpose\)\}<\/small>/);
+  assert.match(text, /note\.textContent = REPORT_DESCRIPTIONS\[report\] \|\| reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
   assert.doesNotMatch(text, /<small>\$\{canAccess\(report\)/);
   assert.doesNotMatch(text, /Locked - unlock to view name/);
+});
+
+test('TIMBER UX refinement adds planning admin hierarchy and collapsed methodology defaults', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const utils = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
+
+  assert.match(index, /timber-planning-intro/);
+  assert.match(index, /Room Availability & Scheduling Workspace/);
+  assert.match(index, /timber-admin-heading/);
+  assert.match(index, /Imports, Catalogs & Maintenance/);
+  assert.match(css, /max-height: 32vh/);
+  assert.match(css, /#term-tabs[\s\S]*position: sticky/);
+  assert.match(css, /#schedule-container[\s\S]*width: min\(1600px, calc\(100% - 1\.25rem\)\)/);
+  assert.match(analytics, /Analytics & Report Launcher/);
+  assert.match(analytics, /Choose a grouped report below/);
+  assert.match(utils, /<details class="methodology-panel">/);
+  assert.doesNotMatch(utils, /<details class="methodology-panel" open>/);
+  assert.match(app, /id: 'heatmap-methodology', title: 'Heatmap Methodology', defaultOpen: false/);
+  assert.match(analytics, /id: 'dashboard-methodology', title: 'Dashboard Methodology & Definitions', defaultOpen: false/);
 });
 
 test('TIMBER role-based access is centralized and report scoped', () => {
@@ -3377,7 +3406,7 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(text, /function lockedReportLabel/);
   assert.match(text, /Locked report ••••••••/);
   assert.doesNotMatch(text, /Locked - unlock to view name/);
-  assert.match(text, /note\.textContent = reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
+  assert.match(text, /note\.textContent = REPORT_DESCRIPTIONS\[report\] \|\| reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
   assert.match(text, /the selected locked report/);
   assert.match(text, /A locked report requires/);
   assert.doesNotMatch(text, /\[Locked\] \$\{escapeAttr\(REPORT_LABEL/);
@@ -5040,7 +5069,8 @@ test('collapsible sections are wired across reports without changing Room Availa
   assert.match(analytics, /supply-demand-heatmap/);
   assert.match(analytics, /schedule-opportunity-line-graph/);
   assert.match(analytics, /recommendation-priority-list/);
-  assert.match(analytics, /<details class="methodology-panel" open>/);
+  assert.match(analytics, /<details class="methodology-panel">/);
+  assert.doesNotMatch(analytics, /<details class="methodology-panel" open>/);
 });
 
 test('room availability grid defaults to first actual room instead of all rooms', () => {
