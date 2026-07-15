@@ -5426,12 +5426,16 @@ test('index owns enrollment analytics script order', () => {
 
 test('schedule change form exports DOCX first and converts PDF server-side', () => {
   const form = fs.readFileSync(path.join(__dirname, '..', 'js/schedule-change-form.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
+  assert.ok(index.indexOf('src="js/schedule-change-filenames.js"') < index.indexOf('src="js/schedule-change-form.js"'));
   assert.match(form, /<option value="docx" selected>Export DOCX<\/option>/);
   assert.match(form, /<option value="pdf" disabled>Export PDF from DOCX<\/option>/);
   assert.match(form, /<option value="both" disabled>Export both DOCX and PDF<\/option>/);
   assert.match(form, /scfBuildOfficialDocx\(shadow\)/);
-  assert.match(form, /scfConvertDocxBlobToPdf\(blob, baseName\)/);
+  assert.match(form, /scfConvertDocxBlobToPdf\(blob, baseName, pdfFilename, docxFilename\)/);
+  assert.match(form, /docxFilename/);
+  assert.match(form, /pdfFilename/);
   assert.match(form, /Generating PDF from DOCX/);
   assert.match(form, /\/api\/schedule-change\/convert-docx-to-pdf/);
   assert.doesNotMatch(form, /jspdf|html2canvas|new\s+jsPDF/i);
@@ -5444,6 +5448,39 @@ test('schedule change form exports DOCX first and converts PDF server-side', () 
   assert.match(form, /option\.disabled = !pdfAvailable/);
   assert.match(form, /option\.hidden = false/);
   assert.match(form, /class="footer-actions"/);
+});
+
+test('schedule change filenames use term CRN action and extension consistently', () => {
+  const { generateScheduleChangeFilename } = require('../js/schedule-change-filenames.js');
+  const actions = [
+    'Modification',
+    'Cancel',
+    'Uncancel',
+    'Add',
+    'Delete',
+    'Change Room',
+    'Instructor Change'
+  ];
+
+  actions.forEach(action => {
+    const docx = generateScheduleChangeFilename('202710', '10003', action, 'docx');
+    const pdf = generateScheduleChangeFilename('202710', '10003', action, '.pdf');
+    assert.equal(docx, `202710 10003 ${action}.docx`);
+    assert.equal(pdf, `202710 10003 ${action}.pdf`);
+    assert.equal(docx.replace(/\.docx$/, ''), pdf.replace(/\.pdf$/, ''));
+  });
+
+  assert.equal(
+    generateScheduleChangeFilename(' 202710 ', ' 10003 ', 'Change: Room / Instructor?', 'docx'),
+    '202710 10003 Change Room Instructor.docx'
+  );
+  assert.equal(
+    generateScheduleChangeFilename('202710', '10003', 'Modification', 'docx', { timestamp: true, date: new Date('2026-07-15T14:23:00') }),
+    '202710 10003 Modification 20260715-1423.docx'
+  );
+  assert.throws(() => generateScheduleChangeFilename('', '10003', 'Modification', 'docx'), /term code is required/);
+  assert.throws(() => generateScheduleChangeFilename('202710', '', 'Modification', 'docx'), /CRN is required/);
+  assert.throws(() => generateScheduleChangeFilename('202710', '10003', '', 'docx'), /action is required/);
 });
 
 test('schedule change form shows draft-first email UI with mailto fallback', () => {

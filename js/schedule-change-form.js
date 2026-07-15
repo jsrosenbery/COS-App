@@ -412,6 +412,23 @@
   const CHANGE_FIELDS = CHANGE_FIELD_DEFS.map(([label]) => label);
   const CHANGE_FIELD_EXPORT_KEYS = CHANGE_FIELD_DEFS.map(([, key]) => key);
   const PDF_CONVERSION_UNAVAILABLE_MESSAGE = 'PDF conversion is unavailable on the server. Please export DOCX and save as PDF from Word.';
+  const SCHEDULE_CHANGE_FILENAME_ACTIONS = {
+    'Modification': 'Modification',
+    'Cancel - No Staff': 'Cancel',
+    'Cancel - Low Enroll': 'Cancel',
+    'Cancel - Rebuild': 'Cancel',
+    'Cancel - Clerical Err.': 'Cancel',
+    'Cancel - Sched. Dev.': 'Cancel',
+    'Un-Cancel': 'Uncancel',
+    'Uncancel': 'Uncancel',
+    'Addition': 'Add',
+    'Activation': 'Add',
+    'Add': 'Add',
+    'Inactivate': 'Delete',
+    'Delete': 'Delete',
+    'Change Room': 'Change Room',
+    'Instructor Change': 'Instructor Change'
+  };
   let exportCapabilitiesPromise = null;
 
   function pdfUnavailableReason(capabilities) {
@@ -631,10 +648,10 @@
   }
 
   async function createMicrosoftGraphDraft(shadow, email) {
-    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+    const { blob, baseName, docxFilename, pdfFilename } = await scfBuildOfficialDocx(shadow);
     const attachments = email.attachmentMode === 'none'
       ? []
-      : await scheduleChangeEmailAttachments(shadow, email.attachmentMode, blob, baseName);
+      : await scheduleChangeEmailAttachments(shadow, email.attachmentMode, blob, baseName, { docxFilename, pdfFilename });
     const context = scfEmailContext(shadow);
     const response = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/create-email-draft`, {
       method: 'POST',
@@ -664,16 +681,16 @@
   async function downloadEmailFallbackAttachments(shadow, email, capabilities) {
     if (email.attachmentMode === 'none') return;
     setEmailStatus(shadow, 'Preparing selected attachment for manual email draft...');
-    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
+    const { blob, baseName, docxFilename, pdfFilename } = await scfBuildOfficialDocx(shadow);
     if (email.attachmentMode === 'docx' || email.attachmentMode === 'both') {
-      window.saveAs(blob, `${baseName}.docx`);
+      window.saveAs(blob, docxFilename);
     }
     if (email.attachmentMode === 'pdf' || email.attachmentMode === 'both') {
       if (!capabilities?.pdfFromDocx) {
         throw new Error(pdfUnavailableReason(capabilities));
       }
-      const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName);
-      window.saveAs(pdfBlob, `${baseName}.pdf`);
+      const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName, docxFilename);
+      window.saveAs(pdfBlob, pdfFilename);
     }
   }
 
@@ -791,6 +808,40 @@
     };
   }
 
+  function getCheckedValues(form, name) {
+    return [...form.querySelectorAll(`[name="${name}"]`)]
+      .filter(input => input.checked)
+      .map(input => input.value);
+  }
+
+  function scfNormalizeFilenameAction(rawAction, data = {}) {
+    const value = String(rawAction || '').trim();
+    if (!value) return '';
+    if (value === 'Modification') {
+      if (data.room_changed || data.building_changed) return 'Change Room';
+      if (data.instructor_full_changed || data.banner_id_changed || data.split_instructor_changed || data.split_banner_id_changed) {
+        return 'Instructor Change';
+      }
+    }
+    return SCHEDULE_CHANGE_FILENAME_ACTIONS[value] || value;
+  }
+
+  function scfSelectedFilenameAction(form, data) {
+    const checkedActions = getCheckedValues(form, 'action');
+    return scfNormalizeFilenameAction(checkedActions[0], data);
+  }
+
+  function scfGenerateFilenameFromData(data, form, extension) {
+    const generator = window.COSScheduleChangeFilenames?.generateScheduleChangeFilename;
+    if (typeof generator !== 'function') throw new Error('Schedule Change filename generator is unavailable.');
+    const termCode = data.term_code || data.banner_term_code || data.banner_term || data.termCode || data.year;
+    return generator(termCode, data.crn, scfSelectedFilenameAction(form, data), extension);
+  }
+
+  function scfFilenameStem(filename) {
+    return String(filename || '').replace(/\.[^.]+$/, '');
+  }
+
 async function scfBuildOfficialDocx(shadow){
   // 1) Where your template lives (keep relative if deploying under a subpath)
   const TEMPLATE_URL = window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_CRN_ONLY_v2.docx';
@@ -848,10 +899,17 @@ async function scfBuildOfficialDocx(shadow){
     doc.render(); // If template has syntax issues, this will still throw
 
     const blob = doc.getZip().generate({ type:'blob' });
-    const baseName = `Change_of_Schedule_${data.crn || data.year || 'form'}`;
-    return { blob, data, baseName };
+    const form = shadow.getElementById('scf');
+    const docxFilename = scfGenerateFilenameFromData(data, form, 'docx');
+    const pdfFilename = scfGenerateFilenameFromData(data, form, 'pdf');
+    const baseName = scfFilenameStem(docxFilename);
+    return { blob, data, baseName, docxFilename, pdfFilename };
   } catch (e) {
     console.error('[SCF] DOCX export failed:', e);
+    if (/Schedule Change (export|filename)/i.test(e.message || '')) {
+      alert(e.message);
+      throw e;
+    }
 
     // Docxtemplater-specific error info (very helpful)
     if (e.properties && Array.isArray(e.properties.errors)) {
@@ -882,8 +940,8 @@ async function scfBuildOfficialDocx(shadow){
 
 async function scfExportDocx(shadow){
   try {
-    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
-    window.saveAs(blob, `${baseName}.docx`);
+    const { blob, docxFilename } = await scfBuildOfficialDocx(shadow);
+    window.saveAs(blob, docxFilename);
     setExportStatus(shadow, 'DOCX exported.', 'ok');
   } catch (e) {
     // scfBuildOfficialDocx already alerts with details.
@@ -901,8 +959,8 @@ function blobToBase64(blob) {
 
 async function scfExportPdf(shadow) {
   try {
-    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
-    await scfConvertDocxBlobToPdf(blob, baseName);
+    const { blob, baseName, docxFilename, pdfFilename } = await scfBuildOfficialDocx(shadow);
+    await scfConvertDocxBlobToPdf(blob, baseName, pdfFilename, docxFilename);
     setExportStatus(shadow, 'PDF exported from DOCX.', 'ok');
   } catch (e) {
     console.error('[SCF] PDF export failed:', e);
@@ -915,17 +973,17 @@ async function scfExportPdf(shadow) {
   }
 }
 
-async function scfConvertDocxBlobToPdf(blob, baseName) {
-    const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName);
-    window.saveAs(pdfBlob, `${baseName}.pdf`);
+async function scfConvertDocxBlobToPdf(blob, baseName, pdfFilename, docxFilename) {
+    const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName, docxFilename);
+    window.saveAs(pdfBlob, pdfFilename || `${baseName}.pdf`);
 }
 
-async function scfFetchPdfBlobFromDocx(blob, baseName) {
+async function scfFetchPdfBlobFromDocx(blob, baseName, docxFilename) {
     const docxBase64 = await blobToBase64(blob);
     const res = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/convert-docx-to-pdf`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: `${baseName}.docx`, docxBase64 })
+      body: JSON.stringify({ filename: docxFilename || `${baseName}.docx`, docxBase64 })
     });
     if (!res.ok) {
       const contentType = res.headers.get('Content-Type') || '';
@@ -945,17 +1003,17 @@ async function scfExportSelected(shadow) {
   try {
     if (mode === 'docx') {
       setExportLoading(shadow, true, 'Generating DOCX...');
-      const { blob, baseName } = await scfBuildOfficialDocx(shadow);
-      window.saveAs(blob, `${baseName}.docx`);
+      const { blob, docxFilename } = await scfBuildOfficialDocx(shadow);
+      window.saveAs(blob, docxFilename);
       setExportStatus(shadow, 'DOCX exported.', 'ok');
       return;
     }
     const capabilities = await scfFetchExportCapabilities();
     if (!capabilities.pdfFromDocx) throw new Error(pdfUnavailableReason(capabilities));
     setExportLoading(shadow, true, 'Generating PDF from DOCX...');
-    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
-    if (mode === 'both') window.saveAs(blob, `${baseName}.docx`);
-    await scfConvertDocxBlobToPdf(blob, baseName);
+    const { blob, baseName, docxFilename, pdfFilename } = await scfBuildOfficialDocx(shadow);
+    if (mode === 'both') window.saveAs(blob, docxFilename);
+    await scfConvertDocxBlobToPdf(blob, baseName, pdfFilename, docxFilename);
     setExportStatus(shadow, mode === 'both' ? 'DOCX and PDF exported.' : 'PDF exported from DOCX.', 'ok');
   } catch (e) {
     console.error('[SCF] Export failed:', e);
@@ -974,19 +1032,19 @@ async function scfExportSelected(shadow) {
   }
 }
 
-async function scheduleChangeEmailAttachments(shadow, mode, blob, baseName) {
+async function scheduleChangeEmailAttachments(shadow, mode, blob, baseName, filenames = {}) {
   const attachments = [];
   if (mode === 'docx' || mode === 'both') {
     attachments.push({
-      filename: `${baseName}.docx`,
+      filename: filenames.docxFilename || `${baseName}.docx`,
       contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       contentBase64: await blobToBase64(blob)
     });
   }
   if (mode === 'pdf' || mode === 'both') {
-    const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName);
+    const pdfBlob = await scfFetchPdfBlobFromDocx(blob, baseName, filenames.docxFilename);
     attachments.push({
-      filename: `${baseName}.pdf`,
+      filename: filenames.pdfFilename || `${baseName}.pdf`,
       contentType: 'application/pdf',
       contentBase64: await blobToBase64(pdfBlob)
     });
@@ -1006,8 +1064,8 @@ async function sendScheduleChangeEmail(shadow) {
       return;
     }
     setEmailStatus(shadow, 'Preparing email attachment...');
-    const { blob, baseName } = await scfBuildOfficialDocx(shadow);
-    const attachments = await scheduleChangeEmailAttachments(shadow, email.attachmentMode, blob, baseName);
+    const { blob, baseName, docxFilename, pdfFilename } = await scfBuildOfficialDocx(shadow);
+    const attachments = await scheduleChangeEmailAttachments(shadow, email.attachmentMode, blob, baseName, { docxFilename, pdfFilename });
     setEmailStatus(shadow, 'Sending email...');
     const context = scfEmailContext(shadow);
     const response = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/send-email`, {
