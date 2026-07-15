@@ -833,8 +833,12 @@
 
   function scfGenerateFilenameFromData(data, form, extension) {
     const generator = window.COSScheduleChangeFilenames?.generateScheduleChangeFilename;
+    const deriveBannerTermCode = window.COSScheduleChangeFilenames?.deriveScheduleChangeBannerTermCode;
     if (typeof generator !== 'function') throw new Error('Schedule Change filename generator is unavailable.');
-    const termCode = data.term_code || data.banner_term_code || data.banner_term || data.termCode || data.year;
+    if (typeof deriveBannerTermCode !== 'function') throw new Error('Schedule Change Banner term generator is unavailable.');
+    const selectedTerm = getCheckedValues(form, 'term')[0];
+    const rawTermCode = data.term_code || data.banner_term_code || data.banner_term || data.termCode;
+    const termCode = rawTermCode || deriveBannerTermCode(selectedTerm, data.year);
     return generator(termCode, data.crn, scfSelectedFilenameAction(form, data), extension);
   }
 

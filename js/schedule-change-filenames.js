@@ -25,6 +25,18 @@
     return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`;
   }
 
+  function deriveScheduleChangeBannerTermCode(season, yearOrTermCode) {
+    const rawYear = normalizeFilenamePart(yearOrTermCode);
+    if (/^\d{6}$/.test(rawYear)) return rawYear;
+    const year = Number.parseInt(rawYear, 10);
+    if (!Number.isFinite(year) || year < 1000) return rawYear;
+    const normalizedSeason = String(season || '').trim().toLowerCase();
+    if (normalizedSeason === 'fall') return `${year + 1}10`;
+    if (normalizedSeason === 'spring') return `${year}20`;
+    if (normalizedSeason === 'summer') return `${year}30`;
+    return rawYear;
+  }
+
   function generateScheduleChangeFilename(termCode, crn, action, extension, options = {}) {
     const term = normalizeFilenamePart(termCode);
     const crnValue = normalizeFilenamePart(crn);
@@ -37,6 +49,7 @@
   }
 
   return {
+    deriveScheduleChangeBannerTermCode,
     generateScheduleChangeFilename,
     normalizeFilenamePart,
     scheduleChangeTimestamp

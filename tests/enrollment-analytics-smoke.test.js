@@ -5483,6 +5483,19 @@ test('schedule change filenames use term CRN action and extension consistently',
   assert.throws(() => generateScheduleChangeFilename('202710', '10003', '', 'docx'), /action is required/);
 });
 
+test('schedule change filenames derive Banner term code from selected season and year', () => {
+  const { deriveScheduleChangeBannerTermCode, generateScheduleChangeFilename } = require('../js/schedule-change-filenames.js');
+
+  assert.equal(deriveScheduleChangeBannerTermCode('Fall', '2026'), '202710');
+  assert.equal(deriveScheduleChangeBannerTermCode('Spring', '2027'), '202720');
+  assert.equal(deriveScheduleChangeBannerTermCode('Summer', '2028'), '202830');
+  assert.equal(deriveScheduleChangeBannerTermCode('Fall', '202710'), '202710');
+  assert.equal(
+    generateScheduleChangeFilename(deriveScheduleChangeBannerTermCode('Fall', '2026'), '10003', 'Modification', 'docx'),
+    '202710 10003 Modification.docx'
+  );
+});
+
 test('schedule change form shows draft-first email UI with mailto fallback', () => {
   const form = fs.readFileSync(path.join(__dirname, '..', 'js/schedule-change-form.js'), 'utf8');
 
