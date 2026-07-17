@@ -414,6 +414,7 @@
   };
   fields.startDate = ['Start_Date', 'START_DATE', 'Start Date', 'START DATE', 'Class Start Date', 'CLASS START DATE', 'Begin Date', 'BEGIN DATE'];
   fields.endDate = ['End_Date', 'END_DATE', 'End Date', 'END DATE', 'Class End Date', 'CLASS END DATE', 'Stop Date', 'STOP DATE'];
+  fields.meetingDate = ['Meeting_Date', 'MEETING_DATE', 'Meeting Date', 'Class Date', 'Meeting Day Date', 'Session Date', 'Date'];
 
   function val(row, names) {
     for (const name of names) {
@@ -572,6 +573,7 @@
       end: isWorkExperienceSource ? '' : times.end,
       startDate: val(row, fields.startDate),
       endDate: val(row, fields.endDate),
+      meetingDate: val(row, fields.meetingDate),
       timeBlock: isWorkExperienceSource ? 'WORK EXPERIENCE' : (isOnlinePlaceholderTime({ modality, start: times.start, end: times.end }) ? 'ONLINE/TBA' : timeBlock(times.start, modality)),
       building,
       roomOnly,
@@ -10881,7 +10883,8 @@
       const baseKey = row.crossList
         ? ['XL', row.term, row.crossList, row.instructor, row.dayPattern, row.start, row.end, row.building, row.roomOnly || row.room].join('|')
         : ['ROW', row.term, row.crn || row.subject, row.section, row.instructor, row.dayPattern, row.start, row.end, row.building, row.roomOnly || row.room].join('|');
-      if (!map.has(baseKey)) map.set(baseKey, row);
+      if (!map.has(baseKey)) map.set(baseKey, { ...row, _instructorAvailabilityMeetingRows: [] });
+      map.get(baseKey)._instructorAvailabilityMeetingRows.push(row);
     });
     return [...map.values()];
   }
@@ -11158,7 +11161,7 @@
     const section = event.section ? `Section: ${event.section}` : '';
     const crn = event.crn ? `CRN: ${event.crn}` : '';
     const time = `Time: ${formatMinutes(event.startMinutes)} - ${formatMinutes(event.endMinutes)}`;
-    const dateRange = instructorDateRange(event);
+    const meetingDates = instructorMeetingDateDisplay(event);
     const seats = event.cap ?? event.maxEnroll ?? 0;
     const enrollment = event.actual ?? event.actualEnroll ?? 0;
     const fill = seats > 0 ? `Fill: ${enrollment}/${seats} (${pct(enrollment / seats)})` : '';
@@ -11170,7 +11173,7 @@
       { text: event.term ? `Term: ${event.term}` : '' },
       { text: `Days: ${event.dayPattern || event.day || 'N/A'}` },
       { text: time },
-      { text: dateRange ? `Date Range: ${dateRange}` : '' },
+      { text: meetingDates ? `Meeting Dates: ${meetingDates}` : '' },
       { text: `Instructor: ${event.instructor || 'N/A'}` },
       { text: `Faculty Type: ${instructorAvailabilityFacultyTypeLabel(instructorAvailabilityFacultyType(event))}` },
       { text: event.room ? `Room: ${event.room}` : '' },
@@ -11183,6 +11186,38 @@
       { text: event.hasWaitlistData ? `Waitlist: ${event.waitlist || 0}` : '' },
       { text: fill }
     ];
+  }
+
+  function instructorMonthDay(value) {
+    const date = parseSectionDate(value);
+    if (!date) return String(value || '');
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  }
+
+  function instructorMeetingDateValue(row) {
+    const raw = row?.raw || {};
+    return row?.meetingDate ||
+      val(raw, fields.meetingDate) ||
+      (row?.startDate && row?.endDate && row.startDate === row.endDate ? row.startDate : '');
+  }
+
+  function instructorDateSortValue(value) {
+    const parsed = parseSectionDate(value);
+    return parsed ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
+  }
+
+  function instructorMeetingDateDisplay(event) {
+    const rows = (event?._instructorAvailabilityMeetingRows?.length ? event._instructorAvailabilityMeetingRows : [event]).filter(Boolean);
+    const dates = [...new Set(rows.map(instructorMeetingDateValue).filter(Boolean))]
+      .sort((a, b) => instructorDateSortValue(a) - instructorDateSortValue(b));
+    if (dates.length > 1) return dates.map(instructorMonthDay).join(', ');
+    if (dates.length === 1) return instructorMonthDay(dates[0]);
+    const starts = rows.map(row => row?.startDate || val(row?.raw || {}, fields.startDate)).filter(Boolean).sort((a, b) => instructorDateSortValue(a) - instructorDateSortValue(b));
+    const ends = rows.map(row => row?.endDate || val(row?.raw || {}, fields.endDate)).filter(Boolean).sort((a, b) => instructorDateSortValue(b) - instructorDateSortValue(a));
+    const start = starts[0] || '';
+    const end = ends[0] || '';
+    if (start && end) return `${instructorMonthDay(start)}-${instructorMonthDay(end)}`;
+    return start ? instructorMonthDay(start) : (end ? instructorMonthDay(end) : '');
   }
 
   function instructorDateRange(event) {
@@ -16449,6 +16484,7 @@
     instructorAvailabilityRequiresDateVerification,
     instructorAvailabilityVerificationNote,
     instructorAvailabilityConflictLabel,
+    instructorMeetingDateDisplay,
     instructorHasConflict,
     instructorSharedAvailabilityDisplayWindows,
     minSharedAvailabilityMinutes: MIN_SHARED_AVAILABILITY_MINUTES,

@@ -3250,6 +3250,49 @@ test('instructor availability flags hybrid meetings without changing overlap beh
   assert.match(source, /Future enhancement: optional date-aware or week-by-week instructor availability/);
 });
 
+test('instructor availability popups show grouped hybrid meeting dates', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = ['8/10/2027', '9/15/2027', '11/13/2027', '12/11/2027'].map(date => COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2027',
+    CRN: '73001',
+    Subject: 'ENGL',
+    Course: 'C1000',
+    Section: '01',
+    Instructor: 'HYBRID, H',
+    Days: 'M',
+    Start_Time: '09:00',
+    End_Time: '10:00',
+    INSTRUCTIONAL_METHOD_CODE: 'HYB',
+    'Meeting Date': date
+  }));
+  const grouped = COSEnrollmentAnalytics.instructorScheduleRows(rows);
+  const fullTerm = COSEnrollmentAnalytics.instructorScheduleRows([
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2027',
+      CRN: '73002',
+      Subject: 'MATH',
+      Course: '021',
+      Section: '01',
+      Instructor: 'FULLTERM, F',
+      Days: 'MW',
+      Start_Time: '11:00',
+      End_Time: '12:00',
+      INSTRUCTIONAL_METHOD_CODE: 'IP',
+      Start_Date: '08/10/2027',
+      End_Date: '12/15/2027'
+    })
+  ]);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0]._instructorAvailabilityMeetingRows.length, 4);
+  assert.equal(COSEnrollmentAnalytics.instructorMeetingDateDisplay(grouped[0]), '8/10, 9/15, 11/13, 12/11');
+  assert.equal(COSEnrollmentAnalytics.instructorMeetingDateDisplay(fullTerm[0]), '8/10-12/15');
+  assert.match(source, /Meeting Dates: \$\{meetingDates\}/);
+  assert.match(source, /fields\.meetingDate/);
+  assert.match(source, /_instructorAvailabilityMeetingRows/);
+});
+
 test('TIMBER report organization moves analytics tools into enrollment management', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
