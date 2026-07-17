@@ -778,6 +778,7 @@ function normalizeRow(r) {
     End_Time: end24,
     Start_Date: extractField(r, ['Start_Date', 'Start Date', 'Start', 'Section Start Date']),
     End_Date: extractField(r, ['End_Date', 'End Date', 'End', 'Section End Date']),
+    Meeting_Date: extractField(r, ['Meeting_Date', 'Meeting Date', 'Class Date', 'Meeting Day Date', 'Session Date', 'Date']),
     Instructor: extractField(r, ['Instructor', 'Faculty', 'Primary Instructor']),
     Campus: extractField(r, ['CAMPUS', 'Campus', 'campus', 'Campus Code']),
     canonicalSection
@@ -2597,18 +2598,26 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
           endMin:   parseTime(i.End_Time)
         }))
         .sort((a,b) => a.startMin - b.startMin);
+      const roomGridMeetingKey = ev => [
+        ev.CRN,
+        ev.Start_Time,
+        ev.End_Time,
+        Array.isArray(ev.Days) ? ev.Days.join(',') : ev.Days,
+        ev.Building || ev.BUILDING,
+        ev.Room || ev.ROOM
+      ].join('|');
+      const meetingRowsByKey = new Map();
+      evs.forEach(ev => {
+        const key = roomGridMeetingKey(ev);
+        if (!meetingRowsByKey.has(key)) meetingRowsByKey.set(key, []);
+        meetingRowsByKey.get(key).push(ev);
+      });
       const seen = new Set();
       evs = evs.filter(ev => {
-        const key = [
-          ev.CRN,
-          ev.Start_Time,
-          ev.End_Time,
-          Array.isArray(ev.Days) ? ev.Days.join(',') : ev.Days,
-          ev.Building || ev.BUILDING,
-          ev.Room || ev.ROOM
-        ].join('|');
+        const key = roomGridMeetingKey(ev);
         if (seen.has(key)) return false;
         seen.add(key);
+        ev._roomGridMeetingRows = meetingRowsByKey.get(key) || [ev];
         return true;
       });
 
@@ -2665,8 +2674,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
         const title = extractField(ev, ['Title', 'Course_Title', 'Course Title', 'title', 'course_title']);
         const instructor = extractField(ev, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty', 'instructor']);
-        const startDate = extractField(ev, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
-        const endDate = extractField(ev, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+        const meetingDateDisplay = formatSectionMeetingDates(ev._roomGridMeetingRows || [ev]);
 
         appendLine(b, ev.Subject_Course || '', true);
         const badge = getModalityBadge(modalityDisplay);
@@ -2686,7 +2694,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
             { text: `CRN: ${ev.CRN || ''}` },
             { text: `Modality: ${modalityDisplay.label}${modalityDisplay.instructionalMethodCode ? ` (${modalityDisplay.instructionalMethodCode})` : ''}` },
             { text: `Time: ${format12(ev.Start_Time)} - ${format12(ev.End_Time)}` },
-            { text: `Date Range: ${startDate || 'N/A'} - ${endDate || 'N/A'}` },
+            { text: `Meeting Dates: ${meetingDateDisplay || 'N/A'}` },
             { text: `Instructor: ${instructor || 'N/A'}` },
             { text: modalityDisplay.note }
           ]);
@@ -5362,6 +5370,60 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
     const parsed = new Date(raw);
     return Number.isNaN(parsed.getTime()) ? null : new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  }
+
+  function formatMonthDay(date) {
+    if (!date || Number.isNaN(date.getTime())) return '';
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  }
+
+  function extractSectionStartDate(section) {
+    return extractField(section, ['Start_Date', 'Start Date', 'Start', 'start_date', 'start']);
+  }
+
+  function extractSectionEndDate(section) {
+    return extractField(section, ['End_Date', 'End Date', 'End', 'end_date', 'end']);
+  }
+
+  function extractSectionMeetingDate(section) {
+    return extractField(section, [
+      'Meeting_Date',
+      'Meeting Date',
+      'Class Date',
+      'Meeting Day Date',
+      'Session Date',
+      'Date'
+    ]);
+  }
+
+  function sectionDateSortValue(value) {
+    const parsed = parseDateOnly(value);
+    return parsed ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
+  }
+
+  function formatSectionMeetingDates(sections = []) {
+    const rows = (sections || []).filter(Boolean);
+    const meetingDates = [...new Set(rows
+      .map(row => extractSectionMeetingDate(row) || (extractSectionStartDate(row) && extractSectionStartDate(row) === extractSectionEndDate(row) ? extractSectionStartDate(row) : ''))
+      .filter(Boolean))]
+      .sort((a, b) => sectionDateSortValue(a) - sectionDateSortValue(b));
+    if (meetingDates.length > 1) {
+      return meetingDates
+        .map(value => formatMonthDay(parseDateOnly(value)) || value)
+        .join(', ');
+    }
+    if (meetingDates.length === 1) return formatMonthDay(parseDateOnly(meetingDates[0])) || meetingDates[0];
+    const startDate = rows.map(extractSectionStartDate).filter(Boolean).sort((a, b) => sectionDateSortValue(a) - sectionDateSortValue(b))[0] || '';
+    const endDate = rows.map(extractSectionEndDate).filter(Boolean).sort((a, b) => sectionDateSortValue(b) - sectionDateSortValue(a))[0] || '';
+    const start = parseDateOnly(startDate);
+    const end = parseDateOnly(endDate);
+    if (start && end) {
+      const startLabel = formatMonthDay(start);
+      const endLabel = formatMonthDay(end);
+      return startLabel && endLabel ? `${startLabel}-${endLabel}` : `${startDate} - ${endDate}`;
+    }
+    if (start) return formatMonthDay(start) || startDate;
+    return startDate || endDate || '';
   }
 
   function dateRangesOverlap(startA, endA, startB, endB) {

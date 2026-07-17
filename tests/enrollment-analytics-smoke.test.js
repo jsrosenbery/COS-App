@@ -5211,6 +5211,21 @@ test('room availability grid uses centralized modality display badges without ch
   assert.match(app, /\.filter\(i => isValidRoom\(i\.Building \|\| i\.BUILDING, i\.Room \|\| i\.ROOM\)\)/);
 });
 
+test('room availability popups show aggregated hybrid meeting dates', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+
+  assert.match(app, /function formatSectionMeetingDates/);
+  assert.match(app, /Meeting_Date/);
+  assert.match(app, /Meeting Date/);
+  assert.match(app, /Class Date/);
+  assert.match(app, /const meetingRowsByKey = new Map\(\)/);
+  assert.match(app, /ev\._roomGridMeetingRows = meetingRowsByKey\.get\(key\) \|\| \[ev\]/);
+  assert.match(app, /const meetingDateDisplay = formatSectionMeetingDates\(ev\._roomGridMeetingRows \|\| \[ev\]\)/);
+  assert.match(app, /Meeting Dates: \$\{meetingDateDisplay \|\| 'N\/A'\}/);
+  assert.match(app, /formatMonthDay\(parseDateOnly\(meetingDates\[0\]\)\) \|\| meetingDates\[0\]/);
+  assert.match(app, /\.join\(', '\)/);
+});
+
 test('development graphics default to container-width responsive layouts', () => {
   const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
