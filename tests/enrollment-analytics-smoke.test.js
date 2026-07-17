@@ -1994,8 +1994,8 @@ test('enrollment analytics report labels are operational', () => {
   assert.match(text, /conDecisionYear/);
   assert.match(text, /Consolidation Scope/);
   assert.doesNotMatch(text, /conDecisionTermManual/);
-  assert.match(text, /iaDivision/);
-  assert.match(text, /iaSubject/);
+  assert.match(text, /id="iaDivision" multiple size="4"/);
+  assert.match(text, /id="iaSubject" multiple size="4"/);
   assert.match(text, /Select All Visible Instructors/);
 });
 
@@ -3124,6 +3124,10 @@ test('instructor availability supports all full-time and part-time faculty filte
   assert.equal(scheduleRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, 'PART_TIME')).length, 1);
   assert.equal(COSEnrollmentAnalytics.instructorAvailabilityDivision({ divisionId: 'MATH' }), 'MATH');
   assert.equal(COSEnrollmentAnalytics.instructorAvailabilityCampus({ campus: 'COS' }), 'COS');
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityMatchesSelection('MATH', ['MATH', 'SCIENCE']), true);
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityMatchesSelection('math', ['MATH', 'SCIENCE']), true);
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityMatchesSelection('BUSINESS', ['MATH', 'SCIENCE']), false);
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityMatchesSelection('BUSINESS', []), true);
 
   const facultyRows = COSEnrollmentAnalytics.instructorScheduleRows([
     {

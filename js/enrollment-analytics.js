@@ -1748,8 +1748,8 @@
                 <option value="PART_TIME">Part-Time Faculty</option>
               </select>
             </label>
-            <label>Division <select id="iaDivision"></select></label>
-            <label>Discipline <select id="iaSubject"></select></label>
+            <label>Division <select id="iaDivision" multiple size="4" aria-label="Select one or more divisions"></select></label>
+            <label>Discipline <select id="iaSubject" multiple size="4" aria-label="Select one or more disciplines"></select></label>
             <label>Instructor <select id="iaInstructor" multiple size="4"></select></label>
             <button id="iaSelectVisible" type="button">Select All Visible Instructors</button>
             <label>Day
@@ -10741,6 +10741,12 @@
     return instructorAvailabilityFacultyType(row) === selectedType;
   }
 
+  function instructorAvailabilityMatchesSelection(value, selectedValues = []) {
+    const selected = (selectedValues || []).filter(Boolean);
+    if (!selected.length) return true;
+    return selected.some(item => canon(item) === canon(value));
+  }
+
   function instructorAvailabilityFacultySourceRows() {
     return reportableFacultyRows([
       ...(state.instructorAvailabilityFacultyRows || []),
@@ -10840,27 +10846,37 @@
     if (!instructorSelect || !campusSelect) return;
     const selectedPrior = [...instructorSelect.selectedOptions].map(option => option.value);
     const facultyTypePrior = facultyTypeSelect?.value || '';
-    const divisionPrior = divisionSelect?.value || '';
-    const subjectPrior = subjectSelect?.value || '';
+    const divisionPrior = selectedOptionValues(divisionSelect);
+    const subjectPrior = selectedOptionValues(subjectSelect);
     const campusPrior = campusSelect.value;
     const typeScopedRows = scheduleRows.filter(row => instructorAvailabilityMatchesFacultyType(row, facultyTypePrior));
     const divisions = [...new Set(typeScopedRows.map(instructorAvailabilityDivision).filter(Boolean))].sort();
-    const subjectsForDivision = typeScopedRows.filter(row => !divisionPrior || instructorAvailabilityDivision(row) === divisionPrior);
+    const preservedDivisions = divisionPrior.filter(value => divisions.some(division => canon(division) === canon(value)));
+    const subjectsForDivision = typeScopedRows.filter(row =>
+      instructorAvailabilityMatchesSelection(instructorAvailabilityDivision(row), preservedDivisions)
+    );
     const subjects = [...new Set(subjectsForDivision.map(instructorAvailabilitySubject).filter(Boolean))].sort();
+    const preservedSubjects = subjectPrior.filter(value => subjects.some(subject => canon(subject) === canon(value)));
     if (facultyTypeSelect) facultyTypeSelect.value = facultyTypePrior;
     if (divisionSelect) {
-      divisionSelect.replaceChildren(new Option('All divisions', ''));
+      divisionSelect.replaceChildren();
       divisions.forEach(division => divisionSelect.add(new Option(division, division)));
-      if (divisions.includes(divisionPrior)) divisionSelect.value = divisionPrior;
+      [...divisionSelect.options].forEach(option => {
+        option.selected = preservedDivisions.some(value => canon(value) === canon(option.value));
+      });
     }
     if (subjectSelect) {
-      subjectSelect.replaceChildren(new Option('All disciplines', ''));
+      subjectSelect.replaceChildren();
       subjects.forEach(subject => subjectSelect.add(new Option(subject, subject)));
-      if (subjects.includes(subjectPrior)) subjectSelect.value = subjectPrior;
+      [...subjectSelect.options].forEach(option => {
+        option.selected = preservedSubjects.some(value => canon(value) === canon(option.value));
+      });
     }
+    const selectedDivisions = selectedOptionValues(divisionSelect);
+    const selectedSubjects = selectedOptionValues(subjectSelect);
     const scoped = typeScopedRows.filter(row =>
-      (!divisionSelect?.value || instructorAvailabilityDivision(row) === divisionSelect.value) &&
-      (!subjectSelect?.value || instructorAvailabilitySubject(row) === subjectSelect.value)
+      instructorAvailabilityMatchesSelection(instructorAvailabilityDivision(row), selectedDivisions) &&
+      instructorAvailabilityMatchesSelection(instructorAvailabilitySubject(row), selectedSubjects)
     );
     const instructors = [...new Set(scoped.map(row => row.instructor).filter(Boolean))].sort();
     const campuses = [...new Set(scoped.map(instructorAvailabilityCampus).filter(Boolean))].sort();
@@ -10895,8 +10911,8 @@
     populateInstructorAvailabilityFilters(currentRows());
     const selectedInstructors = selectedInstructorAvailabilityInstructors();
     const facultyType = document.getElementById('iaFacultyType')?.value || '';
-    const division = document.getElementById('iaDivision')?.value || '';
-    const subject = document.getElementById('iaSubject')?.value || '';
+    const divisions = selectedOptionValues(document.getElementById('iaDivision'));
+    const subjects = selectedOptionValues(document.getElementById('iaSubject'));
     const day = document.getElementById('iaDay')?.value || 'MO';
     const start = document.getElementById('iaStart')?.value || '';
     const end = document.getElementById('iaEnd')?.value || '';
@@ -10918,8 +10934,8 @@
     }
     const scopedRows = rows.filter(row =>
       instructorAvailabilityMatchesFacultyType(row, facultyType) &&
-      (!division || instructorAvailabilityDivision(row) === division) &&
-      (!subject || instructorAvailabilitySubject(row) === subject) &&
+      instructorAvailabilityMatchesSelection(instructorAvailabilityDivision(row), divisions) &&
+      instructorAvailabilityMatchesSelection(instructorAvailabilitySubject(row), subjects) &&
       (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) &&
       (!campus || instructorAvailabilityCampus(row) === campus)
     );
@@ -10948,6 +10964,8 @@
     metric('instructorAvailabilityMetrics', [
       ['Data Source', sourceInfo.source],
       ['Faculty Type', facultyType ? instructorAvailabilityFacultyTypeLabel(facultyType) : 'All faculty'],
+      ['Division Filter', divisions.length ? divisions.join(', ') : 'All divisions'],
+      ['Discipline Filter', subjects.length ? subjects.join(', ') : 'All disciplines'],
       ['Day/Time Checked', `${dayLabels[day] || day} ${start}-${end}`],
       ['Known Busy', busy],
       ['Potentially Available', results.length - busy],
@@ -11002,8 +11020,8 @@
     const campus = document.getElementById('iaCampus');
     if (instructor) [...instructor.options].forEach(option => { option.selected = true; });
     if (facultyType) facultyType.value = '';
-    if (division) division.value = '';
-    if (subject) subject.value = '';
+    if (division) [...division.options].forEach(option => { option.selected = false; });
+    if (subject) [...subject.options].forEach(option => { option.selected = false; });
     if (campus) campus.value = '';
     const day = document.getElementById('iaDay');
     const start = document.getElementById('iaStart');
@@ -15775,7 +15793,7 @@
       #roomFitReportMetrics button.room-fit-card span{display:block;margin-top:4px;color:#9a3412;font-size:12px;font-weight:900;letter-spacing:.03em;text-transform:uppercase}
       #roomFitReportMetrics button.room-fit-card.is-active,#roomFitReportMetrics button.room-fit-card:hover{background:linear-gradient(135deg,#f97316,#fb923c);border-color:#c2410c;box-shadow:0 10px 22px rgba(194,65,12,.24)}
       #roomFitReportMetrics button.room-fit-card.is-active strong,#roomFitReportMetrics button.room-fit-card:hover strong,#roomFitReportMetrics button.room-fit-card.is-active span,#roomFitReportMetrics button.room-fit-card:hover span{color:#fff7ed}
-      #iaInstructor{min-width:220px;min-height:92px}
+      #iaDivision,#iaSubject,#iaInstructor{min-width:220px;min-height:92px}
       .instructor-week-grid{margin:0 0 14px;overflow:auto;border:1px solid #d8e1ec;border-radius:10px;background:#fff}
       .instructor-grid-note{padding:10px 12px;color:#51657c;background:#f8fbff;border-bottom:1px solid #d8e1ec;font-size:13px}
       .instructor-calendar-grid{display:grid;grid-template-columns:96px repeat(5,minmax(160px,1fr));position:relative;min-width:980px}
@@ -16476,6 +16494,7 @@
     instructorScheduleRows,
     instructorAvailabilityFacultyType,
     instructorAvailabilityMatchesFacultyType,
+    instructorAvailabilityMatchesSelection,
     instructorAvailabilitySourceRows,
     instructorAvailabilityDivision,
     instructorAvailabilityCampus,
