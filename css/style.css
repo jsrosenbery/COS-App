@@ -211,6 +211,80 @@ h1 {
   background: rgba(255, 255, 255, 0.82);
 }
 
+.view-helper-text {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.room-data-freshness {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+  align-items: stretch;
+}
+
+.freshness-card {
+  border: 1px solid rgba(32, 66, 96, 0.16);
+  border-left: 5px solid #0077a8;
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+  background: #f7fbfd;
+  box-shadow: 0 6px 16px rgba(16, 32, 51, 0.05);
+}
+
+.freshness-card strong,
+.freshness-card span {
+  display: block;
+}
+
+.freshness-label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.freshness-card strong {
+  margin-top: 0.2rem;
+  color: #123367;
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.freshness-detail {
+  margin-top: 0.25rem;
+  color: #51657c;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.freshness-warning {
+  border-left-color: #c2410c;
+  background: #fff7ed;
+}
+
+.freshness-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid #f0c36d;
+  border-radius: 10px;
+  background: #fff7dc;
+  color: #6d4c00;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 760px) {
+  .room-data-freshness {
+    grid-template-columns: 1fr;
+  }
+}
+
 label {
   color: var(--muted);
   font-weight: 700;

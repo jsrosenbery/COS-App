@@ -855,11 +855,11 @@ function renderSchedulingAnalysisMethodologyPanels() {
   const renderPanel = window.COSUtils?.renderStandardMethodologyPanel;
   if (!renderPanel) return;
   renderPanel(document.getElementById('heatmap-standard-methodology'), {
-    title: 'Heatmap Analytics Methodology & Data Dictionary',
+    title: 'Course Start-Time Heatmap Methodology & Data Dictionary',
     purpose: 'Shows when classes begin by day and 30-minute scheduled start time, with optional enrollment, capacity, and fill-rate metric views.',
     metricsUsed: ['Sections Active', 'Enrollment Present', 'Seats Offered', 'Fill Rate', 'Student Presence', 'Empty Seats'],
     calculationRules: 'A section is placed in the day/time block for each scheduled start time and meeting day it uses. Repeated rows for the same CRN/day/scheduled start time are counted once. Enrollment Heatmap mode sums census enrollment when available and actual/current enrollment otherwise. Seat Capacity Heatmap mode sums section capacity. Fill Rate Heatmap mode divides enrollment by capacity after deduplication.',
-    assumptions: 'Heatmap Analytics is a start-time view. It complements Course Duration because starts and active classroom load answer different questions.',
+    assumptions: 'Course Start-Time Heatmap is a start-time view. It complements Active Class Demand because starts and active classroom load answer different questions.',
     limitations: 'A busy scheduled start time does not prove student preference. It reflects the schedule that was offered and does not include constraints outside the uploaded data.',
     items: [
       ['Section Count Heatmap', 'Counts distinct CRNs beginning in each 30-minute day/time block.'],
@@ -898,7 +898,7 @@ function renderSchedulingAnalysisMethodologyPanels() {
     ]
   });
   renderPanel(document.getElementById('linechart-standard-methodology'), {
-    title: 'Course Duration and Student Presence Graph Methodology & Data Dictionary',
+    title: 'Active Class Demand and Student Presence Graph Methodology & Data Dictionary',
     purpose: 'Shows how active course load or estimated student presence persists across half-hour intervals by day of week.',
     metricsUsed: ['Sections Active', 'Student Presence', 'Enrollment Present', 'Seats Offered'],
     calculationRules: 'Each valid physical meeting contributes to every half-hour interval it overlaps. Course Count mode counts active distinct CRN/day/start/end blocks. Student Presence mode applies census enrollment when available, otherwise actual/current enrollment, once per distinct CRN/day/start/end block. Duplicate CRN/day/start/end rows are counted once; the same CRN with a different start/end or different day counts as a distinct active meeting block.',
@@ -938,10 +938,10 @@ function registerSchedulingCollapsibleSections() {
     { selector: '#modality-table', id: 'modality-current-table', title: 'Current Term Modality Table' },
     { selector: '.modality-course-comparison', id: 'modality-course-comparison', title: 'Course-Level Term Differences' },
     { selector: '.modality-definitions', id: 'modality-instructional-method-details', title: 'Instructional Method Details' },
-    { selector: '#linechart-tool .analysis-explainer', id: 'duration-help', title: 'Duration Graph Help and Definitions' },
-    { selector: '#linechart-standard-methodology', id: 'duration-methodology', title: 'Duration Graph Methodology', defaultOpen: false },
-    { selector: '#linechart-controls', id: 'duration-controls', title: 'Duration Graph Filters' },
-    { selector: '#chart-container', id: 'duration-chart', title: 'Course Duration Graph' }
+    { selector: '#linechart-tool .analysis-explainer', id: 'duration-help', title: 'Active Class Demand Help and Definitions' },
+    { selector: '#linechart-standard-methodology', id: 'duration-methodology', title: 'Active Class Demand Methodology', defaultOpen: false },
+    { selector: '#linechart-controls', id: 'duration-controls', title: 'Active Class Demand Filters' },
+    { selector: '#chart-container', id: 'duration-chart', title: 'Active Class Demand' }
   ]);
   ['#heatmap-tool', '#utilization-tool', '#modality-tool', '#linechart-tool', '#availability-ui'].forEach(selector => {
     const root = document.querySelector(selector);
@@ -1045,6 +1045,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let scheduleAnalysisRows = null;
   let roomFitReportRows = null;
   let roomEventsByTerm = loadRoomEventsBackup();
+  const scheduleLastUpdatedByTerm = {};
   const selectedUtilizationCategories = new Set();
   const utilizationCategoryLabels = [
     'Not Utilized',
@@ -1302,8 +1303,17 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     setAvailabilityDateMode();
   }
 
+  function updateViewHelperText(view = document.getElementById('viewSelect')?.value || 'calendar') {
+    const helper = document.getElementById('view-helper-text');
+    if (!helper) return;
+    helper.textContent = view === 'fullcalendar'
+      ? 'Room Schedule Calendar: Review the existing schedule pattern for a selected room.'
+      : 'Room Availability Grid: Search for rooms that meet selected scheduling requirements.';
+  }
+
   document.getElementById('viewSelect').addEventListener('change', function(){
     const view = this.value;
+    updateViewHelperText(view);
     document.getElementById('heatmap-tool').style.display = (view === 'heatmap') ? 'block' : 'none';
     document.getElementById('modality-tool').style.display = (view === 'modality') ? 'block' : 'none';
     document.getElementById('schedule-container').style.display = (view === 'calendar') ? '' : 'none';
@@ -1323,6 +1333,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       renderFullCalendar();
     }
   });
+  updateViewHelperText();
 
   document.getElementById('lineCourseSelect').addEventListener('change', renderLineChart);
 
@@ -2426,7 +2437,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const { data, lastUpdated } = payload || {};
       // PATCH: Normalize backend data fields to frontend expectations
       currentData = (data || []).map(normalizeRow);
+      if (lastUpdated) scheduleLastUpdatedByTerm[term] = lastUpdated;
+      else delete scheduleLastUpdatedByTerm[term];
       tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
+      updateRoomAvailabilityFreshnessPanel();
       buildRoomDropdowns();
       renderSchedule();
       feedHeatmapTool(getScheduleAnalysisRows());
@@ -2443,8 +2457,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       }
     } catch (err) {
       currentData = [];
+      delete scheduleLastUpdatedByTerm[term];
       clearSchedule();
       tsDiv.textContent = `Could not load ${term}: ${err.message || 'backend request failed'}`;
+      updateRoomAvailabilityFreshnessPanel();
       notify?.(`Could not load ${term}. ${err.message || 'Backend request failed.'}`, 'error');
     }
   }
@@ -2484,6 +2500,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     setupUpload();
     updateRoomEventsStatus();
     renderRoomEventValidation();
+    updateRoomAvailabilityFreshnessPanel();
     loadScheduleFromBackend(term);
   }
 
@@ -4113,11 +4130,75 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return getRoomEventsForTerm(currentTerm);
   }
 
+  function formatFreshnessTimestamp(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  }
+
+  function latestEventImportedAt(events = getRoomEventsForCurrentTerm()) {
+    const stamps = (events || [])
+      .map(event => event?.importedAt)
+      .filter(Boolean)
+      .sort();
+    return stamps[stamps.length - 1] || '';
+  }
+
+  function updateRoomAvailabilityFreshnessPanel() {
+    const activeTermNode = document.getElementById('freshness-active-term');
+    const scheduleTimeNode = document.getElementById('freshness-schedule-time');
+    const scheduleStatusNode = document.getElementById('freshness-schedule-status');
+    const eventTimeNode = document.getElementById('freshness-event-time');
+    const eventStatusNode = document.getElementById('freshness-event-status');
+    const activeTermCard = typeof activeTermNode?.closest === 'function' ? activeTermNode.closest('.freshness-card') : null;
+    const scheduleCard = typeof scheduleTimeNode?.closest === 'function' ? scheduleTimeNode.closest('.freshness-card') : null;
+    const eventCard = typeof eventTimeNode?.closest === 'function' ? eventTimeNode.closest('.freshness-card') : null;
+    if (activeTermNode) activeTermNode.textContent = currentTerm || 'Term not selected';
+    activeTermCard?.classList.toggle('freshness-warning', !currentTerm);
+
+    const scheduleStamp = scheduleLastUpdatedByTerm[currentTerm] || '';
+    const scheduleDisplay = formatFreshnessTimestamp(scheduleStamp);
+    if (scheduleTimeNode) {
+      scheduleTimeNode.textContent = scheduleDisplay || 'Timestamp unavailable';
+      scheduleTimeNode.title = scheduleStamp || '';
+      scheduleTimeNode.setAttribute('aria-label', scheduleStamp ? `Schedule data current as of ${scheduleStamp}` : 'Schedule data timestamp unavailable');
+    }
+    if (scheduleStatusNode) {
+      scheduleStatusNode.textContent = scheduleStamp
+        ? `Schedule Data: Available for ${currentTerm || 'selected term'}`
+        : 'Schedule Data Timestamp Unavailable. Confirm the current schedule before making final decisions.';
+    }
+    scheduleCard?.classList.toggle('freshness-warning', !scheduleStamp);
+
+    const events = getRoomEventsForCurrentTerm();
+    const eventStamp = latestEventImportedAt(events);
+    const eventDisplay = formatFreshnessTimestamp(eventStamp);
+    if (eventTimeNode) {
+      eventTimeNode.textContent = eventDisplay || 'No event data uploaded';
+      eventTimeNode.title = eventStamp || '';
+      eventTimeNode.setAttribute('aria-label', eventStamp ? `Event data current as of ${eventStamp}` : 'No event data uploaded');
+    }
+    if (eventStatusNode) {
+      eventStatusNode.textContent = eventStamp
+        ? 'Event Data: Available. Event Integration: In Development.'
+        : 'Event Data: No Data. Event Integration: In Development.';
+    }
+    eventCard?.classList.toggle('freshness-warning', !eventStamp);
+  }
+
   function setRoomEventsForTerm(term, events, mode = 'replace') {
     if (!window.COSRoomEvents?.storagePayloadByTerm) return;
     roomEventsByTerm = window.COSRoomEvents.storagePayloadByTerm(roomEventsByTerm, term, events, mode);
     saveRoomEventsBackup();
     updateRoomEventsStatus();
+    updateRoomAvailabilityFreshnessPanel();
     renderSchedule();
     if (document.getElementById('viewSelect')?.value === 'fullcalendar') renderFullCalendar();
   }
@@ -4185,8 +4266,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         header: true,
         skipEmptyLines: true,
         complete: result => {
+          const importedAt = new Date().toISOString();
           const rows = (result.data || []).map(row => ({ ...row, __sourceTerm: currentTerm }));
-          const events = window.COSRoomEvents.normalizeEvents(rows, { term: currentTerm, source: file.name });
+          const events = window.COSRoomEvents.normalizeEvents(rows, { term: currentTerm, source: file.name, importedAt });
           setRoomEventsForTerm(currentTerm, events, modeSelect.value || 'replace');
           renderRoomEventValidation(events);
           importInput.value = '';
@@ -4215,6 +4297,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       roomEventsByTerm = { ...(roomEventsByTerm || {}), [currentTerm]: [] };
       saveRoomEventsBackup();
       updateRoomEventsStatus();
+      updateRoomAvailabilityFreshnessPanel();
       renderRoomEventValidation([]);
       renderSchedule();
       if (document.getElementById('viewSelect')?.value === 'fullcalendar') renderFullCalendar();
@@ -5992,7 +6075,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function heatmapExportRows(cells, metric, filters, facultyType = '') {
     return cells.map(cell => ({
-      reportName: `${facultyType ? `${facultyHeatmapGroupLabel(facultyType)} - ` : ''}${heatmapMetricLabel(metric)} - Heatmap Analytics`,
+      reportName: `${facultyType ? `${facultyHeatmapGroupLabel(facultyType)} - ` : ''}${heatmapMetricLabel(metric)} - Course Start-Time Heatmap`,
       termSource: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
       selectedFilters: filters.concat(facultyType ? [`Faculty group: ${facultyHeatmapGroupLabel(facultyType)}`] : []).join('; '),
       metric: heatmapMetricLabel(metric),
@@ -6011,7 +6094,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function heatmapExportOptions(metric, filters, facultyType = '') {
     const groupLabel = facultyType ? `${facultyHeatmapGroupLabel(facultyType)} - ` : '';
     return {
-      title: `${groupLabel}${heatmapMetricLabel(metric)} - Heatmap Analytics`,
+      title: `${groupLabel}${heatmapMetricLabel(metric)} - Course Start-Time Heatmap`,
       term: document.getElementById('heatmap-archive-terms')?.selectedOptions?.length ? Array.from(document.getElementById('heatmap-archive-terms').selectedOptions).map(option => option.value).join('; ') : 'Current source',
       filters: filters.concat(facultyType ? [`Faculty group: ${facultyHeatmapGroupLabel(facultyType)}`] : []),
       metric: heatmapMetricLabel(metric),
@@ -6099,11 +6182,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const isPresenceMetric = metric === 'presence';
     const titleNode = document.getElementById('linechart-title');
     const methodologyNode = document.getElementById('linechart-methodology');
-    if (titleNode) titleNode.textContent = isPresenceMetric ? 'Student Presence Duration Graph' : 'Course Duration Graph';
+    if (titleNode) titleNode.textContent = isPresenceMetric ? 'Student Presence Duration Graph' : 'Active Class Demand';
     if (methodologyNode) {
       methodologyNode.textContent = isPresenceMetric
         ? 'The Student Presence Duration Graph estimates how many enrolled students are scheduled to be physically present during each half-hour interval by day of week. Calculation: interval total = census enrollment when available, otherwise current enrollment, applied once per distinct CRN/day/start/end block whose meeting time overlaps that half-hour interval. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct meeting block.'
-        : 'The Course Duration Graph counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = active distinct CRN/day/start/end blocks whose meeting time overlaps that half-hour interval. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct meeting block.';
+        : 'Active Class Demand counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = active distinct CRN/day/start/end blocks whose meeting time overlaps that half-hour interval. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct meeting block. This is an overlapping instructional activity view, not a start-time view.';
     }
     const filtered = filterAnalysisRows({
       campusId: 'linechart-campus-select',

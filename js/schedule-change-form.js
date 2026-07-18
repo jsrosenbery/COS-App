@@ -374,11 +374,11 @@
           <div class="export-group">
             <label for="exportMode" class="muted">Export</label>
             <select id="exportMode">
-              <option value="docx" selected>Export DOCX</option>
-              <option value="pdf" disabled>Export PDF from DOCX</option>
-              <option value="both" disabled>Export both DOCX and PDF</option>
+              <option value="pdf" selected>Export PDF</option>
+              <option value="docx">Export Word Document</option>
+              <option value="both">Export both PDF and Word Document</option>
             </select>
-            <button id="exportScheduleChangeBtn" class="btn" type="button">Export DOCX</button>
+            <button id="exportScheduleChangeBtn" class="btn" type="button">Export PDF</button>
             <button id="openEmailPanelBtn" class="btn" type="button" aria-controls="emailPanel" aria-expanded="false">Create Outlook Draft / Email Draft</button>
             <div id="exportStatus" class="status" aria-live="polite"></div>
           </div>
@@ -499,14 +499,14 @@
   }
 
   function updateExportButtonLabel(shadow) {
-    const mode = shadow.getElementById('exportMode')?.value || 'docx';
+    const mode = shadow.getElementById('exportMode')?.value || 'pdf';
     const button = shadow.getElementById('exportScheduleChangeBtn');
     if (!button) return;
     button.textContent = mode === 'pdf'
       ? 'Export PDF'
       : mode === 'both'
-        ? 'Export DOCX and PDF'
-        : 'Export DOCX';
+        ? 'Export PDF and Word Document'
+        : 'Export Word Document';
   }
 
   function applyExportCapabilities(shadow, capabilities) {
@@ -1003,7 +1003,7 @@ async function scfFetchPdfBlobFromDocx(blob, baseName, docxFilename) {
 }
 
 async function scfExportSelected(shadow) {
-  const mode = shadow.getElementById('exportMode')?.value || 'docx';
+  const mode = shadow.getElementById('exportMode')?.value || 'pdf';
   try {
     if (mode === 'docx') {
       setExportLoading(shadow, true, 'Generating DOCX...');

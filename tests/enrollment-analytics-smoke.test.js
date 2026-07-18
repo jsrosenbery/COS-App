@@ -1747,8 +1747,33 @@ test('conflict check flags partial overlaps and deduplicates duplicate meetings'
   assert.equal(conflicts.find(row => row.conflictType === 'Same room overlap').day, 'MO');
   assert.equal(conflicts.find(row => row.conflictType === 'Same room overlap').meetingDays1, 'MW');
   assert.equal(conflicts.find(row => row.conflictType === 'Same room overlap').meetingDays2, 'M');
+  assert.equal(conflicts.find(row => row.conflictType === 'Same room overlap').conflictStatus, 'Confirmed Conflict');
+  assert.equal(conflicts.find(row => row.conflictType === 'Same room overlap').conflictClassification, 'Confirmed room overlap');
+  assert.match(conflicts.find(row => row.conflictType === 'Same room overlap').whyFlagged, /same room/i);
+  assert.match(conflicts.find(row => row.conflictType === 'Same room overlap').recommendedVerification, /Verify the room assignment/i);
   assert.equal(conflicts.find(row => row.conflictType === 'Same instructor overlap').overlapMinutes, 45);
   assert.equal(conflicts.some(row => row.crn1 === row.crn2), false);
+});
+
+test('conflict check classifies hybrid and short-term overlaps for clearer review', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const hybrid = COSEnrollmentAnalytics.conflictRows([
+    section({ term: 'FALL 2027', crn: 'H1', subject: 'PHIL', course: '005', instructor: 'ONE, A', room: 'KERN 101', days: ['MO'], start: '11:00', end: '12:00', modality: 'Hybrid' }),
+    section({ term: 'FALL 2027', crn: 'H2', subject: 'MATH', course: '021', instructor: 'TWO, B', room: 'KERN 101', days: ['MO'], start: '11:30', end: '12:30', modality: 'In-Person' })
+  ], ['roomOverlap']);
+  assert.equal(hybrid.length, 1);
+  assert.equal(hybrid[0].conflictStatus, 'Date Verification Required');
+  assert.equal(hybrid[0].conflictClassification, 'Hybrid meeting requiring date verification');
+  assert.match(hybrid[0].recommendedVerification, /hybrid meeting dates/i);
+
+  const shortTerm = COSEnrollmentAnalytics.conflictRows([
+    section({ term: 'FALL 2027', crn: 'S1', subject: 'ENGL', course: 'C1000', instructor: 'ONE, A', room: 'KERN 101', days: ['TU'], start: '09:00', end: '10:00', startDate: '08/17/2027', endDate: '10/15/2027' }),
+    section({ term: 'FALL 2027', crn: 'S2', subject: 'MATH', course: '021', instructor: 'TWO, B', room: 'KERN 101', days: ['TU'], start: '09:30', end: '10:30', startDate: '09/01/2027', endDate: '12/10/2027' })
+  ], ['roomOverlap']);
+  assert.equal(shortTerm.length, 1);
+  assert.equal(shortTerm[0].conflictStatus, 'Confirmed Conflict');
+  assert.equal(shortTerm[0].conflictClassification, 'Short-term date overlap');
+  assert.match(shortTerm[0].whyFlagged, /overlapping date ranges/i);
 });
 
 test('conflict check suppresses pairs with non-overlapping section date ranges', () => {
@@ -3456,13 +3481,34 @@ test('TIMBER UX refinement adds planning admin hierarchy and collapsed methodolo
 
   assert.match(index, /timber-planning-intro/);
   assert.match(index, /Room Availability & Scheduling Workspace/);
+  assert.match(index, /id="room-data-freshness"/);
+  assert.match(index, /Schedule Data Current As Of/);
+  assert.match(index, /Event Data Current As Of/);
+  assert.match(index, /Event Integration Status: In Development/);
+  assert.match(index, /Room event integration is currently under development/);
+  assert.match(index, /<option value="calendar">Room Availability Grid<\/option>/);
+  assert.match(index, /<option value="fullcalendar">Room Schedule Calendar<\/option>/);
+  assert.match(index, /id="view-helper-text"/);
+  assert.match(index, /Course Start-Time Heatmap/);
+  assert.match(index, /This report shows when classes begin/);
+  assert.match(index, /id="linechart-title">Active Class Demand/);
   assert.match(index, /timber-admin-heading/);
   assert.match(index, /Imports, Catalogs & Maintenance/);
+  assert.match(css, /room-data-freshness/);
+  assert.match(css, /freshness-warning/);
   assert.match(css, /max-height: 32vh/);
   assert.match(css, /#term-tabs[\s\S]*position: sticky/);
   assert.match(css, /#schedule-container[\s\S]*width: min\(1600px, calc\(100% - 1\.25rem\)\)/);
+  assert.match(app, /scheduleLastUpdatedByTerm/);
+  assert.match(app, /updateRoomAvailabilityFreshnessPanel/);
+  assert.match(app, /latestEventImportedAt/);
+  assert.match(app, /importedAt/);
+  assert.match(app, /updateViewHelperText/);
+  assert.match(app, /Active Class Demand/);
+  assert.doesNotMatch(app, /Course Duration Graph/);
   assert.match(analytics, /Analytics & Report Launcher/);
   assert.match(analytics, /Choose a grouped report below/);
+  assert.match(analytics, /\[REPORTS\.duration\]: 'Active Class Demand'/);
   assert.match(utils, /<details class="methodology-panel">/);
   assert.doesNotMatch(utils, /<details class="methodology-panel" open>/);
   assert.match(app, /id: 'heatmap-methodology', title: 'Heatmap Methodology', defaultOpen: false/);
@@ -3585,7 +3631,7 @@ test('course heatmap is Division Chair and faculty schedule heatmap is Dean repo
   assert.match(text, /\[REPORTS\.heatmap\]: 'divchair'/);
   assert.match(divisionBlock, /REPORTS\.heatmap/);
   assert.doesNotMatch(deanBlock, /REPORTS\.heatmap/);
-  assert.match(text, /Heatmap Analytics/);
+  assert.match(text, /Course Start-Time Heatmap/);
   assert.match(text, /facultyHeatmap: 'faculty-schedule-heatmap'/);
   assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'dean'/);
   assert.match(deanBlock, /REPORTS\.facultyHeatmap/);
@@ -4899,8 +4945,8 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(app, /function renderHeatmapTableMarkup/);
   assert.match(app, /function heatmapExportRows/);
   assert.match(app, /function heatmapExportOptions/);
-  assert.match(app, /title: `\$\{groupLabel\}\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
-  assert.match(app, /reportName: `\$\{facultyType \? `\$\{facultyHeatmapGroupLabel\(facultyType\)\} - ` : ''\}\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
+  assert.match(app, /title: `\$\{groupLabel\}\$\{heatmapMetricLabel\(metric\)\} - Course Start-Time Heatmap`/);
+  assert.match(app, /reportName: `\$\{facultyType \? `\$\{facultyHeatmapGroupLabel\(facultyType\)\} - ` : ''\}\$\{heatmapMetricLabel\(metric\)\} - Course Start-Time Heatmap`/);
   assert.match(app, /Faculty Heatmap \(All Faculty\)/);
   assert.match(app, /Faculty Heatmap \(Full-Time Faculty\)/);
   assert.match(app, /Faculty Heatmap \(Part-Time Faculty\)/);
@@ -4980,7 +5026,7 @@ test('heatmap terminology distinguishes aggregation from true weighting', () => 
   assert.match(analytics, /Expected Physical Presence/);
   assert.match(analytics, /Meeting Frequency Factor/);
   assert.match(app, /metric: heatmapMetricLabel\(metric\)/);
-  assert.match(app, /title: `\$\{groupLabel\}\$\{heatmapMetricLabel\(metric\)\} - Heatmap Analytics`/);
+  assert.match(app, /title: `\$\{groupLabel\}\$\{heatmapMetricLabel\(metric\)\} - Course Start-Time Heatmap`/);
 });
 
 test('heatmap table layout keeps day labels readable and time headers two-line', () => {
@@ -5511,14 +5557,15 @@ test('index owns enrollment analytics script order', () => {
   assert.equal(parser.includes('js/enrollment-analytics.js'), false);
 });
 
-test('schedule change form exports DOCX first and converts PDF server-side', () => {
+test('schedule change form defaults to PDF from DOCX and keeps Word export secondary', () => {
   const form = fs.readFileSync(path.join(__dirname, '..', 'js/schedule-change-form.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
   assert.ok(index.indexOf('src="js/schedule-change-filenames.js"') < index.indexOf('src="js/schedule-change-form.js"'));
-  assert.match(form, /<option value="docx" selected>Export DOCX<\/option>/);
-  assert.match(form, /<option value="pdf" disabled>Export PDF from DOCX<\/option>/);
-  assert.match(form, /<option value="both" disabled>Export both DOCX and PDF<\/option>/);
+  assert.match(form, /<option value="pdf" selected>Export PDF<\/option>/);
+  assert.match(form, /<option value="docx">Export Word Document<\/option>/);
+  assert.match(form, /<option value="both">Export both PDF and Word Document<\/option>/);
+  assert.match(form, /<button id="exportScheduleChangeBtn" class="btn" type="button">Export PDF<\/button>/);
   assert.match(form, /scfBuildOfficialDocx\(shadow\)/);
   assert.match(form, /scfConvertDocxBlobToPdf\(blob, baseName, pdfFilename, docxFilename\)/);
   assert.match(form, /docxFilename/);
@@ -5533,6 +5580,7 @@ test('schedule change form exports DOCX first and converts PDF server-side', () 
   assert.match(form, /payload\.capabilities\?\.pdfConversionUnavailableReason/);
   assert.match(form, /\/api\/export-capabilities/);
   assert.match(form, /option\.disabled = !pdfAvailable/);
+  assert.match(form, /mode\.value = 'docx'/);
   assert.match(form, /option\.hidden = false/);
   assert.match(form, /class="footer-actions"/);
 });

@@ -73,12 +73,12 @@
   const REPORT_LABEL = {
     [REPORTS.archiveInspection]: 'Archived Schedule',
     [REPORTS.conflictCheck]: 'Conflict Check Report',
-    [REPORTS.duration]: 'Course Duration',
+    [REPORTS.duration]: 'Active Class Demand',
     [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
     [REPORTS.attrition]: 'Enrollment Attrition',
     [REPORTS.demand]: 'Enrollment Planning Forecast',
     [REPORTS.snapshotManager]: 'Enrollment Snapshot',
-    [REPORTS.heatmap]: 'Heatmap Analytics',
+    [REPORTS.heatmap]: 'Course Start-Time Heatmap',
     [REPORTS.instructorAvailability]: 'Instructor Availability',
     [REPORTS.modality]: 'Modality Balance',
     [REPORTS.roomFit]: 'Room Fit Analysis',
@@ -192,7 +192,7 @@
     [REPORTS.attrition]: 'Compare census and end/final enrollment movement across completed historical terms.',
     [REPORTS.demand]: 'Forecast enrollment, FTES, schedule supply, demand, and planning gaps.',
     [REPORTS.snapshotManager]: 'Manage first-day, census, and enrollment snapshot uploads.',
-    [REPORTS.heatmap]: 'See course start-time concentration and enrollment/capacity heatmaps.',
+    [REPORTS.heatmap]: 'Show when classes begin by day and scheduled start time, with enrollment and capacity views.',
     [REPORTS.instructorAvailability]: 'Check instructor teaching conflicts and shared availability windows.',
     [REPORTS.modality]: 'Compare class offerings and enrollment by in-person, hybrid, online, and Dual Enrollment.',
     [REPORTS.roomFit]: 'Flag room capacity fit issues and possible room mismatches.',
@@ -1530,6 +1530,7 @@
                   <li>Duplicate meeting rows for the same Term + CRN + day + start + end are counted once.</li>
                   <li>Conflicts are based on partial time overlap, not only identical start/end times. Exact time modes require same day, same start, and same end.</li>
                   <li>Same room and same instructor matches are combined into one row by default to reduce duplicate review items.</li>
+                  <li>Conflict results include a status, classification, reason, and recommended verification action so confirmed overlaps, hybrid/date verification, short-term overlaps, duplicate/paired rows, and manual-review cases can be interpreted separately.</li>
                 </ul>
               </div>
             </div>
@@ -5593,7 +5594,7 @@
     const maxDuration = Math.max(1, ...durationRows.map(row => row.courses || 0));
     const durationBars = durationRows.map(row => {
       const tooltip = analyticsTooltip([
-        ['Metric', 'Course Duration'],
+        ['Metric', 'Active Class Demand'],
         ['Time', row.duration],
         ['Sections', row.courses || 0],
         ['Enrollment', row.enrollment || 0],
@@ -5617,7 +5618,7 @@
     }).join('');
     node.innerHTML = `
       <section data-collapsible-title="Student Presence Peaks" data-collapsible-id="busy-time-student-presence-peaks"><h3>Student Presence Peaks</h3>${presenceBars || '<p class="analytics-empty">No student presence buckets.</p>'}</section>
-      <section data-collapsible-title="Course Duration Mix" data-collapsible-id="busy-time-course-duration-mix"><h3>Course Duration Mix</h3>${durationBars || '<p class="analytics-empty">No fixed-duration courses.</p>'}</section>
+      <section data-collapsible-title="Active Class Demand Mix" data-collapsible-id="busy-time-course-duration-mix"><h3>Active Class Demand Mix</h3>${durationBars || '<p class="analytics-empty">No fixed-duration courses.</p>'}</section>
       <section data-collapsible-title="Faculty Concentration Peaks" data-collapsible-id="busy-time-faculty-concentration-peaks"><h3>Faculty Concentration Peaks</h3>${facultyBars || '<p class="analytics-empty">No faculty rows loaded.</p>'}</section>
     `;
     refreshGeneratedCollapsibleSections(node);
@@ -5703,7 +5704,7 @@
       title: 'Busy Time Dashboard Methodology & Data Dictionary',
       purpose: 'Summarizes busy-time patterns by combining student presence, course duration, faculty concentration, supply/demand, prime time, and room utilization signals.',
       metricsUsed: ['Historical Aggregation Mode', 'Student Presence', 'Scheduled Class Offerings, Unique CRNs', 'Instructional Meetings', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Choice Diversity Index', 'Faculty Count', 'Prime-Time Concentration'],
-      calculationRules: 'Student Presence and Supply vs. Demand use 30-minute intervals from fixed meeting rows. Course Duration groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by 30-minute interval. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Historical Aggregation defaults to Average per Selected Term for planning comparisons.',
+      calculationRules: 'Student Presence and Supply vs. Demand use 30-minute intervals from fixed meeting rows. Active Class Demand groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by 30-minute interval. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Historical Aggregation defaults to Average per Selected Term for planning comparisons.',
       assumptions: 'Dashboard observations are descriptive summaries only. They are intended to show alignment or contrast among supply, demand, faculty concentration, student concentration, and room utilization.',
       limitations: 'This dashboard does not make scheduling recommendations and does not include every operational constraint, such as budget, program sequencing, instructor availability, or room setup requirements.',
       items: [
@@ -8996,6 +8997,7 @@
           instructor: row.instructor || '',
           room: row.room || [row.building, row.roomOnly].filter(Boolean).join(' '),
           roomKey: canon(row.room || [row.building, row.roomOnly].filter(Boolean).join(' ')),
+          modality: row.modality || '',
           courseKey: canon(`${row.subject || ''} ${row.course || ''}`.trim()),
           crossList: canon(row.crossList),
           startDate: row.startDate || '',
@@ -9088,8 +9090,11 @@
   }
 
   function conflictRecord(conflictType, a, b, overlapStart, overlapEnd, overlapMinutesValue) {
+    const classification = conflictClassification(conflictType, a, b);
     return {
       conflictType,
+      conflictStatus: classification.status,
+      conflictClassification: classification.type,
       term: a.term,
       day: a.day,
       meetingDays1: a.meetingDays,
@@ -9111,7 +9116,61 @@
       endDate2: formatSectionDate(b.endDate),
       dateRange2: b.dateRangeLabel || normalizedDateRange(b),
       crossList2: b.crossList,
-      overlapMinutes: overlapMinutesValue
+      overlapMinutes: overlapMinutesValue,
+      whyFlagged: classification.reason,
+      recommendedVerification: classification.action
+    };
+  }
+
+  function conflictClassification(conflictType, a = {}, b = {}) {
+    const type = canon(conflictType);
+    const hasDateRange = Boolean((a.dateRangeLabel || normalizedDateRange(a)) || (b.dateRangeLabel || normalizedDateRange(b)));
+    const hasHybrid = [a.modality, b.modality].some(value => canon(value) === 'HYBRID');
+    if (hasHybrid) {
+      return {
+        status: 'Date Verification Required',
+        type: 'Hybrid meeting requiring date verification',
+        reason: `${conflictType} includes at least one hybrid section with a physical meeting pattern that may not occur every week.`,
+        action: 'Verify section-specific hybrid meeting dates before treating this as a date-specific conflict.'
+      };
+    }
+    if (type.includes('COURSE') || (a.crn && b.crn && a.crn === b.crn)) {
+      return {
+        status: 'Possible Conflict',
+        type: 'Possible duplicate or paired meeting row',
+        reason: `${conflictType} may represent paired or duplicate meeting components for the same course/day/time pattern.`,
+        action: 'Review CRN, component, room, and cross-list details before changing the schedule.'
+      };
+    }
+    if (type.includes('ROOM') && type.includes('INSTRUCTOR')) {
+      return {
+        status: 'Confirmed Conflict',
+        type: hasDateRange ? 'Short-term date overlap' : 'Confirmed room overlap and instructor overlap',
+        reason: `${conflictType} has overlapping room, instructor, day, and time${hasDateRange ? ' with overlapping date ranges' : ''}.`,
+        action: 'Confirm both section records and resolve the room/instructor overlap if both are intended active meetings.'
+      };
+    }
+    if (type.includes('ROOM')) {
+      return {
+        status: 'Confirmed Conflict',
+        type: hasDateRange ? 'Short-term date overlap' : 'Confirmed room overlap',
+        reason: `${conflictType} has the same room with overlapping day/time${hasDateRange ? ' and overlapping date ranges' : ''}.`,
+        action: 'Verify the room assignment and short-term dates, then move one section if both are active.'
+      };
+    }
+    if (type.includes('INSTRUCTOR')) {
+      return {
+        status: 'Confirmed Conflict',
+        type: hasDateRange ? 'Short-term date overlap' : 'Confirmed instructor overlap',
+        reason: `${conflictType} has the same instructor with overlapping day/time${hasDateRange ? ' and overlapping date ranges' : ''}.`,
+        action: 'Confirm instructor assignment and date ranges before treating this as an unavoidable conflict.'
+      };
+    }
+    return {
+      status: 'Possible Conflict',
+      type: 'Possible conflict requiring manual review',
+      reason: `${conflictType} matched the selected conflict mode.`,
+      action: 'Review both section records manually.'
     };
   }
 
@@ -9133,6 +9192,8 @@
     ]);
     table('conflictTable', rows, [
       'conflictType',
+      'conflictStatus',
+      'conflictClassification',
       'term',
       'day',
       'timeOverlap',
@@ -9154,7 +9215,9 @@
       'endDate2',
       'dateRange2',
       'crossList2',
-      'overlapMinutes'
+      'overlapMinutes',
+      'whyFlagged',
+      'recommendedVerification'
     ]);
     renderConflictLegend();
   }
@@ -9351,6 +9414,10 @@
       limitations: 'This report identifies schedule conflicts for review. It does not decide whether intentional cross-listing, arranged meetings, room-sharing, instructor load rules, or special events make an overlap acceptable.',
       items: [
         ['Conflict Type', 'The selected conflict basis that matched: same room overlap, same instructor overlap, exact room/time, exact instructor/time, or same course/day/time pattern.'],
+        ['Conflict Status', 'High-level status such as Confirmed Conflict, Date Verification Required, or Possible Conflict.'],
+        ['Conflict Classification', 'Plain-language category, such as confirmed room overlap, confirmed instructor overlap, short-term date overlap, hybrid meeting requiring date verification, possible duplicate or paired meeting row, or possible conflict requiring manual review.'],
+        ['Why Flagged', 'Explains which room, instructor, day/time, date-range, hybrid, or course-pattern condition caused the row to appear.'],
+        ['Recommended Verification', 'Action-oriented review note telling the user what to verify before changing the schedule.'],
         ['Time Overlap', 'The intersecting portion of the two class meeting intervals. Partial overlaps are included.'],
         ['Date Range 1 / Date Range 2', 'Parsed section date ranges. Pairs with non-overlapping date ranges are not shown as conflicts.'],
         ['CRN 1 / CRN 2', 'The two distinct CRNs involved. A CRN is never compared against itself.'],
@@ -9896,7 +9963,7 @@
         ['Frequency Unknown', 'Rows without usable meeting count, weeks, or date fields default to 1.00 and are flagged so the row remains visible instead of being silently adjusted.'],
         ['Scheduled Class Offerings', 'Unique CRNs after filters are applied.'],
         ['Instructional Meetings', 'Distinct CRN/day/start/end/component blocks. The same CRN may count more than once when it has distinct lecture, lab, activity, day, or time records.'],
-        ['Course Duration', 'Active distinct CRN/day/start/end blocks across overlapping half-hour intervals.'],
+        ['Active Class Demand', 'Active distinct CRN/day/start/end blocks across overlapping half-hour intervals.'],
         ['Sections Active', 'Distinct instructional meeting blocks active in the selected 30-minute interval.'],
         ['Distinct CRNs Included', 'Overall count of unique CRNs included after filters and physical-presence exclusions.'],
         ['Meeting Rows Included', 'Raw included meeting rows after filters. This can be higher than distinct CRNs when a section has multiple meeting rows.'],
@@ -16556,6 +16623,7 @@
     buildCourseDemandDistributionChartData,
     buildForecastBacktestChartData,
     conflictRows,
+    conflictClassification,
     fixedMeetingRecords,
     applyCurriculumCrosswalkToRows
   };

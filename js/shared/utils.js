@@ -78,7 +78,7 @@
     ['Choice Diversity Index', '0-100 index that increases when a time block has more unique courses, more unique subjects, more CAL-GETC/GE choices, and less concentration in only one or two courses. High diversity means many different courses/subjects are available. Low diversity means many seats or sections may be concentrated in a small number of courses.'],
     ['Scheduled Class Offerings', 'Unique CRNs after filters are applied.'],
     ['Instructional Meetings', 'Distinct CRN/day/start/end/component blocks where meeting components are analyzed.'],
-    ['Course Duration', 'Active distinct CRN/day/start/end blocks in each overlapping half-hour interval. Duplicate rows for the same CRN/day/start/end count once.'],
+    ['Active Class Demand', 'Active distinct CRN/day/start/end blocks in each overlapping half-hour interval. Duplicate rows for the same CRN/day/start/end count once.'],
     ['Student Presence', 'Estimated students present during each active 30-minute meeting interval. Uses census enrollment when available, otherwise actual/current enrollment, and applies that enrollment once per active distinct CRN/day/start/end block.'],
     ['Sections Active', 'Distinct CRNs active in a day/time block. Duplicate meeting rows for the same CRN/day/start/end are counted once.'],
     ['Seats Offered', 'Total section capacity available in the selected scope or day/time block.'],
