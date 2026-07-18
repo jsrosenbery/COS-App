@@ -3256,7 +3256,7 @@ test('instructor availability flags hybrid meetings without changing overlap beh
 
 test('instructor availability popups show grouped hybrid meeting dates', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
-  const rows = ['8/10/2027', '9/15/2027', '11/13/2027', '12/11/2027'].map(date => COSEnrollmentAnalytics.normalizeRow({
+  const rows = ['8/10/2027', '9/14/2027', '11/16/2027', '12/14/2027'].map(date => COSEnrollmentAnalytics.normalizeRow({
     Term: 'FALL 2027',
     CRN: '73001',
     Subject: 'ENGL',
@@ -3290,7 +3290,7 @@ test('instructor availability popups show grouped hybrid meeting dates', () => {
 
   assert.equal(grouped.length, 1);
   assert.equal(grouped[0]._instructorAvailabilityMeetingRows.length, 4);
-  assert.equal(COSEnrollmentAnalytics.instructorMeetingDateDisplay(grouped[0]), '8/10, 9/15, 11/13, 12/11');
+  assert.equal(COSEnrollmentAnalytics.instructorMeetingDateDisplay(grouped[0]), '8/10, 9/14, 11/16, 12/14');
   assert.equal(COSEnrollmentAnalytics.instructorMeetingDateDisplay(fullTerm[0]), '8/10-12/15');
   assert.match(source, /Meeting Dates: \$\{meetingDates\}/);
   assert.match(source, /fields\.meetingDate/);
@@ -3306,7 +3306,7 @@ test('instructor availability derives occasional hybrid days from meeting dates'
     Course: '010',
     Section: '01',
     Instructor: 'HYBRID, H',
-    Days: '',
+    Days: 'M',
     Start_Time: '09:00',
     End_Time: '10:00',
     INSTRUCTIONAL_METHOD_CODE: 'HYB',

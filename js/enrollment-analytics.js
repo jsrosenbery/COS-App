@@ -532,7 +532,7 @@
     const meetingDate = val(row, fields.meetingDate);
     const normalizedDays = canonical?.days || normalizeDays(val(row, fields.days), row);
     const dayFromMeetingDate = meetingDateDayCode(meetingDate);
-    const days = normalizedDays.length ? normalizedDays : (dayFromMeetingDate ? [dayFromMeetingDate] : []);
+    const days = dayFromMeetingDate ? [dayFromMeetingDate] : normalizedDays;
     const times = canonical ? { start: canonical.start, end: canonical.end } : normalizeTimes(row);
     const cap = canonical?.cap ?? num(val(row, fields.cap));
     const actual = canonical?.actual ?? num(val(row, fields.actual));

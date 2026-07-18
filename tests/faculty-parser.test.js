@@ -99,9 +99,9 @@ test('faculty model counts each CRN once unless meeting times differ', () => {
 test('faculty parser preserves occasional hybrid meeting dates before dedupe', () => {
   const csv = [
     '"FACULTYID","FacultyName","FCNT_CODE","DIVISIONID","DEPARTMENTID","SUBJ_COURSE","COURSE","CRN","DAYS","CAMPUS","BUILDING","ROOM","STARTTIME","ENDTIME","SCHD_CODE_SSRMEET","ActualEnroll","MaxEnroll","INSM_CODE_SSBSECT","LHE","Meeting Date"',
-    '@FT002,"Hybrid, Occasional",FT,ART,ART,"ART 010","Art",41001,,COS,ART,101,9:00AM,10:00AM,02,18,25,HYB,2,8/10/2027',
-    '@FT002,"Hybrid, Occasional",FT,ART,ART,"ART 010","Art",41001,,COS,ART,101,9:00AM,10:00AM,02,18,25,HYB,2,8/17/2027',
-    '@FT002,"Hybrid, Occasional",FT,ART,ART,"ART 010","Art",41001,,COS,ART,101,9:00AM,10:00AM,02,18,25,HYB,2,8/17/2027'
+    '@FT002,"Hybrid, Occasional",FT,ART,ART,"ART 010","Art",41001,M,COS,ART,101,9:00AM,10:00AM,02,18,25,HYB,2,8/10/2027',
+    '@FT002,"Hybrid, Occasional",FT,ART,ART,"ART 010","Art",41001,M,COS,ART,101,9:00AM,10:00AM,02,18,25,HYB,2,8/17/2027',
+    '@FT002,"Hybrid, Occasional",FT,ART,ART,"ART 010","Art",41001,M,COS,ART,101,9:00AM,10:00AM,02,18,25,HYB,2,8/17/2027'
   ].join('\n');
   const parsed = facultyParser.parseFacultyScheduleCsv(csv, { term: 'FALL 2027' });
 

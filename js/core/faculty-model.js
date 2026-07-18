@@ -24,7 +24,7 @@
     const meetingDate = field(row, 'meetingDate');
     const dayFromMeetingDate = utils.dayCodeFromDate?.(meetingDate);
     const days = utils.normalizeDays(daysRaw);
-    const scheduledDays = days.length ? days : (dayFromMeetingDate ? [dayFromMeetingDate] : []);
+    const scheduledDays = dayFromMeetingDate ? [dayFromMeetingDate] : days;
     const fcntCode = utils.normalizeCode(field(row, 'fcntCode'));
     const schdCode = utils.normalizeCode(field(row, 'schdCode'));
     const facultyName = utils.normalizeFacultyName(field(row, 'facultyName'));

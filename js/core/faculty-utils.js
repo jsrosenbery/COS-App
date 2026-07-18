@@ -32,7 +32,7 @@
     courseTitle: ['COURSE', 'Course Title', 'TITLE'],
     startDate: ['StartDate', 'Start Date', 'START_DATE'],
     endDate: ['EndDate', 'End Date', 'END_DATE'],
-    meetingDate: ['MeetingDate', 'Meeting Date', 'MEETING_DATE', 'Class Date', 'Meeting Day Date', 'Session Date', 'Date']
+    meetingDate: ['MeetingDate', 'Meeting Date', 'MEETING_DATE', 'MEETINGDATE', 'Class Date', 'Class Meeting Date', 'Meeting Day Date', 'Session Date', 'Date']
   };
 
   const dayOrder = dayUtils?.dayOrder || ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
