@@ -3297,6 +3297,31 @@ test('instructor availability popups show grouped hybrid meeting dates', () => {
   assert.match(source, /_instructorAvailabilityMeetingRows/);
 });
 
+test('instructor availability derives occasional hybrid days from meeting dates', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = ['8/10/2027', '8/17/2027'].map(date => COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2027',
+    CRN: '73003',
+    Subject: 'ART',
+    Course: '010',
+    Section: '01',
+    Instructor: 'HYBRID, H',
+    Days: '',
+    Start_Time: '09:00',
+    End_Time: '10:00',
+    INSTRUCTIONAL_METHOD_CODE: 'HYB',
+    'Meeting Date': date
+  }));
+  const grouped = COSEnrollmentAnalytics.instructorScheduleRows(rows);
+
+  assert.equal(JSON.stringify(rows.map(row => row.days)), JSON.stringify([['TU'], ['TU']]));
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0].dayPattern, 'T');
+  assert.equal(grouped[0]._instructorAvailabilityMeetingRows.length, 2);
+  assert.equal(COSEnrollmentAnalytics.instructorMeetingDateDisplay(grouped[0]), '8/10, 8/17');
+  assert.equal(COSEnrollmentAnalytics.instructorHasConflict(grouped[0], 'TU', 9 * 60, 10 * 60), true);
+});
+
 test('TIMBER report organization moves analytics tools into enrollment management', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');

@@ -21,7 +21,10 @@
     const subjCourseRaw = field(row, 'subjCourse');
     const parts = utils.subjectCourseParts(subjCourseRaw);
     const daysRaw = field(row, 'days');
+    const meetingDate = field(row, 'meetingDate');
+    const dayFromMeetingDate = utils.dayCodeFromDate?.(meetingDate);
     const days = utils.normalizeDays(daysRaw);
+    const scheduledDays = days.length ? days : (dayFromMeetingDate ? [dayFromMeetingDate] : []);
     const fcntCode = utils.normalizeCode(field(row, 'fcntCode'));
     const schdCode = utils.normalizeCode(field(row, 'schdCode'));
     const facultyName = utils.normalizeFacultyName(field(row, 'facultyName'));
@@ -43,8 +46,8 @@
       courseCode: [parts.subject, parts.course].filter(Boolean).join(' '),
       courseTitle: String(field(row, 'courseTitle') || '').trim(),
       crn: utils.normalizeCode(field(row, 'crn')),
-      days,
-      dayPattern: utils.dayPattern(days, daysRaw),
+      days: scheduledDays,
+      dayPattern: utils.dayPattern(scheduledDays, daysRaw),
       startTime,
       endTime,
       start: startTime,
@@ -60,6 +63,7 @@
       schdCodeNormalized: utils.numericCode(schdCode),
       meetingType: utils.meetingTypeFromSchd(schdCode),
       xlist: utils.normalizeCode(field(row, 'xlist')),
+      meetingDate,
       startDate: field(row, 'startDate'),
       endDate: field(row, 'endDate'),
       sourceTerm: options.term || row?.__sourceTerm || ''
@@ -76,6 +80,7 @@
       item.startTime || item.start || '',
       item.endTime || item.end || '',
       item.dayPattern || '',
+      item.meetingDate || '',
       item.schdCodeNormalized || utils.numericCode(item.schdCode || ''),
       instructor
     ].map(value => String(value || '').trim().toUpperCase()).join('|');

@@ -96,6 +96,22 @@ test('faculty model counts each CRN once unless meeting times differ', () => {
   assert.ok(rows10833.some(row => row.dayPattern === 'R' && row.startTime === '13:10' && row.meetingType === 'Lab'));
 });
 
+test('faculty parser preserves occasional hybrid meeting dates before dedupe', () => {
+  const csv = [
+    '"FACULTYID","FacultyName","FCNT_CODE","DIVISIONID","DEPARTMENTID","SUBJ_COURSE","COURSE","CRN","DAYS","CAMPUS","BUILDING","ROOM","STARTTIME","ENDTIME","SCHD_CODE_SSRMEET","ActualEnroll","MaxEnroll","INSM_CODE_SSBSECT","LHE","Meeting Date"',
+    '@FT002,"Hybrid, Occasional",FT,ART,ART,"ART 010","Art",41001,,COS,ART,101,9:00AM,10:00AM,02,18,25,HYB,2,8/10/2027',
+    '@FT002,"Hybrid, Occasional",FT,ART,ART,"ART 010","Art",41001,,COS,ART,101,9:00AM,10:00AM,02,18,25,HYB,2,8/17/2027',
+    '@FT002,"Hybrid, Occasional",FT,ART,ART,"ART 010","Art",41001,,COS,ART,101,9:00AM,10:00AM,02,18,25,HYB,2,8/17/2027'
+  ].join('\n');
+  const parsed = facultyParser.parseFacultyScheduleCsv(csv, { term: 'FALL 2027' });
+
+  assert.equal(parsed.rowCount, 3);
+  assert.equal(parsed.meetingCount, 2);
+  assert.deepEqual(parsed.meetings.map(row => row.meetingDate), ['8/10/2027', '8/17/2027']);
+  assert.deepEqual(parsed.meetings.map(row => row.days), [['TU'], ['TU']]);
+  assert.equal(parsed.meetings.every(row => row.dayPattern === 'T'), true);
+});
+
 test('faculty model preserves activity, omit, and unknown classifications', () => {
   const parsed = facultyParser.parseFacultyScheduleCsv(sampleCsv);
   const activity = parsed.meetings.find(row => row.crn === '21001');

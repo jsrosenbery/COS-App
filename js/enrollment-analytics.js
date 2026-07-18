@@ -529,7 +529,10 @@
     const roomOnly = canonical?.roomOnly || canon(val(row, fields.room));
     const campus = canonical?.campus || normalizeCampus(row);
     const modality = canonical?.modality || normalizeModality(val(row, fields.modality), row);
-    const days = canonical?.days || normalizeDays(val(row, fields.days), row);
+    const meetingDate = val(row, fields.meetingDate);
+    const normalizedDays = canonical?.days || normalizeDays(val(row, fields.days), row);
+    const dayFromMeetingDate = meetingDateDayCode(meetingDate);
+    const days = normalizedDays.length ? normalizedDays : (dayFromMeetingDate ? [dayFromMeetingDate] : []);
     const times = canonical ? { start: canonical.start, end: canonical.end } : normalizeTimes(row);
     const cap = canonical?.cap ?? num(val(row, fields.cap));
     const actual = canonical?.actual ?? num(val(row, fields.actual));
@@ -573,7 +576,7 @@
       end: isWorkExperienceSource ? '' : times.end,
       startDate: val(row, fields.startDate),
       endDate: val(row, fields.endDate),
-      meetingDate: val(row, fields.meetingDate),
+      meetingDate,
       timeBlock: isWorkExperienceSource ? 'WORK EXPERIENCE' : (isOnlinePlaceholderTime({ modality, start: times.start, end: times.end }) ? 'ONLINE/TBA' : timeBlock(times.start, modality)),
       building,
       roomOnly,
@@ -9013,16 +9016,23 @@
       const excelEpoch = Date.UTC(1899, 11, 30);
       return new Date(excelEpoch + serial * 24 * 60 * 60 * 1000);
     }
-    const parsed = Date.parse(text);
-    if (Number.isFinite(parsed)) return new Date(parsed);
     const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-    if (!match) return null;
-    const month = Number(match[1]) - 1;
-    const day = Number(match[2]);
-    const rawYear = Number(match[3]);
-    const year = rawYear < 100 ? 2000 + rawYear : rawYear;
-    const date = new Date(year, month, day);
-    return Number.isFinite(date.getTime()) ? date : null;
+    if (match) {
+      const month = Number(match[1]) - 1;
+      const day = Number(match[2]);
+      const rawYear = Number(match[3]);
+      const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+      const date = new Date(year, month, day);
+      return Number.isFinite(date.getTime()) ? date : null;
+    }
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? new Date(parsed) : null;
+  }
+
+  function meetingDateDayCode(value) {
+    const date = parseSectionDate(value);
+    const dateDayCodes = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    return date ? dateDayCodes[date.getDay()] : '';
   }
 
   function sectionDateRange(row) {

@@ -31,7 +31,8 @@
     xlist: ['XLIST', 'Cross List', 'CROSS_LIST'],
     courseTitle: ['COURSE', 'Course Title', 'TITLE'],
     startDate: ['StartDate', 'Start Date', 'START_DATE'],
-    endDate: ['EndDate', 'End Date', 'END_DATE']
+    endDate: ['EndDate', 'End Date', 'END_DATE'],
+    meetingDate: ['MeetingDate', 'Meeting Date', 'MEETING_DATE', 'Class Date', 'Meeting Day Date', 'Session Date', 'Date']
   };
 
   const dayOrder = dayUtils?.dayOrder || ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
@@ -139,6 +140,32 @@
     return normalizeCode(fallback);
   }
 
+  function parseDateOnly(value) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const serial = Number(text);
+    if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+      const excelEpoch = Date.UTC(1899, 11, 30);
+      return new Date(excelEpoch + serial * 24 * 60 * 60 * 1000);
+    }
+    const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+    if (match) {
+      const month = Number(match[1]) - 1;
+      const day = Number(match[2]);
+      const rawYear = Number(match[3]);
+      const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+      const date = new Date(year, month, day);
+      return Number.isFinite(date.getTime()) ? date : null;
+    }
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? new Date(parsed) : null;
+  }
+
+  function dayCodeFromDate(value) {
+    const date = parseDateOnly(value);
+    return date ? dayOrder[date.getDay()] : '';
+  }
+
   function subjectCourseParts(value) {
     return csv.splitSubjectCourse(value);
   }
@@ -155,6 +182,8 @@
     normalizeTime,
     normalizeDays,
     dayPattern,
+    parseDateOnly,
+    dayCodeFromDate,
     subjectCourseParts
   };
 });
