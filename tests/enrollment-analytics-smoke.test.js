@@ -3893,6 +3893,14 @@ test('anonymous Schedule Builder is a Dean planning tool with browser-side engin
   assert.match(text, /Course selections are processed in the browser and are not persisted by default/);
   assert.match(text, /function scheduleBuilderAvailableTerms/);
   assert.match(text, /function scheduleBuilderEffectiveTerm/);
+  assert.match(text, /scheduleBuilderTermRows: \{\}/);
+  assert.match(text, /function loadScheduleBuilderEffectiveTermRows/);
+  assert.match(text, /api\/schedule\/\$\{encodeURIComponent\(requestedTerm\)\}/);
+  assert.match(text, /without changing Room Availability/);
+  assert.match(text, /Term load status/);
+  assert.match(text, /Using cached Schedule Builder rows/);
+  assert.match(text, /Could not load \$\{requestedTerm\} section seating rows/);
+  assert.match(text, /await loadScheduleBuilderEffectiveTermRows/);
   assert.match(text, /function updateScheduleBuilderTermOptions/);
   assert.match(text, /scheduleBuilderCampusCodes = \['ONC', 'ONT', 'ONH', 'HAC', 'TCC', 'COS'\]/);
   assert.match(text, /prefix === 'sbCampuses'/);

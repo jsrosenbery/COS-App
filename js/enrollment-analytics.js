@@ -315,6 +315,9 @@
     scheduleBuilderResults: null,
     scheduleBuilderRan: false,
     scheduleBuilderEffectiveTerm: '',
+    scheduleBuilderTermRows: {},
+    scheduleBuilderTermMetadata: {},
+    scheduleBuilderTermStatus: '',
     optimizationMoves: [],
     optimizationShifts: [],
     optimizationPlacements: [],
@@ -7369,9 +7372,22 @@
     return window.COSScheduleBuilder;
   }
 
-  function scheduleBuilderAllRows() {
+  function scheduleBuilderCurrentRows() {
     return currentRows()
       .filter(row => !isOmittedInstructionalMethod(row));
+  }
+
+  function scheduleBuilderCurrentRowsForTerm(term) {
+    const normalizedTerm = normalizeTermLabel(term);
+    return scheduleBuilderCurrentRows()
+      .filter(row => !normalizedTerm || normalizeTermLabel(row.term) === normalizedTerm);
+  }
+
+  function scheduleBuilderAllRows() {
+    return [
+      ...scheduleBuilderCurrentRows(),
+      ...Object.values(state.scheduleBuilderTermRows || {}).flat()
+    ];
   }
 
   function scheduleBuilderAvailableTerms() {
@@ -7410,8 +7426,48 @@
 
   function scheduleBuilderSourceRows() {
     const term = scheduleBuilderEffectiveTerm();
-    return scheduleBuilderAllRows()
-      .filter(row => !term || normalizeTermLabel(row.term) === term);
+    const liveRows = scheduleBuilderCurrentRowsForTerm(term);
+    if (liveRows.length) return liveRows;
+    return state.scheduleBuilderTermRows?.[term] || [];
+  }
+
+  async function loadScheduleBuilderEffectiveTermRows(term = scheduleBuilderEffectiveTerm(), options = {}) {
+    const requestedTerm = normalizeTermLabel(term);
+    if (!requestedTerm) return [];
+    const liveRows = scheduleBuilderCurrentRowsForTerm(requestedTerm);
+    if (liveRows.length && normalizeTermLabel(currentTerm()) === requestedTerm) {
+      state.scheduleBuilderTermStatus = `Using ${liveRows.length} row(s) already loaded in the workspace for ${requestedTerm}.`;
+      return liveRows;
+    }
+    if (!options.force && state.scheduleBuilderTermRows?.[requestedTerm]?.length) {
+      state.scheduleBuilderTermStatus = `Using cached Schedule Builder rows for ${requestedTerm}.`;
+      return state.scheduleBuilderTermRows[requestedTerm];
+    }
+    if (!window.BACKEND_BASE_URL) {
+      state.scheduleBuilderTermStatus = `Backend is not configured, so ${requestedTerm} cannot be loaded into Schedule Builder.`;
+      return [];
+    }
+    state.scheduleBuilderTermStatus = `Loading ${requestedTerm} section seating rows for Schedule Builder...`;
+    updateScheduleBuilderSourceStatus();
+    const response = await fetch(`${window.BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(requestedTerm)}`);
+    if (!response.ok) throw new Error(`Could not load ${requestedTerm} section seating rows.`);
+    const payload = await response.json();
+    const rows = (payload.data || [])
+      .map(row => normalize({ ...row, __sourceTerm: requestedTerm, __uploadedAt: payload.lastUpdated || row.__uploadedAt || row.uploadedAt || row.UploadedAt || '' }))
+      .filter(row => !isOmittedInstructionalMethod(row));
+    state.scheduleBuilderTermRows = { ...(state.scheduleBuilderTermRows || {}), [requestedTerm]: rows };
+    state.scheduleBuilderTermMetadata = {
+      ...(state.scheduleBuilderTermMetadata || {}),
+      [requestedTerm]: {
+        lastUpdated: payload.lastUpdated || '',
+        loadedAt: new Date().toISOString(),
+        rowCount: rows.length
+      }
+    };
+    state.scheduleBuilderTermStatus = rows.length
+      ? `Loaded ${rows.length} section seating row(s) for ${requestedTerm} without changing Room Availability.`
+      : `No section seating rows were returned for ${requestedTerm}. Confirm that term is uploaded to the backend.`;
+    return rows;
   }
 
   function scheduleBuilderSections() {
@@ -7439,6 +7495,9 @@
     const courses = scheduleBuilderCourseOptions();
     const loadedTerms = collectRowTerms(scheduleBuilderAllRows()).map(normalizeTermLabel).filter(Boolean);
     const loadedTermText = loadedTerms.length ? loadedTerms.join(', ') : 'No loaded schedule terms detected';
+    const sourceStatus = rows.length
+      ? `${rows.length} row(s), ${sections.length} deduplicated section(s), ${courses.length} course option(s)`
+      : `No schedule rows are loaded for ${effectiveTerm || 'the selected effective term'}. Select another effective term or load that term's schedule first.`;
     const sourceNode = document.getElementById('scheduleBuilderSourceStatus');
     if (sourceNode) {
       sourceNode.innerHTML = `
@@ -7449,7 +7508,8 @@
           <div><dt>Loaded schedule terms</dt><dd>${escapeAttr(loadedTermText)}</dd></div>
           <div><dt>Schedule data upload timestamp</dt><dd>${escapeAttr(scheduleBuilderTimestamp(rows))}</dd></div>
           <div><dt>Enrollment data timestamp</dt><dd>${escapeAttr(scheduleBuilderTimestamp(rows))}</dd></div>
-          <div><dt>Source status</dt><dd>${escapeAttr(rows.length ? `${rows.length} row(s), ${sections.length} deduplicated section(s), ${courses.length} course option(s)` : `No schedule rows are loaded for ${effectiveTerm || 'the selected effective term'}. Select another effective term or load that term's schedule first.`)}</dd></div>
+          <div><dt>Source status</dt><dd>${escapeAttr(sourceStatus)}</dd></div>
+          <div><dt>Term load status</dt><dd>${escapeAttr(state.scheduleBuilderTermStatus || 'Ready')}</dd></div>
         </dl>
         <p><strong>Seat and waitlist status reflects TIMBER's most recent uploaded data and may not match current Banner availability. Confirm all sections in Banner before registration.</strong></p>
       `;
@@ -7641,8 +7701,9 @@
     });
   }
 
-  function runScheduleBuilder() {
+  async function runScheduleBuilder() {
     updateScheduleBuilderSourceStatus();
+    await loadScheduleBuilderEffectiveTermRows();
     const results = scheduleBuilderEngine().buildScheduleOptions(scheduleBuilderSourceRows(), state.scheduleBuilderRequests, scheduleBuilderPreferences());
     state.scheduleBuilderResults = results;
     state.scheduleBuilderRan = true;
@@ -16686,6 +16747,12 @@
     if (selected === REPORTS.scheduleBuilder) {
       updateScheduleBuilderSourceStatus();
       renderScheduleBuilderResults();
+      loadScheduleBuilderEffectiveTermRows()
+        .then(() => renderScheduleBuilderResults())
+        .catch(err => {
+          state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
+          renderScheduleBuilderResults();
+        });
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -17336,11 +17403,23 @@
       updateScheduleBuilderSourceStatus();
       renderScheduleBuilderCourseList();
       renderScheduleBuilderResults();
+      loadScheduleBuilderEffectiveTermRows(state.scheduleBuilderEffectiveTerm)
+        .then(() => renderScheduleBuilderResults())
+        .catch(err => {
+          state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
+          renderScheduleBuilderResults();
+        });
     });
     document.getElementById('sbUseCurrentTerm')?.addEventListener('click', () => {
       state.scheduleBuilderEffectiveTerm = normalizeTermLabel(currentTerm());
       state.scheduleBuilderResults = null;
       renderScheduleBuilderResults();
+      loadScheduleBuilderEffectiveTermRows(state.scheduleBuilderEffectiveTerm)
+        .then(() => renderScheduleBuilderResults())
+        .catch(err => {
+          state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
+          renderScheduleBuilderResults();
+        });
     });
     document.getElementById('sbAddCourse')?.addEventListener('click', addScheduleBuilderCourse);
     document.getElementById('sbCourseSearch')?.addEventListener('keydown', event => {
@@ -17373,12 +17452,12 @@
       }
     });
     document.getElementById('runScheduleBuilder')?.addEventListener('click', () => {
-      try { runScheduleBuilder(); } catch (err) { alert(err.message || 'Schedule Builder failed.'); }
+      runScheduleBuilder().catch(err => alert(err.message || 'Schedule Builder failed.'));
     });
     document.getElementById('sbMoreResults')?.addEventListener('click', () => {
       const limit = document.getElementById('sbMaxResults');
       if (limit) limit.value = String(Math.min(50, (Number(limit.value || 10) || 10) + 10));
-      try { runScheduleBuilder(); } catch (err) { alert(err.message || 'Schedule Builder failed.'); }
+      runScheduleBuilder().catch(err => alert(err.message || 'Schedule Builder failed.'));
     });
     document.getElementById('printScheduleBuilder')?.addEventListener('click', () => window.print());
     document.getElementById('exportScheduleBuilder')?.addEventListener('click', exportScheduleBuilderRows);
@@ -17388,6 +17467,12 @@
         state.scheduleBuilderEffectiveTerm = normalizeTermLabel(currentTerm());
         state.scheduleBuilderResults = null;
         renderScheduleBuilderResults();
+        loadScheduleBuilderEffectiveTermRows(state.scheduleBuilderEffectiveTerm)
+          .then(() => renderScheduleBuilderResults())
+          .catch(err => {
+            state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
+            renderScheduleBuilderResults();
+          });
       };
       setTimeout(refreshScheduleBuilder, 80);
       setTimeout(refreshScheduleBuilder, 1200);
