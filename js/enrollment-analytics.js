@@ -23,6 +23,7 @@
     studentChoiceOpportunity: 'student-choice-opportunity',
     recommendationEngine: 'scheduling-recommendation-engine',
     scheduleOptimizationLab: 'schedule-optimization-lab',
+    scheduleBuilder: 'schedule-builder',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
@@ -67,6 +68,7 @@
     [REPORTS.studentChoiceOpportunity]: 'development',
     [REPORTS.recommendationEngine]: 'development',
     [REPORTS.scheduleOptimizationLab]: 'development',
+    [REPORTS.scheduleBuilder]: 'dean',
     [REPORTS.facultyHeatmap]: 'dean'
   };
   const MIN_SHARED_AVAILABILITY_MINUTES = 30;
@@ -120,6 +122,7 @@
     [REPORTS.studentChoiceOpportunity]: 'Schedule Opportunity',
     [REPORTS.recommendationEngine]: 'Schedule Recommendation',
     [REPORTS.scheduleOptimizationLab]: 'Schedule Optimization',
+    [REPORTS.scheduleBuilder]: 'Schedule Builder',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
@@ -137,6 +140,7 @@
     REPORTS.roomFit,
     REPORTS.conflictCheck,
     REPORTS.facultyHeatmap,
+    REPORTS.scheduleBuilder,
     REPORTS.busyTimeDashboard,
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
@@ -172,7 +176,8 @@
         REPORTS.utilization,
         REPORTS.roomFit,
         REPORTS.conflictCheck,
-        REPORTS.facultyHeatmap
+        REPORTS.facultyHeatmap,
+        REPORTS.scheduleBuilder
       ]
     },
     {
@@ -234,6 +239,7 @@
     [REPORTS.studentChoiceOpportunity]: 'Evaluate schedule choice, hidden demand, oversupply, and opportunity gaps.',
     [REPORTS.recommendationEngine]: 'Generate advisory scheduling recommendations and priority lists.',
     [REPORTS.scheduleOptimizationLab]: 'Test room moves, time shifts, and placement options without changing source data.',
+    [REPORTS.scheduleBuilder]: 'Build anonymous schedule options from selected courses and current term schedule data.',
     [REPORTS.facultyHeatmap]: 'Compare all, full-time, and part-time faculty schedule patterns.',
     [REPORTS.workExperience]: 'Load supplemental Work Experience rows for enrollment and FTES reporting.'
   };
@@ -290,6 +296,7 @@
     primeTimeRan: false,
     supplyDemandRows: [],
     supplyDemandBucketRows: [],
+    supplyDemandResourceRows: [],
     supplyDemandRan: false,
     demandExportRows: [],
     busyTimeRows: [],
@@ -304,6 +311,9 @@
     recommendationFacultyRows: [],
     recommendationOutputRows: [],
     recommendationRan: false,
+    scheduleBuilderRequests: [],
+    scheduleBuilderResults: null,
+    scheduleBuilderRan: false,
     optimizationMoves: [],
     optimizationShifts: [],
     optimizationPlacements: [],
@@ -437,7 +447,8 @@
     fill: ['Fill_Rate', 'Fill Rate', 'Percent Full', '% Full'],
     closed: ['Closed Prior to Census', 'CLOSED_PRIOR_TO_CENSUS', 'Closed Before Census', 'Closed', 'CLOSED'],
     status: ['Status', 'STATUS', 'Section Status'],
-    crossList: ['CROSS_LIST', 'Cross List', 'Cross_List', 'Cross Listed', 'Cross-Listed', 'XLIST', 'X_LIST']
+    crossList: ['CROSS_LIST', 'Cross List', 'Cross_List', 'Cross Listed', 'Cross-Listed', 'XLIST', 'X_LIST'],
+    scheduleType: ['SCHD_CODE_SSRMEET', 'SCHD CODE SSRMEET', 'Schedule Type', 'SCHEDULE_TYPE', 'Schedule Code', 'SCHD_CODE', 'Meeting Type', 'MEETING_TYPE']
   };
   fields.startDate = ['Start_Date', 'START_DATE', 'Start Date', 'START DATE', 'Class Start Date', 'CLASS START DATE', 'Begin Date', 'BEGIN DATE'];
   fields.endDate = ['End_Date', 'END_DATE', 'End Date', 'END DATE', 'Class End Date', 'CLASS END DATE', 'Stop Date', 'STOP DATE'];
@@ -2098,8 +2109,9 @@
                   <li>Only rows with fixed meeting days and start/end times contribute to the half-hour grid. Online/TBA/no-time rows are not placed into physical day/time blocks.</li>
                   <li>Each section contributes to every 30-minute interval it overlaps on every scheduled day. Duplicate rows for the same CRN/day/start/end are counted once per active meeting interval.</li>
                   <li>By default, Supply vs. Demand excludes Saturday/Sunday, starts before 8:00 AM, Friday intervals after 3:00 PM, and Monday-Thursday intervals after 8:00 PM because those periods are usually constrained by staffing, contracts, and student demand.</li>
-                  <li>Student Presence uses census enrollment when available and current enrollment otherwise. Fill Rate = enrollment / seats offered. Empty Seats = seats offered - enrollment.</li>
-                  <li>Interpretation labels compare supply and demand indicators. They are planning prompts, not proof of student preference or automatic scheduling decisions.</li>
+                  <li>Primary question: at what times, campuses, capacities, and room types does instructional demand exceed the supply of compatible rooms?</li>
+                  <li>Compatible room supply uses shared optimization rules for campus, room type, capacity, valid day/time, and lecture/lab compatibility.</li>
+                  <li>Enrollment/time heatmaps remain context only. The resource pressure table is the operational Supply vs. Demand output.</li>
                 </ul>
               </div>
             </div>
@@ -2138,11 +2150,14 @@
             <button type="button" data-modality-quick="sdModality" data-modality-values="In-Person|Hybrid">Physical Only</button>
             <button type="button" data-modality-quick="sdModality" data-modality-values="In-Person|Hybrid|Online">All Modalities</button>
             <label class="analytics-check"><input id="sdPlanningWindow" type="checkbox" checked> Standard planning window</label>
+            <label>Min capacity <input id="sdMinCapacity" type="number" min="0" step="1" placeholder="Any"></label>
+            <label>Max capacity <input id="sdMaxCapacity" type="number" min="0" step="1" placeholder="Any"></label>
             <button id="runSupplyDemand" type="button">Run</button>
             <button id="clearSupplyDemand" type="button">Clear</button>
             <button id="exportSupplyDemand" type="button">Export CSV</button>
           </div>
           <div id="supplyDemandMetrics" class="analytics-metrics"></div>
+          <div id="supplyDemandResourceTable" class="analytics-table"></div>
           <div id="supplyDemandHeatmap" class="analytics-insights"></div>
           <div id="supplyDemandLineGraph" class="analytics-insights"></div>
           <div id="supplyDemandTable" class="analytics-table"></div>
@@ -2209,6 +2224,7 @@
           <div class="analytics-report-intro">
             <h2>Schedule Opportunity</h2>
             <p>Evaluates whether the schedule provides meaningful student opportunity by comparing planned offerings, historical demand, student choice, enrollment pressure, and schedule distribution.</p>
+            <p><strong>Definition:</strong> Schedule Opportunity identifies where faculty, time, and compatible-room conditions may allow an additional or relocated section. It does not determine whether a section should be offered.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Read This Report</h3>
@@ -2331,6 +2347,7 @@
           <div id="studentChoiceHistoricalTable" class="analytics-table"></div>
           <div id="studentChoicePlanningGapTable" class="analytics-table"></div>
           <div id="studentChoiceScenarioTable" class="analytics-table"></div>
+          <div id="studentChoiceOpportunityDetailTable" class="analytics-table"></div>
           <div id="studentChoiceRecommendations" class="analytics-legend"></div>
           <div id="studentChoiceTable" class="analytics-table"></div>
           <div id="studentChoiceLegend" class="analytics-legend"></div>
@@ -2339,6 +2356,7 @@
           <div class="analytics-report-intro">
             <h2>Schedule Recommendation</h2>
             <p>Produces advisory-only, evidence-informed scheduling observations from supply, demand, choice, faculty, modality, prime-time, room, fill-rate, waitlist, and consolidation-style indicators. It does not automatically change schedules and does not claim to prove student preference.</p>
+            <p><strong>Definition:</strong> Schedule Recommendation evaluates feasible scheduling opportunities using available demand, room, faculty, modality, and schedule-pattern information. Recommendations require human review.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>Evidence Used</h3>
@@ -2401,9 +2419,75 @@
           <div id="recommendationTable" class="analytics-table"></div>
           <div id="recommendationLegend" class="analytics-legend"></div>
         </div>
+        <div id="scheduleBuilderReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Schedule Builder</h2>
+            <p>Builds anonymous schedule options from manually selected desired courses and the currently loaded term schedule. This is a planning tool, not a Banner registration replacement.</p>
+            <p><strong>Privacy:</strong> This tool does not use student names, IDs, transcripts, completed coursework, grades, education plans, contact information, or student-specific data. Course selections are processed in the browser and are not persisted by default.</p>
+            <p><strong>Banner warning:</strong> Seat and waitlist status reflects TIMBER's most recent uploaded data and may not match current Banner availability. Confirm all sections in Banner before registration.</p>
+          </div>
+          <div id="scheduleBuilderSourceStatus" class="analytics-legend"></div>
+          <div class="analytics-toolbar">
+            <label>Course search
+              <input id="sbCourseSearch" type="text" list="sbCourseOptions" placeholder="ENGL C1000 or course title">
+              <datalist id="sbCourseOptions"></datalist>
+            </label>
+            <label>Designation
+              <select id="sbCourseRequired">
+                <option value="required">Required</option>
+                <option value="optional">Optional</option>
+              </select>
+            </label>
+            <button id="sbAddCourse" type="button">Add Course</button>
+            <button id="sbClearCourses" type="button">Clear Courses</button>
+          </div>
+          <div id="scheduleBuilderCourseList" class="analytics-table"></div>
+          <div class="analytics-toolbar">
+            <label>Minimum Units <input id="sbMinUnits" type="number" min="0" step="0.5" placeholder="Any"></label>
+            <label>Maximum Units <input id="sbMaxUnits" type="number" min="0" step="0.5" placeholder="Any"></label>
+            <label>Earliest Start <input id="sbEarliestStart" type="time" step="900"></label>
+            <label>Latest End <input id="sbLatestEnd" type="time" step="900"></label>
+            <label>Allowed Days <select id="sbAllowedDays" multiple size="5"></select></label>
+            <label>Excluded Days <select id="sbExcludedDays" multiple size="5"></select></label>
+            <label>Preferred Campuses <select id="sbCampuses" multiple size="4"></select></label>
+            <label>Allowed Modalities <select id="sbModalities" multiple size="6"></select></label>
+            <label>Max Days on Campus <input id="sbMaxDays" type="number" min="0" step="1" placeholder="Any"></label>
+            <label>Max Gap Between Classes <input id="sbMaxGap" type="number" min="0" step="15" placeholder="Minutes"></label>
+            <label>Minimum Transition <input id="sbTransition" type="number" min="0" step="5" value="0"></label>
+            <label>Ranking
+              <select id="sbRanking">
+                <option value="best">Best Overall Match</option>
+                <option value="fewestDays">Fewest Days on Campus</option>
+                <option value="shortestGaps">Shortest Total Gaps</option>
+                <option value="earliestFinish">Earliest Finish</option>
+                <option value="latestStart">Latest Start</option>
+                <option value="openSeats">Most Open Seats</option>
+                <option value="preferredModality">Preferred Modality</option>
+                <option value="fewestWarnings">Fewest Warnings</option>
+              </select>
+            </label>
+            <label class="analytics-check"><input id="sbIncludeFull" type="checkbox"> Include Full Sections</label>
+            <label class="analytics-check"><input id="sbIncludeWaitlisted" type="checkbox" checked> Include Waitlisted Sections</label>
+            <label class="analytics-check"><input id="sbIncludeUnknownSeats" type="checkbox" checked> Include Unknown Seat Status</label>
+            <label class="analytics-check"><input id="sbRequireAll" type="checkbox" checked> Require All Requested Courses</label>
+            <label class="analytics-check"><input id="sbAllowSameCourse" type="checkbox"> Allow Multiple Sections of Same Course</label>
+            <label>Result Limit <input id="sbMaxResults" type="number" min="1" max="50" step="1" value="10"></label>
+            <button id="runScheduleBuilder" type="button">Build Schedules</button>
+            <button id="sbMoreResults" type="button">Request More</button>
+            <button id="printScheduleBuilder" type="button">Print / PDF</button>
+            <button id="exportScheduleBuilder" type="button">Export CSV</button>
+          </div>
+          <div id="scheduleBuilderMetrics" class="analytics-metrics"></div>
+          <div id="scheduleBuilderWarnings" class="analytics-legend"></div>
+          <div id="scheduleBuilderCompare" class="analytics-table"></div>
+          <div id="scheduleBuilderResults" class="analytics-insights"></div>
+          <div id="scheduleBuilderLegend" class="analytics-legend"></div>
+        </div>
         <div id="scheduleOptimizationLabReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Schedule Optimization</h2>
+            <p><strong>Status:</strong> Developmental Planning Tool</p>
+            <p><strong>Disclaimer:</strong> Schedule Optimization is under active development. Results are planning scenarios and must be reviewed before operational use.</p>
             <p>Recommends room moves, small time shifts, and add-a-class placement options using the existing Room Catalog and uploaded schedule data. Recommendations are planning suggestions only and never change source schedule rows.</p>
             <div class="analytics-methodology">
               <div>
@@ -2481,6 +2565,8 @@
           <div id="optimizationSettingsPanel" class="analytics-legend"></div>
           <div id="optimizationPerformanceDetails" class="analytics-legend"></div>
           <div id="optimizationInventoryStatus" class="analytics-legend"></div>
+          <div id="optimizationConstraintInventory" class="analytics-table"></div>
+          <div id="optimizationScenarioComparison" class="analytics-table"></div>
           <div id="optimizationMoveTable" class="analytics-table"></div>
           <div id="optimizationShiftTable" class="analytics-table"></div>
           <section id="optimizationAddClassPanel" class="demand-report-section">
@@ -5196,6 +5282,61 @@
     };
   }
 
+  function supplyDemandOptimizationRows(rows) {
+    return (rows || []).map(row => ({
+      ...row,
+      Term: row.term,
+      CRN: row.crn,
+      Subject: row.subject,
+      Course: row.course,
+      Campus: row.campus,
+      Building: row.building,
+      Room: row.roomOnly,
+      Days: row.days,
+      start: row.start,
+      end: row.end,
+      enrollment: supplyDemandEnrollment(row),
+      censusEnrollment: row.census,
+      actualEnroll: row.actual,
+      sectionCap: row.cap,
+      cap: row.cap,
+      scheduleType: val(row.raw || {}, fields.scheduleType),
+      SCHD_CODE_SSRMEET: val(row.raw || {}, fields.scheduleType),
+      roomType: val(row.raw || {}, ['Room Type', 'ROOM_TYPE', 'Room Category', 'Room_Category']),
+      division: row.division,
+      modality: row.modality
+    }));
+  }
+
+  function supplyDemandRoomCatalogRows() {
+    try {
+      return window.COSScheduleApp?.roomCatalogTestHooks?.getRoomCatalogEntries?.() || window.ROOM_CATALOG || [];
+    } catch (err) {
+      console.warn('Room Catalog unavailable for Supply vs. Demand room pressure.', err);
+      return [];
+    }
+  }
+
+  function buildSupplyDemandRoomPressureRows(rows, options = {}) {
+    const engine = window.COSScheduleOptimization;
+    if (!engine?.roomSupplyDemandRows) return [];
+    const minCapacity = Number(document.getElementById('sdMinCapacity')?.value || 0) || 0;
+    const maxCapacity = Number(document.getElementById('sdMaxCapacity')?.value || 0) || Infinity;
+    return engine.roomSupplyDemandRows(supplyDemandOptimizationRows(rows), supplyDemandRoomCatalogRows(), {
+      ...options,
+      minCapacity,
+      maxCapacity
+    });
+  }
+
+  function renderSupplyDemandResourceTable(rows) {
+    const node = document.getElementById('supplyDemandResourceTable');
+    const view = document.getElementById('sdView')?.value || 'all';
+    if (!node) return;
+    node.style.display = view === 'all' || view === 'table' ? '' : 'none';
+    table('supplyDemandResourceTable', rows || [], ['term', 'campus', 'day', 'timeWindow', 'requiredRoomType', 'capacityBand', 'compatibleRoomsAvailable', 'sectionsRequiringRooms', 'surplusDeficit', 'demandToSupplyRatio', 'severity', 'underlyingSections', 'underlyingRooms']);
+  }
+
   function renderSupplyDemandHeatmap(built, metricName) {
     const node = document.getElementById('supplyDemandHeatmap');
     const view = document.getElementById('sdView')?.value || 'all';
@@ -5307,7 +5448,7 @@
     refreshGeneratedCollapsibleSections(node);
   }
 
-  function renderSupplyDemandMetrics(rows, built) {
+  function renderSupplyDemandMetrics(rows, built, roomPressureRows = []) {
     const totalSections = rows.length;
     const totalSeats = sum(rows, 'cap');
     const totalEnrollment = rows.reduce((total, row) => total + supplyDemandEnrollment(row), 0);
@@ -5315,6 +5456,9 @@
     const highDemand = built.rows.filter(row => row.interpretation === 'High Demand').length;
     const hiddenDemand = built.rows.filter(row => row.interpretation === 'Hidden Demand').length;
     const oversupplied = built.rows.filter(row => row.interpretation === 'Oversupplied').length;
+    const deficits = roomPressureRows.filter(row => row.severity === 'Deficit').length;
+    const noCompatibleSupply = roomPressureRows.filter(row => row.severity === 'No Compatible Supply').length;
+    const highPressure = roomPressureRows.filter(row => row.severity === 'High Pressure').length;
     metric('supplyDemandMetrics', [
       ['Sections', totalSections, 'scheduled-class-offerings'],
       ['Seats Offered', totalSeats, 'seats-offered'],
@@ -5324,6 +5468,9 @@
       ['High Demand Blocks', highDemand],
       ['Hidden Demand Blocks', hiddenDemand, 'hidden-demand'],
       ['Oversupplied Blocks', oversupplied, 'oversupply'],
+      ['Room Deficit Blocks', deficits],
+      ['No Compatible Supply', noCompatibleSupply],
+      ['High Room Pressure', highPressure],
       ['Planning Window', built.planningWindow ? 'Standard' : 'All scheduled times'],
       ['Rows Outside Planning Window', built.excludedOutsidePlanningWindow || 0]
     ]);
@@ -5347,7 +5494,10 @@
     };
     const built = buildSupplyDemandBuckets(filtered, metricName, intervalOptions);
     state.supplyDemandBucketRows = built.rows;
-    renderSupplyDemandMetrics(built.planningRows || physicalIntervalRows(filtered, intervalOptions), built);
+    const roomPressureRows = buildSupplyDemandRoomPressureRows(built.planningRows || physicalIntervalRows(filtered, intervalOptions), intervalOptions);
+    state.supplyDemandResourceRows = roomPressureRows;
+    renderSupplyDemandMetrics(built.planningRows || physicalIntervalRows(filtered, intervalOptions), built, roomPressureRows);
+    renderSupplyDemandResourceTable(roomPressureRows);
     renderSupplyDemandHeatmap(built, metricName);
     renderSupplyDemandLineGraph(built, metricName);
     const view = document.getElementById('sdView')?.value || 'all';
@@ -5356,14 +5506,17 @@
     table('supplyDemandTable', built.rows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), ['day', 'time', 'sections', 'seats', 'enrollment', 'studentPresence', 'fillRate', 'waitlist', 'emptySeats', 'interpretation']);
     renderMethodologyPanel(document.getElementById('supplyDemandLegend'), {
       title: 'Supply vs. Demand Methodology & Data Dictionary',
-      purpose: 'Compares scheduled instructional supply against realized student demand by half-hour interval.',
-      metricsUsed: ['Sections Active', 'Seats Offered', 'Enrollment Present', 'Student Presence', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Hidden Demand', 'Oversupply'],
-      calculationRules: `Supply is scheduled sections and seats offered. Realized demand is census enrollment when available, otherwise current enrollment, plus waitlist when present. Each section contributes to every half-hour interval it overlaps, with duplicate CRN/day/start/end rows counted once. Active planning window: ${built.planningWindowLabel}.`,
+      purpose: 'Answers the operational question: at what times, campuses, capacities, and room types does instructional demand exceed the supply of compatible rooms?',
+      metricsUsed: ['Compatible Rooms Available', 'Sections Requiring Rooms', 'Surplus / Deficit', 'Demand-to-Supply Ratio', 'Severity', 'Sections Active', 'Seats Offered', 'Enrollment Present', 'Student Presence', 'Fill Rate', 'Waitlist Pressure'],
+      calculationRules: `Room-resource pressure uses the shared Schedule Optimization compatibility engine. Compatible supply requires a valid room, matching campus, sufficient room capacity, compatible lecture/classroom or lab room type, and availability at the day/time window. Active planning window: ${built.planningWindowLabel}.`,
       assumptions: 'Enrollment alone cannot demonstrate student preference because students can only enroll in sections that were offered at available times, campuses, and modalities. The standard planning window excludes Saturday/Sunday, starts before 8:00 AM, Friday intervals after 3:00 PM, and Monday-Thursday intervals after 8:00 PM because those periods are often limited by staffing, contractual, operational, or student-availability constraints.',
       limitations: 'Interpretation labels are planning prompts. They do not prove preference or recommend schedule changes by themselves.',
       items: [
         ['Standard Planning Window', supplyDemandPlanningWindowLabel()],
         ['Rows Outside Planning Window', 'Fixed-time rows outside the standard planning window are excluded from the default Supply vs. Demand equation. Clear the Standard planning window checkbox to inspect all scheduled fixed-time rows.'],
+        ['No Compatible Supply', 'Sections require rooms in a day/time/capacity/type group, but no compatible Room Catalog room is available for that block.'],
+        ['Deficit', 'Sections requiring compatible rooms exceed compatible rooms available.'],
+        ['High Pressure', 'Demand uses at least 90% of compatible room supply.'],
         ['High Demand', 'A day/time block with strong fill or waitlist indicators relative to offered seats.'],
         ['Balanced', 'A day/time block where supply and enrollment pressure appear reasonably aligned.'],
         ['Low Activity', 'A day/time block with little or no section activity after filters.']
@@ -5372,13 +5525,17 @@
     });
     const status = document.getElementById('supplyDemandStatus');
     if (status) {
-      status.textContent = `Loaded ${rows.length} row(s); ${filtered.length} row(s) match filters; ${(built.planningRows || []).length} row(s) in planning window; ${built.excludedOutsidePlanningWindow || 0} fixed row(s) outside planning window.`;
+      status.textContent = `Loaded ${rows.length} row(s); ${filtered.length} row(s) match filters; ${(built.planningRows || []).length} row(s) in planning window; ${roomPressureRows.length} room pressure group(s); ${built.excludedOutsidePlanningWindow || 0} fixed row(s) outside planning window.`;
     }
     state.supplyDemandRan = true;
   }
 
   function clearSupplyDemand() {
     ['sdTerm', 'sdCampus', 'sdDivision', 'sdDepartment', 'sdCourse', 'sdCalGetc'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.value = '';
+    });
+    ['sdMinCapacity', 'sdMaxCapacity'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.value = '';
     });
@@ -6442,6 +6599,46 @@
     refreshGeneratedCollapsibleSections(node);
   }
 
+  function buildStudentChoiceOpportunityDetailRows(nonEmptyRows, sourceRows = []) {
+    const engine = window.COSScheduleOptimization;
+    const rooms = supplyDemandRoomCatalogRows();
+    const facultyRows = state.studentChoiceFacultyRows || [];
+    const roomSummary = rooms.length ? `${rooms.length} Room Catalog room(s) loaded` : 'Room Catalog not loaded';
+    return (nonEmptyRows || []).slice(0, 25).map(row => {
+      const hasTime = Boolean(row.day && row.timeBlock);
+      const hasRoomData = rooms.length > 0;
+      const hasFaculty = facultyRows.length > 0;
+      const matchingSource = (sourceRows || []).filter(section => section.days?.some(day => dayLabels[day] === row.day || day === row.dayKey));
+      const roomTypes = [...new Set(matchingSource.map(section => val(section.raw || {}, ['Room Type', 'ROOM_TYPE']) || section.roomType || '').filter(Boolean))];
+      const caps = matchingSource.map(section => section.cap || 0).filter(Boolean);
+      const confidence = engine?.opportunityConfidence?.({
+        hasFacultyAvailability: hasFaculty,
+        hasCompatibleRoomData: hasRoomData,
+        hasTimeWindow: hasTime,
+        hasDateRange: matchingSource.some(section => section.startDate || section.endDate),
+        hasRoomType: Boolean(roomTypes.length)
+      }) || { confidence: hasTime ? 'Moderate' : 'Low', unresolvedConstraints: 'Shared opportunity engine unavailable', basis: 'Fallback confidence.' };
+      const enrollmentEvidence = row.enrollment || row.waitlist || row.fillRateNumber > 0;
+      return {
+        dayTimeWindow: `${row.day || ''} ${row.timeBlock || row.time || ''}`.trim(),
+        durationAvailable: '30 minutes',
+        facultyAvailability: hasFaculty ? `${facultyRows.length} Faculty Schedule row(s) loaded` : 'Faculty schedule incomplete',
+        compatibleRoomCount: hasRoomData ? roomSummary : 'Not evaluated',
+        compatibleRoomExamples: rooms.slice(0, 5).map(room => room.buildingRoom || room.roomKey).filter(Boolean).join('; ') || 'None loaded',
+        campus: selectedFilterLabel('studentChoiceCampus'),
+        roomType: roomTypes.join('; ') || 'Room type incomplete',
+        capacityRange: caps.length ? `${Math.min(...caps)}-${Math.max(...caps)}` : 'Capacity incomplete',
+        existingNearbyCourseActivity: enrollmentEvidence
+          ? `${row.sections} section(s), ${row.enrollment} enrollment, ${row.fillRate || '0.0%'} fill, ${row.waitlist || 0} waitlist`
+          : `${row.sections || 0} section(s); no enrollment-demand evidence loaded`,
+        primeTimeStatus: ['Monday', 'Tuesday', 'Wednesday', 'Thursday'].includes(row.day) && (row.minutes ?? 0) >= 9 * 60 && (row.minutes ?? 0) < 15 * 60 ? 'Prime time' : 'Non-prime or limited',
+        confidence: confidence.confidence,
+        confidenceBasis: confidence.basis,
+        unresolvedConstraints: confidence.unresolvedConstraints
+      };
+    });
+  }
+
   function renderStudentChoiceOpportunity() {
     const rows = studentChoiceFilteredRows();
     const historicalTerms = getSelectedValues('studentChoiceHistoricalTerms').map(normalizeTermLabel).filter(Boolean);
@@ -6494,8 +6691,10 @@
       modality: document.getElementById('studentChoiceScenarioModality')?.value || ''
     };
     const scenarioRows = scheduleOpportunityScenarioComparison(rows, scenario, historicalRows, demandSource, aggregationOptions);
+    const opportunityDetailRows = buildStudentChoiceOpportunityDetailRows(nonEmpty, rows);
     state.studentChoicePlanningGapRows = gapRows;
     state.studentChoiceScenarioRows = scenarioRows;
+    state.studentChoiceOpportunityDetailRows = opportunityDetailRows;
     const highChoice = nonEmpty.filter(row => row.interpretation.startsWith('High choice')).length;
     const lowChoiceHighDemand = nonEmpty.filter(row => row.interpretation === 'Low choice / high demand').length;
     const noCurrentEnrollment = mode === 'planning' && !summary.hasCurrentEnrollment;
@@ -6546,6 +6745,7 @@
     }));
     state.studentChoiceExportRows = [
       ...tableRows,
+      ...opportunityDetailRows.map(row => ({ analysisMode: 'Feasible Opening Detail', rowType: 'Opportunity Detail', ...row })),
       ...historicalComparisonRows.map(row => ({ analysisMode: 'Historical Evaluation', rowType: 'Historical Comparison', aggregationMode: historicalAggregationLabel(aggregationMode), historicalTermWeights: projection.historicalTermWeights?.map(weight => `${weight.term}:${weight.weight} (${weight.relation})`).join('; ') || '', ...row })),
       ...gapRows.map(row => ({ analysisMode: 'Planning & Forecast', rowType: 'Planning Gap', ...row })),
       ...scenarioRows.map(row => ({ analysisMode: 'Scenario Analysis', rowType: 'Scenario Before/After', ...row }))
@@ -6560,6 +6760,7 @@
     const scenarioNode = document.getElementById('studentChoiceScenarioTable');
     if (scenarioNode) scenarioNode.style.display = view === 'all' || mode === 'scenario' ? '' : 'none';
     table('studentChoiceScenarioTable', scenarioRows, ['metric', 'before', 'after', 'change']);
+    table('studentChoiceOpportunityDetailTable', opportunityDetailRows, ['dayTimeWindow', 'durationAvailable', 'facultyAvailability', 'compatibleRoomCount', 'compatibleRoomExamples', 'campus', 'roomType', 'capacityRange', 'existingNearbyCourseActivity', 'primeTimeStatus', 'confidence', 'confidenceBasis', 'unresolvedConstraints']);
     const category = scheduleOpportunityCategory(summary, projection, mode);
     const recommendationRows = buildSchedulingRecommendations(rows, {
       includeOnline: includeOnlineForTreatment(onlineTreatment),
@@ -6606,6 +6807,8 @@
         ['Summer Weighting', 'Summer terms are weighted lower when planning Fall or Spring because Summer has different scheduling patterns, compressed calendars, student availability, and section mix. Summer receives full or near-full weight when planning another Summer term.'],
         ['Historical Opportunity Gap', 'Current planned schedule metric minus the selected historical average metric.'],
         ['Planning Window', 'Active expansion recommendations use the default recommended start window of 7:00 AM through 7:00 PM. Late-night findings are suppressed from active recommendations and may appear as diagnostics in recommendation tooling.'],
+        ['Opportunity Definition', 'Schedule Opportunity identifies where faculty, time, and compatible-room conditions may allow an additional or relocated section. It does not determine whether a section should be offered.'],
+        ['Opportunity Confidence', 'Confidence is based on completeness of faculty, room, time, date, and room-type data, not on whether the opportunity is desirable.'],
         ['Physical Scheduling Only', 'Default time-based mode. Counts in-person and hybrid scheduled meeting intervals only. Asynchronous online sections are excluded from day/time blocks because they do not consume a specific day/time block.'],
         ['Scheduled Online', 'Includes synchronous online rows only when they have real scheduled days and start/end times. They contribute only to the intervals they overlap.'],
         ['All Online', 'Includes online rows that have usable scheduled meeting intervals in time-based day/time blocks. Asynchronous or placeholder online rows still do not populate overnight or full-day activity.'],
@@ -6759,10 +6962,27 @@
   }
 
   function recommendationRecord(data) {
+    const score = window.COSScheduleOptimization?.recommendationScoreBreakdown?.(data.scoreFactors || {}) || { label: 'TIMBER Planning Weights', total: 0, components: [], missingFactors: [] };
+    const scoreBreakdown = score.components
+      .filter(component => component.value != null)
+      .map(component => `${label(component.factor)} ${Math.round(component.value * 100)}% x ${(component.weight * 100).toFixed(0)}% = ${(component.contribution * 100).toFixed(1)}`)
+      .join('; ') || 'No quantified score factors were available.';
     return {
       recommendationTitle: data.title,
       category: data.category,
       confidenceLevel: data.confidence || data.confidenceLevel || 'Low',
+      recommendedAction: data.action || data.suggestedAction || 'Review manually',
+      targetCourseOrSection: data.course || data.target || 'All',
+      proposedTime: data.proposedTime || data.timeBlock || 'N/A',
+      proposedRoomOrProfile: data.proposedRoom || data.roomProfile || 'Room profile depends on compatibility review',
+      facultyConstraintStatus: data.facultyConstraintStatus || (data.facultyType ? `${data.facultyType} faculty pattern visible` : 'Faculty availability not authoritative'),
+      expectedBenefit: data.expectedBenefit || data.why || 'Planning review benefit depends on local constraints.',
+      risks: data.risks || data.caution || 'Human review required.',
+      supportingFactors: data.supportingFactors || data.metrics || 'Available analytics signals',
+      missingInformation: data.missingInformation || score.missingFactors.map(label).join('; ') || 'None identified',
+      recommendationScoreBreakdown: scoreBreakdown,
+      recommendationScore: score.total,
+      planningWeightsLabel: score.label,
       affectedTermSource: data.term || data.affectedTermSource || 'Multiple/filtered',
       campus: data.campus || 'All',
       divisionDepartmentDiscipline: [data.division, data.department, data.discipline].filter(Boolean).join(' / ') || 'All',
@@ -6843,6 +7063,15 @@
         title,
         category,
         confidence: recommendationConfidence((row.fillRateNumber >= 0.9 ? 2 : 0) + (row.waitlist > 0 ? 2 : 0) + (row.uniqueCourses <= 2 ? 1 : 0) + (row.emptySeats >= 40 ? 1 : 0), 4),
+        scoreFactors: {
+          observedEnrollmentDemand: Math.min(1, row.fillRateNumber || 0),
+          waitlistPressure: Math.min(1, (row.waitlist || 0) / 10),
+          historicalFill: Math.min(1, row.fillRateNumber || 0),
+          studentTimeChoice: row.uniqueCourses ? Math.max(0, Math.min(1, 1 - row.uniqueCourses / 8)) : null,
+          roomCompatibility: category === 'Room Opportunity' ? 0.7 : null,
+          facultyAvailability: null,
+          primeTimeConcentration: bucketInPlanningWindow(row, planningWindow) ? 0.7 : 0.2
+        },
         evidence: `${row.day} ${row.timeBlock}: ${row.sections} active sections, ${row.uniqueCourses} unique courses, ${row.seats} seats, ${row.enrollment} enrollment, ${row.fillRate}, ${row.emptySeats} empty seats, ${row.waitlist} waitlist.`,
         metrics: 'observed enrollment; available supply; student choice opportunity; fill rate; waitlist; student presence',
         why: 'This distinguishes observed enrollment from the amount of supply and choice students had at that time.',
@@ -7024,6 +7253,8 @@
           <li><strong>Category:</strong> ${escapeAttr(row.category)}</li>
           <li><strong>Confidence:</strong> ${escapeAttr(row.confidenceLevel)}</li>
           <li><strong>Time:</strong> ${escapeAttr(row.dayTimeBlock)}</li>
+          <li><strong>Planning weights:</strong> ${escapeAttr(row.planningWeightsLabel)}; score ${escapeAttr(row.recommendationScore)}</li>
+          <li><strong>Score breakdown:</strong> ${escapeAttr(row.recommendationScoreBreakdown)}</li>
           <li><strong>Evidence:</strong> ${escapeAttr(row.evidenceSummary)}</li>
           <li><strong>Action:</strong> ${escapeAttr(row.suggestedAction)}</li>
         </ul>
@@ -7036,7 +7267,7 @@
       <strong>Filterable Priority List</strong>
       <ol>${priorityRows.slice(0, 12).map(row => `<li>${escapeAttr(row.confidenceLevel)} - ${escapeAttr(row.category)} - ${escapeAttr(row.recommendationTitle)}</li>`).join('')}</ol>
     `;
-    table('recommendationTable', filteredRecommendations, ['recommendationTitle', 'category', 'confidenceLevel', 'aggregationMode', 'selectedHistoricalTerms', 'historicalTermWeights', 'affectedTermSource', 'campus', 'divisionDepartmentDiscipline', 'courseOrCourseGroup', 'dayTimeBlock', 'evidenceSummary', 'metricsUsed', 'whyThisMatters', 'suggestedAction', 'cautionsLimitations']);
+    table('recommendationTable', filteredRecommendations, ['recommendationTitle', 'category', 'confidenceLevel', 'recommendedAction', 'targetCourseOrSection', 'proposedTime', 'proposedRoomOrProfile', 'facultyConstraintStatus', 'expectedBenefit', 'risks', 'supportingFactors', 'missingInformation', 'planningWeightsLabel', 'recommendationScore', 'recommendationScoreBreakdown', 'aggregationMode', 'selectedHistoricalTerms', 'historicalTermWeights', 'affectedTermSource', 'campus', 'divisionDepartmentDiscipline', 'courseOrCourseGroup', 'dayTimeBlock', 'evidenceSummary', 'metricsUsed', 'whyThisMatters', 'suggestedAction', 'cautionsLimitations']);
     const outsideItems = outsidePlanningDiagnostics.slice(0, 8).map(row => `<li>${escapeAttr(row.category)} - ${escapeAttr(row.timeBlock)}: ${escapeAttr(row.reason)}</li>`).join('');
     renderMethodologyPanel(document.getElementById('recommendationLegend'), {
       title: 'Schedule Recommendation Methodology & Data Dictionary',
@@ -7056,6 +7287,7 @@
         ['Scheduled Class Offerings, Unique CRNs', 'Distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN count once.'],
         ['Instructional Meetings', 'Distinct meeting components. Same CRN may count more than once for distinct day/time/component records.'],
         ['Metrics Used', 'Plain-language list of the signals contributing to a recommendation row.'],
+        ['TIMBER Planning Weights', 'Locally chosen display weights used to show recommendation score contributions. Missing factors are listed instead of silently contributing to a hidden composite score.'],
         ['Outside Planning Window', `Suppressed diagnostic item for time-based candidates outside ${formatPresenceHourLabel(planningWindow.earliest / 60)}-${formatPresenceHourLabel(planningWindow.latest / 60)}.`],
         ['Outside planning window diagnostics', outsidePlanningDiagnostics.length ? outsideItems.replace(/<[^>]+>/g, ' ') : 'No outside planning window diagnostics.']
       ],
@@ -7119,6 +7351,276 @@
     const pageHeight = pdf.internal.pageSize.getHeight() - 40;
     pdf.addImage(imgData, 'PNG', 20, 20, pageWidth, Math.min(pageHeight, canvas.height * pageWidth / canvas.width));
     pdf.save('scheduling-recommendations.pdf');
+  }
+
+  function scheduleBuilderEngine() {
+    if (!window.COSScheduleBuilder) throw new Error('Schedule Builder engine is not loaded.');
+    return window.COSScheduleBuilder;
+  }
+
+  function scheduleBuilderSourceRows() {
+    const term = currentTerm();
+    return currentRows()
+      .filter(row => !term || canon(row.term) === canon(term))
+      .filter(row => !isOmittedInstructionalMethod(row));
+  }
+
+  function scheduleBuilderSections() {
+    return scheduleBuilderEngine().normalizeSections(scheduleBuilderSourceRows());
+  }
+
+  function scheduleBuilderTimestamp(rows = scheduleBuilderSourceRows()) {
+    const stamps = rows.map(row => row.sourceUploadedAt || row.raw?.__uploadedAt || row.raw?.UploadedAt || row.raw?.uploadedAt || '').filter(Boolean).sort();
+    return stamps[stamps.length - 1] || 'Not available from loaded data';
+  }
+
+  function scheduleBuilderCourseOptions() {
+    const map = new Map();
+    scheduleBuilderSections().forEach(section => {
+      const labelText = [section.courseKey, section.title].filter(Boolean).join(' - ');
+      if (!map.has(section.courseKey)) map.set(section.courseKey, { value: section.courseKey, label: labelText || section.courseKey });
+    });
+    return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  }
+
+  function updateScheduleBuilderSourceStatus() {
+    const rows = scheduleBuilderSourceRows();
+    const sections = scheduleBuilderSections();
+    const courses = scheduleBuilderCourseOptions();
+    const sourceNode = document.getElementById('scheduleBuilderSourceStatus');
+    if (sourceNode) {
+      sourceNode.innerHTML = `
+        <strong>Data Source</strong>
+        <dl class="report-context-list">
+          <div><dt>Active term</dt><dd>${escapeAttr(currentTerm() || 'No selected term')}</dd></div>
+          <div><dt>Schedule data upload timestamp</dt><dd>${escapeAttr(scheduleBuilderTimestamp(rows))}</dd></div>
+          <div><dt>Enrollment data timestamp</dt><dd>${escapeAttr(scheduleBuilderTimestamp(rows))}</dd></div>
+          <div><dt>Source status</dt><dd>${escapeAttr(rows.length ? `${rows.length} row(s), ${sections.length} deduplicated section(s), ${courses.length} course option(s)` : 'No current term schedule rows loaded.')}</dd></div>
+        </dl>
+        <p><strong>Seat and waitlist status reflects TIMBER's most recent uploaded data and may not match current Banner availability. Confirm all sections in Banner before registration.</strong></p>
+      `;
+    }
+    const list = document.getElementById('sbCourseOptions');
+    if (list) {
+      list.replaceChildren();
+      courses.forEach(option => {
+        const node = document.createElement('option');
+        node.value = option.value;
+        node.label = option.label;
+        list.appendChild(node);
+      });
+    }
+    setSelectOptions('sbAllowedDays', ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'].map(day => ({ label: dayLabels[day] || day, value: day })));
+    setSelectOptions('sbExcludedDays', ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'].map(day => ({ label: dayLabels[day] || day, value: day })));
+    const campuses = [...new Set(sections.map(section => section.campus).filter(Boolean))].sort();
+    const modalities = [...new Set(['In-Person', 'Hybrid', 'Synchronous Online', 'Asynchronous Online', 'Dual Enrollment', 'Other/Unknown', ...sections.map(section => section.modality).filter(Boolean)])];
+    setSelectOptions('sbCampuses', campuses.map(value => ({ label: value, value })));
+    setSelectOptions('sbModalities', modalities.map(value => ({ label: value, value })));
+  }
+
+  function renderScheduleBuilderCourseList() {
+    const sections = scheduleBuilderSections();
+    const rows = state.scheduleBuilderRequests.map((request, index) => {
+      const courseKey = scheduleBuilderEngine().normalizeCourseKey(request.course);
+      const count = sections.filter(section => section.courseKey === courseKey || section.courseKey.includes(courseKey) || canon(section.title).includes(courseKey)).length;
+      return {
+        order: index + 1,
+        course: request.course,
+        designation: request.required === false ? 'Optional' : 'Required',
+        sectionsAvailable: count || 'Unavailable',
+        actions: `<button type="button" data-sb-move="${index}" data-dir="-1">Up</button> <button type="button" data-sb-move="${index}" data-dir="1">Down</button> <button type="button" data-sb-remove="${index}">Remove</button>`
+      };
+    });
+    const node = document.getElementById('scheduleBuilderCourseList');
+    if (!node) return;
+    if (!rows.length) {
+      node.innerHTML = '<p class="analytics-empty">Add desired courses such as ENGL C1000, MATH 010, COMM C1000, or PSYC C1000.</p>';
+      return;
+    }
+    node.innerHTML = `<table><thead><tr>${['Order', 'Course', 'Designation', 'Sections Available', 'Actions'].map(col => `<th>${col}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr><td>${row.order}</td><td>${escapeAttr(row.course)}</td><td>${row.designation}</td><td>${escapeAttr(row.sectionsAvailable)}</td><td>${row.actions}</td></tr>`).join('')}</tbody></table>`;
+  }
+
+  function addScheduleBuilderCourse() {
+    const input = document.getElementById('sbCourseSearch');
+    const course = scheduleBuilderEngine().normalizeCourseKey(input?.value || '');
+    if (!course) return;
+    if (state.scheduleBuilderRequests.some(request => scheduleBuilderEngine().normalizeCourseKey(request.course) === course)) {
+      alert(`${course} is already in the requested course list.`);
+      return;
+    }
+    state.scheduleBuilderRequests.push({
+      course,
+      required: document.getElementById('sbCourseRequired')?.value !== 'optional'
+    });
+    if (input) input.value = '';
+    renderScheduleBuilderCourseList();
+  }
+
+  function scheduleBuilderPreferences() {
+    const optionalNumber = id => {
+      const value = document.getElementById(id)?.value;
+      return value === '' || value == null ? null : Number(value);
+    };
+    return {
+      minUnits: optionalNumber('sbMinUnits'),
+      maxUnits: optionalNumber('sbMaxUnits'),
+      earliestStart: document.getElementById('sbEarliestStart')?.value || '',
+      latestEnd: document.getElementById('sbLatestEnd')?.value || '',
+      allowedDays: getSelectedValues('sbAllowedDays'),
+      excludedDays: getSelectedValues('sbExcludedDays'),
+      preferredCampuses: getSelectedValues('sbCampuses'),
+      allowedModalities: getSelectedValues('sbModalities'),
+      maxDaysOnCampus: optionalNumber('sbMaxDays'),
+      maxGapMinutes: optionalNumber('sbMaxGap'),
+      minimumTransitionMinutes: optionalNumber('sbTransition') || 0,
+      includeFullSections: document.getElementById('sbIncludeFull')?.checked === true,
+      includeWaitlistedSections: document.getElementById('sbIncludeWaitlisted')?.checked === true,
+      includeUnknownSeatStatus: document.getElementById('sbIncludeUnknownSeats')?.checked === true,
+      requireAllRequestedCourses: document.getElementById('sbRequireAll')?.checked !== false,
+      allowMultipleSectionsOfSameCourse: document.getElementById('sbAllowSameCourse')?.checked === true,
+      ranking: document.getElementById('sbRanking')?.value || 'best',
+      maxResults: optionalNumber('sbMaxResults') || 10
+    };
+  }
+
+  function scheduleBuilderSectionLine(section) {
+    const meetings = section.meetings.map(meeting => meeting.timed
+      ? `${meeting.days.map(day => dayLabels[day] || day).join('/')} ${meeting.start}-${meeting.end}${meeting.building || meeting.room ? ` ${[meeting.building, meeting.room].filter(Boolean).join(' ')}` : ''}`
+      : 'No fixed meeting time').join('; ');
+    return `${section.courseKey} ${section.section || ''} | CRN ${section.crn} | ${meetings} | ${section.modality} | ${section.campus || 'Campus N/A'} | ${section.units || 0} units | ${section.openSeats} open / ${section.waitlist} waitlist`;
+  }
+
+  function scheduleBuilderGrid(schedule, index) {
+    const days = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+    const meetings = schedule.sections.flatMap(section => section.meetings.filter(meeting => meeting.timed).map(meeting => ({ ...meeting, section })));
+    const start = meetings.length ? Math.max(7 * 60, Math.floor(Math.min(...meetings.map(meeting => meeting.startMinutes)) / 60) * 60) : 8 * 60;
+    const end = meetings.length ? Math.min(22 * 60, Math.ceil(Math.max(...meetings.map(meeting => meeting.endMinutes)) / 60) * 60) : 17 * 60;
+    const rows = [];
+    for (let minutes = start; minutes < end; minutes += 30) {
+      rows.push(`<tr><th>${escapeAttr(formatPresenceHourLabel(minutes / 60))}</th>${days.map(day => {
+        const items = meetings.filter(meeting => meeting.days.includes(day) && meeting.startMinutes < minutes + 30 && meeting.endMinutes > minutes);
+        return `<td>${items.map(item => `<span class="analytics-chip">${escapeAttr(item.section.courseKey)}<br>${escapeAttr(item.section.crn)}</span>`).join('')}</td>`;
+      }).join('')}</tr>`);
+    }
+    return `<div class="heatmap-wrap"><table class="heatmap-table schedule-builder-grid"><thead><tr><th>Time</th>${days.map(day => `<th>${escapeAttr(dayLabels[day])}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  }
+
+  function renderScheduleBuilderResults() {
+    updateScheduleBuilderSourceStatus();
+    renderScheduleBuilderCourseList();
+    const result = state.scheduleBuilderResults;
+    const metricsNode = document.getElementById('scheduleBuilderMetrics');
+    const warningsNode = document.getElementById('scheduleBuilderWarnings');
+    const resultsNode = document.getElementById('scheduleBuilderResults');
+    const compareNode = document.getElementById('scheduleBuilderCompare');
+    if (!result) {
+      if (metricsNode) metric('scheduleBuilderMetrics', [['Requested Courses', state.scheduleBuilderRequests.length], ['Schedule Options', 0], ['Privacy', 'Anonymous']]);
+      if (warningsNode) warningsNode.innerHTML = '<p class="analytics-empty">Build schedules after adding desired courses.</p>';
+      if (resultsNode) resultsNode.innerHTML = '';
+      if (compareNode) compareNode.innerHTML = '';
+      return;
+    }
+    metric('scheduleBuilderMetrics', [
+      ['Requested Courses', state.scheduleBuilderRequests.length],
+      ['Schedule Options', result.schedules.length],
+      ['Partial Options', result.partialSchedules.length],
+      ['Result Limit', result.maxResults],
+      ['Source Sections', scheduleBuilderSections().length],
+      ['Privacy', 'Anonymous']
+    ]);
+    const diagnostics = [
+      ...(result.diagnostics || []),
+      ...(result.pruned ? ['Maximum-result pruning was applied. Narrow preferences or request more results if performance permits.'] : []),
+      ...result.availability.filter(item => item.totalSections === 0).map(item => `${item.label || item.course} has no sections in the selected term.`),
+      ...result.availability.flatMap(item => item.excludedReasons || []).slice(0, 8)
+    ];
+    if (warningsNode) warningsNode.innerHTML = diagnostics.length
+      ? `<strong>Warnings and Guidance</strong><ul>${[...new Set(diagnostics)].map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul>`
+      : '<p class="analytics-empty">No schedule-builder warnings for the current run.</p>';
+    const compareRows = result.schedules.slice(0, 2).map((schedule, index) => ({
+      option: `Option ${index + 1}`,
+      totalUnits: schedule.totalUnits,
+      campusDays: schedule.campusDays,
+      totalWeeklyGapMinutes: schedule.totalWeeklyGapMinutes,
+      earliestStart: schedule.earliestStart,
+      latestEnd: schedule.latestEnd,
+      openSeats: schedule.openSeats,
+      warnings: schedule.warnings.length
+    }));
+    table('scheduleBuilderCompare', compareRows, ['option', 'totalUnits', 'campusDays', 'totalWeeklyGapMinutes', 'earliestStart', 'latestEnd', 'openSeats', 'warnings']);
+    const schedules = result.schedules.length ? result.schedules : result.partialSchedules;
+    if (resultsNode) {
+      resultsNode.innerHTML = schedules.map((schedule, index) => `
+        <section data-collapsible-title="Schedule Option ${index + 1}" data-collapsible-id="schedule-builder-option-${index + 1}">
+          <h3>Schedule Option ${index + 1}${schedule.complete === false ? ' (Partial)' : ''}</h3>
+          <p>${escapeAttr(schedule.scoreExplanation || 'Partial schedule shown for planning review.')}</p>
+          <ul>
+            <li>Total units: ${escapeAttr(schedule.totalUnits)}</li>
+            <li>Campus days: ${escapeAttr(schedule.campusDays)}</li>
+            <li>Total weekly gap time: ${escapeAttr(schedule.totalWeeklyGapMinutes)} minutes</li>
+            <li>Earliest start: ${escapeAttr(schedule.earliestStart)}</li>
+            <li>Latest end: ${escapeAttr(schedule.latestEnd)}</li>
+            <li>Open seats: ${escapeAttr(schedule.openSeats)}; Waitlist: ${escapeAttr(schedule.waitlist)}</li>
+            <li>Data timestamp: ${escapeAttr(scheduleBuilderTimestamp())}</li>
+            <li>Omitted optional courses: ${escapeAttr(schedule.omittedOptionalCourses?.join(', ') || 'None')}</li>
+          </ul>
+          ${scheduleBuilderGrid(schedule, index)}
+          <div class="analytics-table"><table><thead><tr><th>Included Courses and Sections</th></tr></thead><tbody>${schedule.sections.map(section => `<tr><td>${escapeAttr(scheduleBuilderSectionLine(section))}</td></tr>`).join('')}</tbody></table></div>
+          ${schedule.warnings?.length ? `<p><strong>Warnings:</strong> ${escapeAttr(schedule.warnings.join('; '))}</p>` : ''}
+        </section>
+      `).join('') || '<p class="analytics-empty">No conflict-free schedule satisfies every selected requirement.</p>';
+      refreshGeneratedCollapsibleSections(resultsNode);
+    }
+    renderMethodologyPanel(document.getElementById('scheduleBuilderLegend'), {
+      title: 'Schedule Builder Methodology & Data Dictionary',
+      purpose: 'Generates anonymous schedule options from manually selected courses and current uploaded term schedule data. It is not a Banner registration replacement.',
+      metricsUsed: ['Conflict-free schedule option', 'Total units', 'Campus days', 'Weekly gap time', 'Open seats', 'Waitlist', 'Warnings'],
+      calculationRules: 'Rows are deduplicated by CRN into one section with all meeting components preserved. Conflicts require overlapping days, times, and active date ranges. Asynchronous online sections do not create fixed meeting conflicts. Synchronous online and hybrid fixed-time meetings remain timed commitments.',
+      assumptions: 'Seat and waitlist status reflect the latest TIMBER upload only. Banner is authoritative for registration and current seat availability.',
+      limitations: 'Phase 1 does not use student records, transcripts, education plans, prerequisites, grades, or student-specific eligibility. Linked/corequisite warnings appear only when available in the uploaded data.',
+      items: [
+        ['Privacy', 'Selections are processed in the browser and are not persisted by default.'],
+        ['Hybrid Warning', 'Hybrid sections may have irregular meeting patterns and should be date-verified.'],
+        ['Partial Schedule', 'Returned when no complete schedule satisfies all constraints, so users can see which constraints or unavailable courses blocked completion.']
+      ],
+      version: 'Phase 1'
+    });
+  }
+
+  function runScheduleBuilder() {
+    updateScheduleBuilderSourceStatus();
+    const results = scheduleBuilderEngine().buildScheduleOptions(scheduleBuilderSourceRows(), state.scheduleBuilderRequests, scheduleBuilderPreferences());
+    state.scheduleBuilderResults = results;
+    state.scheduleBuilderRan = true;
+    renderScheduleBuilderResults();
+  }
+
+  function exportScheduleBuilderRows() {
+    const rows = [];
+    (state.scheduleBuilderResults?.schedules || []).forEach((schedule, index) => {
+      schedule.sections.forEach(section => rows.push({
+        exportTitle: 'TIMBER Schedule Options',
+        term: currentTerm(),
+        scheduleDataCurrentAsOf: scheduleBuilderTimestamp(),
+        option: index + 1,
+        course: section.courseKey,
+        crn: section.crn,
+        section: section.section,
+        modality: section.modality,
+        campus: section.campus,
+        units: section.units,
+        totalUnits: schedule.totalUnits,
+        campusDays: schedule.campusDays,
+        totalWeeklyGapMinutes: schedule.totalWeeklyGapMinutes,
+        earliestStart: schedule.earliestStart,
+        latestEnd: schedule.latestEnd,
+        openSeats: section.openSeats,
+        waitlist: section.waitlist,
+        warnings: schedule.warnings.join('; '),
+        meetings: section.meetings.map(meeting => meeting.timed ? `${meeting.days.join('/')} ${meeting.start}-${meeting.end}` : 'No fixed meeting time').join('; ')
+      }));
+    });
+    exportRowsWithoutMethodology(rows, 'timber-schedule-options.csv');
   }
 
   function optimizationEngine() {
@@ -7349,7 +7851,7 @@
   function renderOptimizationMethodology() {
     renderMethodologyPanel(document.getElementById('optimizationMethodology'), {
       title: 'Schedule Optimization Methodology & Data Dictionary',
-      purpose: 'Recommends possible room moves, small time shifts, and add-a-class placements for executive planning review.',
+      purpose: 'Developmental Planning Tool. Schedule Optimization is under active development. Results are planning scenarios and must be reviewed before operational use.',
       methodology: 'Room fit treats campus and room type as hard constraints before scoring. By default, only same-campus rooms are evaluated; cross-campus options appear only when the cross-campus setting is enabled and are flagged for administrative approval. SCHD Code / Schedule Type is the primary room-type driver: SCHD 02/2 requires lecture/classroom-compatible rooms and SCHD 04/4 requires lab-compatible rooms. Capacity fit, section cap, historical cap/peak enrollment, room priority, historical demand, availability, and confidence are scored only after invalid candidates are pruned.',
       assumptions: 'One active optimization term is analyzed for possible changes. Historical comparison and demand terms are read-only evidence sources for demand, fill-rate, caps, and prior room usage. Recommendations are advisory and do not automatically change schedules, archives, Room Availability, Room Catalog, or uploaded data. Room Catalog is treated as the primary room inventory source. Cross-listed/shared meetings are evaluated as a unit when a cross-list ID is present or when rows share the same room, day/time, and instructor.',
       limitations: 'The lab does not model instructor contracts, student conflicts across courses, travel time, program sequencing, room setup time, equipment needs beyond room type/features, or leadership decisions. Strict priority mode blocks mismatched priority recommendations; other modes surface priority warnings for review. Lecture/lab relationship uncertainty, cross-list uncertainty, current-room uncertainty, priority violations, and limited history are called out as review tradeoffs.',
@@ -7361,6 +7863,8 @@
         ['Capacity Fit', 'Rewards rooms close to expected enrollment, section cap, and historical cap/peak demand.'],
         ['Historical Cap Risk', 'Flags sections placed in rooms smaller than historical cap, historical peak enrollment, or normal section cap.'],
         ['Room Priority', 'Raw room priority is preserved and normalized into primary and secondary priority areas.'],
+        ['Constraint Inventory', 'Shows each optimization constraint as enforced, considered, unavailable, or informational only so users can see which rules are actually active.'],
+        ['Scenario Comparison', 'Compares Current Schedule, Proposed Scenario, and Difference fields without writing any change back to Banner, archives, or backend schedule data.'],
         ['Lecture/Lab Components', 'Room moves may be component-specific, but time shifts consider the full section pattern. Lab time shifts should not separate the lab from its related lecture in a way that creates an impractical student schedule.'],
         ['Cross-Listed Sections', 'Shared cross-listed meetings are treated as a unit. Capacity fit uses combined enrollment/capacity where the shared meeting can be identified.'],
         ['Time Shift', 'Only considers shifts within the selected tolerance and excludes asynchronous Online/TBA rows. Multi-component lecture/lab shifts are lowered in confidence and flagged for scheduler review.'],
@@ -7620,6 +8124,16 @@
         document.getElementById('optimizationInventoryStatus').innerHTML = `<strong>Room Inventory Status</strong><p>${escapeAttr(rooms.length ? `${rooms.length} normalized Room Catalog rows loaded as primary inventory source.` : 'No Room Catalog rows are available. Import Room Catalog before relying on recommendations.')}</p>`;
         table('optimizationMoveTable', state.optimizationMoves, ['crn', 'affectedCrns', 'course', 'section', 'instructionalComponent', 'requiredRoomType', 'currentCampus', 'suggestedCampus', 'currentRoom', 'suggestedRoom', 'currentCapacity', 'suggestedCapacity', 'currentEnrollment', 'sectionCap', 'historicalAverageEnrollment', 'historicalPeakEnrollment', 'roomTypeComparison', 'roomPriorityComparison', 'reason', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
         table('optimizationShiftTable', state.optimizationShifts, ['crn', 'course', 'currentDayTime', 'suggestedDayTime', 'currentRoom', 'suggestedRoom', 'timeShiftAmount', 'improvementReason', 'conflictsAvoided', 'confidence', 'tradeoffs', 'score', 'scoreComponents']);
+        const constraintRows = engine.optimizationConstraintInventory?.({
+          roomsAvailable: rooms.length,
+          facultyRows: state.optimizationFacultyRows.length,
+          allowCrossCampusMoves
+        }) || [];
+        const scenarioRows = engine.optimizationScenarioComparison?.(indexes.activeSections, indexes.activeSections, warnings) || [];
+        state.optimizationConstraintRows = constraintRows;
+        state.optimizationScenarioRows = scenarioRows;
+        table('optimizationConstraintInventory', constraintRows, ['constraint', 'status', 'note']);
+        table('optimizationScenarioComparison', scenarioRows, ['metric', 'currentSchedule', 'proposedScenario', 'difference']);
         table('optimizationProposedEvaluation', state.optimizationProposedEvaluation, ['course', 'proposedDayTime', 'proposedTimeScore', 'availableRoomCount', 'bestRoomFit', 'expectedFillDemandSupport', 'historicalFillRate', 'competingSections', 'primeTimePressure', 'roomFitQuality', 'historicalPerformance', 'saturatedPattern', 'scheduleGapFit']);
         table('optimizationBetterTimes', state.optimizationBetterTimes, ['suggestedDayTime', 'suggestedRoom', 'proposedTimeScore', 'recommendedTimeScore', 'historicalFillRateAtProposedTime', 'historicalFillRateAtRecommendedTime', 'competingSectionsNearProposedTime', 'competingSectionsNearRecommendedTime', 'availableRoomCount', 'bestRoomFit', 'demandGapIndicator', 'primeTimeImpact', 'studentPresenceAlignment', 'confidence', 'whyThisIsBetter']);
         table('optimizationPlacementTable', state.optimizationPlacements, ['course', 'bestRoom', 'bestDayTime', 'capacity', 'expectedEnrollment', 'expectedFillRate', 'historicalDemandSupport', 'roomFit', 'priorityAlignment', 'utilizationImpact', 'primeTimePressure', 'score', 'scoreComponents', 'why']);
@@ -14619,6 +15133,7 @@
     [REPORTS.recommendationEngine]: 'recommendationReport',
     [REPORTS.facultyHeatmap]: 'facultyHeatmapReport',
     [REPORTS.scheduleOptimizationLab]: 'scheduleOptimizationLabReport',
+    [REPORTS.scheduleBuilder]: 'scheduleBuilderReport',
     [REPORTS.workExperience]: 'workExperienceReport'
   };
 
@@ -14637,7 +15152,8 @@
     [REPORTS.supplyDemand]: 'supplyDemand',
     [REPORTS.studentChoiceOpportunity]: 'studentChoice',
     [REPORTS.recommendationEngine]: 'recommendation',
-    [REPORTS.scheduleOptimizationLab]: 'optimization'
+    [REPORTS.scheduleOptimizationLab]: 'optimization',
+    [REPORTS.scheduleBuilder]: 'scheduleBuilder'
   };
 
   const METRIC_REPORT_MAP = {
@@ -14654,6 +15170,7 @@
     studentChoiceMetrics: REPORTS.studentChoiceOpportunity,
     recommendationMetrics: REPORTS.recommendationEngine,
     optimizationMetrics: REPORTS.scheduleOptimizationLab,
+    scheduleBuilderMetrics: REPORTS.scheduleBuilder,
     modalityMetrics: REPORTS.modality,
     roomFitReportMetrics: REPORTS.roomFit
   };
@@ -15993,6 +16510,7 @@
     setReportDisplay(REPORTS.recommendationEngine, 'recommendationEngineReport');
     setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
     setReportDisplay(REPORTS.scheduleOptimizationLab, 'scheduleOptimizationLabReport');
+    setReportDisplay(REPORTS.scheduleBuilder, 'scheduleBuilderReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
     const heatmapTool = document.getElementById('heatmap-tool');
@@ -16109,6 +16627,10 @@
       document.getElementById('optimizationBetterTimes').innerHTML = '<p class="analytics-empty">Better-time recommendations appear when data supports a higher-scoring alternative.</p>';
       document.getElementById('optimizationPlacementTable').innerHTML = '<p class="analytics-empty">Enter add-a-class details and click Rank Placement Options.</p>';
       document.getElementById('optimizationPriorityAudit').innerHTML = '<p class="analytics-empty">Room priority audit appears after running the lab.</p>';
+    }
+    if (selected === REPORTS.scheduleBuilder) {
+      updateScheduleBuilderSourceStatus();
+      renderScheduleBuilderResults();
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -16676,7 +17198,7 @@
     document.getElementById('supplyDemandCsv')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
     document.getElementById('sdArchiveTerms')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
     document.getElementById('archiveSupplyDemandUploads')?.addEventListener('click', () => archiveUploads('supplyDemandCsv').catch(err => alert(err.message || 'Archive failed.')));
-    ['sdView', 'sdMetric', 'sdTerm', 'sdCampus', 'sdCalGetc', 'sdModality', 'sdPlanningWindow'].forEach(id => {
+    ['sdView', 'sdMetric', 'sdTerm', 'sdCampus', 'sdCalGetc', 'sdModality', 'sdPlanningWindow', 'sdMinCapacity', 'sdMaxCapacity'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.supplyDemandRan) runSupplyDemand().catch(err => console.warn(err)); });
     });
     ['sdDivision', 'sdDepartment', 'sdCourse'].forEach(id => {
@@ -16686,7 +17208,7 @@
       });
     });
     document.getElementById('clearSupplyDemand')?.addEventListener('click', clearSupplyDemand);
-    document.getElementById('exportSupplyDemand')?.addEventListener('click', () => exportRowsWithoutMethodology(state.supplyDemandBucketRows, 'supply-vs-demand.csv'));
+    document.getElementById('exportSupplyDemand')?.addEventListener('click', () => exportRowsWithoutMethodology(state.supplyDemandResourceRows?.length ? state.supplyDemandResourceRows : state.supplyDemandBucketRows, 'supply-vs-demand.csv'));
     document.getElementById('runBusyTimeDashboard')?.addEventListener('click', () => runBusyTimeDashboard().catch(err => alert(err.message || 'Busy Time Dashboard failed.')));
     document.getElementById('busyTimeCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
     document.getElementById('busyTimeFacultyCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
@@ -16739,6 +17261,46 @@
     document.getElementById('clearRecommendationEngine')?.addEventListener('click', clearRecommendationEngine);
     document.getElementById('exportRecommendationCsv')?.addEventListener('click', () => exportRowsWithoutMethodology(state.recommendationOutputRows, 'scheduling-recommendations.csv'));
     document.getElementById('exportRecommendationPdf')?.addEventListener('click', () => exportRecommendationPdf().catch(err => alert(err.message || 'PDF export failed.')));
+    document.getElementById('sbAddCourse')?.addEventListener('click', addScheduleBuilderCourse);
+    document.getElementById('sbCourseSearch')?.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        addScheduleBuilderCourse();
+      }
+    });
+    document.getElementById('sbClearCourses')?.addEventListener('click', () => {
+      state.scheduleBuilderRequests = [];
+      state.scheduleBuilderResults = null;
+      renderScheduleBuilderResults();
+    });
+    document.getElementById('scheduleBuilderCourseList')?.addEventListener('click', event => {
+      const removeIndex = event.target?.dataset?.sbRemove;
+      const moveIndex = event.target?.dataset?.sbMove;
+      if (removeIndex != null) {
+        state.scheduleBuilderRequests.splice(Number(removeIndex), 1);
+        state.scheduleBuilderResults = null;
+        renderScheduleBuilderResults();
+      }
+      if (moveIndex != null) {
+        const index = Number(moveIndex);
+        const next = index + Number(event.target.dataset.dir || 0);
+        if (next >= 0 && next < state.scheduleBuilderRequests.length) {
+          const [item] = state.scheduleBuilderRequests.splice(index, 1);
+          state.scheduleBuilderRequests.splice(next, 0, item);
+          renderScheduleBuilderResults();
+        }
+      }
+    });
+    document.getElementById('runScheduleBuilder')?.addEventListener('click', () => {
+      try { runScheduleBuilder(); } catch (err) { alert(err.message || 'Schedule Builder failed.'); }
+    });
+    document.getElementById('sbMoreResults')?.addEventListener('click', () => {
+      const limit = document.getElementById('sbMaxResults');
+      if (limit) limit.value = String(Math.min(50, (Number(limit.value || 10) || 10) + 10));
+      try { runScheduleBuilder(); } catch (err) { alert(err.message || 'Schedule Builder failed.'); }
+    });
+    document.getElementById('printScheduleBuilder')?.addEventListener('click', () => window.print());
+    document.getElementById('exportScheduleBuilder')?.addEventListener('click', exportScheduleBuilderRows);
     document.getElementById('runScheduleOptimizationLab')?.addEventListener('click', () => {
       runScheduleOptimizationLab().catch(err => alert(err.message || 'Schedule Optimization failed.'));
     });

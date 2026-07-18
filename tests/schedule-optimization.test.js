@@ -320,6 +320,98 @@ test('optimization indexes and candidate pruning limit room scans', () => {
   assert.equal(candidates.every(room => /Classroom/.test(room.roomType)), true);
 });
 
+test('room-resource supply rows enforce lecture lab compatibility and capacity deficits', () => {
+  const catalog = [
+    { Campus: 'COS', Building: 'C', Room: '101', Capacity: 35, 'Room Type': 'Classroom' },
+    { Campus: 'COS', Building: 'L', Room: '201', Capacity: 35, 'Room Type': 'Science Lab' }
+  ];
+  const demand = [
+    { term: 'FALL 2026', crn: '30001', subject: 'BIO', course: '001', campus: 'COS', building: 'C', room: '999', days: 'M', start: '09:00', end: '10:00', actual: 20, cap: 30, SCHD_CODE_SSRMEET: '04', modality: 'In-Person' },
+    { term: 'FALL 2026', crn: '30002', subject: 'BIO', course: '002', campus: 'COS', building: 'C', room: '998', days: 'M', start: '09:00', end: '10:00', actual: 20, cap: 30, SCHD_CODE_SSRMEET: '04', modality: 'In-Person' }
+  ];
+
+  const rows = optimizer.roomSupplyDemandRows(demand, catalog);
+  const labPressure = rows.find(row => row.requiredRoomType === 'Lab / Laboratory');
+
+  assert.ok(labPressure);
+  assert.equal(labPressure.compatibleRoomsAvailable, 1);
+  assert.equal(labPressure.sectionsRequiringRooms, 2);
+  assert.equal(labPressure.surplusDeficit, -1);
+  assert.equal(labPressure.severity, 'Deficit');
+  assert.doesNotMatch(labPressure.underlyingRooms, /C-101/);
+  assert.match(labPressure.underlyingRooms, /L-201/);
+});
+
+test('room-resource supply rows report no compatible supply when capacity is insufficient', () => {
+  const catalog = [
+    { Campus: 'COS', Building: 'C', Room: '101', Capacity: 25, 'Room Type': 'Classroom' }
+  ];
+  const demand = [
+    { term: 'FALL 2026', crn: '31001', subject: 'ENGL', course: '001', campus: 'COS', days: 'T', start: '11:00', end: '12:00', actual: 38, cap: 40, SCHD_CODE_SSRMEET: '02', modality: 'In-Person' }
+  ];
+
+  const rows = optimizer.roomSupplyDemandRows(demand, catalog);
+
+  assert.equal(rows[0].compatibleRoomsAvailable, 0);
+  assert.equal(rows[0].sectionsRequiringRooms, 1);
+  assert.equal(rows[0].severity, 'No Compatible Supply');
+  assert.equal(rows[0].capacityBand, '40-59');
+});
+
+test('opportunity confidence is based on missing data completeness', () => {
+  const high = optimizer.opportunityConfidence({
+    hasFacultyAvailability: true,
+    hasCompatibleRoomData: true,
+    hasTimeWindow: true,
+    hasDateRange: true,
+    hasRoomType: true
+  });
+  const low = optimizer.opportunityConfidence({
+    hasFacultyAvailability: false,
+    hasCompatibleRoomData: false,
+    hasTimeWindow: true,
+    hasDateRange: false,
+    hasRoomType: false
+  });
+
+  assert.equal(high.confidence, 'High');
+  assert.equal(high.missingInformation, 'None');
+  assert.equal(low.confidence, 'Low');
+  assert.match(low.unresolvedConstraints, /Faculty availability/);
+  assert.match(low.unresolvedConstraints, /Compatible room data/);
+});
+
+test('recommendation score breakdown exposes TIMBER weights and missing factors', () => {
+  const score = optimizer.recommendationScoreBreakdown({
+    observedEnrollmentDemand: 0.9,
+    waitlistPressure: 0.5,
+    roomCompatibility: 1
+  });
+
+  assert.equal(score.label, 'TIMBER Planning Weights');
+  assert.ok(score.total > 0);
+  assert.ok(score.components.some(component => component.factor === 'observedEnrollmentDemand' && component.weight > 0));
+  assert.ok(score.missingFactors.includes('facultyAvailability'));
+  assert.equal(score.components.every(component => Object.prototype.hasOwnProperty.call(component, 'weight')), true);
+});
+
+test('optimization constraint inventory and scenario comparison are read-only audit outputs', () => {
+  const inventory = optimizer.optimizationConstraintInventory({ roomsAvailable: 2, facultyRows: 0, allowCrossCampusMoves: false });
+  const comparison = optimizer.optimizationScenarioComparison(
+    [{ crn: '1', building: 'A', room: '101', days: 'M', start: '09:00', end: '10:00', modality: 'In-Person' }],
+    [{ crn: '1', building: 'A', room: '102', days: 'M', start: '09:30', end: '10:30', modality: 'In-Person' }],
+    ['Needs review']
+  );
+
+  assert.ok(inventory.some(row => row.constraint === 'Room capacity' && row.status === 'enforced'));
+  assert.ok(inventory.some(row => row.constraint === 'Faculty availability' && row.status === 'unavailable'));
+  assert.ok(inventory.some(row => row.constraint === 'Linked/corequisite relationship' && row.status === 'unavailable'));
+  assert.equal(comparison.find(row => row.metric === 'Sections moved').proposedScenario, 1);
+  assert.equal(comparison.find(row => row.metric === 'Rooms changed').proposedScenario, 1);
+  assert.equal(comparison.find(row => row.metric === 'Time changes').proposedScenario, 1);
+  assert.match(comparison.find(row => row.metric === 'Unresolved warnings').difference, /Needs review/);
+});
+
 test('recommendation stats report evaluated candidates', () => {
   const stats = {};
   const indexes = optimizer.buildOptimizationIndexes({ activeRows: sections.filter(row => row.term === 'FALL 2026'), historyRows: sections, rooms });

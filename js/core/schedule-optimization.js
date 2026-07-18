@@ -800,6 +800,262 @@
       .slice(0, maxCandidates);
   }
 
+  function capacityBandForRequirement(value) {
+    const capacity = Number(value) || 0;
+    if (capacity < 20) return 'Under 20';
+    if (capacity < 30) return '20-29';
+    if (capacity < 40) return '30-39';
+    if (capacity < 60) return '40-59';
+    if (capacity < 100) return '60-99';
+    return '100+';
+  }
+
+  function capacityBandRange(label) {
+    const ranges = {
+      'Under 20': [0, 19],
+      '20-29': [20, 29],
+      '30-39': [30, 39],
+      '40-59': [40, 59],
+      '60-99': [60, 99],
+      '100+': [100, Infinity]
+    };
+    return ranges[label] || [0, Infinity];
+  }
+
+  function roomPressureSeverity(demand, supply) {
+    if (demand > 0 && supply <= 0) return 'No Compatible Supply';
+    const surplus = supply - demand;
+    const ratio = supply ? demand / supply : Infinity;
+    if (surplus < 0) return 'Deficit';
+    if (ratio >= 0.9) return 'High Pressure';
+    if (ratio >= 0.7) return 'Moderate Pressure';
+    return 'Balanced';
+  }
+
+  function compatibleRoomsForSection(sectionInput, roomsInput = [], options = {}) {
+    const section = normalizeSection(sectionInput);
+    const rooms = options.roomIndexes?.rooms || normalizeRoomCatalog(roomsInput);
+    const availability = options.availability || buildAvailabilityIndex(options.sections || []);
+    const needed = Math.max(section.sectionCap || 0, section.enrollment || 0, Number(options.minimumCapacity || 0) || 0);
+    return rooms.filter(room => {
+      if (!room.roomKey) return false;
+      if (!options.allowCrossCampusMoves && section.campus && room.campus && canon(room.campus) !== canon(section.campus)) return false;
+      if (needed && (room.capacity || 0) < needed) return false;
+      if (!roomTypeMatches(room, section)) return false;
+      return isRoomAvailable(room, { ...section, roomKey: room.roomKey }, availability, options.ignoreCrns || section.affectedCrns || section.crn);
+    });
+  }
+
+  function roomSupplyDemandRows(sectionsInput = [], roomsInput = [], options = {}) {
+    const allSections = normalizedSections(sectionsInput).filter(isTimeBasedSection);
+    const rooms = normalizeRoomCatalog(roomsInput);
+    const minCapacity = Number(options.minCapacity || 0) || 0;
+    const maxCapacity = Number(options.maxCapacity || Infinity) || Infinity;
+    const scopedSections = allSections.filter(section => {
+      const required = Math.max(section.sectionCap || 0, section.enrollment || 0);
+      return required >= minCapacity && required <= maxCapacity;
+    });
+    const byGroup = new Map();
+    scopedSections.forEach(section => {
+      const requiredCapacity = Math.max(section.sectionCap || 0, section.enrollment || 0);
+      const capacityBand = capacityBandForRequirement(requiredCapacity);
+      const requiredRoomType = inferredRequiredRoomType(section) || 'General Purpose';
+      section.days.forEach(day => {
+        const key = [
+          section.term || 'Unknown Term',
+          section.campus || 'Unknown Campus',
+          day,
+          section.startMinutes,
+          section.endMinutes,
+          requiredRoomType,
+          capacityBand,
+          section.scheduleType || 'Unknown'
+        ].join('|');
+        if (!byGroup.has(key)) {
+          byGroup.set(key, {
+            term: section.term || 'Unknown Term',
+            campus: section.campus || 'Unknown Campus',
+            day,
+            dayLabel: DAY_LABELS[day] || day,
+            startMinutes: section.startMinutes,
+            endMinutes: section.endMinutes,
+            timeWindow: `${timeLabel(section.startMinutes)}-${timeLabel(section.endMinutes)}`,
+            requiredRoomType,
+            capacityBand,
+            instructionalComponent: scheduleTypeCompatibility(section)?.normalizedInstructionalComponent || section.instructionalComponent || 'Unknown',
+            scheduleType: section.scheduleType || 'Unknown',
+            sections: []
+          });
+        }
+        byGroup.get(key).sections.push(section);
+      });
+    });
+    return [...byGroup.values()].map(group => {
+      const [bandMin] = capacityBandRange(group.capacityBand);
+      const demand = group.sections.length;
+      const representative = {
+        ...group.sections[0],
+        days: [group.day],
+        startMinutes: group.startMinutes,
+        endMinutes: group.endMinutes,
+        start: timeLabel(group.startMinutes),
+        end: timeLabel(group.endMinutes),
+        sectionCap: Math.max(bandMin, ...group.sections.map(section => section.sectionCap || section.enrollment || 0))
+      };
+      const availability = buildAvailabilityIndex(allSections.filter(section => !group.sections.includes(section)));
+      const compatibleRooms = compatibleRoomsForSection(representative, rooms, {
+        ...options,
+        availability,
+        sections: allSections,
+        minimumCapacity: bandMin
+      });
+      const supply = compatibleRooms.length;
+      const surplus = supply - demand;
+      return {
+        term: group.term,
+        campus: group.campus,
+        day: group.dayLabel,
+        dayKey: group.day,
+        timeWindow: group.timeWindow,
+        requiredRoomType: group.requiredRoomType,
+        capacityBand: group.capacityBand,
+        minimumRequiredCapacity: representative.sectionCap,
+        instructionalComponent: group.instructionalComponent,
+        scheduleType: group.scheduleType,
+        compatibleRoomsAvailable: supply,
+        sectionsRequiringRooms: demand,
+        surplusDeficit: surplus,
+        demandToSupplyRatio: supply ? Number((demand / supply).toFixed(2)) : (demand ? 'No supply' : 0),
+        severity: roomPressureSeverity(demand, supply),
+        underlyingSections: group.sections.map(section => [section.courseCode, section.crn, section.roomKey].filter(Boolean).join(' ')).join('; '),
+        underlyingRooms: compatibleRooms.map(room => `${room.roomKey} (${room.capacity}, ${room.roomType || 'Unknown type'})`).join('; '),
+        underlyingSectionCount: demand,
+        underlyingRoomCount: supply
+      };
+    }).sort((a, b) => {
+      const severityOrder = { 'No Compatible Supply': 0, Deficit: 1, 'High Pressure': 2, 'Moderate Pressure': 3, Balanced: 4 };
+      return (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9)
+        || a.term.localeCompare(b.term, undefined, { numeric: true })
+        || a.campus.localeCompare(b.campus)
+        || DAY_KEYS.indexOf(a.dayKey) - DAY_KEYS.indexOf(b.dayKey)
+        || a.startMinutes - b.startMinutes;
+    });
+  }
+
+  const TIMBER_PLANNING_WEIGHTS = Object.freeze({
+    observedEnrollmentDemand: 0.18,
+    waitlistPressure: 0.14,
+    historicalFill: 0.14,
+    studentTimeChoice: 0.1,
+    roomCompatibility: 0.14,
+    roomCapacity: 0.1,
+    facultyAvailability: 0.08,
+    modalityBalance: 0.05,
+    campusNeed: 0.04,
+    primeTimeConcentration: 0.02,
+    scheduleFragmentation: 0.01
+  });
+
+  function opportunityConfidence(input = {}) {
+    const checks = [
+      ['Faculty availability', input.hasFacultyAvailability],
+      ['Compatible room data', input.hasCompatibleRoomData],
+      ['Time window', input.hasTimeWindow],
+      ['Date range', input.hasDateRange],
+      ['Room type', input.hasRoomType]
+    ];
+    const missing = checks.filter(([, present]) => !present).map(([name]) => name);
+    const confidence = missing.length === 0 ? 'High' : (missing.length === 1 ? 'Moderate' : 'Low');
+    return {
+      confidence,
+      missingInformation: missing.join('; ') || 'None',
+      unresolvedConstraints: missing.length ? missing.join('; ') : 'None identified from loaded data',
+      basis: confidence === 'High'
+        ? 'Faculty, room, time, and date information available.'
+        : confidence === 'Moderate'
+          ? 'One noncritical field is missing.'
+          : 'Room type, date range, or faculty schedule information is incomplete.'
+    };
+  }
+
+  function recommendationScoreBreakdown(factors = {}, weights = TIMBER_PLANNING_WEIGHTS) {
+    const components = Object.entries(weights).map(([factor, weight]) => {
+      const rawValue = factors[factor];
+      const value = Number.isFinite(Number(rawValue)) ? Math.max(0, Math.min(1, Number(rawValue))) : null;
+      return {
+        factor,
+        weight,
+        value,
+        contribution: value == null ? null : Number((value * weight).toFixed(4))
+      };
+    });
+    const scored = components.filter(component => component.contribution != null);
+    const totalWeight = scored.reduce((sum, component) => sum + component.weight, 0);
+    const total = scored.reduce((sum, component) => sum + component.contribution, 0);
+    return {
+      label: 'TIMBER Planning Weights',
+      total: totalWeight ? Number((total / totalWeight * 100).toFixed(1)) : 0,
+      components,
+      missingFactors: components.filter(component => component.value == null).map(component => component.factor)
+    };
+  }
+
+  function optimizationConstraintInventory(context = {}) {
+    const hasRooms = Number(context.roomsAvailable || context.rooms || 0) > 0;
+    const hasFaculty = Number(context.facultyRows || context.facultyScheduleRows || 0) > 0;
+    return [
+      ['No room overlap', 'enforced', 'Candidate rooms must be open for the proposed day/time.'],
+      ['No instructor overlap', hasFaculty ? 'considered' : 'unavailable', hasFaculty ? 'Faculty Schedule rows are available for context.' : 'Faculty Schedule data is not loaded.'],
+      ['Valid meeting time', 'enforced', 'Rows without valid day/start/end are excluded from time-based optimization.'],
+      ['Active date overlap', 'informational only', 'Date ranges are retained when present; the current engine is not fully date-aware.'],
+      ['Room capacity', hasRooms ? 'enforced' : 'unavailable', hasRooms ? 'Candidate room capacity must meet enrollment/cap requirements.' : 'Room Catalog is missing.'],
+      ['Lecture/lab room compatibility', hasRooms ? 'enforced' : 'unavailable', 'Uses shared lecture/classroom and lab compatibility rules.'],
+      ['Campus', context.allowCrossCampusMoves ? 'considered' : 'enforced', context.allowCrossCampusMoves ? 'Cross-campus moves are flagged for review.' : 'Candidate rooms stay on the same campus.'],
+      ['Room priority', 'considered', 'Priority behavior can be advisory, preferred, or strict.'],
+      ['Faculty availability', hasFaculty ? 'considered' : 'unavailable', 'Loaded Faculty Schedule data supports review but does not auto-assign instructors.'],
+      ['Modality', 'informational only', 'Modality is preserved in outputs and cautions.'],
+      ['Section cap', 'enforced', 'Section cap contributes to required capacity.'],
+      ['Linked/corequisite relationship', 'unavailable', 'Linked course relationships are not fully modeled yet.'],
+      ['Cross-list relationship', 'considered', 'Shared meeting groups are grouped where identifiers are available.'],
+      ['Dual Enrollment restriction', 'informational only', 'Dual Enrollment is flagged where source data supports it.'],
+      ['Specialized room requirement', 'considered', 'Room type and feature text are used when available; specialized setup still requires review.']
+    ].map(([constraint, status, note]) => ({ constraint, status, note }));
+  }
+
+  function optimizationScenarioComparison(currentRows = [], proposedRows = [], warnings = []) {
+    const current = normalizedSections(currentRows);
+    const proposed = normalizedSections(proposedRows.length ? proposedRows : currentRows);
+    const byCrn = rows => new Map(rows.map(row => [row.crn || `${row.courseCode}|${row.section}`, row]));
+    const currentMap = byCrn(current);
+    const proposedMap = byCrn(proposed);
+    let roomsChanged = 0;
+    let timeChanges = 0;
+    proposedMap.forEach((row, key) => {
+      const original = currentMap.get(key);
+      if (!original) return;
+      if (original.roomKey !== row.roomKey) roomsChanged += 1;
+      if (original.startMinutes !== row.startMinutes || original.endMinutes !== row.endMinutes || original.days.join('') !== row.days.join('')) timeChanges += 1;
+    });
+    const sectionsMoved = new Set([
+      ...[...proposedMap.entries()].filter(([key, row]) => currentMap.get(key)?.roomKey !== row.roomKey).map(([key]) => key),
+      ...[...proposedMap.entries()].filter(([key, row]) => {
+        const original = currentMap.get(key);
+        return original && (original.startMinutes !== row.startMinutes || original.endMinutes !== row.endMinutes || original.days.join('') !== row.days.join(''));
+      }).map(([key]) => key)
+    ]).size;
+    return [
+      { metric: 'Sections moved', currentSchedule: 0, proposedScenario: sectionsMoved, difference: sectionsMoved },
+      { metric: 'Rooms changed', currentSchedule: 0, proposedScenario: roomsChanged, difference: roomsChanged },
+      { metric: 'Time changes', currentSchedule: 0, proposedScenario: timeChanges, difference: timeChanges },
+      { metric: 'Conflicts resolved', currentSchedule: 'Not auto-calculated', proposedScenario: 'Review scenario output', difference: 'Human review required' },
+      { metric: 'Conflicts introduced', currentSchedule: 'Not auto-calculated', proposedScenario: 'Review warnings', difference: 'Human review required' },
+      { metric: 'Room-fit change', currentSchedule: 'Current assignment', proposedScenario: 'Candidate fit scored when calculable', difference: 'See recommendation rows' },
+      { metric: 'Utilization change', currentSchedule: 'Current schedule', proposedScenario: 'Scenario estimate when calculable', difference: 'Not written to source data' },
+      { metric: 'Student-choice impact', currentSchedule: 'Current pattern', proposedScenario: 'Planning estimate when calculable', difference: 'Requires review' },
+      { metric: 'Unresolved warnings', currentSchedule: 0, proposedScenario: warnings.length, difference: warnings.join('; ') || 'None' }
+    ];
+  }
+
   function recommendationTradeoffs(section, currentRoom, suggestedRoom, suggestedFit, options = {}) {
     const notes = [];
     if (suggestedFit.priority.violates) notes.push(suggestedFit.priority.note);
@@ -1031,6 +1287,16 @@
     courseProfiles,
     evaluateProposedTime,
     recommendBetterTimes,
-    roomPriorityAudit
+    roomPriorityAudit,
+    capacityBandForRequirement,
+    capacityBandRange,
+    compatibleRoomsForSection,
+    roomSupplyDemandRows,
+    roomPressureSeverity,
+    TIMBER_PLANNING_WEIGHTS,
+    opportunityConfidence,
+    recommendationScoreBreakdown,
+    optimizationConstraintInventory,
+    optimizationScenarioComparison
   };
 });

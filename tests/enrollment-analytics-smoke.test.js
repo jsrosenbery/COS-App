@@ -3455,6 +3455,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
     'REPORTS.roomFit',
     'REPORTS.conflictCheck',
     'REPORTS.facultyHeatmap',
+    'REPORTS.scheduleBuilder',
     'REPORTS.busyTimeDashboard',
     'REPORTS.primeTimeAnalysis',
     'REPORTS.supplyDemand',
@@ -3864,6 +3865,43 @@ test('faculty modality is a standalone Development report using INSM codes', () 
   assert.match(text, /INSM_CODE_SSBSECT/);
 });
 
+test('anonymous Schedule Builder is a Dean planning tool with browser-side engine wiring', () => {
+  const root = path.join(__dirname, '..');
+  const text = fs.readFileSync(path.join(root, 'js/enrollment-analytics.js'), 'utf8');
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const engine = fs.readFileSync(path.join(root, 'js/core/schedule-builder.js'), 'utf8');
+  const deanBlock = text.slice(text.indexOf("key: 'dean-enrollment'"), text.indexOf("key: 'development'"));
+  const developmentBlock = text.slice(text.indexOf("key: 'development'"), text.indexOf("key: 'admin'"));
+
+  assert.match(text, /scheduleBuilder: 'schedule-builder'/);
+  assert.match(text, /\[REPORTS\.scheduleBuilder\]: 'dean'/);
+  assert.match(text, /\[REPORTS\.scheduleBuilder\]: 'Schedule Builder'/);
+  assert.match(deanBlock, /REPORTS\.scheduleBuilder/);
+  assert.doesNotMatch(developmentBlock, /REPORTS\.scheduleBuilder/);
+  assert.match(text, /id="scheduleBuilderReport"/);
+  assert.match(text, /id="scheduleBuilderSourceStatus"/);
+  assert.match(text, /id="sbCourseSearch"/);
+  assert.match(text, /id="sbAllowedDays"/);
+  assert.match(text, /id="sbExcludedDays"/);
+  assert.match(text, /id="sbModalities"/);
+  assert.match(text, /id="sbIncludeFull"/);
+  assert.match(text, /id="sbIncludeWaitlisted"/);
+  assert.match(text, /id="sbAllowSameCourse"/);
+  assert.match(text, /TIMBER's most recent uploaded data/);
+  assert.match(text, /Course selections are processed in the browser and are not persisted by default/);
+  assert.match(text, /function runScheduleBuilder/);
+  assert.match(text, /function exportScheduleBuilderRows/);
+  assert.match(text, /window\.print\(\)/);
+  assert.match(index, /js\/core\/schedule-builder\.js/);
+  assert.ok(index.indexOf('src="js/core/schedule-builder.js"') < index.indexOf('src="js/enrollment-analytics.js"'));
+  assert.match(engine, /root\.COSScheduleBuilder = api/);
+  assert.match(engine, /function buildScheduleOptions/);
+  assert.match(engine, /function sectionsConflict/);
+  assert.match(engine, /dateRangesOverlap/);
+  assert.match(engine, /Asynchronous online section has no fixed meeting conflict/);
+  assert.match(engine, /Hybrid section: verify meeting dates\/pattern/);
+});
+
 test('faculty modality enriches enrollment and seats from matching section seating rows', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const facultyRows = [
@@ -4012,10 +4050,18 @@ test('supply vs demand is a standalone Development report with heatmap line and 
   assert.match(text, /id="sdCalGetc"/);
   assert.match(text, /id="sdModality"/);
   assert.match(text, /id="sdPlanningWindow"/);
+  assert.match(text, /id="sdMinCapacity"/);
+  assert.match(text, /id="sdMaxCapacity"/);
+  assert.match(text, /id="supplyDemandResourceTable"/);
   assert.match(text, /Standard planning window/);
+  assert.match(text, /compatible rooms/);
+  assert.match(text, /No Compatible Supply/);
+  assert.match(text, /Room Deficit Blocks/);
   assert.match(text, /Saturday\/Sunday excluded/);
   assert.match(text, /function runSupplyDemand/);
   assert.match(text, /function buildSupplyDemandBuckets/);
+  assert.match(text, /function buildSupplyDemandRoomPressureRows/);
+  assert.match(text, /function renderSupplyDemandResourceTable/);
   assert.match(text, /function supplyDemandRowStartsInPlanningWindow/);
   assert.match(text, /function renderSupplyDemandHeatmap/);
   assert.match(text, /function renderSupplyDemandLineGraph/);
@@ -4066,6 +4112,7 @@ test('schedule opportunity analysis is a standalone Development report with plan
   assert.match(text, /studentChoiceOpportunity: 'student-choice-opportunity'/);
   assert.match(text, /\[REPORTS\.studentChoiceOpportunity\]: 'development'/);
   assert.match(text, /Schedule Opportunity/);
+  assert.match(text, /Schedule Opportunity identifies where faculty, time, and compatible-room conditions may allow an additional or relocated section/);
   assert.match(text, /id="studentChoiceOpportunityReport"/);
   assert.match(text, /id="studentChoiceCsv"/);
   assert.match(text, /id="studentChoiceArchiveTerms"/);
@@ -4083,6 +4130,9 @@ test('schedule opportunity analysis is a standalone Development report with plan
   assert.match(text, /Projected Enrollment/);
   assert.match(text, /Historical Opportunity Gap/);
   assert.match(text, /id="studentChoiceHistoricalTable"/);
+  assert.match(text, /id="studentChoiceOpportunityDetailTable"/);
+  assert.match(text, /function buildStudentChoiceOpportunityDetailRows/);
+  assert.match(text, /Opportunity Confidence/);
   assert.match(text, /Historical Comparison Table/);
   assert.match(text, /Scenario Before\/After Table/);
   assert.match(text, /No current enrollment yet/);
@@ -4215,6 +4265,7 @@ test('scheduling recommendation engine is advisory and covers recommendation cat
   assert.match(text, /recommendationEngine: 'scheduling-recommendation-engine'/);
   assert.match(text, /\[REPORTS\.recommendationEngine\]: 'development'/);
   assert.match(text, /Schedule Recommendation/);
+  assert.match(text, /Schedule Recommendation evaluates feasible scheduling opportunities using available demand, room, faculty, modality, and schedule-pattern information/);
   assert.match(text, /id="recommendationEngineReport"/);
   assert.match(text, /id="recommendationCsv"/);
   assert.match(text, /id="recommendationArchiveTerms"/);
@@ -4248,6 +4299,10 @@ test('scheduling recommendation engine is advisory and covers recommendation cat
   assert.match(text, /Outside planning window diagnostics/);
   assert.match(text, /Candidates outside that window are suppressed from active recommendations/);
   assert.match(text, /recommendationTitle/);
+  assert.match(text, /TIMBER Planning Weights/);
+  assert.match(text, /recommendationScoreBreakdown/);
+  assert.match(text, /recommendedAction/);
+  assert.match(text, /missingInformation/);
   assert.match(text, /confidenceLevel/);
   assert.match(text, /affectedTermSource/);
   assert.match(text, /evidenceSummary/);
@@ -4402,6 +4457,10 @@ test('schedule optimization lab is a standalone Development planning tool', () =
   assert.match(text, /\[REPORTS\.scheduleOptimizationLab\]: 'development'/);
   assert.match(text, /\[REPORTS\.scheduleOptimizationLab\]: 'Schedule Optimization'/);
   assert.match(text, /id="scheduleOptimizationLabReport"/);
+  assert.match(text, /Developmental Planning Tool/);
+  assert.match(text, /Schedule Optimization is under active development/);
+  assert.match(text, /optimizationConstraintInventory/);
+  assert.match(text, /optimizationScenarioComparison/);
   assert.match(text, /Room priority behavior/);
   assert.match(text, /Advisory only/);
   assert.match(text, /Prefer priority match/);
@@ -4456,6 +4515,11 @@ test('schedule optimization lab is a standalone Development planning tool', () =
   assert.match(moduleText, /function normalizeRoomPriority/);
   assert.match(moduleText, /function roomFitScore/);
   assert.match(moduleText, /function buildOptimizationIndexes/);
+  assert.match(moduleText, /function roomSupplyDemandRows/);
+  assert.match(moduleText, /function opportunityConfidence/);
+  assert.match(moduleText, /function recommendationScoreBreakdown/);
+  assert.match(moduleText, /function optimizationConstraintInventory/);
+  assert.match(moduleText, /function optimizationScenarioComparison/);
   assert.match(moduleText, /function buildAvailabilityIndex/);
   assert.match(moduleText, /function buildHistoricalDemandIndex/);
   assert.match(moduleText, /function candidateRoomsForSection/);
