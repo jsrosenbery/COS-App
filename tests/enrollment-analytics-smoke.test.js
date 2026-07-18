@@ -3880,6 +3880,8 @@ test('anonymous Schedule Builder is a Dean planning tool with browser-side engin
   assert.doesNotMatch(developmentBlock, /REPORTS\.scheduleBuilder/);
   assert.match(text, /id="scheduleBuilderReport"/);
   assert.match(text, /id="scheduleBuilderSourceStatus"/);
+  assert.match(text, /id="sbEffectiveTerm"/);
+  assert.match(text, /id="sbUseCurrentTerm"/);
   assert.match(text, /id="sbCourseSearch"/);
   assert.match(text, /id="sbAllowedDays"/);
   assert.match(text, /id="sbExcludedDays"/);
@@ -3889,6 +3891,14 @@ test('anonymous Schedule Builder is a Dean planning tool with browser-side engin
   assert.match(text, /id="sbAllowSameCourse"/);
   assert.match(text, /TIMBER's most recent uploaded data/);
   assert.match(text, /Course selections are processed in the browser and are not persisted by default/);
+  assert.match(text, /function scheduleBuilderAvailableTerms/);
+  assert.match(text, /function scheduleBuilderEffectiveTerm/);
+  assert.match(text, /function updateScheduleBuilderTermOptions/);
+  assert.match(text, /No schedule rows are loaded for/);
+  assert.match(text, /state\.scheduleBuilderEffectiveTerm = normalizeTermLabel\(currentTerm\(\)\)/);
+  assert.match(text, /#scheduleBuilderResults\.analytics-insights\{display:flex;flex-direction:column/);
+  assert.match(text, /class="schedule-builder-option"/);
+  assert.match(text, /schedule-builder-option-summary/);
   assert.match(text, /function runScheduleBuilder/);
   assert.match(text, /function exportScheduleBuilderRows/);
   assert.match(text, /window\.print\(\)/);

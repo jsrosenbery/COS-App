@@ -314,6 +314,7 @@
     scheduleBuilderRequests: [],
     scheduleBuilderResults: null,
     scheduleBuilderRan: false,
+    scheduleBuilderEffectiveTerm: '',
     optimizationMoves: [],
     optimizationShifts: [],
     optimizationPlacements: [],
@@ -2426,7 +2427,13 @@
             <p><strong>Privacy:</strong> This tool does not use student names, IDs, transcripts, completed coursework, grades, education plans, contact information, or student-specific data. Course selections are processed in the browser and are not persisted by default.</p>
             <p><strong>Banner warning:</strong> Seat and waitlist status reflects TIMBER's most recent uploaded data and may not match current Banner availability. Confirm all sections in Banner before registration.</p>
           </div>
-          <div id="scheduleBuilderSourceStatus" class="analytics-legend"></div>
+          <div class="analytics-toolbar schedule-builder-source-toolbar">
+            <label>Effective Term
+              <select id="sbEffectiveTerm"></select>
+            </label>
+            <button id="sbUseCurrentTerm" type="button">Use Selected Top Term</button>
+          </div>
+          <div id="scheduleBuilderSourceStatus" class="analytics-legend schedule-builder-source-status"></div>
           <div class="analytics-toolbar">
             <label>Course search
               <input id="sbCourseSearch" type="text" list="sbCourseOptions" placeholder="ENGL C1000 or course title">
@@ -2480,7 +2487,7 @@
           <div id="scheduleBuilderMetrics" class="analytics-metrics"></div>
           <div id="scheduleBuilderWarnings" class="analytics-legend"></div>
           <div id="scheduleBuilderCompare" class="analytics-table"></div>
-          <div id="scheduleBuilderResults" class="analytics-insights"></div>
+          <div id="scheduleBuilderResults" class="analytics-insights schedule-builder-results"></div>
           <div id="scheduleBuilderLegend" class="analytics-legend"></div>
         </div>
         <div id="scheduleOptimizationLabReport" class="analytics-view">
@@ -7358,11 +7365,49 @@
     return window.COSScheduleBuilder;
   }
 
-  function scheduleBuilderSourceRows() {
-    const term = currentTerm();
+  function scheduleBuilderAllRows() {
     return currentRows()
-      .filter(row => !term || canon(row.term) === canon(term))
       .filter(row => !isOmittedInstructionalMethod(row));
+  }
+
+  function scheduleBuilderAvailableTerms() {
+    const terms = new Set([
+      ...visibleScheduleTerms(),
+      ...collectRowTerms(scheduleBuilderAllRows()),
+      currentTerm()
+    ].map(normalizeTermLabel).filter(Boolean));
+    return [...terms].sort((a, b) => termSortValue(a) - termSortValue(b) || a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  function scheduleBuilderEffectiveTerm() {
+    const select = document.getElementById('sbEffectiveTerm');
+    const available = scheduleBuilderAvailableTerms();
+    const current = normalizeTermLabel(currentTerm());
+    let selected = normalizeTermLabel(select?.value || state.scheduleBuilderEffectiveTerm || '');
+    if (!selected || !available.includes(selected)) selected = available.includes(current) ? current : (available[0] || current);
+    state.scheduleBuilderEffectiveTerm = selected || '';
+    if (select && select.value !== state.scheduleBuilderEffectiveTerm) select.value = state.scheduleBuilderEffectiveTerm;
+    return state.scheduleBuilderEffectiveTerm;
+  }
+
+  function updateScheduleBuilderTermOptions() {
+    const select = document.getElementById('sbEffectiveTerm');
+    if (!select) return scheduleBuilderEffectiveTerm();
+    const available = scheduleBuilderAvailableTerms();
+    const prior = normalizeTermLabel(select.value || state.scheduleBuilderEffectiveTerm || currentTerm());
+    const selected = available.includes(prior) ? prior : (available.includes(normalizeTermLabel(currentTerm())) ? normalizeTermLabel(currentTerm()) : (available[0] || ''));
+    select.replaceChildren();
+    available.forEach(term => {
+      select.appendChild(new Option(term, term, false, term === selected));
+    });
+    state.scheduleBuilderEffectiveTerm = selected;
+    return selected;
+  }
+
+  function scheduleBuilderSourceRows() {
+    const term = scheduleBuilderEffectiveTerm();
+    return scheduleBuilderAllRows()
+      .filter(row => !term || normalizeTermLabel(row.term) === term);
   }
 
   function scheduleBuilderSections() {
@@ -7384,18 +7429,23 @@
   }
 
   function updateScheduleBuilderSourceStatus() {
+    const effectiveTerm = updateScheduleBuilderTermOptions();
     const rows = scheduleBuilderSourceRows();
     const sections = scheduleBuilderSections();
     const courses = scheduleBuilderCourseOptions();
+    const loadedTerms = collectRowTerms(scheduleBuilderAllRows()).map(normalizeTermLabel).filter(Boolean);
+    const loadedTermText = loadedTerms.length ? loadedTerms.join(', ') : 'No loaded schedule terms detected';
     const sourceNode = document.getElementById('scheduleBuilderSourceStatus');
     if (sourceNode) {
       sourceNode.innerHTML = `
-        <strong>Data Source</strong>
+        <strong>Schedule Builder Data Source</strong>
         <dl class="report-context-list">
-          <div><dt>Active term</dt><dd>${escapeAttr(currentTerm() || 'No selected term')}</dd></div>
+          <div><dt>Effective term</dt><dd>${escapeAttr(effectiveTerm || 'No effective term selected')}</dd></div>
+          <div><dt>Workspace selected term</dt><dd>${escapeAttr(currentTerm() || 'No selected top term')}</dd></div>
+          <div><dt>Loaded schedule terms</dt><dd>${escapeAttr(loadedTermText)}</dd></div>
           <div><dt>Schedule data upload timestamp</dt><dd>${escapeAttr(scheduleBuilderTimestamp(rows))}</dd></div>
           <div><dt>Enrollment data timestamp</dt><dd>${escapeAttr(scheduleBuilderTimestamp(rows))}</dd></div>
-          <div><dt>Source status</dt><dd>${escapeAttr(rows.length ? `${rows.length} row(s), ${sections.length} deduplicated section(s), ${courses.length} course option(s)` : 'No current term schedule rows loaded.')}</dd></div>
+          <div><dt>Source status</dt><dd>${escapeAttr(rows.length ? `${rows.length} row(s), ${sections.length} deduplicated section(s), ${courses.length} course option(s)` : `No schedule rows are loaded for ${effectiveTerm || 'the selected effective term'}. Select another effective term or load that term's schedule first.`)}</dd></div>
         </dl>
         <p><strong>Seat and waitlist status reflects TIMBER's most recent uploaded data and may not match current Banner availability. Confirm all sections in Banner before registration.</strong></p>
       `;
@@ -7551,10 +7601,10 @@
     const schedules = result.schedules.length ? result.schedules : result.partialSchedules;
     if (resultsNode) {
       resultsNode.innerHTML = schedules.map((schedule, index) => `
-        <section data-collapsible-title="Schedule Option ${index + 1}" data-collapsible-id="schedule-builder-option-${index + 1}">
+        <section class="schedule-builder-option" data-collapsible-title="Schedule Option ${index + 1}${schedule.complete === false ? ' (Partial)' : ''}" data-collapsible-id="schedule-builder-option-${index + 1}">
           <h3>Schedule Option ${index + 1}${schedule.complete === false ? ' (Partial)' : ''}</h3>
           <p>${escapeAttr(schedule.scoreExplanation || 'Partial schedule shown for planning review.')}</p>
-          <ul>
+          <ul class="schedule-builder-option-summary">
             <li>Total units: ${escapeAttr(schedule.totalUnits)}</li>
             <li>Campus days: ${escapeAttr(schedule.campusDays)}</li>
             <li>Total weekly gap time: ${escapeAttr(schedule.totalWeeklyGapMinutes)} minutes</li>
@@ -7596,11 +7646,12 @@
   }
 
   function exportScheduleBuilderRows() {
+    const effectiveTerm = scheduleBuilderEffectiveTerm();
     const rows = [];
     (state.scheduleBuilderResults?.schedules || []).forEach((schedule, index) => {
       schedule.sections.forEach(section => rows.push({
         exportTitle: 'TIMBER Schedule Options',
-        term: currentTerm(),
+        term: effectiveTerm,
         scheduleDataCurrentAsOf: scheduleBuilderTimestamp(),
         option: index + 1,
         course: section.courseKey,
@@ -16790,6 +16841,20 @@
       .analytics-insights h3{margin:0 0 8px;color:#123367;font-size:15px}
       .analytics-insights ul{margin:0;padding-left:18px;color:#334862}
       .analytics-insights li{margin:4px 0;line-height:1.3}
+      .schedule-builder-source-toolbar{margin-bottom:10px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff}
+      .schedule-builder-source-toolbar label{min-width:220px}
+      .schedule-builder-source-status{margin-bottom:14px}
+      #scheduleBuilderResults.analytics-insights{display:flex;flex-direction:column;align-items:stretch;gap:16px;width:100%}
+      #scheduleBuilderResults.analytics-insights>.collapsible-section,#scheduleBuilderResults.analytics-insights>.schedule-builder-option{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:visible}
+      #scheduleBuilderResults .collapsible-section-title{overflow:visible;text-overflow:clip;white-space:normal}
+      #scheduleBuilderResults .collapsible-section-body,#scheduleBuilderResults .schedule-builder-option{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:visible}
+      #scheduleBuilderResults .schedule-builder-option-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0 12px;padding:0;list-style:none}
+      #scheduleBuilderResults .schedule-builder-option-summary li{margin:0;padding:8px;border:1px solid #e2eaf3;border-radius:8px;background:#fff;color:#334862}
+      #scheduleBuilderResults .heatmap-wrap{width:100%;max-width:100%;overflow-x:auto;margin:0 0 12px;padding:0}
+      #scheduleBuilderResults .schedule-builder-grid{width:max-content;min-width:100%;table-layout:fixed}
+      #scheduleBuilderResults .schedule-builder-grid th,#scheduleBuilderResults .schedule-builder-grid td{box-sizing:border-box;min-width:110px;vertical-align:top;white-space:normal;word-break:normal;overflow-wrap:break-word}
+      #scheduleBuilderResults .schedule-builder-grid th:first-child,#scheduleBuilderResults .schedule-builder-grid td:first-child{min-width:86px;width:86px;white-space:nowrap}
+      #scheduleBuilderResults .analytics-chip{display:inline-block;max-width:100%;margin:2px;padding:3px 5px;border-radius:6px;background:#e8f4fb;color:#123367;font-size:11px;line-height:1.15;white-space:normal}
       #demandInsights.analytics-insights{display:flex;flex-direction:column;align-items:stretch;gap:16px;width:100%}
       #demandInsights.analytics-insights>.collapsible-section,#demandInsights.analytics-insights>.demand-report-section{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:visible}
       #demandInsights .collapsible-section-title{overflow:visible;text-overflow:clip;white-space:normal}
@@ -17261,6 +17326,18 @@
     document.getElementById('clearRecommendationEngine')?.addEventListener('click', clearRecommendationEngine);
     document.getElementById('exportRecommendationCsv')?.addEventListener('click', () => exportRowsWithoutMethodology(state.recommendationOutputRows, 'scheduling-recommendations.csv'));
     document.getElementById('exportRecommendationPdf')?.addEventListener('click', () => exportRecommendationPdf().catch(err => alert(err.message || 'PDF export failed.')));
+    document.getElementById('sbEffectiveTerm')?.addEventListener('change', event => {
+      state.scheduleBuilderEffectiveTerm = normalizeTermLabel(event.target?.value || '');
+      state.scheduleBuilderResults = null;
+      updateScheduleBuilderSourceStatus();
+      renderScheduleBuilderCourseList();
+      renderScheduleBuilderResults();
+    });
+    document.getElementById('sbUseCurrentTerm')?.addEventListener('click', () => {
+      state.scheduleBuilderEffectiveTerm = normalizeTermLabel(currentTerm());
+      state.scheduleBuilderResults = null;
+      renderScheduleBuilderResults();
+    });
     document.getElementById('sbAddCourse')?.addEventListener('click', addScheduleBuilderCourse);
     document.getElementById('sbCourseSearch')?.addEventListener('keydown', event => {
       if (event.key === 'Enter') {
@@ -17301,6 +17378,16 @@
     });
     document.getElementById('printScheduleBuilder')?.addEventListener('click', () => window.print());
     document.getElementById('exportScheduleBuilder')?.addEventListener('click', exportScheduleBuilderRows);
+    document.getElementById('term-tabs')?.addEventListener('click', () => {
+      const refreshScheduleBuilder = () => {
+        if (selectedEnrollmentReport() !== REPORTS.scheduleBuilder) return;
+        state.scheduleBuilderEffectiveTerm = normalizeTermLabel(currentTerm());
+        state.scheduleBuilderResults = null;
+        renderScheduleBuilderResults();
+      };
+      setTimeout(refreshScheduleBuilder, 80);
+      setTimeout(refreshScheduleBuilder, 1200);
+    });
     document.getElementById('runScheduleOptimizationLab')?.addEventListener('click', () => {
       runScheduleOptimizationLab().catch(err => alert(err.message || 'Schedule Optimization failed.'));
     });
