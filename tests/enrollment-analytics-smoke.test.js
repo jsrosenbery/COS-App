@@ -3894,6 +3894,8 @@ test('anonymous Schedule Builder is a Dean planning tool with browser-side engin
   assert.match(text, /function scheduleBuilderAvailableTerms/);
   assert.match(text, /function scheduleBuilderEffectiveTerm/);
   assert.match(text, /function updateScheduleBuilderTermOptions/);
+  assert.match(text, /scheduleBuilderCampusCodes = \['ONC', 'ONT', 'ONH', 'HAC', 'TCC', 'COS'\]/);
+  assert.match(text, /prefix === 'sbCampuses'/);
   assert.match(text, /No schedule rows are loaded for/);
   assert.match(text, /state\.scheduleBuilderEffectiveTerm = normalizeTermLabel\(currentTerm\(\)\)/);
   assert.match(text, /#scheduleBuilderResults\.analytics-insights\{display:flex;flex-direction:column/);

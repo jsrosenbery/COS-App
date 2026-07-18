@@ -2868,8 +2868,12 @@
 
   const defaultCampusCodes = ['COS', 'TCC', 'HAC', 'ONT', 'ONH', 'ONC'];
   const physicalCampusCodes = ['COS', 'TCC', 'HAC'];
+  const scheduleBuilderCampusCodes = ['ONC', 'ONT', 'ONH', 'HAC', 'TCC', 'COS'];
 
   function defaultCampusesForPrefix(prefix, options) {
+    if (prefix === 'sbCampuses') {
+      return scheduleBuilderCampusCodes.filter(code => (options || []).some(option => canon(option.value) === code));
+    }
     if (!String(prefix || '').endsWith('Campus')) return [];
     const reportPrefix = String(prefix || '').replace(/Campus$/, '');
     const defaults = reportPrefix === 'sp' ? physicalCampusCodes : defaultCampusCodes;
@@ -7462,7 +7466,7 @@
     }
     setSelectOptions('sbAllowedDays', ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'].map(day => ({ label: dayLabels[day] || day, value: day })));
     setSelectOptions('sbExcludedDays', ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'].map(day => ({ label: dayLabels[day] || day, value: day })));
-    const campuses = [...new Set(sections.map(section => section.campus).filter(Boolean))].sort();
+    const campuses = [...new Set([...scheduleBuilderCampusCodes, ...sections.map(section => section.campus).filter(Boolean).map(canon)])];
     const modalities = [...new Set(['In-Person', 'Hybrid', 'Synchronous Online', 'Asynchronous Online', 'Dual Enrollment', 'Other/Unknown', ...sections.map(section => section.modality).filter(Boolean)])];
     setSelectOptions('sbCampuses', campuses.map(value => ({ label: value, value })));
     setSelectOptions('sbModalities', modalities.map(value => ({ label: value, value })));
