@@ -871,11 +871,11 @@ function renderSchedulingAnalysisMethodologyPanels() {
     title: 'Room Utilization and Room Fit Methodology & Data Dictionary',
     purpose: 'Evaluates room use quality and capacity fit for scheduled physical sections.',
     metricsUsed: ['Sections Active', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Empty Seats', 'Prime-Time Concentration'],
-    calculationRules: 'Room utilization uses scheduled instructional room hours divided by available instructional hours, with separate component scores for overall use, prime-time use, distribution, and fragmentation. Room fit compares room capacity against section capacity and census/current enrollment.',
+    calculationRules: 'Room utilization uses scheduled instructional room hours divided by available instructional hours, with separate component scores for overall use, prime-time use, distribution, and fragmentation. The composite is labeled TIMBER Planning Score and uses TIMBER planning weights: Overall Utilization 40%, Prime-Time Utilization 25%, Distribution 20%, and Fragmentation 15%. These are local planning weights designed to support comparison and do not represent a regulatory utilization standard. Room fit compares room capacity against section capacity and census/current enrollment.',
     assumptions: 'Prime time defaults to Monday-Thursday, 9:00 AM-3:00 PM. VISFSC rooms are excluded from utilization. Online/TBA and no-room rows are excluded from room fit analysis.',
     limitations: 'Room utilization does not account for specialized equipment, pedagogy, furniture layout, accessibility needs, or intentional under-scheduling for program reasons.',
     items: [
-      ['Overall Room Utilization Score', 'Overall Utilization 40% + Prime-Time Utilization 25% + Distribution Score 20% + Fragmentation Score 15%.'],
+      ['TIMBER Planning Score', 'Overall Utilization 40% + Prime-Time Utilization 25% + Distribution Score 20% + Fragmentation Score 15%. Local planning weight, not a regulatory utilization standard.'],
       ['Opportunity Score', 'Unused total and prime-time availability, weighted toward unused prime-time capacity. Displayed separately from the overall score.'],
       ['Underutilized Room', 'Section capacity or enrollment uses less than the configured share of room capacity, defaulting to 70%.'],
       ['Over Capacity Risk', 'Section capacity exceeds assigned room capacity.'],
@@ -1003,6 +1003,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const utilizationMinOpportunityInput = document.getElementById('utilization-min-opportunity');
   const utilizationMinDistributionInput = document.getElementById('utilization-min-distribution');
   const utilizationMinFragmentationInput = document.getElementById('utilization-min-fragmentation');
+  const utilizationDisplayModeInputs = Array.from(document.querySelectorAll('input[name="utilization-display-mode"]'));
   const utilizationClearBtn = document.getElementById('utilization-clear-btn');
   const utilizationSummary = document.getElementById('utilization-summary');
   const utilizationMap = document.getElementById('utilization-map');
@@ -1045,6 +1046,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let scheduleAnalysisRows = null;
   let roomFitReportRows = null;
   let roomEventsByTerm = loadRoomEventsBackup();
+  const UTILIZATION_DISPLAY_MODE_KEY = 'timberUtilizationDisplayMode';
   const scheduleLastUpdatedByTerm = {};
   const selectedUtilizationCategories = new Set();
   const utilizationCategoryLabels = [
@@ -1059,6 +1061,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   initHeatmap();
   initLineChartChoices();
+  initializeUtilizationDisplayMode();
   initAvailabilityAttributeFilters();
   setupRoomCatalogAdmin();
   setupRoomEventsAdmin();
@@ -1154,6 +1157,14 @@ document.addEventListener('DOMContentLoaded', () => {
   [utilizationMinOverallInput, utilizationMinPrimeInput, utilizationMinOpportunityInput, utilizationMinDistributionInput, utilizationMinFragmentationInput]
     .filter(Boolean)
     .forEach(input => input.addEventListener('input', renderUtilizationMap));
+  utilizationDisplayModeInputs.forEach(input => input.addEventListener('change', () => {
+    try {
+      sessionStorage.setItem(UTILIZATION_DISPLAY_MODE_KEY, utilizationDisplayMode());
+    } catch (err) {
+      console.warn('Could not persist utilization display mode:', err);
+    }
+    renderUtilizationMap();
+  }));
   document.getElementById('utilization-exclude-tutoring-openlab')?.addEventListener('change', renderUtilizationMap);
   if (roomFitExportBtn) roomFitExportBtn.addEventListener('click', exportRoomFitAnalysis);
   [eventsShowGridInput, eventsIncludeSearchInput, eventsHardConflictInput].filter(Boolean).forEach(input => {
@@ -3333,6 +3344,53 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       .map(room => room.buildingRoom));
   }
 
+  function initializeUtilizationDisplayMode() {
+    let mode = 'simple';
+    try {
+      const stored = sessionStorage.getItem(UTILIZATION_DISPLAY_MODE_KEY);
+      if (stored === 'advanced') mode = 'advanced';
+    } catch {
+      mode = 'simple';
+    }
+    utilizationDisplayModeInputs.forEach(input => {
+      input.checked = input.value === mode;
+    });
+  }
+
+  function utilizationDisplayMode() {
+    return utilizationDisplayModeInputs.find(input => input.checked)?.value === 'advanced' ? 'advanced' : 'simple';
+  }
+
+  function utilizationMetricRows(room, mode = utilizationDisplayMode()) {
+    const simpleRows = [
+      ['Weekly Scheduled Hours', room.scheduledHours.toFixed(1)],
+      ['Overall Utilization', `${Math.round(room.overallUtilization * 100)}%`],
+      ['Prime-Time Utilization', `${Math.round(room.primeUtilization * 100)}%`],
+      ['Room Capacity', room.capacity == null ? 'N/A' : room.capacity],
+      ['Utilization Designation', room.status.label]
+    ];
+    if (mode !== 'advanced') return simpleRows;
+    return [
+      ['TIMBER Planning Score', `${Math.round(room.score * 100)}%`],
+      ...simpleRows,
+      ['Distribution Score', `${Math.round(room.distributionScore * 100)}%`],
+      ['Fragmentation Score', `${Math.round(room.fragmentationScore * 100)}%`],
+      ['Opportunity Score', `${Math.round(room.opportunityScore * 100)}%`],
+      ['Available Hours', room.availableHours.toFixed(1)],
+      ['Peak Hours', room.peakHours.toFixed(1)],
+      ['Component Weighting', 'Overall 40% / Prime-Time 25% / Distribution 20% / Fragmentation 15%'],
+      ['Campus', room.campus || 'N/A'],
+      ['Building', room.building || 'N/A'],
+      ['Room', room.room || room.buildingRoom],
+      ['Active Days', room.activeDaysCount],
+      ['Active Time Blocks', room.activeTimeBlocks],
+      ['Longest Empty Prime-Time Block', `${room.longestEmptyPrimeBlock.toFixed(1)} hrs`],
+      ['Peak Share', `${Math.round(room.peakShare * 100)}%`],
+      ['Type', room.type || 'N/A'],
+      ['Caution', room.smallRoomCaution ? 'Small room with regular use' : 'None']
+    ];
+  }
+
   function getSectionCapacity(section) {
     const value = extractField(section, ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'MAX ENROLL', 'Maximum Enrollment']);
     const parsed = Number(String(value || '').replace(/[%,$]/g, '').trim());
@@ -3732,27 +3790,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       badge.className = 'status';
       badge.textContent = room.status.label;
       const details = document.createElement('dl');
-      [
-        ['Overall Room Utilization Score', `${Math.round(room.score * 100)}%`],
-        ['Campus', room.campus || 'N/A'],
-        ['Building', room.building || 'N/A'],
-        ['Room', room.room || room.buildingRoom],
-        ['Scheduled Hours', room.scheduledHours.toFixed(1)],
-        ['Available Hours', room.availableHours.toFixed(1)],
-        ['Overall Utilization %', `${Math.round(room.overallUtilization * 100)}%`],
-        ['Prime-Time Utilization %', `${Math.round(room.primeUtilization * 100)}%`],
-        ['Distribution Score', `${Math.round(room.distributionScore * 100)}%`],
-        ['Fragmentation Score', `${Math.round(room.fragmentationScore * 100)}%`],
-        ['Opportunity Score', `${Math.round(room.opportunityScore * 100)}%`],
-        ['Active Days', room.activeDaysCount],
-        ['Active Time Blocks', room.activeTimeBlocks],
-        ['Longest Empty Prime-Time Block', `${room.longestEmptyPrimeBlock.toFixed(1)} hrs`],
-        ['Raw Peak Hours', room.peakHours.toFixed(1)],
-        ['Peak Share', `${Math.round(room.peakShare * 100)}%`],
-        ['Capacity', room.capacity == null ? 'N/A' : room.capacity],
-        ['Type', room.type || 'N/A'],
-        ['Caution', room.smallRoomCaution ? 'Small room with regular use' : 'None']
-      ].forEach(([label, value]) => {
+      utilizationMetricRows(room).forEach(([label, value]) => {
         const dt = document.createElement('dt');
         dt.textContent = label;
         const dd = document.createElement('dd');

@@ -1005,6 +1005,34 @@ test('snapshot manager appends partial first-day uploads without deleting prior 
   assert.equal(secondSave.records.map(record => record.crn).sort().join(','), '10001,10002');
 });
 
+test('snapshot manager stores lifecycle metadata for registration phase tracking', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const records = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '80101', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '12' }
+  ], {
+    term: 'FALL 2027',
+    snapshotType: 'First Day',
+    snapshotDate: '2027-08-16',
+    snapshotTime: '09:15',
+    lifecyclePhase: 'Registration Week 5',
+    daysBeforeTermStart: '10',
+    notes: 'Week 5 checkpoint',
+    dataCompletenessNotes: 'Partial file',
+    sourceFileName: 'fall-2027-week5.csv'
+  });
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.equal(records[0].snapshotTime, '09:15');
+  assert.equal(records[0].lifecyclePhase, 'Registration Week 5');
+  assert.equal(records[0].notes, 'Week 5 checkpoint');
+  assert.equal(records[0].dataCompletenessNotes, 'Partial file');
+  assert.equal(records[0].sourceFileName, 'fall-2027-week5.csv');
+  assert.match(source, /SNAPSHOT_LIFECYCLE_PHASES/);
+  assert.match(source, /Registration Week 8\+/);
+  assert.match(source, /id="snapLifecyclePhase"/);
+  assert.match(source, /id="snapCompletenessNotes"/);
+});
+
 test('snapshot manager updates same term CRN type instead of duplicating', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const first = COSEnrollmentAnalytics.buildSnapshotRecords([
@@ -1198,15 +1226,24 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
     'courseGroup',
     'historicalTermsUsed',
     'historicalSectionsCrns',
+    'census1Enrollment',
+    'endFinalEnrollment',
+    'studentsLostCensus1ToEnd',
     'firstDayToCensus1AttritionDisplay',
     'firstDayToEndAttritionDisplay',
     'census1ToFinalAttritionDisplay',
+    'missingCensusData',
+    'missingEndOfTermData',
+    'courseHistoricalAverage',
+    'disciplineAverage',
+    'divisionAverage',
+    'collegeAverage',
     'trendInterpretation',
     'confidence'
   ].forEach(column => assert.match(detailBlock, new RegExp(column)));
-  assert.doesNotMatch(detailBlock, /census1Enrollment/);
   assert.doesNotMatch(detailBlock, /census2Enrollment/);
-  assert.doesNotMatch(detailBlock, /endFinalEnrollment/);
+  assert.match(text, /This report is descriptive and should not be interpreted as a direct measure of instructor performance/);
+  assert.match(text, /Attrition unavailable because census enrollment is missing/);
   assert.match(text, /typeof value === 'number' && \/attrition\/i\.test\(column\)\) return pct\(value\)/);
   assert.match(text, /const SHOW_CENSUS2 = false/);
   assert.match(text, /showCensus2: SHOW_CENSUS2/);
@@ -2141,6 +2178,20 @@ test('consolidation scope is limited to selected report inputs', () => {
   assert.match(text, /does not silently pull every archived term/);
   assert.match(text, /Curriculum Crosswalk/);
   assert.match(text, /ENGL 001 history can support ENGL C1000/);
+  assert.match(text, /Planning Candidate Only/);
+  assert.match(text, /Deans and instructional leadership retain final authority/);
+  assert.match(text, /reasonIdentified/);
+  assert.match(text, /criteriaSatisfied/);
+  assert.match(text, /criteriaNotSatisfied/);
+  assert.match(text, /availableCombinedCapacity/);
+  assert.match(text, /currentCombinedEnrollment/);
+  assert.match(text, /modalityCompatibility/);
+  assert.match(text, /timePatternCompatibility/);
+  assert.match(text, /campusCompatibility/);
+  assert.match(text, /dateRangeCompatibility/);
+  assert.match(text, /linkedCorequisiteWarning/);
+  assert.match(text, /dualEnrollmentWarning/);
+  assert.match(text, /finalDesignation/);
   assert.match(text, /ONL, 71, 72, O1, OL, ONN, ONS, OO, OS, OSS, OT, OTS/);
   assert.match(text, /IP, 02, 22, 022, 02H, 02O, 02S, 02T, 02N/);
   assert.match(text, /HYB, OH, OHF, FLX, and OHS/);
@@ -3212,14 +3263,22 @@ test('instructor availability suppresses shared windows shorter than 30 minutes'
   const end = 10 * 60;
   const shortWindow = COSEnrollmentAnalytics.instructorSharedAvailabilityDisplayWindows([[start, 9 * 60], [9 * 60 + 29, end]], start, end);
   const exactWindow = COSEnrollmentAnalytics.instructorSharedAvailabilityDisplayWindows([[start, 9 * 60], [9 * 60 + 30, end]], start, end);
+  const filteredByTarget = COSEnrollmentAnalytics.instructorSharedAvailabilityDisplayWindows([[start, 9 * 60], [9 * 60 + 50, end]], start, end, 50);
   const longWindow = COSEnrollmentAnalytics.instructorSharedAvailabilityDisplayWindows([[start, 8 * 60 + 20], [9 * 60 + 20, end]], start, end);
+  const mergedWindows = COSEnrollmentAnalytics.mergeAdjacentAvailabilityWindows([[9 * 60, 9 * 60 + 30], [9 * 60 + 30, 10 * 60]]);
   const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const availableWindowsBody = source.slice(source.indexOf('function availableWindows'), source.indexOf('function instructorSharedAvailabilityDisplayWindows'));
 
   assert.equal(COSEnrollmentAnalytics.minSharedAvailabilityMinutes, 30);
   assert.equal(shortWindow.length, 0);
   assert.equal(JSON.stringify(exactWindow), JSON.stringify([[9 * 60, 9 * 60 + 30]]));
+  assert.equal(JSON.stringify(filteredByTarget), JSON.stringify([[9 * 60, 9 * 60 + 50]]));
   assert.equal(JSON.stringify(longWindow), JSON.stringify([[8 * 60 + 20, 9 * 60 + 20]]));
+  assert.equal(JSON.stringify(mergedWindows), JSON.stringify([[9 * 60, 10 * 60]]));
+  assert.match(source, /id="iaMinSharedWindow"/);
+  assert.match(source, /id="iaTargetMeetingLength"/);
+  assert.match(source, /Copy Availability Summary/);
+  assert.match(source, /Available for \$\{targetLength\}-minute meeting/);
   assert.doesNotMatch(availableWindowsBody, /MIN_SHARED_AVAILABILITY_MINUTES/);
 });
 
@@ -4865,7 +4924,14 @@ test('room utilization uses component scoring instead of fixed prime bump', () =
   assert.match(enrollment, /sectionModel\?\.normalizeSection/);
   assert.match(consolidation, /sectionModel\.sectionIdentity/);
   assert.match(index, /component model instead of a fixed prime-time multiplier/);
-  assert.match(index, /Overall Room Utilization Score = Overall Utilization 40% \+ Prime-Time Utilization 25% \+ Distribution Score 20% \+ Fragmentation Score 15%/);
+  assert.match(index, /TIMBER Planning Score = Overall Utilization 40% \+ Prime-Time Utilization 25% \+ Distribution Score 20% \+ Fragmentation Score 15%/);
+  assert.match(index, /These are local planning weights designed to support comparison and do not represent a regulatory utilization standard/);
+  assert.match(index, /value="simple" checked/);
+  assert.match(index, /value="advanced"/);
+  assert.match(app, /UTILIZATION_DISPLAY_MODE_KEY/);
+  assert.match(app, /sessionStorage\.setItem\(UTILIZATION_DISPLAY_MODE_KEY/);
+  assert.match(app, /function utilizationMetricRows/);
+  assert.match(app, /TIMBER Planning Score/);
   assert.match(index, /Opportunity Score/);
   assert.match(index, /utilization-sort-select/);
   assert.match(index, /utilization-building-select/);

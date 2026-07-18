@@ -70,6 +70,33 @@
     [REPORTS.facultyHeatmap]: 'dean'
   };
   const MIN_SHARED_AVAILABILITY_MINUTES = 30;
+  const SNAPSHOT_LIFECYCLE_PHASES = [
+    'Registration Opens',
+    'Early Registration',
+    'Priority Registration',
+    'Open Registration',
+    'Registration Week 1',
+    'Registration Week 2',
+    'Registration Week 3',
+    'Registration Week 4',
+    'Registration Week 5',
+    'Registration Week 6',
+    'Registration Week 7',
+    'Registration Week 8+',
+    'Four Weeks Before Term',
+    'Three Weeks Before Term',
+    'Two Weeks Before Term',
+    'One Week Before Term',
+    'First Day of Term',
+    'End of Week 1',
+    'End of Week 2',
+    'Census',
+    'Post-Census',
+    'Midterm',
+    'Late Term',
+    'End of Term',
+    'Custom'
+  ];
   const REPORT_LABEL = {
     [REPORTS.archiveInspection]: 'Archived Schedule',
     [REPORTS.conflictCheck]: 'Conflict Check Report',
@@ -1021,6 +1048,16 @@
     const term = canon(options.term);
     const snapshotType = normalizeSnapshotType(options.snapshotType);
     const snapshotDate = String(options.snapshotDate || '').trim();
+    const snapshotTime = String(options.snapshotTime || '').trim();
+    const lifecyclePhase = String(options.lifecyclePhase || snapshotType || '').trim();
+    const customLifecycleLabel = String(options.customLifecycleLabel || '').trim();
+    const lifecycleLabel = lifecyclePhase === 'Custom' && customLifecycleLabel ? customLifecycleLabel : lifecyclePhase;
+    const daysBeforeTermStart = String(options.daysBeforeTermStart || '').trim();
+    const daysAfterTermStart = String(options.daysAfterTermStart || '').trim();
+    const notes = String(options.notes || '').trim();
+    const dataCompletenessNotes = String(options.dataCompletenessNotes || '').trim();
+    const sourceFileName = String(options.sourceFileName || '').trim();
+    const uploadedBy = String(options.uploadedBy || '').trim();
     const uploadedAt = options.uploadedAt || new Date().toISOString();
     const batchId = options.batchId || `${term}|${snapshotType}|${snapshotDate}|${uploadedAt}`;
     if (!term || !snapshotType || !snapshotDate) return [];
@@ -1033,6 +1070,15 @@
         crn: row.crn,
         snapshotType,
         snapshotDate,
+        snapshotTime,
+        lifecyclePhase,
+        lifecycleLabel,
+        daysBeforeTermStart,
+        daysAfterTermStart,
+        notes,
+        dataCompletenessNotes,
+        sourceFileName,
+        uploadedBy,
         enrollment: source.enrollment,
         sourceFieldUsed: source.sourceFieldUsed,
         subject: row.subject,
@@ -1078,6 +1124,8 @@
       updated,
       records: [...map.values()].sort((a, b) =>
         canon(a.term).localeCompare(canon(b.term), undefined, { numeric: true }) ||
+        String(a.snapshotDate || '').localeCompare(String(b.snapshotDate || '')) ||
+        String(a.snapshotTime || '').localeCompare(String(b.snapshotTime || '')) ||
         canon(a.snapshotType).localeCompare(canon(b.snapshotType)) ||
         canon(a.crn).localeCompare(canon(b.crn), undefined, { numeric: true })
       )
@@ -1498,6 +1546,17 @@
             </label>
             <span class="analytics-note snapshot-note">First Day is the primary manual snapshot. Census 1 and Final are already present in Banner source exports and generally do not need manual snapshot capture; keep those options for correction or manual override only.</span>
             <label>Snapshot Date <input id="snapDate" type="date" required></label>
+            <label>Snapshot Time <input id="snapTime" type="time" step="60"></label>
+            <label>Lifecycle Phase
+              <select id="snapLifecyclePhase">
+                ${SNAPSHOT_LIFECYCLE_PHASES.map(phase => `<option value="${escapeAttr(phase)}">${escapeAttr(phase)}</option>`).join('')}
+              </select>
+            </label>
+            <label>Custom Lifecycle Label <input id="snapCustomLifecycleLabel" type="text" placeholder="Required only for Custom"></label>
+            <label>Days Before Term Start <input id="snapDaysBefore" type="number" step="1" placeholder="optional"></label>
+            <label>Days After Term Start <input id="snapDaysAfter" type="number" step="1" placeholder="optional"></label>
+            <label>Snapshot Notes <input id="snapNotes" type="text" placeholder="optional notes"></label>
+            <label>Data Completeness Notes <input id="snapCompletenessNotes" type="text" placeholder="optional coverage notes"></label>
             <label>Snapshot CSV <input id="snapshotCsv" type="file" accept=".csv"></label>
             <button id="saveSnapshotBatch" type="button">Archive/Save Snapshot</button>
             <button id="viewStoredSnapshots" type="button">View Stored Snapshots</button>
@@ -1770,8 +1829,23 @@
             <label>Start <input id="iaStart" type="time" step="300" value="09:00"></label>
             <label>End <input id="iaEnd" type="time" step="300" value="10:00"></label>
             <label>Campus <select id="iaCampus"></select></label>
+            <label>Minimum Shared Window
+              <select id="iaMinSharedWindow">
+                <option value="30" selected>30 minutes</option>
+                <option value="50">50 minutes</option>
+                <option value="60">60 minutes</option>
+                <option value="75">75 minutes</option>
+                <option value="90">90 minutes</option>
+                <option value="120">120 minutes</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label>Custom Minimum <input id="iaCustomSharedWindow" type="number" min="1" step="1" placeholder="minutes"></label>
+            <label>Target Meeting Length <input id="iaTargetMeetingLength" type="number" min="1" step="1" placeholder="optional minutes"></label>
             <button id="runInstructorAvailability" type="button">Run</button>
             <button id="clearInstructorAvailability" type="button">Clear</button>
+            <button id="copyInstructorAvailabilitySummary" type="button">Copy Availability Summary</button>
+            <span id="iaCopyStatus" class="analytics-note"></span>
           </div>
           <div id="instructorAvailabilityMetrics" class="analytics-metrics"></div>
           <div id="instructorAvailabilityCalendar" class="instructor-week-grid"></div>
@@ -1852,7 +1926,8 @@
         <div id="facultyModalityReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Faculty Modality</h2>
-            <p>Uses Faculty Schedule Data to summarize teaching modality by faculty type. This report uses INSM_CODE_SSBSECT as the modality source and can match loaded Section Seating rows by term + CRN to fill enrollment and capacity context.</p>
+            <p class="report-subtitle">Faculty Assignments and LHE by Modality</p>
+            <p>Faculty Modality analyzes faculty teaching assignments and instructional load. A faculty member may appear in more than one modality and should not be summed across modality rows as though each row represented a different person. This report uses INSM_CODE_SSBSECT as the modality source and can match loaded Section Seating rows by term + CRN to fill enrollment and capacity context.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -1867,7 +1942,7 @@
                 <ul>
                   <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor.</li>
                   <li>Modality is determined from INSM_CODE_SSBSECT using the shared TIMBER instructional method mapping. Unknown or omitted codes are excluded from standard analytics and should be reviewed through diagnostics.</li>
-                  <li>Class Offerings count distinct term + CRN values. Faculty Count counts distinct faculty in each faculty type and modality bucket. Enrollment and Seats prefer matched Section Seating data by term + CRN, then fall back to Faculty Schedule ActualEnroll and MaxEnroll fields.</li>
+                  <li>Class Offerings count distinct term + CRN values. Faculty Count counts distinct faculty in each faculty type and modality bucket. Total distinct faculty is calculated across the complete filtered dataset rather than by summing modality rows. Enrollment and Seats prefer matched Section Seating data by term + CRN, then fall back to Faculty Schedule ActualEnroll and MaxEnroll fields.</li>
                   <li>AE and X faculty type rows are omitted. JP is Part-Time, FT/TE are Full-Time, and unrecognized FCNT_CODE values are Unknown.</li>
                 </ul>
               </div>
@@ -3976,6 +4051,13 @@
     return summary;
   }
 
+  function distinctFacultyForRows(rows = []) {
+    return new Set((rows || [])
+      .map(row => row.facultyId || row.facultyName || row.instructor || '')
+      .map(value => String(value || '').trim())
+      .filter(Boolean));
+  }
+
   function buildFacultyModalityRows(rows) {
     const facultyTypes = [
       ['FULL_TIME', 'Full-Time'],
@@ -4179,7 +4261,7 @@
         ['In-Person class offerings', 0],
         ['Hybrid class offerings', 0],
         ['Online class offerings', 0],
-        ['Faculty with assignments', 0],
+        ['Total distinct faculty with assignments', 0],
         ['Section seating matches', 0],
         ['Unknown/Omitted rows excluded', reportableFacultyRows(sourceRows).filter(row => !['In-Person', 'Hybrid', 'Online'].includes(facultyInstructionModality(row))).length]
       ]);
@@ -4202,7 +4284,7 @@
     const tableRows = buildFacultyModalityRows(enrichedRows);
     state.facultyModalityTableRows = tableRows;
     const classOfferingSummary = facultyModalityClassOfferingSummary(enrichedRows);
-    const facultyWithAssignments = new Set(enrichedRows.map(row => row.facultyId || row.facultyName || row.instructor || '').filter(Boolean));
+    const facultyWithAssignments = distinctFacultyForRows(enrichedRows);
     metric('facultyModalityMetrics', [
       ['Total class offerings', classOfferingSummary.total.size],
       ['Full-Time class offerings', classOfferingSummary.byType['Full-Time'].size],
@@ -4211,7 +4293,7 @@
       ['In-Person class offerings', classOfferingSummary.byModality['In-Person'].size],
       ['Hybrid class offerings', classOfferingSummary.byModality.Hybrid.size],
       ['Online class offerings', classOfferingSummary.byModality.Online.size],
-      ['Faculty with assignments', facultyWithAssignments.size],
+      ['Total distinct faculty with assignments', facultyWithAssignments.size],
       ['Section seating matches', `${supportDiagnostics.sectionSeatingMatches}/${supportDiagnostics.offerings}`],
       ['Unknown/Omitted rows excluded', sourceRows.filter(row => !['In-Person', 'Hybrid', 'Online'].includes(facultyInstructionModality(row))).length]
     ]);
@@ -8435,6 +8517,7 @@
     const focusTermNotStarted = dashboardFocusTermNotStarted(currentRows, focusTerm);
     const workExperienceLoaded = workExperienceSummary(workExperienceRows());
     const workExperienceIncluded = workExperienceSummary(currentRows);
+    const lifecycleStatus = dashboardLifecycleStatus(currentRows, historicalRows, focusTerm);
     return {
       focusTerm,
       focusLabel: focusTerm || 'All Loaded Terms',
@@ -8449,8 +8532,46 @@
       focusTermNotStarted,
       workExperienceLoaded,
       workExperienceIncluded,
+      lifecycleStatus,
       missingMilestones: lifecycle.missing,
       warnings: dashboardScopeWarnings({ focusTerm, currentRows, historicalRows, currentTerms, lifecycle, focusTermNotStarted })
+    };
+  }
+
+  function dashboardLatestSnapshotDate(focusTerm) {
+    const matching = (state.enrollmentSnapshots || [])
+      .filter(record => !focusTerm || canon(record.term) === canon(focusTerm))
+      .map(record => record.snapshotDate || record.date || '')
+      .filter(Boolean)
+      .sort();
+    return matching[matching.length - 1] || '';
+  }
+
+  function dashboardLifecycleStatus(currentRows = [], historicalRows = [], focusTerm = '') {
+    const hasCurrent = currentRows.some(row => Number.isFinite(Number(row.actual)));
+    const hasCensus = currentRows.some(row => Number.isFinite(Number(row.census)));
+    const hasFinal = currentRows.some(row => Number.isFinite(Number(row.finalEnrollment)));
+    const unavailable = [];
+    if (!hasCensus) unavailable.push('Census Enrollment');
+    if (!hasFinal) unavailable.push('End-of-Term Enrollment');
+    const uploadStamp = document.getElementById('upload-timestamp')?.textContent || '';
+    const fallback = !hasCensus && hasCurrent
+      ? 'Census enrollment is unavailable in this source. Current enrollment is shown separately and is not silently relabeled as census enrollment.'
+      : '';
+    return {
+      activeTerm: focusTerm || 'All Loaded Terms',
+      snapshotDate: dashboardLatestSnapshotDate(focusTerm) || 'No saved snapshot date available',
+      lifecyclePhase: document.getElementById('dashLifecyclePhase')?.value || (dashboardFocusTermNotStarted(currentRows, focusTerm) ? 'Pre-Term / Registration' : 'Current Snapshot'),
+      scheduleUploadDate: uploadStamp || 'Unavailable in this dashboard source',
+      historicalComparisonSource: historicalRows.length ? `${collectRowTerms(historicalRows).join(', ')} (${historicalRows.length} row(s))` : 'No historical comparison source loaded',
+      fieldsUnavailable: unavailable.length ? unavailable.join(', ') : 'None detected',
+      currentEnrollmentStatus: hasCurrent ? 'Available' : 'Unavailable in this source',
+      censusEnrollmentStatus: hasCensus ? 'Available' : 'Unavailable in this source',
+      endEnrollmentStatus: hasFinal ? 'Available' : 'Unavailable in this source',
+      comparisonEnrollmentStatus: historicalRows.length ? 'Available from historical comparison rows' : 'Unavailable',
+      forecastEnrollmentStatus: historicalRows.length ? 'Available when comparable history exists' : 'Unavailable: no comparable history',
+      census2Status: 'Not used',
+      fallback
     };
   }
 
@@ -8498,12 +8619,32 @@
     const historicalTerms = context.historicalTerms.length ? context.historicalTerms.join(', ') : 'None';
     const loadedWorkTerms = context.workExperienceLoaded?.terms?.length ? context.workExperienceLoaded.terms.join(', ') : 'None';
     const includedWorkTerms = context.workExperienceIncluded?.terms?.length ? context.workExperienceIncluded.terms.join(', ') : 'None';
+    const status = context.lifecycleStatus || {};
+    const fallbackNote = status.fallback ? `<p>${escapeAttr(status.fallback)}</p>` : '';
     const warnings = context.warnings.length
       ? `<div class="dashboard-scope-warnings">${context.warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('')}</div>`
       : '<div class="dashboard-scope-ok"><strong>No scope warnings detected.</strong> The current selection is internally consistent and no obvious data-scope issue was detected.</div>';
     node.innerHTML = `
       <h3>Dashboard Scope &amp; Data Quality</h3>
       ${warnings}
+      <section class="dashboard-data-status-panel" aria-label="Enrollment lifecycle data status">
+        <h4>Enrollment Lifecycle Data Status</h4>
+        ${fallbackNote ? `<div class="dashboard-scope-warnings">${fallbackNote}</div>` : ''}
+        <dl>
+          <div><dt>Active Term</dt><dd>${escapeAttr(status.activeTerm || context.focusLabel)}</dd></div>
+          <div><dt>Snapshot Date</dt><dd>${escapeAttr(status.snapshotDate || 'No saved snapshot date available')}</dd></div>
+          <div><dt>Lifecycle Phase</dt><dd>${escapeAttr(status.lifecyclePhase || 'Current Snapshot')}</dd></div>
+          <div><dt>Schedule Upload Date</dt><dd>${escapeAttr(status.scheduleUploadDate || 'Unavailable')}</dd></div>
+          <div><dt>Historical Comparison Source</dt><dd>${escapeAttr(status.historicalComparisonSource || 'Unavailable')}</dd></div>
+          <div><dt>Current Enrollment</dt><dd>${escapeAttr(status.currentEnrollmentStatus || 'Unavailable')}</dd></div>
+          <div><dt>Census Enrollment</dt><dd>${escapeAttr(status.censusEnrollmentStatus || 'Unavailable in this source')}</dd></div>
+          <div><dt>End-of-Term Enrollment</dt><dd>${escapeAttr(status.endEnrollmentStatus || 'Unavailable in this source')}</dd></div>
+          <div><dt>Comparison-Term Enrollment</dt><dd>${escapeAttr(status.comparisonEnrollmentStatus || 'Unavailable')}</dd></div>
+          <div><dt>Forecast Enrollment</dt><dd>${escapeAttr(status.forecastEnrollmentStatus || 'Unavailable')}</dd></div>
+          <div><dt>Census 2</dt><dd>${escapeAttr(status.census2Status || 'Not used')}</dd></div>
+          <div><dt>Fields Unavailable in Current Dataset</dt><dd>${escapeAttr(status.fieldsUnavailable || missing)}</dd></div>
+        </dl>
+      </section>
       <dl>
         <div><dt>Focus Term</dt><dd>${escapeAttr(context.focusLabel)}</dd></div>
         <div><dt>Selected Archived Terms</dt><dd>${escapeAttr(selectedArchivedTerms)}</dd></div>
@@ -8610,9 +8751,22 @@
     const term = snapshotTerm();
     const snapshotType = normalizeSnapshotType(document.getElementById('snapType')?.value || '');
     const snapshotDate = document.getElementById('snapDate')?.value || '';
-    const fileRows = await readCsv(document.getElementById('snapshotCsv'));
+    const snapshotTime = document.getElementById('snapTime')?.value || '';
+    const lifecyclePhase = document.getElementById('snapLifecyclePhase')?.value || snapshotType;
+    const customLifecycleLabel = document.getElementById('snapCustomLifecycleLabel')?.value || '';
+    const daysBeforeTermStart = document.getElementById('snapDaysBefore')?.value || '';
+    const daysAfterTermStart = document.getElementById('snapDaysAfter')?.value || '';
+    const notes = document.getElementById('snapNotes')?.value || '';
+    const dataCompletenessNotes = document.getElementById('snapCompletenessNotes')?.value || '';
+    const input = document.getElementById('snapshotCsv');
+    const sourceFileName = input?.files?.[0]?.name || '';
+    const fileRows = await readCsv(input);
     if (!term || !snapshotType || !snapshotDate) {
       alert('Term, snapshot type, and snapshot date are required.');
+      return;
+    }
+    if (lifecyclePhase === 'Custom' && !customLifecycleLabel.trim()) {
+      alert('Custom lifecycle label is required when Lifecycle Phase is Custom.');
       return;
     }
     if (!fileRows.length) {
@@ -8620,7 +8774,19 @@
       return;
     }
     const warnings = snapshotUploadWarnings(fileRows, term);
-    const records = buildSnapshotRecords(fileRows, { term, snapshotType, snapshotDate });
+    const records = buildSnapshotRecords(fileRows, {
+      term,
+      snapshotType,
+      snapshotDate,
+      snapshotTime,
+      lifecyclePhase,
+      customLifecycleLabel,
+      daysBeforeTermStart,
+      daysAfterTermStart,
+      notes,
+      dataCompletenessNotes,
+      sourceFileName
+    });
     if (!records.length) {
       alert('No snapshot records could be created. Confirm the file includes CRN and the required enrollment source field.');
       return;
@@ -8665,12 +8831,20 @@
       'term',
       'snapshotType',
       'snapshotDate',
+      'snapshotTime',
+      'lifecyclePhase',
+      'lifecycleLabel',
+      'daysBeforeTermStart',
+      'daysAfterTermStart',
       'crn',
       'course',
       'section',
       'startDate',
       'enrollment',
       'sourceFieldUsed',
+      'sourceFileName',
+      'notes',
+      'dataCompletenessNotes',
       'uploadedAt',
       'action'
     ]);
@@ -10581,6 +10755,10 @@
     }
     state.attritionRows = state.attritionRows.map(row => ({
       ...row,
+      courseHistoricalAverage: lifecycleMetricLabel(row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate),
+      disciplineAverage: row.disciplineAverage ?? 'Unavailable',
+      divisionAverage: row.divisionAverage ?? 'Unavailable',
+      collegeAverage: lifecycleMetricLabel(historicalSummary.census1ToEndRate ?? historicalSummary.overallAttritionRate ?? allSummary.census1ToEndRate),
       dataQualityNotes: dataQualityWarnings.join(' ') || 'None'
     }));
     renderReportContext(REPORTS.attrition, attritionContextOverrides(allEnrollment, enrollment, diagnostics, excludedPlanningTerm, {
@@ -10624,9 +10802,18 @@
       'courseGroup',
       'historicalTermsUsed',
       'historicalSectionsCrns',
+      'census1Enrollment',
+      'endFinalEnrollment',
+      'studentsLostCensus1ToEnd',
       'firstDayToCensus1AttritionDisplay',
       'firstDayToEndAttritionDisplay',
       'census1ToFinalAttritionDisplay',
+      'missingCensusData',
+      'missingEndOfTermData',
+      'courseHistoricalAverage',
+      'disciplineAverage',
+      'divisionAverage',
+      'collegeAverage',
       'trendInterpretation',
       'confidence'
     ]);
@@ -10663,12 +10850,13 @@
   function renderAttritionSummarySections(config = {}) {
     const node = document.getElementById('attritionMetrics');
     if (!node) return;
+    const advisory = '<p class="analytics-note">This report is descriptive and should not be interpreted as a direct measure of instructor performance. Enrollment changes can reflect scheduling, modality, student preparation, external obligations, course sequencing, and other factors.</p>';
     const section = (title, items, open) => `
       <section class="attrition-summary-section collapsible-section ${open ? '' : 'is-collapsed'}" data-collapsible-title="${escapeAttr(title)}" data-collapsible-id="${slugify(title)}" ${open ? '' : 'data-collapsible-default="closed"'}>
         <h3>${escapeAttr(title)}</h3>
         <div class="analytics-metrics">${(items || []).map(([labelText, value]) => `<div><strong>${escapeAttr(value ?? '')}</strong><span>${escapeAttr(labelText ?? '')}</span></div>`).join('')}</div>
       </section>`;
-    node.innerHTML = [
+    node.innerHTML = advisory + [
       section('Attrition Executive Summary', config.executive || [], true),
       section('Data Quality & Coverage', config.dataQuality || [], false)
     ].join('');
@@ -10684,11 +10872,14 @@
       census1Enrollment: row.historyCensus || row.census || 0,
       census2Enrollment: row.historyCensus2 || row.census2 || 0,
       endFinalEnrollment: row.historyFinal || row.final || 0,
-      firstDayToCensus1AttritionDisplay: row.historyStartToCensus1AttritionRate,
-      firstDayToEndAttritionDisplay: row.historyStartToEndAttritionRate,
-      census1ToCensus2AttritionDisplay: row.historyCensus1ToCensus2AttritionRate,
-      census2ToFinalAttritionDisplay: row.historyCensus2ToEndAttritionRate,
-      census1ToFinalAttritionDisplay: row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate,
+      studentsLostCensus1ToEnd: row.historyCensus1ToEndAttritionCount ?? row.historicalAttritionCount,
+      missingCensusData: Number(row.historyMissingCensus1Count || row.allMissingCensus1Count || 0) > 0 ? 'Some CRNs missing Census 1' : 'None detected',
+      missingEndOfTermData: Number(row.historyMissingFinalCount || row.allMissingFinalCount || 0) > 0 ? 'Some CRNs missing End/Final' : 'None detected',
+      firstDayToCensus1AttritionDisplay: row.historyStartToCensus1MatchedCrns ? row.historyStartToCensus1AttritionRate : 'Attrition unavailable because census enrollment is missing.',
+      firstDayToEndAttritionDisplay: row.historyStartToEndMatchedCrns ? row.historyStartToEndAttritionRate : 'Attrition unavailable because census enrollment is missing.',
+      census1ToCensus2AttritionDisplay: row.historyCensus1ToCensus2MatchedCrns ? row.historyCensus1ToCensus2AttritionRate : 'Attrition unavailable because census enrollment is missing.',
+      census2ToFinalAttritionDisplay: row.historyCensus2ToEndMatchedCrns ? row.historyCensus2ToEndAttritionRate : 'Attrition unavailable because census enrollment is missing.',
+      census1ToFinalAttritionDisplay: row.historyCensus1ToEndMatchedCrns ? (row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate) : 'Attrition unavailable because census enrollment is missing.',
       trendInterpretation: attritionTrendInterpretation(row),
       confidence: attritionConfidence(row)
     }));
@@ -11357,6 +11548,8 @@
     const days = ['MO', 'TU', 'WE', 'TH', 'FR'];
     const dayStart = 8 * 60;
     const dayEnd = 18 * 60;
+    const minWindow = instructorMinimumSharedWindowMinutes();
+    const targetLength = instructorTargetMeetingLengthMinutes();
     if (!instructors.length) {
       node.innerHTML = '';
       return;
@@ -11367,18 +11560,38 @@
         .map(row => instructorMeetingMinutes(row))
         .filter(Boolean)
         .sort((a, b) => a[0] - b[0]);
-      const windows = instructorSharedAvailabilityDisplayWindows(busy, dayStart, dayEnd);
-      const text = windows.map(([start, end]) => `${formatMinutes(start)}-${formatMinutes(end)}`).join(', ') || 'No shared open windows in range';
+      const windows = instructorSharedAvailabilityDisplayWindows(busy, dayStart, dayEnd, minWindow);
+      const text = windows.map(([start, end]) => {
+        const duration = end - start;
+        const target = targetLength && duration >= targetLength ? ` (Available for ${targetLength}-minute meeting)` : '';
+        return `${formatMinutes(start)}-${formatMinutes(end)}${target}`;
+      }).join(', ') || 'No shared open windows in range';
       return `<li><strong>${escapeAttr(dayLabels[day])}:</strong> ${escapeAttr(text)}</li>`;
     }).join('');
     node.innerHTML = `
       <h3>Shared Available Time Windows</h3>
       <p>Calculated between 8:00 AM and 6:00 PM, Monday-Friday, by subtracting the combined loaded meeting times for all selected instructors. These are times that are open for everyone selected, not confirmed faculty availability.</p>
-      <p class="analytics-note">Shared windows are based on loaded recurring meeting rows. Hybrid sections may require date-level verification. Windows shorter than ${MIN_SHARED_AVAILABILITY_MINUTES} minutes are omitted.</p>
+      <p class="analytics-note">Shared windows are based on loaded recurring meeting rows. Hybrid sections may require date-level verification. Short-term assignments require active date-range review. Windows shorter than ${minWindow} minutes are omitted.</p>
       <div class="instructor-shared-availability">
         <h4>${escapeAttr(instructors.length)} selected instructor${instructors.length === 1 ? '' : 's'}</h4>
         <ul>${dayItems}</ul>
       </div>`;
+  }
+
+  function instructorMinimumSharedWindowMinutes() {
+    const select = document.getElementById('iaMinSharedWindow');
+    const selected = select?.value || String(MIN_SHARED_AVAILABILITY_MINUTES);
+    if (selected === 'custom') {
+      const custom = Number(document.getElementById('iaCustomSharedWindow')?.value || 0);
+      return Number.isFinite(custom) && custom > 0 ? custom : MIN_SHARED_AVAILABILITY_MINUTES;
+    }
+    const value = Number(selected);
+    return Number.isFinite(value) && value > 0 ? value : MIN_SHARED_AVAILABILITY_MINUTES;
+  }
+
+  function instructorTargetMeetingLengthMinutes() {
+    const value = Number(document.getElementById('iaTargetMeetingLength')?.value || 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
   }
 
   function availableWindows(busy, dayStart, dayEnd) {
@@ -11401,9 +11614,51 @@
     return windows;
   }
 
-  function instructorSharedAvailabilityDisplayWindows(busy, dayStart, dayEnd) {
-    return availableWindows(busy, dayStart, dayEnd)
-      .filter(([start, end]) => end - start >= MIN_SHARED_AVAILABILITY_MINUTES);
+  function mergeAdjacentAvailabilityWindows(windows = []) {
+    return (windows || [])
+      .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start)
+      .sort((a, b) => a[0] - b[0])
+      .reduce((merged, [start, end]) => {
+        const last = merged[merged.length - 1];
+        if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+        else merged.push([start, end]);
+        return merged;
+      }, []);
+  }
+
+  function instructorSharedAvailabilityDisplayWindows(busy, dayStart, dayEnd, minimumMinutes = MIN_SHARED_AVAILABILITY_MINUTES) {
+    const minWindow = Number.isFinite(Number(minimumMinutes)) && Number(minimumMinutes) > 0 ? Number(minimumMinutes) : MIN_SHARED_AVAILABILITY_MINUTES;
+    return mergeAdjacentAvailabilityWindows(availableWindows(busy, dayStart, dayEnd))
+      .filter(([start, end]) => end - start >= minWindow);
+  }
+
+  function instructorAvailabilityPlainTextSummary() {
+    const rows = Array.from(document.querySelectorAll('#instructorAvailabilityTimes li'));
+    return rows.map(row => row.textContent.trim()).join('\n');
+  }
+
+  async function copyInstructorAvailabilitySummary() {
+    const status = document.getElementById('iaCopyStatus');
+    const text = instructorAvailabilityPlainTextSummary();
+    if (!text) {
+      if (status) status.textContent = 'No availability summary to copy.';
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      if (status) status.textContent = 'Availability summary copied.';
+    } catch (err) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand('copy');
+      textarea.remove();
+      if (status) status.textContent = copied ? 'Availability summary copied.' : 'Copy unavailable.';
+    }
   }
 
   function formatMinutes(minutes) {
@@ -11522,6 +11777,17 @@
       const calculationBasis = isOnline
         ? `Online reduction uses selected decision-term online capacity minus historical average ${options.vacancyBasis === 'actual' ? 'final/current' : 'census'} enrollment; historical vacancies are audit context only.`
         : `In-person/hybrid consolidation uses historical expected enrollment, ${Math.round((options.absorbPct || 0.6) * 100)}% redistribution threshold, gross receiving open seats, and net seats after redistribution.`;
+      const criteriaSatisfied = [
+        historicalTermsIncluded >= minHist ? `Historical terms >= ${minHist}` : '',
+        isOnline ? 'Online capacity review' : 'Candidate sections grouped by course/pattern',
+        !warnings.some(warning => /Insufficient receiving capacity/i.test(warning)) ? 'Receiving capacity screen passed' : ''
+      ].filter(Boolean).join('; ');
+      const criteriaNotSatisfied = warnings.length ? warnings.join('; ') : 'None detected in automated screen';
+      const finalDesignation = warnings.some(warning => /Insufficient receiving capacity/i.test(warning))
+        ? 'Manual Review'
+        : row.score < 40
+          ? 'Not Eligible'
+          : 'Review Candidate';
       return {
         ...row,
         term: row.term || row.decisionTerm || selectedDecisionTerm,
@@ -11533,6 +11799,11 @@
         historicalTermsIncluded,
         confidenceLevel,
         label: cleanLabel,
+        governanceStatement: 'Planning Candidate Only',
+        reasonIdentified: row.matchReason || row.recommendation || (isOnline ? 'Decision-term online capacity exceeds historical demand evidence.' : 'Low-fill section pattern may have receiving capacity.'),
+        criteriaSatisfied,
+        criteriaNotSatisfied,
+        finalDesignation,
         dataQualityWarnings: warnings.join(' | '),
         calculationBasis
       };
@@ -11550,6 +11821,10 @@
       : '<div class="dashboard-scope-warnings"><p>No Consolidation CSVs or archived terms are selected. This report will not silently use other archived terms or the current room grid.</p></div>';
     node.innerHTML = `
       <h3>Consolidation Scope</h3>
+      <div class="analytics-governance-statement">
+        <strong>Planning Candidate Only.</strong>
+        This report identifies sections that may warrant review. It does not automatically recommend cancellation or consolidation. Deans and instructional leadership retain final authority and must consider modality, student access, campus, faculty load, program sequencing, linked sections, cohort requirements, room capacity, Dual Enrollment commitments, and other operational factors.
+      </div>
       ${warning}
       <dl>
         <div><dt>Decision Term</dt><dd>${escapeAttr(context.decisionTerm || 'N/A')}</dd></div>
@@ -11634,6 +11909,18 @@
     return 'Low';
   }
 
+  function demandConfidenceDisplay(value) {
+    const label = demandConfidenceLabel(value);
+    return label === 'Medium' ? 'Moderate' : label;
+  }
+
+  function formatDemandEnrollmentRange(row = {}, fallback = 0) {
+    const low = Math.round(row.expectedRangeConservative ?? row.expectedRangeLow ?? fallback ?? 0);
+    const high = Math.round(row.expectedRangeHigh ?? fallback ?? low);
+    if (low === high) return `${low} students`;
+    return `${low}-${high} students`;
+  }
+
   function demandExecutiveSummary(rows, trends, context = {}, diagnostics = {}) {
     const college = rows.find(row => row.forecastLevel === 'College') || rows[0] || {};
     const expected = demandHistoricalExpectedEnrollment(trends);
@@ -11647,6 +11934,10 @@
     const expanding = rows.filter(row => /expanding|growth|increase/i.test(row.capacityGuidance || '')).length;
     const softening = rows.filter(row => /softening/i.test(row.capacityGuidance || '')).length;
     const confidence = context.confidenceDetails || demandForecastConfidenceScore(rows);
+    const comparableTerms = Number(college.terms || diagnostics.termsUsedInForecast?.length || 0);
+    const confidenceExplanation = comparableTerms < 2
+      ? 'Insufficient history for a reliable forecast.'
+      : `${demandConfidenceDisplay(confidence.label)} confidence is based on ${comparableTerms} comparable term${comparableTerms === 1 ? '' : 's'}, current schedule capacity, current enrollment trend, and forecast volatility.`;
     const capDelta = context.ftesCap > 0 ? Number(context.ftesCap) - Number(context.annualFtes || context.forecastFtes || 0) : null;
     const projectedFtes = Number(college.expectedFtesNextTerm || context.forecastFtes || 0);
     const currentFtes = Number(context.activeSnapshot?.estimatedFtes || 0);
@@ -11677,6 +11968,11 @@
       lifecycle,
       expected,
       projected,
+      expectedLow: Math.round(college.expectedRangeConservative ?? college.expectedRangeLow ?? projected),
+      centralEstimate: Math.round(college.expectedRangeMostLikely ?? projected),
+      expectedHigh: Math.round(college.expectedRangeHigh ?? projected),
+      comparableTerms,
+      confidenceExplanation,
       current,
       currentVariance,
       projectedVariance,
@@ -11745,10 +12041,13 @@
       ['Forecast Type', [
         ['Forecast Type', 'Historical Benchmark Projection', 'trend-projection'],
         ['Registration Pace Basis', 'Not registration-pace based', 'warning'],
-        ['Historical Trend Expected Enrollment', Math.round(summary.projected || collegeRow.expectedEnrollmentNextTerm || 0), 'projected-final-enrollment'],
+        ['Projected Enrollment', formatDemandEnrollmentRange(collegeRow, summary.projected || collegeRow.expectedEnrollmentNextTerm || 0), 'expected-projection-range'],
+        ['Central Estimate', Math.round(collegeRow.expectedRangeMostLikely ?? collegeRow.expectedEnrollmentNextTerm ?? summary.projected ?? 0), 'projected-final-enrollment'],
         ['Historical Trend Estimated FTES', round1(config.forecastFtes || collegeRow.expectedFtesNextTerm || 0), 'ftes'],
         ['Forecast Growth Rate Applied', pct(collegeRow.adjustedForecastGrowth || 0), 'trend-projection'],
-        ['Confidence', `${confidenceDetails.label || 'Low'}${confidenceDetails.score ? ` (${confidenceDetails.score})` : ''}`, 'forecast-confidence']
+        ['Confidence', `${demandConfidenceDisplay(confidenceDetails.label || 'Low')}${confidenceDetails.score ? ` (${confidenceDetails.score})` : ''}`, 'forecast-confidence'],
+        ['Comparable Terms', collegeRow.terms || config.termDiagnostics?.termsUsedInForecast?.length || 0, 'terms-included'],
+        ['Confidence Basis', summary.confidenceExplanation || 'Insufficient history for a reliable forecast.', 'forecast-confidence']
       ]],
       ['Expected Range - Planning Estimates', [
         ['Conservative Enrollment Estimate', Math.round(collegeRow.expectedRangeConservative ?? collegeRow.expectedRangeLow ?? summary.projected ?? 0), 'expected-projection-range'],
@@ -11780,7 +12079,7 @@
         ['Expected Fill Rate', pct(collegeRow.expectedFillRate || 0), 'fill-rate'],
         [collegeRow.projectedWaitlistLabel || 'Estimated Projected Waitlist', Math.round(collegeRow.avgWaitlistCount || 0), 'waitlist'],
         ['Forecast Growth Rate Applied', pct(collegeRow.adjustedForecastGrowth || 0), 'trend-projection'],
-        ['Forecast Confidence', summary.confidence?.label || collegeRow.forecastConfidence || 'Low', 'forecast-confidence'],
+        ['Forecast Confidence', demandConfidenceDisplay(summary.confidence?.label || collegeRow.forecastConfidence || 'Low'), 'forecast-confidence'],
         ['Expected Projection Range', `Conservative ${Math.round(collegeRow.expectedRangeConservative ?? collegeRow.expectedRangeLow ?? summary.projected ?? 0)} / Most Likely ${Math.round(collegeRow.expectedRangeMostLikely ?? collegeRow.expectedEnrollmentNextTerm ?? summary.projected ?? 0)} / High ${Math.round(collegeRow.expectedRangeHigh ?? summary.projected ?? 0)}`, 'expected-projection-range']
       ]],
       ['Scope', [
@@ -13616,7 +13915,11 @@
         </div>
         <dl>
           <div><dt>Term lifecycle</dt><dd>${escapeAttr(summary.lifecycle?.label || 'Future term')}</dd></div>
-          <div><dt>Forecast confidence</dt><dd>${escapeAttr(summary.confidence?.label || 'Low')}</dd></div>
+          <div><dt>Projected Enrollment</dt><dd>${summary.expectedLow === summary.expectedHigh ? Math.round(summary.centralEstimate || summary.projected || 0) : `${Math.round(summary.expectedLow || 0)}-${Math.round(summary.expectedHigh || 0)} students`}</dd></div>
+          <div><dt>Central Estimate</dt><dd>${Math.round(summary.centralEstimate || summary.projected || 0)}</dd></div>
+          <div><dt>Forecast confidence</dt><dd>${escapeAttr(demandConfidenceDisplay(summary.confidence?.label || 'Low'))}</dd></div>
+          <div><dt>Comparable Terms</dt><dd>${summary.comparableTerms || 0}</dd></div>
+          <div><dt>Confidence Explanation</dt><dd>${escapeAttr(summary.confidenceExplanation || 'Insufficient history for a reliable forecast.')}</dd></div>
           <div><dt>Current snapshot enrollment</dt><dd>${Math.round(summary.current || 0)}</dd></div>
           <div><dt>Historical trend expected enrollment</dt><dd>${Math.round(summary.projected || 0)}</dd></div>
           <div><dt>Enrollment difference</dt><dd>${(summary.projected - summary.current) >= 0 ? '+' : ''}${Math.round((summary.projected || 0) - (summary.current || 0))}</dd></div>
@@ -13750,7 +14053,7 @@
 
   function demandConfidencePanel(details = {}) {
     return `<section class="demand-method-card">
-      <h4>Forecast Confidence: ${escapeAttr(details.label || 'Low')}${details.score ? ` (${details.score})` : ''}</h4>
+      <h4>Forecast Confidence: ${escapeAttr(demandConfidenceDisplay(details.label || 'Low'))}${details.score ? ` (${details.score})` : ''}</h4>
       <div class="demand-action-grid">
         <div><h4>Factors Increasing Confidence</h4><ul>${(details.raised || ['No confidence-raising factors identified.']).map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul></div>
         <div><h4>Factors Lowering Confidence</h4><ul>${(details.lowered || ['No major confidence-lowering factors identified.']).map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul></div>
@@ -14137,6 +14440,17 @@
     const recommendationWithWarnings = capacityWarning
       ? `Review manually: insufficient receiving capacity for ${row.requiredSeats ?? 0} projected students. ${recommendation}`
       : recommendation;
+    const combinedSections = [...removed, ...receiving].filter(Boolean);
+    const currentCombinedEnrollment = combinedSections.length
+      ? combinedSections.reduce((total, section) => total + expectedEnrollment(section), 0)
+      : (row.expectedEnrollment ?? row.sourceEnroll ?? '');
+    const availableCombinedCapacity = row.availableReceivingCapacity ?? row.vacancies ?? targetOpenSeats ?? '';
+    const modalities = [...new Set(combinedSections.map(section => section.modality).filter(Boolean))];
+    const campuses = [...new Set(combinedSections.map(section => section.campus).filter(Boolean))];
+    const timePatterns = [...new Set(combinedSections.map(section => [section.dayPattern, section.start, section.end].filter(Boolean).join(' ')).filter(Boolean))];
+    const dateRanges = [...new Set(combinedSections.map(section => [section.startDate, section.endDate].filter(Boolean).join(' - ')).filter(Boolean))];
+    const hasDualEnrollment = combinedSections.some(section => typeof isDualEnrollment === 'function' && isDualEnrollment(section));
+    const hasLinked = combinedSections.some(section => section.crossList || section.linkIdentifier || section.linkedCourse || section.raw?.LINK_IDENTIFIER || section.raw?.CROSS_LIST);
     return {
       type: row.type || 'In-Person Consolidation',
       term: row.term || row.decisionTerm || row.source?.term || row.target?.term || '',
@@ -14148,10 +14462,17 @@
       score: row.score,
       label: row.label,
       confidenceLevel: row.confidenceLevel || '',
+      governanceStatement: row.governanceStatement || 'Planning Candidate Only',
+      finalDesignation: row.finalDesignation || (capacityWarning ? 'Manual Review' : 'Review Candidate'),
+      reasonIdentified: row.reasonIdentified || row.matchReason || recommendationWithWarnings,
+      criteriaSatisfied: row.criteriaSatisfied || 'Automated planning screen found possible capacity/supply review item.',
+      criteriaNotSatisfied: row.criteriaNotSatisfied || (capacityWarning ? 'Receiving capacity is below projected redistribution.' : 'None detected in automated screen'),
       course: row.course,
       sectionsReviewed: row.sectionsReviewed || row.sections || row.sectionCount || '',
       potentialSectionsRemoved: row.potentialSectionsRemoved || row.recommendedReductions || '',
       expectedEnrollment: row.expectedEnrollment ?? row.sourceEnroll ?? '',
+      currentCombinedEnrollment,
+      availableCombinedCapacity,
       availableReceivingCapacity: row.availableReceivingCapacity ?? row.vacancies ?? targetOpenSeats ?? '',
       projectedRedistribution,
       netAvailableCapacity: netAvailable,
@@ -14174,6 +14495,12 @@
       recommendation: recommendationWithWarnings,
       freedSeats: row.freedSeats,
       matchReason: row.matchReason,
+      modalityCompatibility: isOnline ? 'Online aggregate' : (modalities.length <= 1 ? 'Match' : `Mismatch: ${modalities.join(', ')}`),
+      timePatternCompatibility: isOnline ? 'Not applicable' : (timePatterns.length <= 1 ? 'Match' : 'Manual Review'),
+      campusCompatibility: campuses.length <= 1 ? 'Match' : `Mismatch: ${campuses.join(', ')}`,
+      dateRangeCompatibility: dateRanges.length <= 1 ? (dateRanges.length ? 'Match' : 'Unknown') : 'Manual Review',
+      linkedCorequisiteWarning: hasLinked ? 'Review linked/cross-listed/corequisite relationships before action.' : 'None detected',
+      dualEnrollmentWarning: hasDualEnrollment ? 'Review Dual Enrollment commitments before action.' : 'None detected',
       historicalTerms: row.historicalTerms,
       historicalTermsIncluded: row.historicalTermsIncluded ?? row.historicalTerms ?? '',
       chronicLowFill: row.chronicLowFill,
@@ -14188,7 +14515,7 @@
     if (!node) return;
     const online = rows.filter(row => row.type === 'Online Reduction');
     const inPerson = rows.filter(row => row.type !== 'Online Reduction');
-    const columns = ['type', 'score', 'label', 'confidenceLevel', 'course', 'sectionsReviewed', 'potentialSectionsRemoved', 'expectedEnrollment', 'availableReceivingCapacity', 'projectedRedistribution', 'netAvailableCapacity', 'potentialSeatsRecovered', 'projectionSource', 'finalEnrollmentContext', 'sourceSummary', 'targetSummary', 'recommendation', 'matchReason', 'historicalTermsIncluded', 'dataQualityWarnings', 'chronicLowFill', 'tbaConfidence'];
+    const columns = ['type', 'governanceStatement', 'finalDesignation', 'score', 'label', 'confidenceLevel', 'course', 'reasonIdentified', 'criteriaSatisfied', 'criteriaNotSatisfied', 'sectionsReviewed', 'potentialSectionsRemoved', 'expectedEnrollment', 'currentCombinedEnrollment', 'availableCombinedCapacity', 'availableReceivingCapacity', 'projectedRedistribution', 'netAvailableCapacity', 'potentialSeatsRecovered', 'modalityCompatibility', 'timePatternCompatibility', 'campusCompatibility', 'dateRangeCompatibility', 'linkedCorequisiteWarning', 'dualEnrollmentWarning', 'projectionSource', 'finalEnrollmentContext', 'sourceSummary', 'targetSummary', 'recommendation', 'matchReason', 'historicalTermsIncluded', 'dataQualityWarnings', 'chronicLowFill', 'tbaConfidence'];
     node.innerHTML = [
       consolidationTableSection('Online Reduction Candidates', online, columns),
       consolidationTableSection('In-Person and Hybrid Consolidation Candidates', inPerson, columns)
@@ -14664,7 +14991,7 @@
     renderMethodologyPanel(legend, {
       title: 'Instructor Availability - Planning View Methodology & Data Dictionary',
       purpose: 'Provides a first-layer schedule-conflict check for instructors using the currently loaded schedule/class data.',
-      methodology: 'The report compares each instructor scheduled in the loaded data against the selected day and time window. A conflict exists when the section meets on the selected day and its meeting time overlaps the requested window. Fixed-time hybrid rows remain included in these overlap calculations for this first-layer planning view.',
+      methodology: 'The report compares each instructor scheduled in the loaded data against the selected day and time window. A conflict exists when the section meets on the selected day and its meeting time overlaps the requested window. Fixed-time hybrid rows remain included in these overlap calculations for this first-layer planning view. Shared available windows are filtered by the selected minimum duration and can be labeled when they can fit the optional target meeting length.',
       assumptions: 'Rows without fixed meeting days or fixed meeting times are not treated as conflicts for a specific day/time search. Rows with 00:00 placeholder start or end times are treated as non-fixed. This keeps Online/TBA rows and placeholder records from blocking an instructor in a physical time slot. Hybrid sections may not meet physically every listed week, so users should verify detailed section dates before using a hybrid conflict for a date-specific scheduling decision.',
       limitations: 'This is not a true faculty availability system. It does not include preference forms, office hours, reassigned time, department rules, leave, contractual limits, overload rules, travel time, unuploaded assignments, section-specific meeting dates, alternating weeks, or irregular hybrid calendars.',
       items: [
@@ -14678,7 +15005,9 @@
         ['Requires Date Verification', 'Yes when at least one overlapping conflict is Hybrid. Hybrid physical meeting patterns may not occur every week.'],
         ['Campus', 'Optional campus filter. When All is selected, all loaded campuses are included.'],
         ['Overlap Formula', 'A conflict is counted when section start is before requested end AND section end is after requested start, and the section includes the selected day.'],
-        ['Shared Available Time Windows', `For each day, loaded busy intervals for all selected instructors are merged, then subtracted from the 8:00 AM-6:00 PM planning day. The resulting windows are times that are open for everyone selected, not confirmed faculty availability. Windows shorter than ${MIN_SHARED_AVAILABILITY_MINUTES} minutes are omitted from display.`],
+        ['Minimum Shared Window', `The display suppresses windows shorter than the configured minimum. The default is ${MIN_SHARED_AVAILABILITY_MINUTES} minutes, with 50, 60, 75, 90, 120, and Custom options available.`],
+        ['Target Meeting Length', 'Optional minutes used to label windows that can accommodate a planned meeting length. This label does not change conflict calculations.'],
+        ['Shared Available Time Windows', 'For each day, loaded busy intervals for all selected instructors are merged, then subtracted from the 8:00 AM-6:00 PM planning day. Directly adjacent open intervals are merged into one continuous window. The resulting windows are times that are open for everyone selected, not confirmed faculty availability.'],
         ['Future Enhancement', 'Optional date-aware or week-by-week instructor availability using section meeting-date patterns.']
       ],
       version: 'Methodology v1.0'
@@ -14758,6 +15087,10 @@
       ['Same campus', 'When checked, source and receiving sections must be on the same campus.'],
       ['Same modality', 'When checked, source and receiving sections must use the same instructional modality.'],
       ['Score', 'Consolidation groups score schedule/method consistency, available receiving capacity, chronic low-enrollment history, and confidence. TBA or missing meeting-pattern groups are capped at 70 because they cannot earn high confidence from exact schedule matching. Online reduction starts at 55 and increases with the number of reducible sections.'],
+      ['Planning Candidate Only', 'Governance statement. Consolidation output identifies sections that may warrant review. It does not automatically recommend cancellation or consolidation. Deans and instructional leadership retain final authority.'],
+      ['Final Designation', 'Review Candidate, Manual Review, or Not Eligible based on the existing automated screen and capacity warnings.'],
+      ['Criteria Satisfied / Not Satisfied', 'Readable audit fields showing which automated screens were met and what still requires review.'],
+      ['Compatibility Fields', 'Modality, time-pattern, campus, and date-range compatibility flags that help reviewers identify operational issues before acting.'],
       ['Sections Reviewed', 'Number of active decision-term sections included in the grouped opportunity. This replaces pairwise source-target counts.'],
       ['Potential Sections Removed', 'Number of sections that could be reviewed for removal within the grouped opportunity without exceeding projected receiving capacity.'],
       ['Expected Enrollment', 'Census-based expected enrollment for the grouped course/pattern opportunity.'],
@@ -15961,6 +16294,8 @@
       .dashboard-scope-panel dl div{border:1px solid #e2eaf3;border-radius:8px;background:#f8fbff;padding:8px}
       .dashboard-scope-panel dt{font-size:11px;text-transform:uppercase;color:#51657c;font-weight:800}
       .dashboard-scope-panel dd{margin:3px 0 0;color:#123367;font-weight:800;line-height:1.25}
+      .analytics-governance-statement{border:1px solid #c9d8e8;background:#f6fbff;border-radius:8px;padding:10px;margin:8px 0;color:#334862;line-height:1.35}
+      .analytics-governance-statement strong{color:#123367}
       .dashboard-scope-warnings{display:grid;gap:6px}
       .dashboard-scope-warnings p{margin:0;padding:8px 10px;border:1px solid #f0c36d;border-radius:8px;background:#fff7dc;color:#6d4c00;font-weight:800;line-height:1.3}
       .dashboard-scope-ok{padding:8px 10px;border:1px solid #b9ddc3;border-radius:8px;background:#eef9f1;color:#245f37;font-weight:800}
@@ -16295,6 +16630,10 @@
     document.getElementById('loadSavedInstructorAvailabilityFaculty')?.addEventListener('click', () => loadSavedInstructorAvailabilityFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('loadInstructorAvailabilityFaculty')?.addEventListener('click', () => loadInstructorAvailabilityFacultySchedule().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
     document.getElementById('iaFacultyScheduleCsv')?.addEventListener('change', () => loadInstructorAvailabilityFacultySchedule().catch(err => console.warn(err)));
+    document.getElementById('iaMinSharedWindow')?.addEventListener('change', runInstructorAvailability);
+    document.getElementById('iaCustomSharedWindow')?.addEventListener('input', runInstructorAvailability);
+    document.getElementById('iaTargetMeetingLength')?.addEventListener('input', runInstructorAvailability);
+    document.getElementById('copyInstructorAvailabilitySummary')?.addEventListener('click', () => copyInstructorAvailabilitySummary());
     document.getElementById('loadSavedFacultyModality')?.addEventListener('click', () => loadSavedFacultyModality().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
     document.getElementById('loadFacultyModality')?.addEventListener('click', () => loadFacultyModality().catch(err => alert(err.message || 'Faculty Modality load failed.')));
     document.getElementById('facultyModalityCsv')?.addEventListener('change', () => loadFacultyModality().catch(err => console.warn(err)));
@@ -16583,7 +16922,11 @@
     instructorMeetingDateDisplay,
     instructorHasConflict,
     instructorSharedAvailabilityDisplayWindows,
+    mergeAdjacentAvailabilityWindows,
+    instructorMinimumSharedWindowMinutes,
+    instructorTargetMeetingLengthMinutes,
     minSharedAvailabilityMinutes: MIN_SHARED_AVAILABILITY_MINUTES,
+    snapshotLifecyclePhases: SNAPSHOT_LIFECYCLE_PHASES,
     dashboardAvailableTerms,
     dashboardCurrentRows,
     dashboardHistoricalRows,

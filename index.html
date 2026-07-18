@@ -225,6 +225,11 @@
   <div id="utilization-tool" style="display:none;">
     <h2>Room Utilization Map</h2>
     <div id="utilization-controls">
+      <fieldset class="segmented-field utilization-mode-field">
+        <legend>Display Mode</legend>
+        <label><input type="radio" name="utilization-display-mode" value="simple" checked> Simple</label>
+        <label><input type="radio" name="utilization-display-mode" value="advanced"> Advanced</label>
+      </fieldset>
       <label>Campus:
         <select id="utilization-campus-select"></select>
       </label>
@@ -273,7 +278,8 @@
       <button id="utilization-clear-btn" type="button">Clear</button>
     </div>
     <div class="utilization-note">
-      Scores now use a component model instead of a fixed prime-time multiplier. Overall Room Utilization Score = Overall Utilization 40% + Prime-Time Utilization 25% + Distribution Score 20% + Fragmentation Score 15%. Opportunity Score is displayed separately as additional scheduling capacity. VISFSC rooms are excluded from this view.
+      Scores now use a component model instead of a fixed prime-time multiplier. TIMBER Planning Score = Overall Utilization 40% + Prime-Time Utilization 25% + Distribution Score 20% + Fragmentation Score 15%. Opportunity Score is displayed separately as additional scheduling capacity. VISFSC rooms are excluded from this view.
+      The composite score uses TIMBER planning weights: Overall Utilization 40%, Prime-Time Utilization 25%, Distribution 20%, and Fragmentation 15%. These are local planning weights designed to support comparison and do not represent a regulatory utilization standard.
     </div>
     <div class="utilization-explainer">
       <h3>Calculation and Designation Guide</h3>
@@ -287,8 +293,8 @@
         </thead>
         <tbody>
           <tr>
-            <td>Score</td>
-            <td>Overall Room Utilization Score = Overall Utilization 40% + Prime-Time Utilization 25% + Distribution Score 20% + Fragmentation Score 15%.</td>
+            <td>TIMBER Planning Score</td>
+            <td>TIMBER Planning Score = Overall Utilization 40% + Prime-Time Utilization 25% + Distribution Score 20% + Fragmentation Score 15%.</td>
             <td>Separates total use, high-demand use, weekly spread, and schedule cleanliness so one or two prime-time classes cannot overstate room use.</td>
           </tr>
           <tr>
@@ -407,6 +413,7 @@
 
   <div id="modality-tool" style="display:none;">
     <h2>Modality Balance</h2>
+    <p class="report-subtitle">Course Offerings and Enrollment by Modality</p>
     <div id="modality-controls">
       <label>Modality CSV(s):
         <input id="modality-source-csv" type="file" accept=".csv" multiple>
@@ -459,7 +466,7 @@
       <button id="modality-export-excel-btn" type="button">Export Excel</button>
     </div>
     <div class="modality-note">
-      This view counts Total Class Offerings as distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN are counted once unless the report is explicitly analyzing meeting components. Dual Enrollment is shown as its own planning category rather than blended into In-Person, Hybrid, or Online. Use the totals toggle to include or exclude Dual Enrollment from total/share calculations while keeping the Dual Enrollment reference line visible.
+      Modality Balance analyzes class offerings and student enrollment. Distinct CRNs are counted as class offerings. This view counts Total Class Offerings as distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN are counted once unless the report is explicitly analyzing meeting components. Dual Enrollment is shown as its own planning category rather than blended into In-Person, Hybrid, or Online. Use the totals toggle to include or exclude Dual Enrollment from total/share calculations while keeping the Dual Enrollment reference line visible.
     </div>
     <div id="modality-standard-methodology" class="analysis-explainer"></div>
     <div id="modality-summary" class="modality-summary"></div>
