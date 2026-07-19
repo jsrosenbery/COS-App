@@ -12,8 +12,12 @@ let fullCalendarInstance;
 let heatmapCellFilter = null;
 let heatmapDataTableFilterRegistered = false;
 
-const hmDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const hmDayCodeToName = { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
+const timberConfig = window.COSTimberConfig || {};
+const schedulingConfig = timberConfig.scheduling || {};
+const thresholdConfig = timberConfig.thresholds || {};
+const modalityConfig = timberConfig.modalities || {};
+const hmDays = schedulingConfig.DAY_NAME_LIST || ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const hmDayCodeToName = schedulingConfig.DAY_NAMES || { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
 const ROOM_CATALOG_BACKUP_KEY = 'cos-room-catalog-backup-v1';
 const ROOM_EVENTS_BACKUP_KEY = 'cos-room-events-by-term-v1';
 const CAL_GETC_BACKUP_KEY = 'cos-cal-getc-mapping-backup-v1';
@@ -103,22 +107,7 @@ function nextPaint() {
 }
 
 // --- Official Term Start Dates ---
-const termStartDates = {
-  'Summer 2026': '2026-06-01',
-  'Fall 2026': '2026-08-10',
-  'Spring 2027': '2027-01-19',
-  'Summer 2027': '2027-06-07',
-  'Fall 2027': '2027-08-10',
-  'Spring 2028': '2028-01-18',
-  'Summer 2028': '2028-06-05',
-  'Fall 2028': '2028-08-14',
-  'Spring 2029': '2029-01-16',
-  'Summer 2029': '2029-06-04',
-  'Fall 2029': '2029-08-13',
-  'Spring 2030': '2030-01-14',
-  'Summer 2030': '2030-06-03',
-  'Fall 2030': '2030-08-12'
-};
+const termStartDates = schedulingConfig.TERM_START_DATES || {};
 
 // --- Holiday Dates (all in ISO YYYY-MM-DD format) ---
 const holidayRanges = [
@@ -1006,14 +995,8 @@ function registerSchedulingCollapsibleSections() {
 document.addEventListener('DOMContentLoaded', () => {
   renderSchedulingAnalysisMethodologyPanels();
   registerSchedulingCollapsibleSections();
-  const terms = [
-    'Summer 2026','Fall 2026','Spring 2027',
-    'Summer 2027','Fall 2027','Spring 2028',
-    'Summer 2028','Fall 2028','Spring 2029',
-    'Summer 2029','Fall 2029','Spring 2030',
-    'Summer 2030','Fall 2030'
-  ];
-  const defaultTerm = 'Fall 2026';
+  const terms = [...(schedulingConfig.PLANNING_TERMS || [])];
+  const defaultTerm = schedulingConfig.DEFAULT_TERM || terms[0] || '';
   const defaultTermIndex = Math.max(0, terms.indexOf(defaultTerm));
   const daysOfWeek = [...hmDays];
   let currentData = [];
@@ -3058,15 +3041,20 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'MO', 'TU', 'WE', 'TH'].includes(day);
   }
 
+  const utilizationThresholds = {
+    veryEfficientMinimum: 0.65,
+    distributionMinimum: 0.45,
+    highOpportunityMinimum: 0.65,
+    primeOpportunityMinimum: 0.5,
+    lowOverallMaximum: 0.35,
+    unknownCapacityFactor: 0.85,
+    smallRoomCapacityMaximum: 30,
+    smallRoomCapacityFactor: 0.55,
+    ...(thresholdConfig.ROOM_UTILIZATION || {})
+  };
   const utilizationConfig = {
-    instructionalStart: 8 * 60,
-    instructionalEnd: 17 * 60,
-    primeStart: 9 * 60,
-    primeEnd: 15 * 60,
-    blockMinutes: 30,
-    days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    primeDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday'],
-    weights: {
+    ...(schedulingConfig.ROOM_UTILIZATION_WINDOW || {}),
+    weights: utilizationThresholds.weights || {
       overall: 0.4,
       prime: 0.25,
       distribution: 0.2,
@@ -3149,13 +3137,13 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function roomUtilizationRecommendation(room) {
     if (room.totalMinutes === 0) return 'Available for additional scheduling.';
-    if (room.overallUtilization >= 0.65 && room.primeUtilization >= 0.65 && room.distributionScore >= 0.45) {
+    if (room.overallUtilization >= utilizationThresholds.veryEfficientMinimum && room.primeUtilization >= utilizationThresholds.veryEfficientMinimum && room.distributionScore >= utilizationThresholds.distributionMinimum) {
       return 'Highly utilized and well distributed.';
     }
-    if (room.primeUtilization >= 0.5 && room.overallUtilization < 0.35) {
+    if (room.primeUtilization >= utilizationThresholds.primeOpportunityMinimum && room.overallUtilization < utilizationThresholds.lowOverallMaximum) {
       return 'Prime-time demand exists, but room is underutilized outside peak periods.';
     }
-    if (room.overallUtilization < 0.35 && room.opportunityScore >= 0.65) {
+    if (room.overallUtilization < utilizationThresholds.lowOverallMaximum && room.opportunityScore >= utilizationThresholds.highOpportunityMinimum) {
       return 'Available for additional scheduling.';
     }
     if (room.distributionScore < 0.3) {
@@ -3177,9 +3165,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function getCapacityExpectation(capacity) {
-    if (capacity == null) return { factor: 0.85, label: 'Unknown capacity' };
+    if (capacity == null) return { factor: utilizationThresholds.unknownCapacityFactor, label: 'Unknown capacity' };
     if (capacity < 20) return { factor: 0.35, label: 'Very small room' };
-    if (capacity < 30) return { factor: 0.55, label: 'Small room' };
+    if (capacity < utilizationThresholds.smallRoomCapacityMaximum) return { factor: utilizationThresholds.smallRoomCapacityFactor, label: 'Small room' };
     if (capacity < 40) return { factor: 0.8, label: 'Moderate room' };
     return { factor: 1, label: 'Standard capacity' };
   }
@@ -4133,7 +4121,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const disciplines = [...new Set(rows.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
     const departments = uniqueFilterOptions(rows.map(modalityDepartmentValue));
     const courses = [...new Set(rows.map(getCourseCode).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    const modalityOrder = ['In-Person', 'Hybrid', 'Online', 'Dual Enrollment'];
+    const modalityOrder = modalityConfig.MODALITY_BALANCE_CATEGORY_ORDER || ['In-Person', 'Hybrid', 'Online', 'Dual Enrollment'];
     const modalityOptions = [...new Set(rows.map(section => {
       const canonical = getCanonicalSection(section);
       const rawMethod = canonical?.instructionalMethod || getInstructionalMethod(section) || 'Unspecified';
@@ -4538,7 +4526,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function calculateModalityBalanceFromItems(items, options = {}) {
     const categories = new Map();
-    const order = ['In-Person', 'Hybrid', 'Online', 'Dual Enrollment'];
+    const order = modalityConfig.MODALITY_BALANCE_CATEGORY_ORDER || ['In-Person', 'Hybrid', 'Online', 'Dual Enrollment'];
 
     order.forEach(category => {
       categories.set(category, {
@@ -5154,7 +5142,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     downloadTextFile(`modality-balance-${slug}.xls`, html, 'application/vnd.ms-excel;charset=utf-8');
   }
 
-  const modalityColors = {
+  const modalityColors = modalityConfig.MODALITY_BALANCE_COLORS || {
     'In-Person': '#1d4f8f',
     Online: '#7c3aed',
     Hybrid: '#f59e0b',

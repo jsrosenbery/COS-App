@@ -1,7 +1,13 @@
 (function () {
   'use strict';
 
-  const REPORTS = {
+  const timberConfig = window.COSTimberConfig || {};
+  const campusConfig = timberConfig.campuses || {};
+  const reportConfig = timberConfig.reports || {};
+  const schedulingConfig = timberConfig.scheduling || {};
+  const modalityConfig = timberConfig.modalities || {};
+
+  const REPORTS = reportConfig.REPORTS || {
     dashboard: 'enrollment-dashboard',
     attrition: 'enrollment-attrition',
     consolidation: 'section-consolidation',
@@ -28,7 +34,7 @@
     snapshotManager: 'enrollment-snapshot-manager',
     archiveInspection: 'archive-inspection'
   };
-  const ROLE_LEVEL = {
+  const ROLE_LEVEL = reportConfig.ROLE_LEVEL || {
     general: 1,
     divchair: 2,
     dean: 3,
@@ -36,7 +42,7 @@
     development: 4,
     admin: 5
   };
-  const ROLE_LABEL = {
+  const ROLE_LABEL = reportConfig.ROLE_LABEL || {
     general: 'General',
     divchair: 'Division Chair / Administrative Assistant',
     dean: 'Dean / Enrollment Management',
@@ -44,7 +50,7 @@
     development: 'Developer',
     admin: 'System Administrator'
   };
-  const REPORT_ACCESS = {
+  const REPORT_ACCESS = reportConfig.REPORT_ACCESS || {
     [REPORTS.archiveInspection]: 'admin',
     [REPORTS.snapshotManager]: 'admin',
     [REPORTS.workExperience]: 'admin',
@@ -71,7 +77,7 @@
     [REPORTS.scheduleBuilder]: 'dean',
     [REPORTS.facultyHeatmap]: 'dean'
   };
-  const MIN_SHARED_AVAILABILITY_MINUTES = 30;
+  const MIN_SHARED_AVAILABILITY_MINUTES = schedulingConfig.INSTRUCTOR_AVAILABILITY?.minSharedAvailabilityMinutes || 30;
   const SNAPSHOT_LIFECYCLE_PHASES = [
     'Registration Opens',
     'Early Registration',
@@ -99,7 +105,7 @@
     'End of Term',
     'Custom'
   ];
-  const REPORT_LABEL = {
+  const REPORT_LABEL = reportConfig.REPORT_LABEL || {
     [REPORTS.archiveInspection]: 'Archived Schedule',
     [REPORTS.conflictCheck]: 'Conflict Check Report',
     [REPORTS.duration]: 'Active Class Demand',
@@ -126,7 +132,7 @@
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
-  const REPORT_ORDER = [
+  const REPORT_ORDER = reportConfig.REPORT_ORDER || [
     REPORTS.instructorAvailability,
     REPORTS.heatmap,
     REPORTS.studentPresence,
@@ -153,7 +159,7 @@
     REPORTS.archiveInspection,
     REPORTS.workExperience
   ];
-  const REPORT_WORKFLOW_GROUPS = [
+  const REPORT_WORKFLOW_GROUPS = reportConfig.REPORT_WORKFLOW_GROUPS || [
     {
       key: 'division-chair',
       label: 'Division Chair / Administrative Assistant',
@@ -204,19 +210,19 @@
       ]
     }
   ];
-  const REPORT_GROUP_SUBTITLES = {
+  const REPORT_GROUP_SUBTITLES = reportConfig.REPORT_GROUP_SUBTITLES || {
     'division-chair': 'Daily scheduling, instructor planning, and department-level monitoring.',
     'dean-enrollment': 'Strategic enrollment management, schedule planning, and room optimization.',
     development: 'Planning algorithms, feature testing, and scheduling model development.',
     admin: 'System administration, imports, auditing, and maintenance.'
   };
-  const REPORT_GROUP_WORKFLOW_LABELS = {
+  const REPORT_GROUP_WORKFLOW_LABELS = reportConfig.REPORT_GROUP_WORKFLOW_LABELS || {
     'division-chair': 'Scheduling Reports',
     'dean-enrollment': 'Enrollment & Resource Planning',
     development: 'Development Lab',
     admin: 'Administrative Utilities'
   };
-  const REPORT_DESCRIPTIONS = {
+  const REPORT_DESCRIPTIONS = reportConfig.REPORT_DESCRIPTIONS || {
     [REPORTS.archiveInspection]: 'Review archived section seating files, validation, and loaded-term diagnostics.',
     [REPORTS.conflictCheck]: 'Find room and instructor conflicts in fixed-time schedule rows.',
     [REPORTS.duration]: 'Analyze active class duration and student presence patterns across the week.',
@@ -926,8 +932,8 @@
     });
   }
 
-  const REPORTABLE_MODALITY_LABELS = ['In-Person', 'Hybrid', 'Online'];
-  const PHYSICAL_MODALITY_LABELS = ['In-Person', 'Hybrid'];
+  const REPORTABLE_MODALITY_LABELS = modalityConfig.REPORTABLE_MODALITY_LABELS || ['In-Person', 'Hybrid', 'Online'];
+  const PHYSICAL_MODALITY_LABELS = modalityConfig.PHYSICAL_MODALITY_LABELS || ['In-Person', 'Hybrid'];
 
   function displayModalityLabel(value, row = null) {
     const raw = String(value || '').trim();
@@ -3070,9 +3076,9 @@
     return uniqueOptions(rows, row => row.dayPattern);
   }
 
-  const defaultCampusCodes = ['COS', 'TCC', 'HAC', 'ONT', 'ONH', 'ONC'];
-  const physicalCampusCodes = ['COS', 'TCC', 'HAC'];
-  const scheduleBuilderCampusCodes = ['ONC', 'ONT', 'ONH', 'HAC', 'TCC', 'COS'];
+  const defaultCampusCodes = campusConfig.CAMPUS_CODES || ['COS', 'TCC', 'HAC', 'ONT', 'ONH', 'ONC'];
+  const physicalCampusCodes = campusConfig.PHYSICAL_CAMPUS_CODES || ['COS', 'TCC', 'HAC'];
+  const scheduleBuilderCampusCodes = campusConfig.SCHEDULE_BUILDER_DEFAULT_CAMPUS_CODES || ['ONC', 'ONT', 'ONH', 'HAC', 'TCC', 'COS'];
 
   function defaultCampusesForPrefix(prefix, options) {
     if (prefix === 'sbCampuses') {
@@ -4365,7 +4371,7 @@
       ['PART_TIME', 'Part-Time'],
       ['UNKNOWN', 'Unknown']
     ];
-    const modalities = ['In-Person', 'Hybrid', 'Online'];
+    const modalities = REPORTABLE_MODALITY_LABELS;
     const buckets = new Map();
     facultyTypes.forEach(([, label]) => {
       modalities.forEach(modality => {
@@ -4389,7 +4395,7 @@
       const facultyType = facultyTypes.find(([code]) => code === row.facultyType)?.[1];
       if (!facultyType) return;
       const modality = facultyInstructionModality(row);
-      if (!['In-Person', 'Hybrid', 'Online'].includes(modality)) return;
+      if (!REPORTABLE_MODALITY_LABELS.includes(modality)) return;
       const bucket = buckets.get(`${facultyType}|${modality}`);
       if (!bucket) return;
       const offeringKey = facultyModalityClassOfferingKey(row);
@@ -4464,9 +4470,11 @@
     const colors = options.colors || {
       'Full-Time': '#0f5f8f',
       'Part-Time': '#f59e0b',
-      'In-Person': '#1f7aa8',
-      Hybrid: '#f59e0b',
-      Online: '#7c3aed'
+      ...(modalityConfig.FACULTY_MODALITY_COLORS || {
+        'In-Person': '#1f7aa8',
+        Hybrid: '#f59e0b',
+        Online: '#7c3aed'
+      })
     };
     const total = rows.reduce((sum, row) => sum + (Number(row.value) || 0), 0);
     const radius = 58;
@@ -4515,7 +4523,7 @@
     const byFacultyAndModality = (type, modality) => focusRows
       .filter(row => row.facultyType === type && row.modality === modality)
       .reduce((total, row) => total + offeringValue(row), 0);
-    const modalities = ['In-Person', 'Hybrid', 'Online'];
+    const modalities = REPORTABLE_MODALITY_LABELS;
     const ftPtRows = [
       { label: 'Full-Time', value: byFacultyType('Full-Time') },
       { label: 'Part-Time', value: byFacultyType('Part-Time') }

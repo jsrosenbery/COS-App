@@ -4,6 +4,16 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+const CONFIG_SCRIPTS = [
+  'js/config.js',
+  'js/config/campuses.js',
+  'js/config/reports.js',
+  'js/config/scheduling.js',
+  'js/config/thresholds.js',
+  'js/config/modalities.js',
+  'js/config/index.js'
+];
+
 function loadEnrollmentModules() {
   const context = {
     window: {},
@@ -21,6 +31,7 @@ function loadEnrollmentModules() {
 function loadEnrollmentAnalyticsRuntime() {
   const context = {
     window: {},
+    location: { hostname: 'localhost' },
     document: {
       readyState: 'loading',
       addEventListener() {},
@@ -32,7 +43,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  ['js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
+  [...CONFIG_SCRIPTS, 'js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -289,6 +300,7 @@ function loadScheduleAppRuntime() {
       CAL_GETC_MAPPING: [],
       CURRICULUM_CROSSWALK: []
     },
+    location: { hostname: 'localhost' },
     document: {
       getElementById: id => element(id),
       querySelector: selector => element(selector),
@@ -343,7 +355,7 @@ function loadScheduleAppRuntime() {
   context.window.jQuery = context.$;
   context.window.COSUtils = { renderStandardMethodologyPanel() {} };
   vm.createContext(context);
-  ['js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/core/event-layer.js', 'js/core/metric-definitions.js', 'js/core/metric-help.js', 'js/app.js'].forEach(file => {
+  [...CONFIG_SCRIPTS, 'js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/core/event-layer.js', 'js/core/metric-definitions.js', 'js/core/metric-help.js', 'js/app.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -360,8 +372,10 @@ function loadConfigModule() {
     location: { hostname: 'localhost' }
   };
   vm.createContext(context);
-  const source = fs.readFileSync(path.join(__dirname, '..', 'js/config.js'), 'utf8');
-  vm.runInContext(source, context, { filename: 'js/config.js' });
+  CONFIG_SCRIPTS.forEach(file => {
+    const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    vm.runInContext(source, context, { filename: file });
+  });
   return context.window.COS_APP_CONFIG;
 }
 
@@ -3408,26 +3422,27 @@ test('instructor availability derives occasional hybrid days from meeting dates'
 
 test('TIMBER report organization moves analytics tools into enrollment management', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
-  const reportOrderStart = text.indexOf('const REPORT_ORDER = [');
+  const reportOrderStart = reports.indexOf('const REPORT_ORDER = Object.freeze([');
   const reportOrderEnd = text.indexOf('];', reportOrderStart);
-  const reportOrderBlock = text.slice(reportOrderStart, reportOrderEnd);
+  const reportOrderBlock = reports.slice(reportOrderStart, reports.indexOf(']);', reportOrderStart));
 
-  assert.match(text, /const REPORT_WORKFLOW_GROUPS = \[/);
-  assert.match(text, /label: 'Division Chair \/ Administrative Assistant'/);
-  assert.match(text, /label: 'Dean \/ Enrollment Management'/);
-  assert.match(text, /label: 'Developer'/);
-  assert.match(text, /label: 'System Administrator'/);
+  assert.match(text, /const REPORT_WORKFLOW_GROUPS = reportConfig\.REPORT_WORKFLOW_GROUPS \|\| \[/);
+  assert.match(reports, /label: 'Division Chair \/ Administrative Assistant'/);
+  assert.match(reports, /label: 'Dean \/ Enrollment Management'/);
+  assert.match(reports, /label: 'Developer'/);
+  assert.match(reports, /label: 'System Administrator'/);
   assert.match(text, /function reportGroupsHtml/);
-  assert.match(text, /const REPORT_GROUP_SUBTITLES = \{/);
-  assert.match(text, /const REPORT_GROUP_WORKFLOW_LABELS = \{/);
-  assert.match(text, /const REPORT_DESCRIPTIONS = \{/);
-  assert.match(text, /'division-chair': 'Daily scheduling, instructor planning, and department-level monitoring\.'/);
-  assert.match(text, /'dean-enrollment': 'Strategic enrollment management, schedule planning, and room optimization\.'/);
-  assert.match(text, /development: 'Planning algorithms, feature testing, and scheduling model development\.'/);
-  assert.match(text, /admin: 'System administration, imports, auditing, and maintenance\.'/);
+  assert.match(text, /const REPORT_GROUP_SUBTITLES = reportConfig\.REPORT_GROUP_SUBTITLES \|\| \{/);
+  assert.match(text, /const REPORT_GROUP_WORKFLOW_LABELS = reportConfig\.REPORT_GROUP_WORKFLOW_LABELS \|\| \{/);
+  assert.match(text, /const REPORT_DESCRIPTIONS = reportConfig\.REPORT_DESCRIPTIONS \|\| \{/);
+  assert.match(reports, /'division-chair': 'Daily scheduling, instructor planning, and department-level monitoring\.'/);
+  assert.match(reports, /'dean-enrollment': 'Strategic enrollment management, schedule planning, and room optimization\.'/);
+  assert.match(reports, /development: 'Planning algorithms, feature testing, and scheduling model development\.'/);
+  assert.match(reports, /admin: 'System administration, imports, auditing, and maintenance\.'/);
   assert.match(text, /function reportSubtitleForGroup/);
   assert.match(text, /function reportSubtitleForReport/);
   assert.match(text, /class="em-report-groups"/);
@@ -3506,12 +3521,13 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.doesNotMatch(text, /prompt\(/);
   assert.match(text, /type="password"/);
   assert.match(css, /password-eye/);
-  assert.match(text, /defaultCampusCodes = \['COS', 'TCC', 'HAC', 'ONT', 'ONH', 'ONC'\]/);
-  assert.match(text, /physicalCampusCodes = \['COS', 'TCC', 'HAC'\]/);
+  assert.match(text, /defaultCampusCodes = campusConfig\.CAMPUS_CODES/);
+  assert.match(text, /physicalCampusCodes = campusConfig\.PHYSICAL_CAMPUS_CODES/);
 });
 
 test('report tiles use standardized category subtitles without changing navigation targets', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
 
   [
     ["'division-chair'", "'Daily scheduling, instructor planning, and department-level monitoring.'"],
@@ -3519,7 +3535,7 @@ test('report tiles use standardized category subtitles without changing navigati
     ['development', "'Planning algorithms, feature testing, and scheduling model development.'"],
     ['admin', "'System administration, imports, auditing, and maintenance.'"]
   ].forEach(([key, subtitle]) => {
-    assert.ok(text.includes(`${key}: ${subtitle}`), `${key} should map to ${subtitle}`);
+    assert.ok(reports.includes(`${key}: ${subtitle}`), `${key} should map to ${subtitle}`);
   });
   assert.match(text, /const purpose = reportSubtitleForGroup\(group\.key\)/);
   assert.match(text, /data-report-target="\$\{report\}"/);
@@ -3577,25 +3593,26 @@ test('TIMBER UX refinement adds planning admin hierarchy and collapsed methodolo
 
 test('TIMBER role-based access is centralized and report scoped', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
   const backend = fs.readFileSync(path.join(__dirname, '..', '..', 'App-Backend', 'server.js'), 'utf8');
 
-  assert.match(text, /const ROLE_LEVEL = \{/);
-  assert.match(text, /divchair: 2/);
-  assert.match(text, /dean: 3/);
-  assert.match(text, /development: 4/);
-  assert.match(text, /const REPORT_ACCESS = \{/);
-  assert.match(text, /\[REPORTS\.dashboard\]: 'dean'/);
-  assert.match(text, /\[REPORTS\.studentPresence\]: 'divchair'/);
-  assert.match(text, /\[REPORTS\.heatmap\]: 'divchair'/);
-  assert.match(text, /\[REPORTS\.utilization\]: 'dean'/);
-  assert.match(text, /\[REPORTS\.roomFit\]: 'dean'/);
-  assert.match(text, /\[REPORTS\.modality\]: 'divchair'/);
-  assert.match(text, /\[REPORTS\.consolidation\]: 'dean'/);
-  assert.match(text, /\[REPORTS\.facultyHeatmap\]: 'dean'/);
-  assert.match(text, /\[REPORTS\.archiveInspection\]: 'admin'/);
-  assert.match(text, /\[REPORTS\.snapshotManager\]: 'admin'/);
-  assert.match(text, /\[REPORTS\.workExperience\]: 'admin'/);
-  assert.match(text, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
+  assert.match(text, /const ROLE_LEVEL = reportConfig\.ROLE_LEVEL \|\| \{/);
+  assert.match(reports, /divchair: 2/);
+  assert.match(reports, /dean: 3/);
+  assert.match(reports, /development: 4/);
+  assert.match(text, /const REPORT_ACCESS = reportConfig\.REPORT_ACCESS \|\| \{/);
+  assert.match(reports, /\[REPORTS\.dashboard\]: 'dean'/);
+  assert.match(reports, /\[REPORTS\.studentPresence\]: 'divchair'/);
+  assert.match(reports, /\[REPORTS\.heatmap\]: 'divchair'/);
+  assert.match(reports, /\[REPORTS\.utilization\]: 'dean'/);
+  assert.match(reports, /\[REPORTS\.roomFit\]: 'dean'/);
+  assert.match(reports, /\[REPORTS\.modality\]: 'divchair'/);
+  assert.match(reports, /\[REPORTS\.consolidation\]: 'dean'/);
+  assert.match(reports, /\[REPORTS\.facultyHeatmap\]: 'dean'/);
+  assert.match(reports, /\[REPORTS\.archiveInspection\]: 'admin'/);
+  assert.match(reports, /\[REPORTS\.snapshotManager\]: 'admin'/);
+  assert.match(reports, /\[REPORTS\.workExperience\]: 'admin'/);
+  assert.match(reports, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
   assert.match(text, /function canAccess\(reportName\)/);
   assert.match(text, /Logged in as/);
   assert.match(text, /id="currentAccessLevel"/);
@@ -3905,7 +3922,7 @@ test('anonymous Schedule Builder is a Dean planning tool with browser-side engin
   assert.match(text, /Could not load \$\{requestedTerm\} section seating rows/);
   assert.match(text, /await loadScheduleBuilderEffectiveTermRows/);
   assert.match(text, /function updateScheduleBuilderTermOptions/);
-  assert.match(text, /scheduleBuilderCampusCodes = \['ONC', 'ONT', 'ONH', 'HAC', 'TCC', 'COS'\]/);
+  assert.match(text, /scheduleBuilderCampusCodes = campusConfig\.SCHEDULE_BUILDER_DEFAULT_CAMPUS_CODES/);
   assert.match(text, /prefix === 'sbCampuses'/);
   assert.match(text, /No schedule rows are loaded for/);
   assert.match(text, /state\.scheduleBuilderEffectiveTerm = normalizeTermLabel\(currentTerm\(\)\)/);
@@ -4370,6 +4387,7 @@ test('scheduling recommendation engine is advisory and covers recommendation cat
 
 test('development reports use multi-select modality filters with quick-select controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const modalities = fs.readFileSync(path.join(__dirname, '..', 'js/config/modalities.js'), 'utf8');
   const modalityIds = [
     'fhModality',
     'fmModality',
@@ -4385,8 +4403,10 @@ test('development reports use multi-select modality filters with quick-select co
     assert.match(text, new RegExp(`data-modality-quick="${id}" data-modality-values="In-Person\\|Hybrid"`));
     assert.match(text, new RegExp(`data-modality-quick="${id}" data-modality-values="In-Person\\|Hybrid\\|Online"`));
   });
-  assert.match(text, /const PHYSICAL_MODALITY_LABELS = \['In-Person', 'Hybrid'\]/);
-  assert.match(text, /const REPORTABLE_MODALITY_LABELS = \['In-Person', 'Hybrid', 'Online'\]/);
+  assert.match(text, /const PHYSICAL_MODALITY_LABELS = modalityConfig\.PHYSICAL_MODALITY_LABELS/);
+  assert.match(text, /const REPORTABLE_MODALITY_LABELS = modalityConfig\.REPORTABLE_MODALITY_LABELS/);
+  assert.match(modalities, /const PHYSICAL_MODALITY_LABELS = Object\.freeze\(\['In-Person', 'Hybrid'\]\)/);
+  assert.match(modalities, /const REPORTABLE_MODALITY_LABELS = Object\.freeze\(\['In-Person', 'Hybrid', 'Online'\]\)/);
   assert.match(text, /function setModalitySelectOptions/);
   assert.match(text, /function rowMatchesSelectedModality/);
   assert.match(text, /function facultyMatchesSelectedModality/);
@@ -5032,6 +5052,7 @@ test('room utilization includes room capacity fit flags', () => {
 test('room utilization uses component scoring instead of fixed prime bump', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const thresholds = fs.readFileSync(path.join(__dirname, '..', 'js/config/thresholds.js'), 'utf8');
   const enrollment = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const consolidation = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment/consolidation.js'), 'utf8');
 
@@ -5062,7 +5083,8 @@ test('room utilization uses component scoring instead of fixed prime bump', () =
   assert.match(index, /utilization-min-fragmentation/);
   assert.doesNotMatch(index, /receive an extra 0\.5x bump/);
   assert.match(app, /utilizationConfig/);
-  assert.match(app, /weights:\s*{\s*overall: 0\.4,\s*prime: 0\.25,\s*distribution: 0\.2,\s*fragmentation: 0\.15/s);
+  assert.match(app, /\.\.\.\(thresholdConfig\.ROOM_UTILIZATION \|\| \{\}\)/);
+  assert.match(thresholds, /weights: Object\.freeze\(\{\s*overall: 0\.4,\s*prime: 0\.25,\s*distribution: 0\.2,\s*fragmentation: 0\.15/s);
   assert.match(app, /const score =\s*\(overallUtilization \* utilizationConfig\.weights\.overall\)/s);
   assert.match(app, /roomUtilizationRecommendation/);
   assert.match(app, /Prime-time demand exists, but room is underutilized outside peak periods/);
@@ -5109,6 +5131,7 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
+  const scheduling = fs.readFileSync(path.join(__dirname, '..', 'js/config/scheduling.js'), 'utf8');
 
   assert.match(index, /heatmap-metric-select/);
   assert.doesNotMatch(index, /Enrollment-weighted|Enrollment-Weighted|Enrollment Weighted/);
@@ -5147,7 +5170,8 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(app, /function dedupeHeatmapRows/);
   assert.match(app, /function heatmapCrnKey/);
   assert.match(app, /function isOnlineTbaHeatmapRow/);
-  assert.match(app, /const hmDayCodeToName = \{ SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' \}/);
+  assert.match(app, /const hmDayCodeToName = schedulingConfig\.DAY_NAMES \|\| \{ SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' \}/);
+  assert.match(scheduling, /const DAY_NAMES = Object\.freeze\(\{[\s\S]*SU: 'Sunday'[\s\S]*MO: 'Monday'[\s\S]*TU: 'Tuesday'[\s\S]*WE: 'Wednesday'[\s\S]*TH: 'Thursday'[\s\S]*FR: 'Friday'[\s\S]*SA: 'Saturday'[\s\S]*\}\)/);
   assert.match(app, /function normalizeHeatmapDayNames/);
   assert.match(app, /window\.COSDayUtils\?\.normalizeDays/);
   assert.match(app, /map\(code => hmDayCodeToName\[code\]\)/);
@@ -5710,6 +5734,12 @@ test('index owns enrollment analytics script order', () => {
   const parser = fs.readFileSync(path.join(root, 'js/parser.js'), 'utf8');
   const expectedOrder = [
     'js/config.js',
+    'js/config/campuses.js',
+    'js/config/reports.js',
+    'js/config/scheduling.js',
+    'js/config/thresholds.js',
+    'js/config/modalities.js',
+    'js/config/index.js',
     'js/core/dom-utils.js',
     'js/core/term-utils.js',
     'js/core/day-utils.js',
