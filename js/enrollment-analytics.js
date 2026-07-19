@@ -1250,26 +1250,48 @@
       return [];
     }
     state.scheduleTermCacheStatus = `Loading ${requestedTerm} section seating rows...`;
-    const promise = fetch(`${window.BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(requestedTerm)}`)
-      .then(async response => {
-        if (!response.ok) throw new Error(`Could not load ${requestedTerm} section seating rows.`);
-        const payload = await response.json();
-        const rows = (payload.data || [])
-          .map(row => normalize({ ...row, __sourceTerm: requestedTerm, __uploadedAt: payload.lastUpdated || row.__uploadedAt || row.uploadedAt || row.UploadedAt || '' }));
+    const promise = (async () => {
+      let payload = {};
+      let source = 'schedule';
+      let scheduleError = '';
+      try {
+        const response = await fetch(`${window.BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(requestedTerm)}`);
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
+        payload = await response.json();
+      } catch (err) {
+        scheduleError = err?.message || String(err);
+      }
+      if (!Array.isArray(payload.data) || !payload.data.length) {
+        try {
+          const archiveResponse = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`);
+          if (!archiveResponse.ok) throw new Error(`${archiveResponse.status} ${archiveResponse.statusText}`.trim());
+          const archivePayload = await archiveResponse.json();
+          if (Array.isArray(archivePayload.data) && archivePayload.data.length) {
+            payload = archivePayload;
+            source = 'analytics archive';
+          }
+        } catch (err) {
+          if (scheduleError) throw new Error(`Could not load ${requestedTerm} section seating rows from schedule or analytics archive: schedule ${scheduleError}; archive ${err?.message || err}`);
+          throw new Error(`Could not load ${requestedTerm} section seating rows from analytics archive: ${err?.message || err}`);
+        }
+      }
+      const rows = (payload.data || [])
+        .map(row => normalize({ ...row, term: row.term || payload.term || requestedTerm, __sourceTerm: normalizeTermLabel(payload.term || requestedTerm), __uploadedAt: payload.lastUpdated || row.__uploadedAt || row.uploadedAt || row.UploadedAt || '' }));
         state.scheduleTermCache = { ...(state.scheduleTermCache || {}), [requestedTerm]: rows };
         state.scheduleTermMetadataCache = {
           ...(state.scheduleTermMetadataCache || {}),
           [requestedTerm]: {
             lastUpdated: payload.lastUpdated || '',
             loadedAt: new Date().toISOString(),
-            rowCount: rows.length
+            rowCount: rows.length,
+            source
           }
         };
         state.scheduleTermCacheStatus = rows.length
-          ? `Loaded ${rows.length} section seating row(s) for ${requestedTerm} without changing Room Availability.`
-          : `No section seating rows were returned for ${requestedTerm}. Confirm that term is uploaded to the backend.`;
+          ? `Loaded ${rows.length} section seating row(s) for ${requestedTerm} from ${source} without changing Room Availability.`
+          : `No section seating rows were returned for ${requestedTerm} from schedule or analytics archive. Confirm that term is uploaded to the backend.`;
         return rows;
-      })
+    })()
       .catch(err => {
         state.scheduleTermCacheStatus = err?.message || `Could not load ${requestedTerm} section seating rows.`;
         throw err;
@@ -7569,6 +7591,7 @@
   function scheduleBuilderAvailableTerms() {
     const terms = new Set([
       ...visibleScheduleTerms(),
+      ...(state.archivedAnalyticsTerms || []),
       ...collectRowTerms(scheduleBuilderAllRows()),
       currentTerm()
     ].map(normalizeTermLabel).filter(Boolean));
@@ -7634,7 +7657,7 @@
       }
     };
     state.scheduleBuilderTermStatus = rows.length
-      ? `Loaded ${rows.length} section seating row(s) for ${requestedTerm} without changing Room Availability.`
+      ? `Loaded ${rows.length} section seating row(s) for ${requestedTerm}${metadata.source ? ` from ${metadata.source}` : ''} without changing Room Availability.`
       : `No section seating rows were returned for ${requestedTerm}. Confirm that term is uploaded to the backend.`;
     return rows;
   }
@@ -8842,6 +8865,7 @@
       setSelectOptions('recommendationArchiveTerms', options);
       setSelectOptions('optimizationArchiveTerms', options);
       setArchiveInspectionTermOptions();
+      updateScheduleBuilderTermOptions();
       renderOptimizationArchiveStatus();
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);

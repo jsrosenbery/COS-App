@@ -3896,6 +3896,9 @@ test('anonymous Schedule Builder is a Dean planning tool with browser-side engin
   assert.match(text, /scheduleBuilderTermRows: \{\}/);
   assert.match(text, /function loadScheduleBuilderEffectiveTermRows/);
   assert.match(text, /api\/schedule\/\$\{encodeURIComponent\(requestedTerm\)\}/);
+  assert.match(text, /api\/analytics-archive\/\$\{encodeURIComponent\(requestedTerm\)\}/);
+  assert.match(text, /\.\.\.\(state\.archivedAnalyticsTerms \|\| \[\]\)/);
+  assert.match(text, /from schedule or analytics archive/);
   assert.match(text, /without changing Room Availability/);
   assert.match(text, /Term load status/);
   assert.match(text, /Using cached Schedule Builder rows/);
@@ -3940,6 +3943,7 @@ test('report loading uses shared busy state and separated term caches', () => {
   assert.match(text, /facultyScheduleTermMetadataCache: \{\}/);
   assert.match(text, /function loadScheduleTermRows/);
   assert.match(text, /api\/schedule\/\$\{encodeURIComponent\(requestedTerm\)\}/);
+  assert.match(text, /api\/analytics-archive\/\$\{encodeURIComponent\(requestedTerm\)\}/);
   assert.match(text, /api\/faculty-schedules\/\$\{encodeURIComponent\(normalizedTerm\)\}/);
   assert.match(text, /without changing Room Availability/);
   assert.match(text, /function preloadScheduleTermsInBackground/);
