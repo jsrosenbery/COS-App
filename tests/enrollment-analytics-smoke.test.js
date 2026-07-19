@@ -3922,6 +3922,33 @@ test('anonymous Schedule Builder is a Dean planning tool with browser-side engin
   assert.match(engine, /Hybrid section: verify meeting dates\/pattern/);
 });
 
+test('report loading uses shared busy state and separated term caches', () => {
+  const root = path.join(__dirname, '..');
+  const text = fs.readFileSync(path.join(root, 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /function withBusyState/);
+  assert.match(text, /function attachBusyClick/);
+  assert.match(text, /id = 'analyticsBusyOverlay'/);
+  assert.match(text, /role', 'status'/);
+  assert.match(text, /document\.body\.toggleAttribute\('aria-busy'/);
+  assert.match(text, /if \(state\.busyTasks\?\.\[key\]\) return state\.busyTasks\[key\]/);
+  assert.match(text, /button\.disabled = true/);
+  assert.match(text, /button\.disabled = false/);
+  assert.match(text, /scheduleTermCache: \{\}/);
+  assert.match(text, /scheduleTermMetadataCache: \{\}/);
+  assert.match(text, /facultyScheduleTermCache: \{\}/);
+  assert.match(text, /facultyScheduleTermMetadataCache: \{\}/);
+  assert.match(text, /function loadScheduleTermRows/);
+  assert.match(text, /api\/schedule\/\$\{encodeURIComponent\(requestedTerm\)\}/);
+  assert.match(text, /api\/faculty-schedules\/\$\{encodeURIComponent\(normalizedTerm\)\}/);
+  assert.match(text, /without changing Room Availability/);
+  assert.match(text, /function preloadScheduleTermsInBackground/);
+  assert.match(text, /setTimeout\(preloadScheduleTermsInBackground, 1200\)/);
+  ['runDashboard', 'runStudentPresence', 'runDemand', 'runSupplyDemand', 'runBusyTimeDashboard', 'runStudentChoiceOpportunity', 'runRecommendationEngine', 'runScheduleBuilder', 'runScheduleOptimizationLab', 'loadSavedFacultyScheduleHeatmap'].forEach(id => {
+    assert.match(text, new RegExp(`attachBusyClick\\('${id}'`));
+  });
+});
+
 test('faculty modality enriches enrollment and seats from matching section seating rows', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const facultyRows = [

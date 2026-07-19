@@ -318,6 +318,17 @@
     scheduleBuilderTermRows: {},
     scheduleBuilderTermMetadata: {},
     scheduleBuilderTermStatus: '',
+    scheduleTermCache: {},
+    scheduleTermMetadataCache: {},
+    scheduleTermLoading: {},
+    scheduleTermCacheStatus: '',
+    facultyScheduleTermCache: {},
+    facultyScheduleTermMetadataCache: {},
+    facultyScheduleTermLoading: {},
+    facultyScheduleTermCacheStatus: '',
+    busyTasks: {},
+    busyMessage: '',
+    busyError: '',
     optimizationMoves: [],
     optimizationShifts: [],
     optimizationPlacements: [],
@@ -1209,6 +1220,170 @@
     return Array.from(document.querySelectorAll('#term-tabs .tab'))
       .map(tab => tab.textContent.trim())
       .filter(Boolean);
+  }
+
+  function cacheStatusText(cache = {}) {
+    const terms = Object.keys(cache || {}).map(normalizeTermLabel).filter(Boolean).sort();
+    return terms.length ? `Cached terms: ${terms.join(', ')}` : 'No cached terms yet.';
+  }
+
+  function currentRowsForTerm(term) {
+    const requestedTerm = normalizeTermLabel(term);
+    return currentRows().filter(row => !requestedTerm || normalizeTermLabel(row.term) === requestedTerm);
+  }
+
+  async function loadScheduleTermRows(term, options = {}) {
+    const requestedTerm = normalizeTermLabel(term);
+    if (!requestedTerm) return [];
+    const liveRows = currentRowsForTerm(requestedTerm);
+    if (liveRows.length && normalizeTermLabel(currentTerm()) === requestedTerm) {
+      state.scheduleTermCacheStatus = `Using ${liveRows.length} row(s) already loaded in the workspace for ${requestedTerm}.`;
+      return liveRows;
+    }
+    if (!options.force && state.scheduleTermCache?.[requestedTerm]?.length) {
+      state.scheduleTermCacheStatus = `Using cached ${requestedTerm} schedule rows. ${cacheStatusText(state.scheduleTermCache)}`;
+      return state.scheduleTermCache[requestedTerm];
+    }
+    if (state.scheduleTermLoading?.[requestedTerm]) return state.scheduleTermLoading[requestedTerm];
+    if (!window.BACKEND_BASE_URL) {
+      state.scheduleTermCacheStatus = `Backend unavailable; upload or select a loaded term for ${requestedTerm}.`;
+      return [];
+    }
+    state.scheduleTermCacheStatus = `Loading ${requestedTerm} section seating rows...`;
+    const promise = fetch(`${window.BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(requestedTerm)}`)
+      .then(async response => {
+        if (!response.ok) throw new Error(`Could not load ${requestedTerm} section seating rows.`);
+        const payload = await response.json();
+        const rows = (payload.data || [])
+          .map(row => normalize({ ...row, __sourceTerm: requestedTerm, __uploadedAt: payload.lastUpdated || row.__uploadedAt || row.uploadedAt || row.UploadedAt || '' }));
+        state.scheduleTermCache = { ...(state.scheduleTermCache || {}), [requestedTerm]: rows };
+        state.scheduleTermMetadataCache = {
+          ...(state.scheduleTermMetadataCache || {}),
+          [requestedTerm]: {
+            lastUpdated: payload.lastUpdated || '',
+            loadedAt: new Date().toISOString(),
+            rowCount: rows.length
+          }
+        };
+        state.scheduleTermCacheStatus = rows.length
+          ? `Loaded ${rows.length} section seating row(s) for ${requestedTerm} without changing Room Availability.`
+          : `No section seating rows were returned for ${requestedTerm}. Confirm that term is uploaded to the backend.`;
+        return rows;
+      })
+      .catch(err => {
+        state.scheduleTermCacheStatus = err?.message || `Could not load ${requestedTerm} section seating rows.`;
+        throw err;
+      })
+      .finally(() => {
+        state.scheduleTermLoading = { ...(state.scheduleTermLoading || {}) };
+        delete state.scheduleTermLoading[requestedTerm];
+      });
+    state.scheduleTermLoading = { ...(state.scheduleTermLoading || {}), [requestedTerm]: promise };
+    return promise;
+  }
+
+  function preloadScheduleTermsInBackground() {
+    if (!window.BACKEND_BASE_URL) {
+      state.scheduleTermCacheStatus = 'Backend unavailable; background schedule preload skipped.';
+      return;
+    }
+    const visible = visibleScheduleTerms().map(normalizeTermLabel).filter(Boolean);
+    const active = normalizeTermLabel(currentTerm());
+    const activeIndex = visible.indexOf(active);
+    const candidates = [
+      active,
+      activeIndex > 0 ? visible[activeIndex - 1] : '',
+      activeIndex >= 0 && activeIndex < visible.length - 1 ? visible[activeIndex + 1] : ''
+    ].filter(Boolean);
+    const queue = [...new Set(candidates)];
+    const runNext = () => {
+      const next = queue.shift();
+      if (!next) return;
+      loadScheduleTermRows(next)
+        .catch(err => console.warn('Background schedule preload skipped:', err))
+        .finally(runNext);
+    };
+    setTimeout(runNext, 0);
+  }
+
+  function ensureBusyOverlay() {
+    let overlay = document.getElementById('analyticsBusyOverlay');
+    if (overlay) return overlay;
+    overlay = document.createElement('div');
+    overlay.id = 'analyticsBusyOverlay';
+    overlay.className = 'analytics-busy-overlay';
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'polite');
+    overlay.setAttribute('hidden', '');
+    overlay.innerHTML = `
+      <div class="analytics-busy-card">
+        <div class="analytics-busy-spinner" aria-hidden="true"></div>
+        <strong id="analyticsBusyMessage">Working...</strong>
+        <span id="analyticsBusyDetail">Large reports may take a moment.</span>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  function updateBusyOverlay(message = '') {
+    const overlay = ensureBusyOverlay();
+    const activeCount = Object.keys(state.busyTasks || {}).length;
+    const visible = activeCount > 0;
+    overlay.toggleAttribute('hidden', !visible);
+    document.body.toggleAttribute('aria-busy', visible);
+    const messageNode = document.getElementById('analyticsBusyMessage');
+    const detailNode = document.getElementById('analyticsBusyDetail');
+    if (messageNode) messageNode.textContent = message || state.busyMessage || 'Working...';
+    if (detailNode) detailNode.textContent = activeCount > 1 ? `${activeCount} tasks are running.` : 'Please wait. Controls will re-enable when this finishes.';
+  }
+
+  async function withBusyState(message, task, options = {}) {
+    const key = options.key || message || 'analytics-busy-task';
+    if (state.busyTasks?.[key]) return state.busyTasks[key];
+    const button = options.button || null;
+    const previousLabel = button ? button.textContent : '';
+    const runningLabel = options.runningLabel || 'Working...';
+    if (button) {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = runningLabel;
+    }
+    state.busyError = '';
+    state.busyMessage = message || 'Working...';
+    const promise = Promise.resolve()
+      .then(task)
+      .catch(err => {
+        state.busyError = err?.message || String(err);
+        if (options.alertOnError !== false) alert(state.busyError);
+        throw err;
+      })
+      .finally(() => {
+        state.busyTasks = { ...(state.busyTasks || {}) };
+        delete state.busyTasks[key];
+        if (button) {
+          button.disabled = false;
+          button.removeAttribute('aria-busy');
+          button.textContent = previousLabel;
+        }
+        updateBusyOverlay();
+      });
+    state.busyTasks = { ...(state.busyTasks || {}), [key]: promise };
+    updateBusyOverlay(message);
+    return promise;
+  }
+
+  function attachBusyClick(id, message, task, options = {}) {
+    document.getElementById(id)?.addEventListener('click', event => {
+      withBusyState(message, () => task(event), {
+        key: options.key || id,
+        button: options.disableButton === false ? null : event.currentTarget,
+        runningLabel: options.runningLabel || 'Working...',
+        alertOnError: options.alertOnError
+      }).catch(err => {
+        if (options.alertOnError === false) console.warn(err);
+      });
+    });
   }
 
   function termFromFilename(filename) {
@@ -7386,7 +7561,8 @@
   function scheduleBuilderAllRows() {
     return [
       ...scheduleBuilderCurrentRows(),
-      ...Object.values(state.scheduleBuilderTermRows || {}).flat()
+      ...Object.values(state.scheduleBuilderTermRows || {}).flat(),
+      ...Object.values(state.scheduleTermCache || {}).flat()
     ];
   }
 
@@ -7428,7 +7604,7 @@
     const term = scheduleBuilderEffectiveTerm();
     const liveRows = scheduleBuilderCurrentRowsForTerm(term);
     if (liveRows.length) return liveRows;
-    return state.scheduleBuilderTermRows?.[term] || [];
+    return state.scheduleBuilderTermRows?.[term] || state.scheduleTermCache?.[term] || [];
   }
 
   async function loadScheduleBuilderEffectiveTermRows(term = scheduleBuilderEffectiveTerm(), options = {}) {
@@ -7443,23 +7619,16 @@
       state.scheduleBuilderTermStatus = `Using cached Schedule Builder rows for ${requestedTerm}.`;
       return state.scheduleBuilderTermRows[requestedTerm];
     }
-    if (!window.BACKEND_BASE_URL) {
-      state.scheduleBuilderTermStatus = `Backend is not configured, so ${requestedTerm} cannot be loaded into Schedule Builder.`;
-      return [];
-    }
     state.scheduleBuilderTermStatus = `Loading ${requestedTerm} section seating rows for Schedule Builder...`;
     updateScheduleBuilderSourceStatus();
-    const response = await fetch(`${window.BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(requestedTerm)}`);
-    if (!response.ok) throw new Error(`Could not load ${requestedTerm} section seating rows.`);
-    const payload = await response.json();
-    const rows = (payload.data || [])
-      .map(row => normalize({ ...row, __sourceTerm: requestedTerm, __uploadedAt: payload.lastUpdated || row.__uploadedAt || row.uploadedAt || row.UploadedAt || '' }))
+    const rows = (await loadScheduleTermRows(requestedTerm, options))
       .filter(row => !isOmittedInstructionalMethod(row));
     state.scheduleBuilderTermRows = { ...(state.scheduleBuilderTermRows || {}), [requestedTerm]: rows };
+    const metadata = state.scheduleTermMetadataCache?.[requestedTerm] || {};
     state.scheduleBuilderTermMetadata = {
       ...(state.scheduleBuilderTermMetadata || {}),
       [requestedTerm]: {
-        lastUpdated: payload.lastUpdated || '',
+        lastUpdated: metadata.lastUpdated || '',
         loadedAt: new Date().toISOString(),
         rowCount: rows.length
       }
@@ -8531,21 +8700,43 @@
   async function readSavedFacultyScheduleRows(selectId) {
     const term = document.getElementById(selectId)?.value || '';
     if (!term) return [];
+    const normalizedTerm = normalizeTermLabel(term);
+    if (state.facultyScheduleTermCache?.[normalizedTerm]?.length) {
+      const cached = state.facultyScheduleTermCache[normalizedTerm];
+      state.facultyScheduleRows = cached;
+      state.facultyScheduleMetadata = state.facultyScheduleTermMetadataCache?.[normalizedTerm] || null;
+      state.facultyScheduleTermCacheStatus = `Using cached Faculty Schedule rows for ${normalizedTerm}. ${cacheStatusText(state.facultyScheduleTermCache)}`;
+      const status = document.getElementById('facultyScheduleArchiveStatus');
+      if (status) status.textContent = facultyScheduleMetadataText(state.facultyScheduleMetadata);
+      return cached;
+    }
+    if (state.facultyScheduleTermLoading?.[normalizedTerm]) return state.facultyScheduleTermLoading[normalizedTerm];
     if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so saved Faculty Schedule data cannot be loaded.');
-    const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-schedules/${encodeURIComponent(term)}`);
-    if (!response.ok) throw new Error(await response.text() || `Saved Faculty Schedule load failed for ${term}.`);
-    const payload = await response.json();
-    const rows = Array.isArray(payload.data) ? payload.data : [];
-    const validation = validateFacultyScheduleRawRows(rows);
-    if (!validation.valid) throw new Error(validation.message);
-    const normalized = window.COSFacultyModel?.facultyMeetingsForReporting
-      ? window.COSFacultyModel.facultyMeetingsForReporting(rows.map(row => ({ ...row, __sourceTerm: term })), { term })
-      : window.COSFacultyParser.parseFacultyScheduleCsv('', { term }).meetings;
-    state.facultyScheduleRows = normalized;
-    state.facultyScheduleMetadata = payload.metadata || null;
-    const status = document.getElementById('facultyScheduleArchiveStatus');
-    if (status) status.textContent = facultyScheduleMetadataText(state.facultyScheduleMetadata);
-    return normalized;
+    const promise = fetch(`${window.BACKEND_BASE_URL}/api/faculty-schedules/${encodeURIComponent(normalizedTerm)}`)
+      .then(async response => {
+        if (!response.ok) throw new Error(await response.text() || `Saved Faculty Schedule load failed for ${normalizedTerm}.`);
+        const payload = await response.json();
+        const rows = Array.isArray(payload.data) ? payload.data : [];
+        const validation = validateFacultyScheduleRawRows(rows);
+        if (!validation.valid) throw new Error(validation.message);
+        const normalized = window.COSFacultyModel?.facultyMeetingsForReporting
+          ? window.COSFacultyModel.facultyMeetingsForReporting(rows.map(row => ({ ...row, __sourceTerm: normalizedTerm })), { term: normalizedTerm })
+          : window.COSFacultyParser.parseFacultyScheduleCsv('', { term: normalizedTerm }).meetings;
+        state.facultyScheduleRows = normalized;
+        state.facultyScheduleMetadata = payload.metadata || null;
+        state.facultyScheduleTermCache = { ...(state.facultyScheduleTermCache || {}), [normalizedTerm]: normalized };
+        state.facultyScheduleTermMetadataCache = { ...(state.facultyScheduleTermMetadataCache || {}), [normalizedTerm]: payload.metadata || null };
+        state.facultyScheduleTermCacheStatus = `Loaded ${normalized.length} Faculty Schedule meeting row(s) for ${normalizedTerm}.`;
+        const status = document.getElementById('facultyScheduleArchiveStatus');
+        if (status) status.textContent = facultyScheduleMetadataText(state.facultyScheduleMetadata);
+        return normalized;
+      })
+      .finally(() => {
+        state.facultyScheduleTermLoading = { ...(state.facultyScheduleTermLoading || {}) };
+        delete state.facultyScheduleTermLoading[normalizedTerm];
+      });
+    state.facultyScheduleTermLoading = { ...(state.facultyScheduleTermLoading || {}), [normalizedTerm]: promise };
+    return promise;
   }
 
   async function readSavedFacultyScheduleRowsForTerms(terms = []) {
@@ -8553,15 +8744,19 @@
     if (!selectedTerms.length) return [];
     if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so saved Faculty Schedule data cannot be loaded.');
     const batches = await Promise.all(selectedTerms.map(async term => {
+      if (state.facultyScheduleTermCache?.[term]?.length) return state.facultyScheduleTermCache[term];
       const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-schedules/${encodeURIComponent(term)}`);
       if (!response.ok) throw new Error(await response.text() || `Saved Faculty Schedule load failed for ${term}.`);
       const payload = await response.json();
       const rows = Array.isArray(payload.data) ? payload.data : [];
       const validation = validateFacultyScheduleRawRows(rows);
       if (!validation.valid) throw new Error(validation.message);
-      return window.COSFacultyModel?.facultyMeetingsForReporting
+      const normalized = window.COSFacultyModel?.facultyMeetingsForReporting
         ? window.COSFacultyModel.facultyMeetingsForReporting(rows.map(row => ({ ...row, __sourceTerm: term })), { term })
         : [];
+      state.facultyScheduleTermCache = { ...(state.facultyScheduleTermCache || {}), [term]: normalized };
+      state.facultyScheduleTermMetadataCache = { ...(state.facultyScheduleTermMetadataCache || {}), [term]: payload.metadata || null };
+      return normalized;
     }));
     return batches.flat();
   }
@@ -16769,6 +16964,13 @@
       .analytics-reports{width:min(1480px,calc(100% - 2rem));margin:18px auto 28px;padding:16px;background:rgba(255,255,255,.82);border:1px solid rgba(216,225,236,.78);border-radius:14px;box-shadow:0 10px 26px rgba(16,32,51,.06)}
       .analytics-reports::before{content:'Analytics & Report Launcher';display:block;margin:0 0 4px;color:#123367;font-size:20px;font-weight:900;line-height:1.2}
       .analytics-reports::after{content:'Choose a grouped report below. Locked reports keep their permissions and can be unlocked for the current browser session.';display:block;margin:-2px 0 14px;color:#51657c;font-size:13px;line-height:1.35}
+      .analytics-busy-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;background:rgba(13,31,54,.28);backdrop-filter:blur(1px)}
+      .analytics-busy-overlay[hidden]{display:none}
+      .analytics-busy-card{display:grid;justify-items:center;gap:8px;min-width:min(360px,calc(100vw - 40px));max-width:min(460px,calc(100vw - 40px));padding:20px;border:1px solid #bfd2e4;border-radius:14px;background:#fff;box-shadow:0 18px 46px rgba(16,32,51,.22);color:#123367;text-align:center}
+      .analytics-busy-card strong{font-size:18px}
+      .analytics-busy-card span{color:#51657c;font-size:13px}
+      .analytics-busy-spinner{width:36px;height:36px;border:4px solid #d8e8f3;border-top-color:#1f7aa8;border-radius:50%;animation:analytics-spin .85s linear infinite}
+      @keyframes analytics-spin{to{transform:rotate(360deg)}}
       .em-access-panel{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-bottom:14px;padding:10px;border:1px solid #e2eaf3;border-radius:10px;background:#f8fbff}
       .em-access-status{display:flex;flex-direction:column;gap:2px;margin-right:4px;padding:7px 10px;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;color:#51657c;font-size:11px;text-transform:uppercase;font-weight:800}
       .em-access-status strong{color:#123367;font-size:14px;text-transform:none}
@@ -17116,7 +17318,7 @@
       if (selectedEnrollmentReport() === REPORTS.demand) runDemand();
       if (selectedEnrollmentReport() === REPORTS.studentPresence) runStudentPresence().catch(err => console.warn(err));
     });
-    document.getElementById('runDashboard')?.addEventListener('click', rerunDashboard);
+    attachBusyClick('runDashboard', 'Building Enrollment Analytics Dashboard...', () => rerunDashboard(), { key: 'runDashboard', runningLabel: 'Building...' });
     document.getElementById('dashboardCsv')?.addEventListener('change', rerunDashboard);
     document.getElementById('dashArchiveTerms')?.addEventListener('change', rerunDashboard);
     document.getElementById('archiveDashboardUploads')?.addEventListener('click', () => archiveUploads('dashboardCsv').catch(err => alert(err.message || 'Archive failed.')));
@@ -17146,8 +17348,8 @@
         rerunDashboard();
       });
     });
-    document.getElementById('exportDashboardSummary')?.addEventListener('click', exportDashboardSummary);
-    document.getElementById('runStudentPresence')?.addEventListener('click', () => runStudentPresence().catch(err => alert(err.message || 'Student Presence failed.')));
+    attachBusyClick('exportDashboardSummary', 'Exporting Enrollment Dashboard summary...', () => exportDashboardSummary(), { key: 'exportDashboardSummary', runningLabel: 'Exporting...' });
+    attachBusyClick('runStudentPresence', 'Building Student Presence Analytics...', () => runStudentPresence(), { key: 'runStudentPresence', runningLabel: 'Building...' });
     document.getElementById('spFocusTerm')?.addEventListener('change', () => {
       updatePresenceCompareTermOptions(dashboardAvailableTerms(state.studentPresenceSourceRows), studentPresenceFocusTerm());
       runStudentPresence().catch(err => console.warn(err));
@@ -17161,7 +17363,7 @@
       document.getElementById(id)?.addEventListener('change', () => { if (state.studentPresenceRan) runStudentPresence().catch(err => console.warn(err)); });
     });
     document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
-    document.getElementById('exportStudentPresence')?.addEventListener('click', exportStudentPresenceRows);
+    attachBusyClick('exportStudentPresence', 'Exporting Student Presence rows...', () => exportStudentPresenceRows(), { key: 'exportStudentPresence', runningLabel: 'Exporting...' });
     document.getElementById('runAttrition')?.addEventListener('click', () => runAttrition().catch(handleAttritionError));
     document.getElementById('dashIncludeWorkExperience')?.addEventListener('change', rerunDashboard);
     document.getElementById('attrIncludeWorkExperience')?.addEventListener('change', () => runAttrition().catch(handleAttritionError));
@@ -17172,7 +17374,7 @@
     document.getElementById('attrArchiveTerms')?.addEventListener('change', () => loadAttritionFiles().catch(handleAttritionError));
     document.getElementById('archiveAttritionUploads')?.addEventListener('click', () => archiveUploads('enrollmentCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearAttrition')?.addEventListener('click', () => resetAnalyticsControls('attr'));
-    document.getElementById('runConsolidation')?.addEventListener('click', runConsolidation);
+    attachBusyClick('runConsolidation', 'Building consolidation recommendations...', () => runConsolidation(), { key: 'runConsolidation', runningLabel: 'Building...' });
     document.getElementById('consolidationCsv')?.addEventListener('change', loadConsolidationRows);
     document.getElementById('conArchiveTerms')?.addEventListener('change', loadConsolidationRows);
     document.getElementById('conDecisionTerm')?.addEventListener('change', () => {
@@ -17190,7 +17392,7 @@
     });
     document.getElementById('archiveConsolidationUploads')?.addEventListener('click', () => archiveUploads('consolidationCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearConsolidation')?.addEventListener('click', () => resetAnalyticsControls('con'));
-    document.getElementById('runDemand')?.addEventListener('click', runDemand);
+    attachBusyClick('runDemand', 'Calculating enrollment planning forecast...', () => runDemand(), { key: 'runDemand', runningLabel: 'Calculating...' });
     document.getElementById('demandCsv')?.addEventListener('change', () => loadDemandRows().catch(err => renderEmptyDemand(`Demand source load failed: ${err.message || err}`)));
     document.getElementById('demArchiveTerms')?.addEventListener('change', () => loadDemandRows().catch(err => renderEmptyDemand(`Demand source load failed: ${err.message || err}`)));
     document.getElementById('demForecastScope')?.addEventListener('change', updateDemandTargetControls);
@@ -17202,7 +17404,7 @@
     });
     document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
-    document.getElementById('runConflictCheck')?.addEventListener('click', () => runConflictCheck().catch(err => alert(err.message || 'Conflict check failed.')));
+    attachBusyClick('runConflictCheck', 'Checking schedule conflicts...', () => runConflictCheck(), { key: 'runConflictCheck', runningLabel: 'Checking...' });
     document.getElementById('conflictCsv')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
     document.getElementById('conflictArchiveTerms')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
     document.getElementById('conflictTerm')?.addEventListener('change', () => {
@@ -17283,17 +17485,17 @@
       if (select) [...select.options].forEach(option => { option.selected = true; });
       runInstructorAvailability();
     });
-    document.getElementById('runInstructorAvailability')?.addEventListener('click', runInstructorAvailability);
+    attachBusyClick('runInstructorAvailability', 'Building instructor availability...', () => runInstructorAvailability(), { key: 'runInstructorAvailability', runningLabel: 'Building...' });
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
-    document.getElementById('loadSavedInstructorAvailabilityFaculty')?.addEventListener('click', () => loadSavedInstructorAvailabilityFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
-    document.getElementById('loadInstructorAvailabilityFaculty')?.addEventListener('click', () => loadInstructorAvailabilityFacultySchedule().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
+    attachBusyClick('loadSavedInstructorAvailabilityFaculty', 'Loading saved Faculty Schedule...', () => loadSavedInstructorAvailabilityFacultySchedule(), { key: 'loadSavedInstructorAvailabilityFaculty', runningLabel: 'Loading...' });
+    attachBusyClick('loadInstructorAvailabilityFaculty', 'Loading Faculty Schedule CSV...', () => loadInstructorAvailabilityFacultySchedule(), { key: 'loadInstructorAvailabilityFaculty', runningLabel: 'Loading...' });
     document.getElementById('iaFacultyScheduleCsv')?.addEventListener('change', () => loadInstructorAvailabilityFacultySchedule().catch(err => console.warn(err)));
     document.getElementById('iaMinSharedWindow')?.addEventListener('change', runInstructorAvailability);
     document.getElementById('iaCustomSharedWindow')?.addEventListener('input', runInstructorAvailability);
     document.getElementById('iaTargetMeetingLength')?.addEventListener('input', runInstructorAvailability);
     document.getElementById('copyInstructorAvailabilitySummary')?.addEventListener('click', () => copyInstructorAvailabilitySummary());
-    document.getElementById('loadSavedFacultyModality')?.addEventListener('click', () => loadSavedFacultyModality().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
-    document.getElementById('loadFacultyModality')?.addEventListener('click', () => loadFacultyModality().catch(err => alert(err.message || 'Faculty Modality load failed.')));
+    attachBusyClick('loadSavedFacultyModality', 'Loading saved Faculty Schedule...', () => loadSavedFacultyModality(), { key: 'loadSavedFacultyModality', runningLabel: 'Loading...' });
+    attachBusyClick('loadFacultyModality', 'Building Faculty Modality...', () => loadFacultyModality(), { key: 'loadFacultyModality', runningLabel: 'Building...' });
     document.getElementById('facultyModalityCsv')?.addEventListener('change', () => loadFacultyModality().catch(err => console.warn(err)));
     ['fmTerm', 'fmCampus', 'fmModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderFacultyModality);
@@ -17312,8 +17514,8 @@
     document.getElementById('archiveInstructionalMethodValidationUploads')?.addEventListener('click', () => archiveUploads('instructionalMethodValidationCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearInstructionalMethodValidation')?.addEventListener('click', clearInstructionalMethodValidation);
     document.getElementById('exportInstructionalMethodValidation')?.addEventListener('click', () => exportRowsWithoutMethodology(state.instructionalMethodValidationTableRows, 'instructional-method-validation.csv'));
-    document.getElementById('loadSavedPrimeTimeAnalysis')?.addEventListener('click', () => loadSavedPrimeTimeAnalysis().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
-    document.getElementById('loadPrimeTimeAnalysis')?.addEventListener('click', () => loadPrimeTimeAnalysis().catch(err => alert(err.message || 'Prime Time Analysis load failed.')));
+    attachBusyClick('loadSavedPrimeTimeAnalysis', 'Loading saved Faculty Schedule...', () => loadSavedPrimeTimeAnalysis(), { key: 'loadSavedPrimeTimeAnalysis', runningLabel: 'Loading...' });
+    attachBusyClick('loadPrimeTimeAnalysis', 'Building Prime Time Analysis...', () => loadPrimeTimeAnalysis(), { key: 'loadPrimeTimeAnalysis', runningLabel: 'Building...' });
     document.getElementById('primeTimeCsv')?.addEventListener('change', () => loadPrimeTimeAnalysis().catch(err => console.warn(err)));
     ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd', 'ptHistoricalAggregation', 'ptModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderPrimeTimeAnalysis);
@@ -17330,7 +17532,7 @@
     document.querySelectorAll('.ptDay').forEach(node => node.addEventListener('change', renderPrimeTimeAnalysis));
     document.getElementById('clearPrimeTimeAnalysis')?.addEventListener('click', clearPrimeTimeAnalysis);
     document.getElementById('exportPrimeTimeAnalysis')?.addEventListener('click', () => exportRowsWithoutMethodology(state.primeTimeTableRows, 'prime-time-analysis.csv'));
-    document.getElementById('runSupplyDemand')?.addEventListener('click', () => runSupplyDemand().catch(err => alert(err.message || 'Supply vs. Demand failed.')));
+    attachBusyClick('runSupplyDemand', 'Building Supply vs. Demand...', () => runSupplyDemand(), { key: 'runSupplyDemand', runningLabel: 'Building...' });
     document.getElementById('supplyDemandCsv')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
     document.getElementById('sdArchiveTerms')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
     document.getElementById('archiveSupplyDemandUploads')?.addEventListener('click', () => archiveUploads('supplyDemandCsv').catch(err => alert(err.message || 'Archive failed.')));
@@ -17345,10 +17547,10 @@
     });
     document.getElementById('clearSupplyDemand')?.addEventListener('click', clearSupplyDemand);
     document.getElementById('exportSupplyDemand')?.addEventListener('click', () => exportRowsWithoutMethodology(state.supplyDemandResourceRows?.length ? state.supplyDemandResourceRows : state.supplyDemandBucketRows, 'supply-vs-demand.csv'));
-    document.getElementById('runBusyTimeDashboard')?.addEventListener('click', () => runBusyTimeDashboard().catch(err => alert(err.message || 'Busy Time Dashboard failed.')));
+    attachBusyClick('runBusyTimeDashboard', 'Building Busy Time Dashboard...', () => runBusyTimeDashboard(), { key: 'runBusyTimeDashboard', runningLabel: 'Building...' });
     document.getElementById('busyTimeCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
     document.getElementById('busyTimeFacultyCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
-    document.getElementById('loadSavedBusyTimeFaculty')?.addEventListener('click', () => loadSavedBusyTimeFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
+    attachBusyClick('loadSavedBusyTimeFaculty', 'Loading saved Faculty Schedule...', () => loadSavedBusyTimeFacultySchedule(), { key: 'loadSavedBusyTimeFaculty', runningLabel: 'Loading...' });
     document.getElementById('busyTimeArchiveTerms')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
     document.getElementById('archiveBusyTimeUploads')?.addEventListener('click', () => archiveUploads('busyTimeCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['busyTimeTerm', 'busyTimeCampus', 'busyTimeHistoricalAggregation', 'busyTimeModality'].forEach(id => {
@@ -17362,10 +17564,10 @@
     });
     document.getElementById('clearBusyTimeDashboard')?.addEventListener('click', clearBusyTimeDashboard);
     document.getElementById('exportBusyTimeDashboard')?.addEventListener('click', () => exportRowsWithoutMethodology(state.busyTimeTableRows, 'busy-time-dashboard.csv'));
-    document.getElementById('runStudentChoiceOpportunity')?.addEventListener('click', () => runStudentChoiceOpportunity().catch(err => alert(err.message || 'Schedule Opportunity failed.')));
+    attachBusyClick('runStudentChoiceOpportunity', 'Building Schedule Opportunity Analysis...', () => runStudentChoiceOpportunity(), { key: 'runStudentChoiceOpportunity', runningLabel: 'Building...' });
     document.getElementById('studentChoiceCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('studentChoiceFacultyCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
-    document.getElementById('loadSavedStudentChoiceFaculty')?.addEventListener('click', () => loadSavedStudentChoiceFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
+    attachBusyClick('loadSavedStudentChoiceFaculty', 'Loading saved Faculty Schedule...', () => loadSavedStudentChoiceFacultySchedule(), { key: 'loadSavedStudentChoiceFaculty', runningLabel: 'Loading...' });
     document.getElementById('studentChoiceArchiveTerms')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     document.getElementById('archiveStudentChoiceUploads')?.addEventListener('click', () => archiveUploads('studentChoiceCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['studentChoiceView', 'studentChoiceMode', 'studentChoiceHistoricalAggregation', 'studentChoiceHistoricalTerms', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceOnlineTreatment', 'studentChoiceShowInactiveHours', 'studentChoiceFacultyType', 'studentChoiceScenarioCrns', 'studentChoiceScenarioAction', 'studentChoiceScenarioDays', 'studentChoiceScenarioStart', 'studentChoiceScenarioEnd', 'studentChoiceScenarioModality', 'studentChoiceExcludeTutoring'].forEach(id => {
@@ -17379,10 +17581,10 @@
     });
     document.getElementById('clearStudentChoiceOpportunity')?.addEventListener('click', clearStudentChoiceOpportunity);
     document.getElementById('exportStudentChoiceOpportunity')?.addEventListener('click', () => exportRowsWithoutMethodology(state.studentChoiceExportRows || state.studentChoiceBucketRows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), 'schedule-opportunity-analysis.csv'));
-    document.getElementById('runRecommendationEngine')?.addEventListener('click', () => runRecommendationEngine().catch(err => alert(err.message || 'Recommendation Engine failed.')));
+    attachBusyClick('runRecommendationEngine', 'Generating scheduling recommendations...', () => runRecommendationEngine(), { key: 'runRecommendationEngine', runningLabel: 'Generating...' });
     document.getElementById('recommendationCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
     document.getElementById('recommendationFacultyCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
-    document.getElementById('loadSavedRecommendationFaculty')?.addEventListener('click', () => loadSavedRecommendationFacultySchedule().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
+    attachBusyClick('loadSavedRecommendationFaculty', 'Loading saved Faculty Schedule...', () => loadSavedRecommendationFacultySchedule(), { key: 'loadSavedRecommendationFaculty', runningLabel: 'Loading...' });
     document.getElementById('recommendationArchiveTerms')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
     document.getElementById('archiveRecommendationUploads')?.addEventListener('click', () => archiveUploads('recommendationCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationTimeBlock', 'recommendationHistoricalAggregation', 'recommendationStartEarliest', 'recommendationStartLatest', 'recommendationModality', 'recommendationFacultyType', 'recommendationExcludeTutoring'].forEach(id => {
@@ -17396,7 +17598,7 @@
     });
     document.getElementById('clearRecommendationEngine')?.addEventListener('click', clearRecommendationEngine);
     document.getElementById('exportRecommendationCsv')?.addEventListener('click', () => exportRowsWithoutMethodology(state.recommendationOutputRows, 'scheduling-recommendations.csv'));
-    document.getElementById('exportRecommendationPdf')?.addEventListener('click', () => exportRecommendationPdf().catch(err => alert(err.message || 'PDF export failed.')));
+    attachBusyClick('exportRecommendationPdf', 'Exporting recommendation PDF...', () => exportRecommendationPdf(), { key: 'exportRecommendationPdf', runningLabel: 'Exporting...' });
     document.getElementById('sbEffectiveTerm')?.addEventListener('change', event => {
       state.scheduleBuilderEffectiveTerm = normalizeTermLabel(event.target?.value || '');
       state.scheduleBuilderResults = null;
@@ -17410,17 +17612,13 @@
           renderScheduleBuilderResults();
         });
     });
-    document.getElementById('sbUseCurrentTerm')?.addEventListener('click', () => {
+    attachBusyClick('sbUseCurrentTerm', 'Loading current term for Schedule Builder...', () => {
       state.scheduleBuilderEffectiveTerm = normalizeTermLabel(currentTerm());
       state.scheduleBuilderResults = null;
       renderScheduleBuilderResults();
-      loadScheduleBuilderEffectiveTermRows(state.scheduleBuilderEffectiveTerm)
-        .then(() => renderScheduleBuilderResults())
-        .catch(err => {
-          state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
-          renderScheduleBuilderResults();
-        });
-    });
+      return loadScheduleBuilderEffectiveTermRows(state.scheduleBuilderEffectiveTerm)
+        .then(() => renderScheduleBuilderResults());
+    }, { key: 'sbUseCurrentTerm', runningLabel: 'Loading...' });
     document.getElementById('sbAddCourse')?.addEventListener('click', addScheduleBuilderCourse);
     document.getElementById('sbCourseSearch')?.addEventListener('keydown', event => {
       if (event.key === 'Enter') {
@@ -17451,16 +17649,14 @@
         }
       }
     });
-    document.getElementById('runScheduleBuilder')?.addEventListener('click', () => {
-      runScheduleBuilder().catch(err => alert(err.message || 'Schedule Builder failed.'));
-    });
-    document.getElementById('sbMoreResults')?.addEventListener('click', () => {
+    attachBusyClick('runScheduleBuilder', 'Building schedule options...', () => runScheduleBuilder(), { key: 'runScheduleBuilder', runningLabel: 'Building...' });
+    attachBusyClick('sbMoreResults', 'Building more schedule options...', () => {
       const limit = document.getElementById('sbMaxResults');
       if (limit) limit.value = String(Math.min(50, (Number(limit.value || 10) || 10) + 10));
-      runScheduleBuilder().catch(err => alert(err.message || 'Schedule Builder failed.'));
-    });
+      return runScheduleBuilder();
+    }, { key: 'runScheduleBuilder', runningLabel: 'Building...' });
     document.getElementById('printScheduleBuilder')?.addEventListener('click', () => window.print());
-    document.getElementById('exportScheduleBuilder')?.addEventListener('click', exportScheduleBuilderRows);
+    attachBusyClick('exportScheduleBuilder', 'Exporting Schedule Builder results...', () => exportScheduleBuilderRows(), { key: 'exportScheduleBuilder', runningLabel: 'Exporting...' });
     document.getElementById('term-tabs')?.addEventListener('click', () => {
       const refreshScheduleBuilder = () => {
         if (selectedEnrollmentReport() !== REPORTS.scheduleBuilder) return;
@@ -17477,12 +17673,8 @@
       setTimeout(refreshScheduleBuilder, 80);
       setTimeout(refreshScheduleBuilder, 1200);
     });
-    document.getElementById('runScheduleOptimizationLab')?.addEventListener('click', () => {
-      runScheduleOptimizationLab().catch(err => alert(err.message || 'Schedule Optimization failed.'));
-    });
-    document.getElementById('runOptimizationPlacement')?.addEventListener('click', () => {
-      runOptimizationPlacement().catch(err => alert(err.message || 'Add-a-class placement failed.'));
-    });
+    attachBusyClick('runScheduleOptimizationLab', 'Running Schedule Optimization Lab...', () => runScheduleOptimizationLab(), { key: 'runScheduleOptimizationLab', runningLabel: 'Running...' });
+    attachBusyClick('runOptimizationPlacement', 'Ranking add-a-class placement options...', () => runOptimizationPlacement(), { key: 'runOptimizationPlacement', runningLabel: 'Ranking...' });
     document.getElementById('clearOptimizationResults')?.addEventListener('click', clearOptimizationResults);
     document.getElementById('optimizationCsv')?.addEventListener('change', () => {
       invalidateOptimizationCache('Schedule CSV changed. Run optimization again to refresh results.');
@@ -17497,16 +17689,15 @@
       loadOptimizationFacultyArchiveRows()
         .catch(err => console.warn(err));
     });
-    document.getElementById('refreshOptimizationArchives')?.addEventListener('click', () => {
-      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives()])
+    attachBusyClick('refreshOptimizationArchives', 'Refreshing backend archives...', () => {
+      return Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives()])
         .then(() => {
           updateOptimizationTermOptions();
           updateOptimizationCourseControls();
           renderOptimizationArchiveStatus();
           invalidateOptimizationCache('Backend archives refreshed. Run optimization again to refresh results.');
-        })
-        .catch(err => alert(err.message || 'Backend archive refresh failed.'));
-    });
+        });
+    }, { key: 'refreshOptimizationArchives', runningLabel: 'Refreshing...' });
     document.getElementById('archiveOptimizationUploads')?.addEventListener('click', () => archiveUploads('optimizationCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['optimizationTerm', 'optimizationHistoryTerms', 'optimizationDemandTerms', 'optimizationTermPreset', 'optimizationPriorityBehavior', 'optimizationAllowCrossCampus', 'optimizationAllowedShift', 'optimizationMaxCandidateRooms'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {
@@ -17528,15 +17719,15 @@
     ['optimizationAddCourse', 'optimizationAddEnrollment', 'optimizationAddCampus', 'optimizationAddModality', 'optimizationAddRoomType', 'optimizationAddDays', 'optimizationAddStart', 'optimizationAddDuration', 'optimizationAddDivision', 'optimizationAddIncludeHistory', 'optimizationProposedDays', 'optimizationProposedStart', 'optimizationProposedEnd', 'optimizationProposedCampus', 'optimizationProposedRoomType', 'optimizationProposedEnrollment', 'optimizationFacultyNote'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => markOptimizationDirty('Add-a-Class inputs changed. Run optimization again to refresh placement results.'));
     });
-    document.getElementById('exportOptimizationMoves')?.addEventListener('click', () => exportOptimizationRows('moves'));
-    document.getElementById('exportOptimizationShifts')?.addEventListener('click', () => exportOptimizationRows('shifts'));
-    document.getElementById('exportOptimizationPlacements')?.addEventListener('click', () => exportOptimizationRows('placements'));
-    document.getElementById('exportOptimizationProposed')?.addEventListener('click', () => exportOptimizationRows('proposed'));
-    document.getElementById('exportOptimizationBetterTimes')?.addEventListener('click', () => exportOptimizationRows('betterTimes'));
-    document.getElementById('exportOptimizationAudit')?.addEventListener('click', () => exportOptimizationRows('audit'));
-    document.getElementById('saveFacultyScheduleArchive')?.addEventListener('click', () => saveFacultyScheduleArchive().catch(err => alert(err.message || 'Faculty Schedule save failed.')));
-    document.getElementById('loadSavedFacultyScheduleHeatmap')?.addEventListener('click', () => loadSavedFacultyScheduleHeatmap().catch(err => alert(err.message || 'Saved Faculty Schedule load failed.')));
-    document.getElementById('loadFacultyScheduleHeatmap')?.addEventListener('click', () => loadFacultyScheduleHeatmap().catch(err => alert(err.message || 'Faculty Schedule load failed.')));
+    attachBusyClick('exportOptimizationMoves', 'Exporting optimization room moves...', () => exportOptimizationRows('moves'), { key: 'exportOptimizationMoves', runningLabel: 'Exporting...' });
+    attachBusyClick('exportOptimizationShifts', 'Exporting optimization time shifts...', () => exportOptimizationRows('shifts'), { key: 'exportOptimizationShifts', runningLabel: 'Exporting...' });
+    attachBusyClick('exportOptimizationPlacements', 'Exporting placement options...', () => exportOptimizationRows('placements'), { key: 'exportOptimizationPlacements', runningLabel: 'Exporting...' });
+    attachBusyClick('exportOptimizationProposed', 'Exporting proposed-time evaluation...', () => exportOptimizationRows('proposed'), { key: 'exportOptimizationProposed', runningLabel: 'Exporting...' });
+    attachBusyClick('exportOptimizationBetterTimes', 'Exporting better-time recommendations...', () => exportOptimizationRows('betterTimes'), { key: 'exportOptimizationBetterTimes', runningLabel: 'Exporting...' });
+    attachBusyClick('exportOptimizationAudit', 'Exporting priority audit...', () => exportOptimizationRows('audit'), { key: 'exportOptimizationAudit', runningLabel: 'Exporting...' });
+    attachBusyClick('saveFacultyScheduleArchive', 'Saving Faculty Schedule archive...', () => saveFacultyScheduleArchive(), { key: 'saveFacultyScheduleArchive', runningLabel: 'Saving...' });
+    attachBusyClick('loadSavedFacultyScheduleHeatmap', 'Loading saved Faculty Schedule Heatmap data...', () => loadSavedFacultyScheduleHeatmap(), { key: 'loadSavedFacultyScheduleHeatmap', runningLabel: 'Loading...' });
+    attachBusyClick('loadFacultyScheduleHeatmap', 'Loading Faculty Schedule Heatmap CSV...', () => loadFacultyScheduleHeatmap(), { key: 'loadFacultyScheduleHeatmap', runningLabel: 'Loading...' });
     document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
     ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderFacultyScheduleHeatmap);
@@ -17550,8 +17741,8 @@
     document.getElementById('clearFacultyHeatmap')?.addEventListener('click', clearFacultyScheduleHeatmap);
     document.getElementById('exportAttrition')?.addEventListener('click', () => exportRows(state.attritionRows, `enrollment-attrition-trend-${attritionDecisionTerm() || currentTerm() || 'term'}.csv`));
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${consolidationDecisionTerm() || currentTerm() || 'term'}.csv`));
-    document.getElementById('exportDemand')?.addEventListener('click', () => exportRows(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, `enrollment-planning-forecast-${demandTargetSlug()}.csv`));
-    document.getElementById('exportDemandExcel')?.addEventListener('click', () => exportRowsExcel(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, demandExportColumns(), `enrollment-planning-forecast-${demandTargetSlug()}.xls`));
+    attachBusyClick('exportDemand', 'Exporting Enrollment Planning Forecast CSV...', () => exportRows(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, `enrollment-planning-forecast-${demandTargetSlug()}.csv`), { key: 'exportDemand', runningLabel: 'Exporting...' });
+    attachBusyClick('exportDemandExcel', 'Exporting Enrollment Planning Forecast Excel...', () => exportRowsExcel(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, demandExportColumns(), `enrollment-planning-forecast-${demandTargetSlug()}.xls`), { key: 'exportDemandExcel', runningLabel: 'Exporting...' });
     document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
       const modalityQuickButton = event.target.closest('[data-modality-quick]');
@@ -17595,6 +17786,7 @@
     refreshFacultyScheduleArchives();
     loadEnrollmentSnapshots().catch(err => console.warn('Enrollment snapshot preload skipped:', err));
     updateVisibility();
+    setTimeout(preloadScheduleTermsInBackground, 1200);
   }
 
   window.COSEnrollmentAnalytics = {
