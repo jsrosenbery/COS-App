@@ -2,10 +2,11 @@
   const csv = root.COSCsvNormalizer || (typeof require === 'function' ? require('./csv-normalizer') : null);
   const utils = root.COSFacultyUtils || (typeof require === 'function' ? require('./faculty-utils') : null);
   const modality = root.COSModalityNormalizer || (typeof require === 'function' ? require('./modality-normalizer') : null);
-  const api = factory(csv, utils, modality);
+  const time = root.COSTimeUtils || (typeof require === 'function' ? require('../utils/timeUtils') : null);
+  const api = factory(csv, utils, modality, time);
   root.COSFacultyModel = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (csv, utils, modalityNormalizer) {
+})(typeof window !== 'undefined' ? window : globalThis, function (csv, utils, modalityNormalizer, timeUtils) {
   'use strict';
 
   if (!csv) throw new Error('COSCsvNormalizer is required before COSFacultyModel.');
@@ -110,13 +111,11 @@
   }
 
   function minutesFromTime(value) {
-    const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
-    if (!match) return null;
-    return Number(match[1]) * 60 + Number(match[2]);
+    return timeUtils.minutesFromTime(value);
   }
 
   function overlaps(start, end, slotStart, slotEnd) {
-    return end > slotStart && start < slotEnd;
+    return timeUtils.intervalsOverlap(start, end, slotStart, slotEnd);
   }
 
   function defaultSlots(rows) {

@@ -16,6 +16,8 @@ const timberConfig = window.COSTimberConfig || {};
 const schedulingConfig = timberConfig.scheduling || {};
 const thresholdConfig = timberConfig.thresholds || {};
 const modalityConfig = timberConfig.modalities || {};
+const timeUtils = window.COSTimeUtils || {};
+const dateUtils = window.COSDateUtils || {};
 const hmDays = schedulingConfig.DAY_NAME_LIST || ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const hmDayCodeToName = schedulingConfig.DAY_NAMES || { SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday' };
 const ROOM_CATALOG_BACKUP_KEY = 'cos-room-catalog-backup-v1';
@@ -163,19 +165,7 @@ const holidaySet = (() => {
 })();
 
 function parseHour(t) {
-  if (!t) return null;
-  t = t.trim();
-  let m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-  if (!m) return null;
-  let h = parseInt(m[1],10);
-  const min = parseInt(m[2],10);
-  const ampm = m[3] ? m[3].toUpperCase() : null;
-  if (ampm === "AM") {
-    if (h === 12) h = 0;
-  } else if (ampm === "PM") {
-    if (h !== 12) h += 12;
-  }
-  return h + min/60;
+  return timeUtils.parseHour(t);
 }
 
 function getTimeRangeFromData(data) {
@@ -193,20 +183,11 @@ function getTimeRangeFromData(data) {
 }
 
 function buildHalfHourSlots(minHour, maxHour) {
-  const slots = [];
-  for (let h = minHour; h < maxHour; h += 0.5) {
-    slots.push(Number(h.toFixed(1)));
-  }
-  return slots;
+  return timeUtils.buildHalfHourSlots(minHour, maxHour);
 }
 
 function formatHourLabel(hour) {
-  const totalMinutes = Math.round(hour * 60);
-  const h24 = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const ap = h24 < 12 ? 'AM' : 'PM';
-  const h12 = h24 % 12 || 12;
-  return `${h12}:${String(minutes).padStart(2, '0')} ${ap}`;
+  return timeUtils.formatHourLabel(hour);
 }
 
 function formatHeatmapTimeHeader(hour) {
@@ -3034,7 +3015,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function overlapMinutes(startMin, endMin, windowStart, windowEnd) {
-    return Math.max(0, Math.min(endMin, windowEnd) - Math.max(startMin, windowStart));
+    return timeUtils.overlapMinutes(startMin, endMin, windowStart, windowEnd);
   }
 
   function isUtilizationPeakDay(day) {
@@ -5518,31 +5499,18 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function parseTime(t) {
+    const parsed = timeUtils.parseTimeToMinutes ? timeUtils.parseTimeToMinutes(t) : null;
+    if (parsed !== null) return parsed;
     const [h,m] = t.split(':').map(Number);
     return h*60 + m;
   }
 
   function parseDateOnly(value) {
-    if (!value) return null;
-    const raw = String(value).trim();
-    if (!raw) return null;
-    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (iso) {
-      return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
-    }
-    const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-    if (slash) {
-      let year = Number(slash[3]);
-      if (year < 100) year += 2000;
-      return new Date(year, Number(slash[1]) - 1, Number(slash[2]));
-    }
-    const parsed = new Date(raw);
-    return Number.isNaN(parsed.getTime()) ? null : new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+    return dateUtils.parseDateOnly(value);
   }
 
   function formatMonthDay(date) {
-    if (!date || Number.isNaN(date.getTime())) return '';
-    return `${date.getMonth() + 1}/${date.getDate()}`;
+    return dateUtils.formatMonthDay(date);
   }
 
   function extractSectionStartDate(section) {

@@ -13,6 +13,14 @@ const CONFIG_SCRIPTS = [
   'js/config/modalities.js',
   'js/config/index.js'
 ];
+const UTILITY_SCRIPTS = [
+  'js/utils/dateUtils.js',
+  'js/utils/timeUtils.js',
+  'js/utils/mathUtils.js',
+  'js/utils/validationUtils.js',
+  'js/utils/exportUtils.js',
+  'js/utils/index.js'
+];
 
 function loadEnrollmentModules() {
   const context = {
@@ -43,7 +51,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.window = context.window;
   context.window.document = context.document;
   vm.createContext(context);
-  [...CONFIG_SCRIPTS, 'js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
+  [...CONFIG_SCRIPTS, ...UTILITY_SCRIPTS, 'js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -355,7 +363,7 @@ function loadScheduleAppRuntime() {
   context.window.jQuery = context.$;
   context.window.COSUtils = { renderStandardMethodologyPanel() {} };
   vm.createContext(context);
-  [...CONFIG_SCRIPTS, 'js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/core/event-layer.js', 'js/core/metric-definitions.js', 'js/core/metric-help.js', 'js/app.js'].forEach(file => {
+  [...CONFIG_SCRIPTS, ...UTILITY_SCRIPTS, 'js/core/csv-normalizer.js', 'js/core/modality-normalizer.js', 'js/core/section-model.js', 'js/core/event-layer.js', 'js/core/metric-definitions.js', 'js/core/metric-help.js', 'js/app.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -372,7 +380,7 @@ function loadConfigModule() {
     location: { hostname: 'localhost' }
   };
   vm.createContext(context);
-  CONFIG_SCRIPTS.forEach(file => {
+  [...CONFIG_SCRIPTS, ...UTILITY_SCRIPTS].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -5740,6 +5748,12 @@ test('index owns enrollment analytics script order', () => {
     'js/config/thresholds.js',
     'js/config/modalities.js',
     'js/config/index.js',
+    'js/utils/dateUtils.js',
+    'js/utils/timeUtils.js',
+    'js/utils/mathUtils.js',
+    'js/utils/validationUtils.js',
+    'js/utils/exportUtils.js',
+    'js/utils/index.js',
     'js/core/dom-utils.js',
     'js/core/term-utils.js',
     'js/core/day-utils.js',

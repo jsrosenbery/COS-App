@@ -1,10 +1,11 @@
 (function (root, factory) {
   const csv = root.COSCsvNormalizer || (typeof require === 'function' ? require('./csv-normalizer') : null);
   const modality = root.COSModalityNormalizer || (typeof require === 'function' ? require('./modality-normalizer') : null);
-  const api = factory(csv, modality);
+  const time = root.COSTimeUtils || (typeof require === 'function' ? require('../utils/timeUtils') : null);
+  const api = factory(csv, modality, time);
   root.COSPhysicalTime = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (csv, modalityNormalizer) {
+})(typeof window !== 'undefined' ? window : globalThis, function (csv, modalityNormalizer, timeUtils) {
   'use strict';
 
   function canon(value) {
@@ -13,9 +14,7 @@
   }
 
   function minutesFromTime(value) {
-    const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
-    if (!match) return null;
-    return Number(match[1]) * 60 + Number(match[2]);
+    return timeUtils.minutesFromTime(value);
   }
 
   function rowInstructionModality(row) {

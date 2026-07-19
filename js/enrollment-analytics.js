@@ -6,6 +6,11 @@
   const reportConfig = timberConfig.reports || {};
   const schedulingConfig = timberConfig.scheduling || {};
   const modalityConfig = timberConfig.modalities || {};
+  const dateUtils = window.COSDateUtils || {};
+  const timeUtils = window.COSTimeUtils || {};
+  const mathUtils = window.COSMathUtils || {};
+  const validationUtils = window.COSValidationUtils || {};
+  const exportUtils = window.COSExportUtils || {};
 
   const REPORTS = reportConfig.REPORTS || {
     dashboard: 'enrollment-dashboard',
@@ -497,11 +502,11 @@
   }
 
   function pct(value) {
-    return `${Math.round((value || 0) * 1000) / 10}%`;
+    return mathUtils.percentLabel(value);
   }
 
   function round1(value) {
-    return Math.round((value || 0) * 10) / 10;
+    return mathUtils.roundTo(value, 1);
   }
 
   function formatWholeNumber(value) {
@@ -538,7 +543,7 @@
   }
 
   function canon(value) {
-    return String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return validationUtils.canon(value);
   }
 
   function normalizeCampus(row) {
@@ -10046,24 +10051,7 @@
   }
 
   function parseSectionDate(value) {
-    const text = String(value || '').trim();
-    if (!text) return null;
-    const serial = Number(text);
-    if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
-      const excelEpoch = Date.UTC(1899, 11, 30);
-      return new Date(excelEpoch + serial * 24 * 60 * 60 * 1000);
-    }
-    const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-    if (match) {
-      const month = Number(match[1]) - 1;
-      const day = Number(match[2]);
-      const rawYear = Number(match[3]);
-      const year = rawYear < 100 ? 2000 + rawYear : rawYear;
-      const date = new Date(year, month, day);
-      return Number.isFinite(date.getTime()) ? date : null;
-    }
-    const parsed = Date.parse(text);
-    return Number.isFinite(parsed) ? new Date(parsed) : null;
+    return dateUtils.parseSectionDate(value);
   }
 
   function meetingDateDayCode(value) {
@@ -10085,14 +10073,11 @@
   function dateRangesOverlap(a, b) {
     const left = a?.dateRange || sectionDateRange(a);
     const right = b?.dateRange || sectionDateRange(b);
-    if (!left || !right) return true;
-    return left.start <= right.end && right.start <= left.end;
+    return dateUtils.dateRangesOverlap(left, right);
   }
 
   function formatSectionDate(value) {
-    const date = parseSectionDate(value);
-    if (!date) return String(value || '');
-    return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+    return dateUtils.formatSectionDate(value);
   }
 
   function normalizedDateRange(row) {
@@ -13774,7 +13759,7 @@
   }
 
   function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
+    return mathUtils.clamp(value, min, max);
   }
 
   function demandBandForScore(score) {
@@ -15182,10 +15167,7 @@
   }
 
   function minutesFromTime(time) {
-    if (!time) return null;
-    const match = String(time).match(/^(\d{1,2}):(\d{2})$/);
-    if (!match) return null;
-    return Number(match[1]) * 60 + Number(match[2]);
+    return timeUtils.minutesFromTime(time);
   }
 
   async function historicalPatterns(allRows = [], decisionTerm = '', lowFill = 0.5, lowEnroll = null) {
@@ -15413,7 +15395,7 @@
   }
 
   function safeDiv(a, b) {
-    return b ? a / b : 0;
+    return mathUtils.safeDiv(a, b);
   }
 
   function analyticsTooltip(fields) {
@@ -15783,11 +15765,7 @@
   }
 
   function slugify(value) {
-    return String(value || 'section')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'section';
+    return exportUtils.slugify(value, 'section');
   }
 
   function sortValue(value, column = '') {
