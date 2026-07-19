@@ -3934,6 +3934,8 @@ test('report loading uses shared busy state and separated term caches', () => {
   assert.match(text, /id = 'analyticsBusyOverlay'/);
   assert.match(text, /role', 'status'/);
   assert.match(text, /document\.body\.toggleAttribute\('aria-busy'/);
+  assert.match(text, /function busyNextPaint/);
+  assert.match(text, /const promise = busyNextPaint\(\)/);
   assert.match(text, /if \(state\.busyTasks\?\.\[key\]\) return state\.busyTasks\[key\]/);
   assert.match(text, /button\.disabled = true/);
   assert.match(text, /button\.disabled = false/);
@@ -3951,6 +3953,7 @@ test('report loading uses shared busy state and separated term caches', () => {
   ['runDashboard', 'runStudentPresence', 'runDemand', 'runSupplyDemand', 'runBusyTimeDashboard', 'runStudentChoiceOpportunity', 'runRecommendationEngine', 'runScheduleBuilder', 'runScheduleOptimizationLab', 'loadSavedFacultyScheduleHeatmap'].forEach(id => {
     assert.match(text, new RegExp(`attachBusyClick\\('${id}'`));
   });
+  assert.match(text, /Loading \$\{state\.scheduleBuilderEffectiveTerm\} for Schedule Builder/);
 });
 
 test('faculty modality enriches enrollment and seats from matching section seating rows', () => {
@@ -5310,7 +5313,13 @@ test('shared api utilities provide checked JSON fetch and non-blocking notificat
   assert.match(utils, /aria-live', 'polite'/);
   assert.match(utils, /COSUtils = \{[\s\S]*fetchJson,[\s\S]*notify,/);
   assert.match(app, /const fetchJson = window\.COSUtils\?\.fetchJson/);
+  assert.match(app, /function ensureAppBusyOverlay/);
+  assert.match(app, /function showAppBusy/);
+  assert.match(app, /function nextPaint/);
   assert.match(app, /async function loadScheduleFromBackend/);
+  assert.match(app, /showAppBusy\(`Loading \$\{term\} schedule data\.\.\.`/);
+  assert.match(app, /await nextPaint\(\)/);
+  assert.match(app, /finally \{[\s\S]*hideAppBusy\(\)/);
   assert.match(app, /Could not load \$\{term\}/);
   assert.match(app, /async function uploadScheduleToBackend/);
   assert.match(app, /Uploaded \$\{term\} schedule successfully\./);

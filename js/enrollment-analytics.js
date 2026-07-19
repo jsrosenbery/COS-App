@@ -1360,6 +1360,10 @@
     if (detailNode) detailNode.textContent = activeCount > 1 ? `${activeCount} tasks are running.` : 'Please wait. Controls will re-enable when this finishes.';
   }
 
+  function busyNextPaint() {
+    return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }
+
   async function withBusyState(message, task, options = {}) {
     const key = options.key || message || 'analytics-busy-task';
     if (state.busyTasks?.[key]) return state.busyTasks[key];
@@ -1373,7 +1377,7 @@
     }
     state.busyError = '';
     state.busyMessage = message || 'Working...';
-    const promise = Promise.resolve()
+    const promise = busyNextPaint()
       .then(task)
       .catch(err => {
         state.busyError = err?.message || String(err);
@@ -17629,12 +17633,14 @@
       updateScheduleBuilderSourceStatus();
       renderScheduleBuilderCourseList();
       renderScheduleBuilderResults();
-      loadScheduleBuilderEffectiveTermRows(state.scheduleBuilderEffectiveTerm)
-        .then(() => renderScheduleBuilderResults())
-        .catch(err => {
-          state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
-          renderScheduleBuilderResults();
-        });
+      withBusyState(`Loading ${state.scheduleBuilderEffectiveTerm} for Schedule Builder...`, () => loadScheduleBuilderEffectiveTermRows(state.scheduleBuilderEffectiveTerm)
+        .then(() => renderScheduleBuilderResults()), {
+          key: `scheduleBuilderTerm:${state.scheduleBuilderEffectiveTerm}`,
+          button: null
+        }).catch(err => {
+        state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
+        renderScheduleBuilderResults();
+      });
     });
     attachBusyClick('sbUseCurrentTerm', 'Loading current term for Schedule Builder...', () => {
       state.scheduleBuilderEffectiveTerm = normalizeTermLabel(currentTerm());

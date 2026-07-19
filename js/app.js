@@ -50,6 +50,58 @@ const ROOM_AVAILABILITY_MODALITY_DISPLAY = {
   }
 };
 
+function ensureAppBusyOverlay() {
+  let overlay = document.getElementById('appBusyOverlay') || document.getElementById('analyticsBusyOverlay');
+  if (overlay) return overlay;
+  if (!document.getElementById('appBusyOverlayStyles')) {
+    document.head.insertAdjacentHTML('beforeend', `<style id="appBusyOverlayStyles">
+      .app-busy-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;background:rgba(13,31,54,.28);backdrop-filter:blur(1px)}
+      .app-busy-overlay[hidden]{display:none}
+      .app-busy-card{display:grid;justify-items:center;gap:8px;min-width:min(360px,calc(100vw - 40px));max-width:min(460px,calc(100vw - 40px));padding:20px;border:1px solid #bfd2e4;border-radius:14px;background:#fff;box-shadow:0 18px 46px rgba(16,32,51,.22);color:#123367;text-align:center}
+      .app-busy-card strong{font-size:18px}
+      .app-busy-card span{color:#51657c;font-size:13px}
+      .app-busy-spinner{width:36px;height:36px;border:4px solid #d8e8f3;border-top-color:#1f7aa8;border-radius:50%;animation:app-spin .85s linear infinite}
+      @keyframes app-spin{to{transform:rotate(360deg)}}
+    </style>`);
+  }
+  overlay = document.createElement('div');
+  overlay.id = 'appBusyOverlay';
+  overlay.className = 'app-busy-overlay';
+  overlay.setAttribute('role', 'status');
+  overlay.setAttribute('aria-live', 'polite');
+  overlay.setAttribute('hidden', '');
+  overlay.innerHTML = `
+    <div class="app-busy-card">
+      <div class="app-busy-spinner" aria-hidden="true"></div>
+      <strong id="appBusyMessage">Loading...</strong>
+      <span id="appBusyDetail">Please wait while TIMBER loads the selected data.</span>
+    </div>
+  `;
+  if (!document.body) return overlay;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function showAppBusy(message = 'Loading...', detail = 'Please wait while TIMBER loads the selected data.') {
+  const overlay = ensureAppBusyOverlay();
+  overlay.removeAttribute('hidden');
+  document.body?.setAttribute('aria-busy', 'true');
+  const messageNode = document.getElementById('appBusyMessage') || document.getElementById('analyticsBusyMessage');
+  const detailNode = document.getElementById('appBusyDetail') || document.getElementById('analyticsBusyDetail');
+  if (messageNode) messageNode.textContent = message;
+  if (detailNode) detailNode.textContent = detail;
+}
+
+function hideAppBusy() {
+  const overlay = document.getElementById('appBusyOverlay') || document.getElementById('analyticsBusyOverlay');
+  if (overlay) overlay.setAttribute('hidden', '');
+  document.body?.removeAttribute('aria-busy');
+}
+
+function nextPaint() {
+  return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
 // --- Official Term Start Dates ---
 const termStartDates = {
   'Summer 2026': '2026-06-01',
@@ -1283,10 +1335,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const tab = document.createElement('div');
     tab.className = 'tab' + (i === defaultTermIndex ? ' active' : '');
     tab.textContent = term;
-    tab.onclick = () => selectTerm(term, tab);
+    tab.onclick = () => selectTerm(term, tab, { showBusy: true });
     tabs.appendChild(tab);
   });
-  selectTerm(terms[defaultTermIndex], tabs.children[defaultTermIndex]);
+  selectTerm(terms[defaultTermIndex], tabs.children[defaultTermIndex], { showBusy: false });
 
   checkBtn.onclick = handleAvailability;
   clearBtn.onclick = () => {
@@ -2435,10 +2487,15 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   // --- Backend fetch instead of localStorage ---
-  async function loadScheduleFromBackend(term) {
+  async function loadScheduleFromBackend(term, options = {}) {
     const notify = window.COSUtils?.notify;
     const fetchJson = window.COSUtils?.fetchJson;
+    const showBusy = options.showBusy !== false;
     try {
+      if (showBusy) {
+        showAppBusy(`Loading ${term} schedule data...`, 'TIMBER is loading backend schedule rows and rebuilding the schedule views.');
+        await nextPaint();
+      }
       const payload = fetchJson
         ? await fetchJson(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`)
         : await fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`).then(res => {
@@ -2473,6 +2530,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       tsDiv.textContent = `Could not load ${term}: ${err.message || 'backend request failed'}`;
       updateRoomAvailabilityFreshnessPanel();
       notify?.(`Could not load ${term}. ${err.message || 'Backend request failed.'}`, 'error');
+    } finally {
+      if (showBusy) hideAppBusy();
     }
   }
 
@@ -2503,7 +2562,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
   }
 
-  function selectTerm(term, tabElem) {
+  function selectTerm(term, tabElem, options = {}) {
     currentTerm = term;
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tabElem.classList.add('active');
@@ -2512,7 +2571,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     updateRoomEventsStatus();
     renderRoomEventValidation();
     updateRoomAvailabilityFreshnessPanel();
-    loadScheduleFromBackend(term);
+    loadScheduleFromBackend(term, { showBusy: options.showBusy !== false });
   }
 
   function setupUpload() {
