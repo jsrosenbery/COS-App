@@ -3701,7 +3701,10 @@ test('source data hub centralizes upload controls while keeping datasets separat
   assert.match(app, /Faculty Schedule Data/);
   assert.match(app, /Work Experience Enrollment/);
   assert.match(app, /Enrollment Snapshots/);
-  assert.match(app, /Room Catalog, Events, and Mappings/);
+  assert.match(app, /Catalogs, Events, and Mappings/);
+  assert.match(app, /id="sourceDataHubAdminImportsMount"/);
+  assert.match(app, /source-data-admin-imports/);
+  assert.match(app, /dataHubMount\.appendChild\(adminTools\)/);
   assert.match(app, /id="dataHubSectionCsv"/);
   assert.match(app, /archiveUploads\('dataHubSectionCsv'\)/);
   assert.match(app, /id="dataHubFacultyScheduleCsv"/);
@@ -3712,6 +3715,8 @@ test('source data hub centralizes upload controls while keeping datasets separat
   assert.match(app, /saveDataHubSnapshotBatch/);
   assert.match(app, /does not merge backend collections or report state arrays/);
   assert.match(app, /setReportDisplay\(REPORTS\.dataHub, 'sourceDataHubReport'\)/);
+  assert.doesNotMatch(app, /Go to Administrative Imports/);
+  assert.doesNotMatch(app, /shown in the Administration import area below the reports/);
 });
 
 test('backend keeps faculty schedule archives isolated from section schedule storage', () => {

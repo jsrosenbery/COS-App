@@ -1899,7 +1899,7 @@
                   <li>Use Section Seating / Schedule Data for enrollment, section, room, modality, schedule builder, Room Availability, and planning reports.</li>
                   <li>Use Faculty Schedule Data only for faculty-pattern reports, instructor/faculty planning views, and Development reports that explicitly consume faculty assignment/status data.</li>
                   <li>Use Work Experience Enrollment as a supplemental enrollment/FTES source. It is kept separate from regular section seating rows.</li>
-                  <li>Room Catalog, Room Events, CAL-GETC, modality definitions, and curriculum crosswalk uploads remain separate administrative datasets.</li>
+                  <li>Room Catalog, Room Events, CAL-GETC, modality definitions, and curriculum crosswalk controls are grouped in this hub while remaining separate administrative datasets.</li>
                 </ul>
               </div>
               <div>
@@ -1955,15 +1955,13 @@
               </div>
               <p id="dataHubSnapshotStatus" class="analytics-note">Stored snapshot count not refreshed yet.</p>
             </section>
-            <section class="source-data-card" data-source-type="admin-imports">
-              <h3>Room Catalog, Events, and Mappings</h3>
-              <p>Room Catalog, Room Events, modality definitions, CAL-GETC, and curriculum crosswalk imports are shown in the Administration import area below the reports. They remain separate optional administrative datasets.</p>
-              <div class="analytics-toolbar">
-                <button id="dataHubJumpAdminImports" type="button">Go to Administrative Imports</button>
-              </div>
+            <section class="source-data-card source-data-card-wide" data-source-type="admin-imports">
+              <h3>Catalogs, Events, and Mappings</h3>
+              <p>Room Catalog, Room Events, modality definitions, CAL-GETC, and curriculum crosswalk imports are available below in the Source Data Hub. They remain separate optional administrative datasets.</p>
               <p class="analytics-note">Room Availability logic is unchanged. Room features and priorities remain catalog attributes; room events remain soft reservations.</p>
             </section>
           </div>
+          <div id="sourceDataHubAdminImportsMount" class="source-data-admin-imports"></div>
           <div id="sourceDataHubLegend" class="analytics-legend"></div>
         </div>
         <div id="roomFitReport" class="analytics-view">
@@ -3114,6 +3112,12 @@
   function placeAdminToolsAtBottom() {
     const adminTools = document.getElementById('admin-tools');
     if (!adminTools || !document.body.contains(adminTools)) return;
+    const dataHubMount = document.getElementById('sourceDataHubAdminImportsMount');
+    if (dataHubMount) {
+      adminTools.classList.add('source-data-admin-tools');
+      dataHubMount.appendChild(adminTools);
+      return;
+    }
     const tooltip = document.getElementById('class-block-tooltip');
     if (tooltip && tooltip.parentElement === document.body) document.body.insertBefore(adminTools, tooltip);
     else document.body.appendChild(adminTools);
@@ -17249,6 +17253,9 @@
       .source-data-card h3{margin:0;color:#123367;font-size:17px}
       .source-data-card p{margin:0;color:#40546b;line-height:1.4}
       .source-data-card .analytics-toolbar{margin:0;padding:0;border:0;background:transparent;box-shadow:none}
+      .source-data-card-wide{grid-column:1/-1}
+      .source-data-admin-imports{margin-top:14px}
+      .source-data-admin-imports .source-data-admin-tools{margin:0;width:100%;box-sizing:border-box}
       .source-data-status-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:8px}
       .source-data-status-row span{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border:1px solid #d8e1ec;border-radius:8px;background:#fff;color:#40546b}
       .source-data-status-row strong{color:#123367}
@@ -17613,10 +17620,6 @@
         .catch(err => alert(err.message || 'Work Experience upload failed.'));
     });
     attachBusyClick('dataHubSaveSnapshotBatch', 'Saving enrollment snapshot...', () => saveDataHubSnapshotBatch(), { key: 'dataHubSaveSnapshotBatch', runningLabel: 'Saving...' });
-    document.getElementById('dataHubJumpAdminImports')?.addEventListener('click', () => {
-      const adminTools = document.getElementById('admin-tools');
-      if (adminTools) adminTools.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
     document.getElementById('workExperienceCsv')?.addEventListener('change', () => {
       loadWorkExperienceRows()
         .then(() => {
