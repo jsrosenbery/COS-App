@@ -3359,7 +3359,11 @@
   }
 
   async function readCsv(input, options = {}) {
-    const files = Array.from(input?.files || []);
+    let files = Array.from(input?.files || []);
+    const sourceAlias = input?.dataset?.sourceInput || '';
+    if (!files.length && sourceAlias) {
+      files = Array.from(document.getElementById(sourceAlias)?.files || []);
+    }
     if (!files.length) return [];
     const batches = await Promise.all(files.map(file => new Promise((resolve, reject) => {
       const sourceTerm = termFromFilename(file.name);
@@ -4178,7 +4182,7 @@
   }
 
   async function loadFacultyScheduleHeatmap() {
-    const input = document.getElementById('facultyScheduleCsv');
+    const input = document.getElementById('dataHubFacultyScheduleCsv');
     const rows = input?.files?.length
       ? await readFacultyScheduleFiles(input)
       : await readSavedFacultyScheduleRows('facultyScheduleArchiveTerm');
@@ -4673,7 +4677,7 @@
   }
 
   async function loadFacultyModality() {
-    const input = document.getElementById('facultyModalityCsv');
+    const input = document.getElementById('dataHubFacultyScheduleCsv');
     const rows = input?.files?.length
       ? await readFacultyScheduleFiles(input)
       : await readSavedFacultyScheduleRows('facultyModalityArchiveTerm');
@@ -4768,7 +4772,7 @@
   }
 
   async function loadInstructionalMethodValidationRows() {
-    const uploadedRows = await readCsv(document.getElementById('instructionalMethodValidationCsv'), { sourceType: 'INSTRUCTIONAL_METHOD_VALIDATION_UPLOAD' });
+    const uploadedRows = await readCsv(document.getElementById('dataHubSectionCsv'), { sourceType: 'INSTRUCTIONAL_METHOD_VALIDATION_UPLOAD' });
     const archivedRows = await readArchivedRows('instructionalMethodValidationArchiveTerms', { reportLabel: 'Data Validation' });
     state.instructionalMethodValidationRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     return state.instructionalMethodValidationRows;
@@ -5268,7 +5272,7 @@
   }
 
   async function loadPrimeTimeAnalysis() {
-    const input = document.getElementById('primeTimeCsv');
+    const input = document.getElementById('dataHubFacultyScheduleCsv');
     const rows = input?.files?.length
       ? await readFacultyScheduleFiles(input)
       : await readSavedFacultyScheduleRows('primeTimeArchiveTerm');
@@ -5744,7 +5748,7 @@
   }
 
   async function loadSupplyDemandRows() {
-    const uploadedRows = await readCsv(document.getElementById('supplyDemandCsv'), { sourceType: 'SUPPLY_DEMAND_UPLOAD' });
+    const uploadedRows = await readCsv(document.getElementById('dataHubSectionCsv'), { sourceType: 'SUPPLY_DEMAND_UPLOAD' });
     const archivedRows = await readArchivedRows('sdArchiveTerms', { reportLabel: 'Supply vs. Demand' });
     state.supplyDemandRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     updateSupplyDemandFilterOptions();
@@ -6237,7 +6241,7 @@
   }
 
   async function loadBusyTimeDashboardRows() {
-    const uploadedRows = await readCsv(document.getElementById('busyTimeCsv'), { sourceType: 'BUSY_TIME_UPLOAD' });
+    const uploadedRows = await readCsv(document.getElementById('dataHubSectionCsv'), { sourceType: 'BUSY_TIME_UPLOAD' });
     const archivedRows = await readArchivedRows('busyTimeArchiveTerms', { reportLabel: 'Busy Time Dashboard' });
     state.busyTimeRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     const facultyInput = document.getElementById('busyTimeFacultyCsv');
@@ -7099,7 +7103,7 @@
   }
 
   async function loadStudentChoiceRows() {
-    const uploadedRows = await readCsv(document.getElementById('studentChoiceCsv'), { sourceType: 'STUDENT_CHOICE_UPLOAD' });
+    const uploadedRows = await readCsv(document.getElementById('dataHubSectionCsv'), { sourceType: 'STUDENT_CHOICE_UPLOAD' });
     const archivedRows = await readArchivedRows('studentChoiceArchiveTerms', { reportLabel: 'Schedule Opportunity' });
     state.studentChoiceRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     const facultyInput = document.getElementById('studentChoiceFacultyCsv');
@@ -7567,7 +7571,7 @@
   }
 
   async function loadRecommendationRows() {
-    const uploadedRows = await readCsv(document.getElementById('recommendationCsv'), { sourceType: 'RECOMMENDATION_UPLOAD' });
+    const uploadedRows = await readCsv(document.getElementById('dataHubSectionCsv'), { sourceType: 'RECOMMENDATION_UPLOAD' });
     const archivedRows = await readArchivedRows('recommendationArchiveTerms', { reportLabel: 'Schedule Recommendation' });
     state.recommendationRows = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     const facultyInput = document.getElementById('recommendationFacultyCsv');
@@ -8544,7 +8548,7 @@
     exportRows(rows, filename);
   }
 
-  async function loadWorkExperienceRows(inputId = 'workExperienceCsv') {
+  async function loadWorkExperienceRows(inputId = 'dataHubWorkExperienceCsv') {
     const raw = await readCsv(document.getElementById(inputId), { sourceType: 'WORK_EXPERIENCE' });
     state.workExperienceInput = dedupeEnrollmentRows(raw.map(normalize));
     renderWorkExperienceUploadStatus();
@@ -8781,7 +8785,7 @@
     }
   }
 
-  async function saveFacultyScheduleArchive(inputId = 'facultyScheduleCsv') {
+  async function saveFacultyScheduleArchive(inputId = 'dataHubFacultyScheduleCsv') {
     if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so Faculty Schedule data cannot be saved.');
     const token = enrollmentManagementToken();
     if (!token) {
@@ -9299,7 +9303,7 @@
   }
 
   async function loadDashboardRows() {
-    const uploadedRows = await readCsv(document.getElementById('dashboardCsv'), { sourceType: 'DASHBOARD_UPLOAD' });
+    const uploadedRows = await readCsv(document.getElementById('dataHubSectionCsv'), { sourceType: 'DASHBOARD_UPLOAD' });
     const archivedRows = await readArchivedRows('dashArchiveTerms', { reportLabel: 'Enrollment Analytics Dashboard' });
     state.dashboardInput = dedupeEnrollmentRows([...uploadedRows, ...archivedRows].map(normalize));
     return state.dashboardInput;
@@ -9469,7 +9473,7 @@
     const historicalTerms = collectRowTerms(historicalRows);
     const lifecycle = summaryLifecycleAvailability(currentRows);
     const sourceTerms = collectRowTerms(dashboardSourceRows());
-    const uploadedFiles = Array.from(document.getElementById('dashboardCsv')?.files || []).map(file => file.name);
+    const uploadedFiles = Array.from(document.getElementById('dataHubSectionCsv')?.files || []).map(file => file.name);
     const selectedArchivedTerms = getSelectedValues('dashArchiveTerms');
     const focusTermNotStarted = dashboardFocusTermNotStarted(currentRows, focusTerm);
     const workExperienceLoaded = workExperienceSummary(workExperienceRows());
@@ -12249,7 +12253,7 @@
   }
 
   async function loadInstructorAvailabilityFacultySchedule() {
-    const input = document.getElementById('iaFacultyScheduleCsv');
+    const input = document.getElementById('dataHubFacultyScheduleCsv');
     const rows = input?.files?.length
       ? await readFacultyScheduleFiles(input)
       : await readSavedFacultyScheduleRows('iaFacultyArchiveTerm');
@@ -15644,11 +15648,11 @@
     [REPORTS.studentPresence]: 'studentPresenceReport',
     [REPORTS.facultyModality]: 'facultyModalityReport',
     [REPORTS.instructionalMethodValidation]: 'instructionalMethodValidationReport',
-    [REPORTS.primeTimeAnalysis]: 'primeTimeReport',
+    [REPORTS.primeTimeAnalysis]: 'primeTimeAnalysisReport',
     [REPORTS.supplyDemand]: 'supplyDemandReport',
-    [REPORTS.busyTimeDashboard]: 'busyTimeReport',
-    [REPORTS.studentChoiceOpportunity]: 'studentChoiceReport',
-    [REPORTS.recommendationEngine]: 'recommendationReport',
+    [REPORTS.busyTimeDashboard]: 'busyTimeDashboardReport',
+    [REPORTS.studentChoiceOpportunity]: 'studentChoiceOpportunityReport',
+    [REPORTS.recommendationEngine]: 'recommendationEngineReport',
     [REPORTS.facultyHeatmap]: 'facultyHeatmapReport',
     [REPORTS.scheduleOptimizationLab]: 'scheduleOptimizationLabReport',
     [REPORTS.scheduleBuilder]: 'scheduleBuilderReport',
