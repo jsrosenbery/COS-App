@@ -17005,7 +17005,6 @@
     updateReportAccessOptions();
     wrap.style.display = 'block';
     document.getElementById('emReportControls').hidden = false;
-    document.getElementById('workExperienceUploadPanel').hidden = !selectedAccessible || selected !== REPORTS.workExperience;
     const role = currentAccessRole();
     document.getElementById('unlockEnrollmentManagement').hidden = role === 'admin';
     document.getElementById('lockEnrollmentReports').hidden = role === 'general' && !enrollmentManagementToken();

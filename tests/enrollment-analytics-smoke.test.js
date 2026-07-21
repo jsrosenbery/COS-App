@@ -3758,6 +3758,7 @@ test('report screens do not expose CSV upload controls outside source data hub',
   assert.match(app, /id="dataHubFacultyScheduleCsv"/);
   assert.match(app, /id="dataHubWorkExperienceCsv"/);
   assert.match(app, /id="dataHubSnapshotCsv"/);
+  assert.doesNotMatch(app, /workExperienceUploadPanel/);
 });
 
 test('backend keeps faculty schedule archives isolated from section schedule storage', () => {
