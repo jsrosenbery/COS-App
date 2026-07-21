@@ -2493,7 +2493,7 @@ test('demand forecast context separates current snapshot from historical trend p
   assert.ok(warnings.some(item => /Historical Trend Expected Enrollment/.test(item)));
   assert.ok(warnings.some(item => /planning estimate/.test(item)));
   assert.ok(confidence.lowered.some(item => /No weekly registration snapshots/.test(item)));
-  assert.ok(exportRows.some(row => row.Section === 'Report Context' && row.Field === 'Forecast Type' && row.Value === 'Historical Benchmark Projection'));
+  assert.ok(exportRows.some(row => row.Section === 'Report Context' && row.Field === 'Forecast Type' && row.Value === 'Sustainable Growth Projection'));
   assert.ok(exportRows.some(row => row.Section === 'Report Context' && row.Field === 'Current Snapshot Enrollment' && row.Value === 75));
   assert.ok(exportRows.some(row => row.Section === 'Confidence Factors - Lowered'));
   assert.ok(exportRows.some(row => row.Section === 'Projection Warnings'));
@@ -2521,21 +2521,27 @@ test('demand active snapshot uses upload timestamp when explicit snapshot date i
   assert.equal(snapshot.isIncompleteActiveTerm, true);
 });
 
-test('demand historical benchmark caps growth above historical max without material schedule increase', () => {
+test('demand sustainable projection dampens recovery spikes and does not let schedule shortfall reduce demand', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const termRows = [
-    { term: 'FALL 2023', census: 100, final: 98, ftes: 10, capacity: 130, sections: 5, fillRate: 0.77 },
-    { term: 'FALL 2024', census: 104, final: 101, ftes: 10.4, capacity: 130, sections: 5, fillRate: 0.8 },
-    { term: 'FALL 2025', census: 108, final: 106, ftes: 10.8, capacity: 130, sections: 5, fillRate: 0.83 }
+    { term: 'FY/AY 2023', census: 73785, final: 73785, ftes: 7931.2, capacity: 100000, sections: 1000, fillRate: 0.74 },
+    { term: 'FY/AY 2024', census: 86544, final: 86544, ftes: 9302, capacity: 110000, sections: 1100, fillRate: 0.79 },
+    { term: 'FY/AY 2025', census: 92171, final: 92171, ftes: 9930.2, capacity: 115000, sections: 1150, fillRate: 0.8 },
+    { term: 'FY/AY 2026', census: 93847, final: 93847, ftes: 10005.1, capacity: 116000, sections: 1160, fillRate: 0.81 }
   ];
-  const projection = COSEnrollmentAnalytics.demandHistoricalBenchmarkProjection(termRows, { enrollment: 80, scheduledClassOfferings: 5, seatsOffered: 130, ftes: 8 }, { growthModifier: 0.1 });
+  const projection = COSEnrollmentAnalytics.demandHistoricalBenchmarkProjection(termRows, { enrollment: 0, scheduledClassOfferings: 259, seatsOffered: 10324, ftes: 0 });
 
-  assert.equal(projection.method, 'Historical Benchmark Projection');
+  assert.equal(projection.method, 'Sustainable Growth Projection');
   assert.equal(projection.projectedGrowthCapped, true);
   assert.equal(projection.materialScheduleIncrease, false);
-  assert.ok(projection.uncappedAdjustedForecastGrowth > projection.historicalMaxGrowth);
-  assert.ok(projection.finalExpectedProjection.enrollment < projection.uncappedExpectedEnrollment);
+  assert.equal(projection.scheduleAdjustmentUsedAsDemandFactor, false);
+  assert.ok(projection.scheduleSupplyReadinessFactor < 1);
+  assert.ok(projection.cappedRecoverySpikeCount >= 1);
+  assert.ok(projection.finalExpectedProjection.enrollment >= 93847);
+  assert.ok(projection.finalExpectedProjection.enrollment > projection.scheduleAdjustedProjection.enrollment);
   assert.equal(Math.round(projection.expectedRange.mostLikely), Math.round(projection.finalExpectedProjection.enrollment));
+  assert.ok(projection.expectedRange.low >= 93847);
+  assert.ok(projection.expectedRange.high < 110000);
   assert.ok(projection.confidenceFactors.lowered.some(item => /weekly registration snapshots/.test(item)));
 });
 
@@ -2564,7 +2570,7 @@ test('demand historical benchmark documents ratio-based FTES and divergence warn
   assert.ok(projection.ftesPerEnrollmentDiagnostics.currentFtesPerEnrollment > projection.ftesPerEnrollmentDiagnostics.historicalFtesPerEnrollment);
 });
 
-test('demand historical benchmark allows higher growth when schedule size materially increases', () => {
+test('demand sustainable projection reports material schedule increase as readiness context', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const termRows = [
     { term: 'FALL 2023', census: 100, final: 98, ftes: 10, capacity: 130, sections: 5, fillRate: 0.77 },
@@ -2574,7 +2580,8 @@ test('demand historical benchmark allows higher growth when schedule size materi
   const projection = COSEnrollmentAnalytics.demandHistoricalBenchmarkProjection(termRows, { enrollment: 80, scheduledClassOfferings: 6, seatsOffered: 150, ftes: 8 }, { growthModifier: 0.1 });
 
   assert.equal(projection.materialScheduleIncrease, true);
-  assert.equal(projection.projectedGrowthCapped, false);
+  assert.equal(projection.scheduleAdjustmentUsedAsDemandFactor, false);
+  assert.ok(projection.scheduleSupplyReadinessFactor > 1);
   assert.ok(projection.finalExpectedProjection.enrollment >= projection.uncappedExpectedEnrollment - 0.001);
 });
 
@@ -3487,6 +3494,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
     'REPORTS.scheduleOptimizationLab',
     'REPORTS.facultyModality',
     'REPORTS.instructionalMethodValidation',
+    'REPORTS.dataHub',
     'REPORTS.snapshotManager',
     'REPORTS.archiveInspection',
     'REPORTS.workExperience'
@@ -3677,6 +3685,33 @@ test('data validation and mapping report is an Admin diagnostic', () => {
   assert.match(app, /id="exportInstructionalMethodValidation"/);
   assert.match(app, /setReportDisplay\(REPORTS\.instructionalMethodValidation, 'instructionalMethodValidationReport'\)/);
   assert.match(app, /instructional-method-validation\.csv/);
+});
+
+test('source data hub centralizes upload controls while keeping datasets separated', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
+  const adminBlock = reports.slice(reports.indexOf("key: 'admin'"), reports.indexOf('REPORT_GROUP_SUBTITLES'));
+
+  assert.match(reports, /dataHub: 'source-data-hub'/);
+  assert.match(reports, /\[REPORTS\.dataHub\]: 'admin'/);
+  assert.match(reports, /\[REPORTS\.dataHub\]: 'Source Data Hub'/);
+  assert.match(adminBlock, /REPORTS\.dataHub/);
+  assert.match(app, /id="sourceDataHubReport"/);
+  assert.match(app, /Section Seating \/ Schedule Data/);
+  assert.match(app, /Faculty Schedule Data/);
+  assert.match(app, /Work Experience Enrollment/);
+  assert.match(app, /Enrollment Snapshots/);
+  assert.match(app, /Room Catalog, Events, and Mappings/);
+  assert.match(app, /id="dataHubSectionCsv"/);
+  assert.match(app, /archiveUploads\('dataHubSectionCsv'\)/);
+  assert.match(app, /id="dataHubFacultyScheduleCsv"/);
+  assert.match(app, /saveFacultyScheduleArchive\('dataHubFacultyScheduleCsv'\)/);
+  assert.match(app, /id="dataHubWorkExperienceCsv"/);
+  assert.match(app, /loadWorkExperienceRows\('dataHubWorkExperienceCsv'\)/);
+  assert.match(app, /id="dataHubSnapshotCsv"/);
+  assert.match(app, /saveDataHubSnapshotBatch/);
+  assert.match(app, /does not merge backend collections or report state arrays/);
+  assert.match(app, /setReportDisplay\(REPORTS\.dataHub, 'sourceDataHubReport'\)/);
 });
 
 test('backend keeps faculty schedule archives isolated from section schedule storage', () => {

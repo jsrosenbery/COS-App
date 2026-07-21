@@ -1,6 +1,6 @@
 # Enrollment Planning Forecast Calculation Trace
 
-This document traces the current Enrollment Planning Forecast from raw enrollment inputs to the final `Forecast Growth Rate Applied`.
+This document traces the current Enrollment Planning Forecast from raw enrollment inputs to the final Sustainable Growth Projection.
 
 It is documentation only. It does not change calculations, filters, exports, state, or Room Availability behavior.
 
@@ -23,13 +23,15 @@ Main execution path:
 11. `demandHistoricalBenchmarkProjection(termRows, currentTotals, options)`
 12. shared `COSTrendProjection.buildProjection()` in `js/enrollment/trend-projection.js`
 
-The final displayed/exported growth field is:
+The final displayed/exported demand-growth field is `Sustainable Growth Rate`.
+
+The diagnostic field `Projection Growth vs Historical Average` is:
 
 ```js
 adjustedForecastGrowth = safeDiv(expectedEnrollmentNextTerm, avgCensusEnrollment) - 1
 ```
 
-where `expectedEnrollmentNextTerm` is normally supplied by `demandHistoricalBenchmarkProjection()` and `avgCensusEnrollment` is the average historical census enrollment across the included comparable term buckets for the row.
+where `expectedEnrollmentNextTerm` is supplied by `demandHistoricalBenchmarkProjection()` and `avgCensusEnrollment` is the average historical census enrollment across the included comparable term buckets for the row. This diagnostic is not the growth rate used to create the projection.
 
 ## Raw Inputs
 
@@ -205,7 +207,7 @@ avgCapacity = average(termRows.map(row => row.capacity))
 - `scheduledClassOfferings`: distinct sections when possible, otherwise row count
 - `ftes`: sum of FTES
 
-These current totals are not the historical growth series. They are used mainly for schedule adjustment and confidence diagnostics.
+These current totals are not the historical growth series. They are used for schedule-readiness diagnostics and confidence context. They do not reduce the enrollment-demand projection.
 
 ## Shared Trend Projection Engine
 
@@ -315,35 +317,44 @@ finalExpectedEnrollment = scheduleAdjustedEnrollment * (1 + growthModifier)
 
 This is the uncapped model output returned from the shared trend engine.
 
-## Historical Benchmark Projection Wrapper
+## Sustainable Growth Projection Wrapper
 
-`demandHistoricalBenchmarkProjection()` wraps the shared trend engine and adds conservatism, FTES ratio logic, and confidence factors.
+`demandHistoricalBenchmarkProjection()` wraps the shared trend engine and applies COS planning assumptions:
+
+- start from the most recent comparable completed term or FY/AY as the previous comparable benchmark
+- calculate a sustainable growth rate from comparable historical growth
+- cap unusually high recovery-spike growth rates at `10%` when they exceed the `12%` recovery-spike threshold
+- floor routine negative historical growth rates at `0%`
+- treat current schedule size as supply/readiness context rather than as a demand reducer
+- build a bounded planning range around the most-likely estimate
 
 Intermediate values:
 
-- `baselineEnrollment`: trend historical baseline enrollment, otherwise average census
-- `baselineFtes`: trend historical baseline FTES, otherwise average FTES
-- `scheduleAdjustment`: trend schedule adjustment, otherwise all factors = 1
-- `materialScheduleIncrease`: true when offering or seat factor is at least `1 + scheduleIncreaseThreshold`
-- default `scheduleIncreaseThreshold`: `0.05`
-- `uncappedMostLikely`: shared final expected enrollment, otherwise baseline x CAGR x schedule factor
+- `historicalAverageEnrollment`: average census across included comparable buckets
+- `baselineEnrollment`: most recent comparable completed census enrollment, falling back to historical average
+- `sustainableGrowthRate`: recency-weighted average of dampened growth rows
+- `scheduleAdjustment`: legacy/shared trend schedule factor retained as schedule-readiness diagnostics
+- `scheduleSupplyReadinessFactor`: loaded current schedule size compared with historical schedule size
+- `scheduleAdjustmentUsedAsDemandFactor`: always `false` for this planning projection
 - `uncappedGrowth`: `uncappedMostLikely / baselineEnrollment - 1`
-- `historicalMaxGrowth`: maximum year-over-year historical growth from `growthStatsFromTermRows()`
 
-The conservatism cap is:
+Growth row dampening is:
 
 ```js
-cappedGrowth =
-  !materialScheduleIncrease && uncappedGrowth > historicalMaxGrowth + 0.01
-    ? historicalMaxGrowth
-    : uncappedGrowth
+nonRegressionRate = max(0, rawGrowthRate)
+adjustedRate =
+  nonRegressionRate > 0.12
+    ? min(nonRegressionRate, 0.10)
+    : nonRegressionRate
 ```
 
 Then:
 
 ```js
-projectedGrowthCapped = cappedGrowth !== uncappedGrowth
-mostLikely = max(0, baselineEnrollment * (1 + cappedGrowth))
+mostLikely = max(
+  baselineEnrollment,
+  baselineEnrollment * (1 + sustainableGrowthRate + growthModifier)
+)
 ```
 
 This `mostLikely` value becomes `trendModel.finalExpectedProjection.enrollment`.
@@ -366,7 +377,7 @@ So the final FTES estimate is tied to the final most-likely enrollment projectio
 
 The FTES range applies the same enrollment range spread through that ratio.
 
-## Final Forecast Growth Rate Applied
+## Final Sustainable Growth Output
 
 Back in `demandForecastRow()`, the final displayed/exported row values are assigned.
 
@@ -377,7 +388,13 @@ expectedEnrollmentNextTerm =
   round(trendModel.finalExpectedProjection.enrollment)
 ```
 
-The final Forecast Growth Rate Applied is:
+The final sustainable growth rate is:
+
+```js
+sustainableGrowthRate = trendModel.sustainableGrowthRate
+```
+
+The projection-growth diagnostic versus the historical average is:
 
 ```js
 adjustedForecastGrowth =
@@ -386,18 +403,19 @@ adjustedForecastGrowth =
 
 This is important:
 
-- `finalEnrollmentGrowthRateUsed` is the shared trend engine's recency-weighted growth rate before schedule adjustment, manual modifier, and wrapper-level capping.
-- `recencyWeightedGrowth` is the trend engine enrollment growth rate.
-- `uncappedAdjustedForecastGrowth` is the wrapper's uncapped growth versus the historical baseline.
-- `adjustedForecastGrowth` / `Forecast Growth Rate Applied` is the final rounded forecast enrollment compared with the average historical census enrollment for that row.
+- `finalEnrollmentGrowthRateUsed` is the shared trend engine's raw recency-weighted growth rate before schedule-readiness context.
+- `recencyWeightedGrowth` is the shared trend engine enrollment growth rate.
+- `sustainableGrowthRate` is the dampened planning growth rate used for the demand projection.
+- `uncappedAdjustedForecastGrowth` is the wrapper's uncapped growth versus the previous comparable benchmark.
+- `adjustedForecastGrowth` / `Projection Growth vs Historical Average` is the final rounded forecast enrollment compared with the average historical census enrollment for that row.
 
-Because it is derived from final expected enrollment divided by average historical census enrollment, `Forecast Growth Rate Applied` reflects:
+Because it is derived from final expected enrollment divided by average historical census enrollment, `Projection Growth vs Historical Average` reflects:
 
 1. selected comparable growth series
 2. recency-weighted growth
-3. schedule adjustment
+3. sustainable-growth dampening
 4. manual growth modifier
-5. conservatism cap when triggered
+5. non-regression floor
 6. rounding of the final expected enrollment
 
 ## Legacy Blended Growth Context
@@ -443,6 +461,10 @@ Key fields:
 - `historicalCagr`
 - `historicalMaxGrowth`
 - `recencyWeightedGrowth`
+- `sustainableGrowthRate`
+- `sustainableGrowthRows`
+- `scheduleSupplyReadinessFactor`
+- `scheduleAdjustmentUsedAsDemandFactor`
 - `uncappedAdjustedForecastGrowth`
 - `adjustedForecastGrowth`
 - `projectedGrowthCapped`
@@ -455,9 +477,10 @@ The audit panel formats:
 - historical growth steps
 - growth weights
 - weighted contribution
-- final growth rate used
-- projection before schedule adjustment
-- schedule adjustment factor
+- raw and dampened sustainable-growth inputs
+- final sustainable growth rate used
+- projection before schedule-readiness context
+- schedule readiness factor
 - manual growth modifier
 - final projection
 
@@ -480,16 +503,20 @@ Raw rows
      recency weights from 0.35 to 1.00
      recency-weighted growth rate
      most recent total x (1 + weighted growth)
-     schedule adjustment factor
+     schedule readiness factor
      manual growth modifier
--> historical benchmark wrapper:
-     uncapped growth versus baseline
-     cap to historical max growth if no material schedule increase
+-> sustainable growth wrapper:
+     previous comparable benchmark = most recent completed comparable term/FY bucket
+     cap recovery-spike growth rates above 12% to 10%
+     floor routine negative growth rates at 0%
+     sustainable growth rate from dampened growth rows
+     current schedule size remains readiness context only
      final most-likely enrollment
      FTES via historical FTES/enrollment ratio
 -> row output:
      expectedEnrollmentNextTerm
-     adjustedForecastGrowth = expectedEnrollmentNextTerm / avgCensusEnrollment - 1
+     sustainableGrowthRate
+     adjustedForecastGrowth = expectedEnrollmentNextTerm / avgCensusEnrollment - 1 (diagnostic)
 ```
 
 ## Verification Notes
@@ -500,6 +527,6 @@ The existing test suite includes checks that:
 - Fall and Spring growth rates are not combined into one annual rate
 - expected FTES range mirrors enrollment projection range behavior
 - trend projection replaces simple historical averages
-- schedule adjustment can move projections up or down
+- schedule readiness does not reduce projected enrollment demand
 
 Relevant tests are in `tests/enrollment-analytics-smoke.test.js`, especially the forecast growth audit and demand projection tests.

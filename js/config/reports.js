@@ -30,7 +30,8 @@
     scheduleBuilder: 'schedule-builder',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
-    archiveInspection: 'archive-inspection'
+    archiveInspection: 'archive-inspection',
+    dataHub: 'source-data-hub'
   });
   const ROLE_LEVEL = Object.freeze({
     general: 1,
@@ -50,6 +51,7 @@
   });
   const REPORT_ACCESS = Object.freeze({
     [REPORTS.archiveInspection]: 'admin',
+    [REPORTS.dataHub]: 'admin',
     [REPORTS.snapshotManager]: 'admin',
     [REPORTS.workExperience]: 'admin',
     [REPORTS.dashboard]: 'dean',
@@ -77,6 +79,7 @@
   });
   const REPORT_LABEL = Object.freeze({
     [REPORTS.archiveInspection]: 'Archived Schedule',
+    [REPORTS.dataHub]: 'Source Data Hub',
     [REPORTS.conflictCheck]: 'Conflict Check Report',
     [REPORTS.duration]: 'Active Class Demand',
     [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
@@ -125,6 +128,7 @@
     REPORTS.scheduleOptimizationLab,
     REPORTS.facultyModality,
     REPORTS.instructionalMethodValidation,
+    REPORTS.dataHub,
     REPORTS.snapshotManager,
     REPORTS.archiveInspection,
     REPORTS.workExperience
@@ -174,6 +178,7 @@
       label: 'System Administrator',
       reports: Object.freeze([
         REPORTS.instructionalMethodValidation,
+        REPORTS.dataHub,
         REPORTS.snapshotManager,
         REPORTS.archiveInspection,
         REPORTS.workExperience
@@ -209,6 +214,7 @@
     [REPORTS.studentPresence]: 'Estimate nominal and expected physical student presence by time, room, and campus.',
     [REPORTS.facultyModality]: 'Summarize full-time and part-time faculty class offerings by modality.',
     [REPORTS.instructionalMethodValidation]: 'Review instructional method, faculty type, and meeting type mappings.',
+    [REPORTS.dataHub]: 'Upload, validate, archive, and inspect source datasets from one administrative workspace.',
     [REPORTS.primeTimeAnalysis]: 'Analyze prime-time scheduling concentration against historical patterns.',
     [REPORTS.supplyDemand]: 'Compare scheduled supply against demand during practical planning windows.',
     [REPORTS.busyTimeDashboard]: 'Monitor busy-time signals across faculty, students, rooms, and demand.',

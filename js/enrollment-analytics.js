@@ -37,7 +37,8 @@
     scheduleBuilder: 'schedule-builder',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
-    archiveInspection: 'archive-inspection'
+    archiveInspection: 'archive-inspection',
+    dataHub: 'source-data-hub'
   };
   const ROLE_LEVEL = reportConfig.ROLE_LEVEL || {
     general: 1,
@@ -57,6 +58,7 @@
   };
   const REPORT_ACCESS = reportConfig.REPORT_ACCESS || {
     [REPORTS.archiveInspection]: 'admin',
+    [REPORTS.dataHub]: 'admin',
     [REPORTS.snapshotManager]: 'admin',
     [REPORTS.workExperience]: 'admin',
     [REPORTS.dashboard]: 'dean',
@@ -112,6 +114,7 @@
   ];
   const REPORT_LABEL = reportConfig.REPORT_LABEL || {
     [REPORTS.archiveInspection]: 'Archived Schedule',
+    [REPORTS.dataHub]: 'Source Data Hub',
     [REPORTS.conflictCheck]: 'Conflict Check Report',
     [REPORTS.duration]: 'Active Class Demand',
     [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
@@ -160,6 +163,7 @@
     REPORTS.scheduleOptimizationLab,
     REPORTS.facultyModality,
     REPORTS.instructionalMethodValidation,
+    REPORTS.dataHub,
     REPORTS.snapshotManager,
     REPORTS.archiveInspection,
     REPORTS.workExperience
@@ -209,6 +213,7 @@
       label: 'System Administrator',
       reports: [
         REPORTS.instructionalMethodValidation,
+        REPORTS.dataHub,
         REPORTS.snapshotManager,
         REPORTS.archiveInspection,
         REPORTS.workExperience
@@ -244,6 +249,7 @@
     [REPORTS.studentPresence]: 'Estimate nominal and expected physical student presence by time, room, and campus.',
     [REPORTS.facultyModality]: 'Summarize full-time and part-time faculty class offerings by modality.',
     [REPORTS.instructionalMethodValidation]: 'Review instructional method, faculty type, and meeting type mappings.',
+    [REPORTS.dataHub]: 'Upload, validate, archive, and inspect source datasets from one administrative workspace.',
     [REPORTS.primeTimeAnalysis]: 'Analyze prime-time scheduling concentration against historical patterns.',
     [REPORTS.supplyDemand]: 'Compare scheduled supply against demand during practical planning windows.',
     [REPORTS.busyTimeDashboard]: 'Monitor busy-time signals across faculty, students, rooms, and demand.',
@@ -1881,6 +1887,84 @@
           <div id="archiveInspectionMetrics" class="analytics-metrics"></div>
           <div id="archiveInspectionSummary" class="dashboard-grid"></div>
           <div id="archiveInspectionSamples" class="analytics-table"></div>
+        </div>
+        <div id="sourceDataHubReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Source Data Hub</h2>
+            <p>Central administrative workspace for source datasets used throughout TIMBER. Uploads remain stored by dataset type so Faculty Schedule Data, Section Seating / Schedule Data, Work Experience, snapshots, room inventory, and mappings do not share state or backend storage.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Hub</h3>
+                <ul>
+                  <li>Use Section Seating / Schedule Data for enrollment, section, room, modality, schedule builder, Room Availability, and planning reports.</li>
+                  <li>Use Faculty Schedule Data only for faculty-pattern reports, instructor/faculty planning views, and Development reports that explicitly consume faculty assignment/status data.</li>
+                  <li>Use Work Experience Enrollment as a supplemental enrollment/FTES source. It is kept separate from regular section seating rows.</li>
+                  <li>Room Catalog, Room Events, CAL-GETC, modality definitions, and curriculum crosswalk uploads remain separate administrative datasets.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Safety</h3>
+                <ul>
+                  <li>This hub centralizes upload workflow only. It does not merge backend collections or report state arrays.</li>
+                  <li>Existing report upload controls remain available during this transition for compatibility.</li>
+                  <li>Reports continue to select terms and source scopes inside each report; this hub manages what source data is available.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div id="sourceDataHubStatus" class="dashboard-scope-panel"></div>
+          <div class="source-data-hub-grid">
+            <section class="source-data-card" data-source-type="section-seating">
+              <h3>Section Seating / Schedule Data</h3>
+              <p>Regular schedule and enrollment source used by Room Availability, enrollment reports, schedule builder, room planning, and most heatmaps.</p>
+              <div class="analytics-toolbar">
+                <label>Section Seating CSV(s) <input id="dataHubSectionCsv" type="file" accept=".csv" multiple></label>
+                <button id="dataHubArchiveSectionUploads" type="button">Archive Section Seating</button>
+                <button id="dataHubRefreshArchives" type="button">Refresh Archives</button>
+              </div>
+              <p id="dataHubSectionStatus" class="analytics-note">Backend archive list not refreshed yet.</p>
+            </section>
+            <section class="source-data-card" data-source-type="faculty-schedule">
+              <h3>Faculty Schedule Data</h3>
+              <p>Faculty assignment/status report used by Faculty Schedule Heatmap, Faculty Modality, Instructor Availability faculty filters, Prime Time, Busy Time, Student Choice, and recommendation tools.</p>
+              <div class="analytics-toolbar">
+                <label>Faculty Schedule CSV(s) <input id="dataHubFacultyScheduleCsv" type="file" accept=".csv" multiple></label>
+                <button id="dataHubSaveFacultySchedule" type="button">Save Faculty Schedule</button>
+                <button id="dataHubRefreshFacultyArchives" type="button">Refresh Faculty Archives</button>
+              </div>
+              <p id="dataHubFacultyStatus" class="analytics-note">Saved Faculty Schedule archives not refreshed yet.</p>
+            </section>
+            <section class="source-data-card" data-source-type="work-experience">
+              <h3>Work Experience Enrollment</h3>
+              <p>Supplemental Work Experience enrollment/FTES rows used by enrollment dashboard, attrition, and forecast reports when included.</p>
+              <div class="analytics-toolbar">
+                <label>Work Experience CSV(s) <input id="dataHubWorkExperienceCsv" type="file" accept=".csv" multiple></label>
+                <button id="dataHubLoadWorkExperience" type="button">Load Work Experience</button>
+              </div>
+              <p id="dataHubWorkExperienceStatus" class="analytics-note">No Work Experience rows loaded in this session.</p>
+            </section>
+            <section class="source-data-card" data-source-type="snapshots">
+              <h3>Enrollment Snapshots</h3>
+              <p>Term + CRN + snapshot-type records used for first-day, census, final, and lifecycle readiness analysis.</p>
+              <div class="analytics-toolbar">
+                <label>Term <input id="dataHubSnapshotTerm" type="text" placeholder="FALL 2026"></label>
+                <label>Snapshot type <select id="dataHubSnapshotType"><option>First Day</option><option>Census 1</option><option>Final</option><option>Custom</option></select></label>
+                <label>Snapshot date <input id="dataHubSnapshotDate" type="date"></label>
+                <label>Snapshot CSV <input id="dataHubSnapshotCsv" type="file" accept=".csv"></label>
+                <button id="dataHubSaveSnapshotBatch" type="button">Save Snapshot</button>
+              </div>
+              <p id="dataHubSnapshotStatus" class="analytics-note">Stored snapshot count not refreshed yet.</p>
+            </section>
+            <section class="source-data-card" data-source-type="admin-imports">
+              <h3>Room Catalog, Events, and Mappings</h3>
+              <p>Room Catalog, Room Events, modality definitions, CAL-GETC, and curriculum crosswalk imports are shown in the Administration import area below the reports. They remain separate optional administrative datasets.</p>
+              <div class="analytics-toolbar">
+                <button id="dataHubJumpAdminImports" type="button">Go to Administrative Imports</button>
+              </div>
+              <p class="analytics-note">Room Availability logic is unchanged. Room features and priorities remain catalog attributes; room events remain soft reservations.</p>
+            </section>
+          </div>
+          <div id="sourceDataHubLegend" class="analytics-legend"></div>
         </div>
         <div id="roomFitReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -8505,10 +8589,11 @@
     exportRows(rows, filename);
   }
 
-  async function loadWorkExperienceRows() {
-    const raw = await readCsv(document.getElementById('workExperienceCsv'), { sourceType: 'WORK_EXPERIENCE' });
+  async function loadWorkExperienceRows(inputId = 'workExperienceCsv') {
+    const raw = await readCsv(document.getElementById(inputId), { sourceType: 'WORK_EXPERIENCE' });
     state.workExperienceInput = dedupeEnrollmentRows(raw.map(normalize));
     renderWorkExperienceUploadStatus();
+    renderSourceDataHubStatus();
     return state.workExperienceInput;
   }
 
@@ -8564,14 +8649,52 @@
   }
 
   function renderWorkExperienceUploadStatus() {
-    const node = document.getElementById('workExperienceUploadStatus');
-    if (!node) return;
     const rows = workExperienceRows();
     const terms = collectRowTerms(rows);
     const missingFtes = rows.filter(row => row.ftesUnavailable).length;
-    node.textContent = rows.length
+    const text = rows.length
       ? `${rows.length} Work Experience row(s) loaded for this session${terms.length ? `; terms: ${terms.join(', ')}` : ''}${missingFtes ? `; ${missingFtes} missing FTES inputs` : ''}.`
       : 'No Work Experience rows loaded. Work Experience uploads are session only until archive support is added.';
+    ['workExperienceUploadStatus', 'dataHubWorkExperienceStatus'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.textContent = text;
+    });
+  }
+
+  function renderSourceDataHubStatus(message = '') {
+    const archiveTerms = state.archivedAnalyticsTerms || [];
+    const facultyTerms = state.facultyScheduleArchiveTerms || [];
+    const workRows = workExperienceRows();
+    const snapshotRows = state.enrollmentSnapshots || [];
+    const sectionStatus = document.getElementById('dataHubSectionStatus');
+    if (sectionStatus) sectionStatus.textContent = window.BACKEND_BASE_URL
+      ? `${archiveTerms.length} Section Seating / Schedule archive term(s) listed${archiveTerms.length ? `: ${archiveTerms.map(item => item.term || item).filter(Boolean).slice(0, 8).join(', ')}${archiveTerms.length > 8 ? ', ...' : ''}` : '.'}`
+      : 'Backend is not configured; Section Seating archives cannot be listed from this browser.';
+    const facultyStatus = document.getElementById('dataHubFacultyStatus');
+    if (facultyStatus) facultyStatus.textContent = window.BACKEND_BASE_URL
+      ? `${facultyTerms.length} saved Faculty Schedule term(s) listed${facultyTerms.length ? `: ${facultyTerms.map(item => item.term || item).filter(Boolean).slice(0, 8).join(', ')}${facultyTerms.length > 8 ? ', ...' : ''}` : '.'}`
+      : 'Backend is not configured; Faculty Schedule archives cannot be listed from this browser.';
+    const workStatus = document.getElementById('dataHubWorkExperienceStatus');
+    if (workStatus) {
+      const terms = collectRowTerms(workRows);
+      workStatus.textContent = workRows.length
+        ? `${workRows.length} Work Experience row(s) loaded in this session${terms.length ? `; terms: ${terms.join(', ')}` : ''}.`
+        : 'No Work Experience rows loaded in this session.';
+    }
+    const snapshotStatus = document.getElementById('dataHubSnapshotStatus');
+    if (snapshotStatus) snapshotStatus.textContent = `${snapshotRows.length} stored enrollment snapshot record(s) loaded in this browser session.`;
+    const summary = document.getElementById('sourceDataHubStatus');
+    if (summary) {
+      summary.innerHTML = `
+        <div class="source-data-status-row">
+          <span><strong>Section Seating / Schedule Data</strong>${archiveTerms.length} backend term(s)</span>
+          <span><strong>Faculty Schedule Data</strong>${facultyTerms.length} backend term(s)</span>
+          <span><strong>Work Experience</strong>${workRows.length} session row(s)</span>
+          <span><strong>Enrollment Snapshots</strong>${snapshotRows.length} stored record(s)</span>
+        </div>
+        ${message ? `<p class="analytics-note">${escapeAttr(message)}</p>` : '<p class="analytics-note">Data source storage remains separated by dataset type. Reports consume these sources through their existing selectors and filters.</p>'}
+      `;
+    }
   }
 
   function workExperienceSummary(rows) {
@@ -8684,6 +8807,7 @@
       state.facultyScheduleArchiveTerms = [];
       updateFacultyScheduleArchiveSelectors();
       renderOptimizationArchiveStatus('Backend is not configured; saved Faculty Schedule terms cannot be listed.');
+      renderSourceDataHubStatus('Backend is not configured; saved Faculty Schedule terms cannot be listed.');
       return [];
     }
     try {
@@ -8692,22 +8816,24 @@
       state.facultyScheduleArchiveTerms = Array.isArray(payload.data) ? payload.data : [];
       updateFacultyScheduleArchiveSelectors();
       renderOptimizationArchiveStatus();
+      renderSourceDataHubStatus();
       return state.facultyScheduleArchiveTerms;
     } catch (err) {
       console.warn('Faculty Schedule archive list skipped:', err);
       renderOptimizationArchiveStatus(`Faculty Schedule archive list failed: ${err?.message || err}`);
+      renderSourceDataHubStatus(`Faculty Schedule archive list failed: ${err?.message || err}`);
       return [];
     }
   }
 
-  async function saveFacultyScheduleArchive() {
+  async function saveFacultyScheduleArchive(inputId = 'facultyScheduleCsv') {
     if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so Faculty Schedule data cannot be saved.');
     const token = enrollmentManagementToken();
     if (!token) {
       requestReportAccess(REPORTS.facultyHeatmap, REPORT_ACCESS[REPORTS.facultyHeatmap] || 'dean');
       throw new Error('Unlock a report role before saving Faculty Schedule data.');
     }
-    const input = document.getElementById('facultyScheduleCsv');
+    const input = document.getElementById(inputId);
     const files = Array.from(input?.files || []);
     if (!files.length) throw new Error('Choose one or more Faculty Schedule CSV files before saving.');
     if (!window.COSFacultyParser?.parseFacultyScheduleCsvRows) throw new Error('Faculty Schedule parser is not loaded.');
@@ -8732,8 +8858,12 @@
       state.facultyScheduleMetadata = payload.metadata || null;
     }
     await refreshFacultyScheduleArchives();
-    const status = document.getElementById('facultyScheduleArchiveStatus');
-    if (status) status.textContent = savedTerms.length ? `Saved Faculty Schedule term(s): ${savedTerms.join(', ')}` : 'No Faculty Schedule files saved.';
+    const message = savedTerms.length ? `Saved Faculty Schedule term(s): ${savedTerms.join(', ')}` : 'No Faculty Schedule files saved.';
+    ['facultyScheduleArchiveStatus', 'dataHubFacultyStatus'].forEach(id => {
+      const status = document.getElementById(id);
+      if (status) status.textContent = message;
+    });
+    renderSourceDataHubStatus();
     alert(`Saved Faculty Schedule term(s): ${savedTerms.join(', ')}`);
   }
 
@@ -8862,6 +8992,7 @@
   async function refreshAnalyticsArchiveOptions() {
     if (!window.BACKEND_BASE_URL) {
       renderOptimizationArchiveStatus('Backend is not configured; Section Seating archive terms cannot be listed.');
+      renderSourceDataHubStatus('Backend is not configured; Section Seating archive terms cannot be listed.');
       return;
     }
     try {
@@ -8884,9 +9015,11 @@
       setArchiveInspectionTermOptions();
       updateScheduleBuilderTermOptions();
       renderOptimizationArchiveStatus();
+      renderSourceDataHubStatus();
     } catch (err) {
       console.warn('Analytics archive list skipped:', err);
       renderOptimizationArchiveStatus(`Section Seating archive list failed: ${err?.message || err}`);
+      renderSourceDataHubStatus(`Section Seating archive list failed: ${err?.message || err}`);
     }
   }
 
@@ -8925,12 +9058,14 @@
         state.enrollmentSnapshots = Array.isArray(payload.data) ? payload.data : [];
         state.snapshotLastUpdated = payload.lastUpdated || null;
         saveSnapshotsToLocal(state.enrollmentSnapshots);
+        renderSourceDataHubStatus();
         return state.enrollmentSnapshots;
       } catch (err) {
         console.warn('Backend enrollment snapshot load skipped:', err);
       }
     }
     state.enrollmentSnapshots = loadSnapshotsFromLocal();
+    renderSourceDataHubStatus();
     return state.enrollmentSnapshots;
   }
 
@@ -8954,6 +9089,7 @@
       state.snapshotLastUpdated = new Date().toISOString();
     }
     saveSnapshotsToLocal(state.enrollmentSnapshots);
+    renderSourceDataHubStatus();
     return { ...merged, records: state.enrollmentSnapshots };
   }
 
@@ -9613,18 +9749,18 @@
     }).join('');
   }
 
-  async function saveSnapshotBatch() {
-    const term = snapshotTerm();
-    const snapshotType = normalizeSnapshotType(document.getElementById('snapType')?.value || '');
-    const snapshotDate = document.getElementById('snapDate')?.value || '';
-    const snapshotTime = document.getElementById('snapTime')?.value || '';
-    const lifecyclePhase = document.getElementById('snapLifecyclePhase')?.value || snapshotType;
-    const customLifecycleLabel = document.getElementById('snapCustomLifecycleLabel')?.value || '';
-    const daysBeforeTermStart = document.getElementById('snapDaysBefore')?.value || '';
-    const daysAfterTermStart = document.getElementById('snapDaysAfter')?.value || '';
-    const notes = document.getElementById('snapNotes')?.value || '';
-    const dataCompletenessNotes = document.getElementById('snapCompletenessNotes')?.value || '';
-    const input = document.getElementById('snapshotCsv');
+  async function saveSnapshotBatch(options = {}) {
+    const term = normalizeTermLabel(options.term || snapshotTerm());
+    const snapshotType = normalizeSnapshotType(options.snapshotType || document.getElementById('snapType')?.value || '');
+    const snapshotDate = options.snapshotDate || document.getElementById('snapDate')?.value || '';
+    const snapshotTime = options.snapshotTime || document.getElementById('snapTime')?.value || '';
+    const lifecyclePhase = options.lifecyclePhase || document.getElementById('snapLifecyclePhase')?.value || snapshotType;
+    const customLifecycleLabel = options.customLifecycleLabel || document.getElementById('snapCustomLifecycleLabel')?.value || '';
+    const daysBeforeTermStart = options.daysBeforeTermStart || document.getElementById('snapDaysBefore')?.value || '';
+    const daysAfterTermStart = options.daysAfterTermStart || document.getElementById('snapDaysAfter')?.value || '';
+    const notes = options.notes || document.getElementById('snapNotes')?.value || '';
+    const dataCompletenessNotes = options.dataCompletenessNotes || document.getElementById('snapCompletenessNotes')?.value || '';
+    const input = document.getElementById(options.inputId || 'snapshotCsv');
     const sourceFileName = input?.files?.[0]?.name || '';
     const fileRows = await readCsv(input);
     if (!term || !snapshotType || !snapshotDate) {
@@ -9661,6 +9797,17 @@
     state.snapshotRows = records;
     renderSnapshotManager(warnings, result);
     alert(`Saved ${records.length} snapshot row(s). Appended ${result.appended}; updated ${result.updated}.`);
+  }
+
+  async function saveDataHubSnapshotBatch() {
+    await saveSnapshotBatch({
+      term: document.getElementById('dataHubSnapshotTerm')?.value || '',
+      snapshotType: document.getElementById('dataHubSnapshotType')?.value || '',
+      snapshotDate: document.getElementById('dataHubSnapshotDate')?.value || '',
+      lifecyclePhase: document.getElementById('dataHubSnapshotType')?.value || '',
+      inputId: 'dataHubSnapshotCsv'
+    });
+    renderSourceDataHubStatus();
   }
 
   function snapshotUploadWarnings(rows, selectedTerm) {
@@ -12885,12 +13032,13 @@
     renderReportContext(REPORTS.demand, demandReportContextOverrides(config));
     const metricRows = [
       ['Forecast Type', [
-        ['Forecast Type', 'Historical Benchmark Projection', 'trend-projection'],
+        ['Forecast Type', 'Sustainable Growth Projection', 'trend-projection'],
         ['Registration Pace Basis', 'Not registration-pace based', 'warning'],
         ['Projected Enrollment', formatDemandEnrollmentRange(collegeRow, summary.projected || collegeRow.expectedEnrollmentNextTerm || 0), 'expected-projection-range'],
         ['Central Estimate', Math.round(collegeRow.expectedRangeMostLikely ?? collegeRow.expectedEnrollmentNextTerm ?? summary.projected ?? 0), 'projected-final-enrollment'],
         ['Historical Trend Estimated FTES', round1(config.forecastFtes || collegeRow.expectedFtesNextTerm || 0), 'ftes'],
-        ['Forecast Growth Rate Applied', pct(collegeRow.adjustedForecastGrowth || 0), 'trend-projection'],
+        ['Sustainable Growth Rate', pct(collegeRow.sustainableGrowthRate ?? collegeRow.adjustedForecastGrowth ?? 0), 'trend-projection'],
+        ['Previous Comparable Benchmark', Math.round(collegeRow.historicalBaselineEnrollment || 0), 'historical-expected-enrollment'],
         ['Confidence', `${demandConfidenceDisplay(confidenceDetails.label || 'Low')}${confidenceDetails.score ? ` (${confidenceDetails.score})` : ''}`, 'forecast-confidence'],
         ['Comparable Terms', collegeRow.terms || config.termDiagnostics?.termsUsedInForecast?.length || 0, 'terms-included'],
         ['Confidence Basis', summary.confidenceExplanation || 'Insufficient history for a reliable forecast.', 'forecast-confidence']
@@ -12900,6 +13048,7 @@
         ['Most Likely Estimate', Math.round(collegeRow.expectedRangeMostLikely ?? collegeRow.expectedEnrollmentNextTerm ?? summary.projected ?? 0), 'projected-final-enrollment'],
         ['High Enrollment Estimate', Math.round(collegeRow.expectedRangeHigh ?? summary.projected ?? 0), 'expected-projection-range'],
         ['Conservative-High FTES Range', formatDemandFtesRange(collegeRow.expectedFtesRangeLow ?? config.forecastFtes ?? 0, collegeRow.expectedFtesRangeHigh ?? config.forecastFtes ?? 0), 'expected-ftes-range'],
+        ['Recovery Spike Cap', pct(collegeRow.recoverySpikeGrowthCap ?? DEMAND_RECOVERY_SPIKE_CAP), 'trend-projection'],
         ['Historical Average Growth', pct(collegeRow.historicalAverageGrowth || 0), 'trend-projection'],
         ['Historical CAGR', pct(collegeRow.historicalCagr || 0), 'trend-projection'],
         ['Historical Max Year-over-Year Growth', pct(collegeRow.historicalMaxGrowth || 0), 'trend-projection']
@@ -12924,7 +13073,8 @@
         ['FTES Over/Under Cap', config.ftesCapDelta == null ? 'No cap entered' : (config.ftesCapDelta >= 0 ? `${round1(config.ftesCapDelta)} under` : `${round1(Math.abs(config.ftesCapDelta))} over`), 'ftes-cap-position'],
         ['Expected Fill Rate', pct(collegeRow.expectedFillRate || 0), 'fill-rate'],
         [collegeRow.projectedWaitlistLabel || 'Estimated Projected Waitlist', Math.round(collegeRow.avgWaitlistCount || 0), 'waitlist'],
-        ['Forecast Growth Rate Applied', pct(collegeRow.adjustedForecastGrowth || 0), 'trend-projection'],
+        ['Sustainable Growth Rate', pct(collegeRow.sustainableGrowthRate ?? collegeRow.adjustedForecastGrowth ?? 0), 'trend-projection'],
+        ['Schedule Readiness Factor', collegeRow.scheduleSupplyReadinessFactor == null ? 'N/A' : `${round1(Number(collegeRow.scheduleSupplyReadinessFactor) * 100)}%`, 'scheduled-class-offerings'],
         ['Forecast Confidence', demandConfidenceDisplay(summary.confidence?.label || collegeRow.forecastConfidence || 'Low'), 'forecast-confidence'],
         ['Expected Projection Range', `Conservative ${Math.round(collegeRow.expectedRangeConservative ?? collegeRow.expectedRangeLow ?? summary.projected ?? 0)} / Most Likely ${Math.round(collegeRow.expectedRangeMostLikely ?? collegeRow.expectedEnrollmentNextTerm ?? summary.projected ?? 0)} / High ${Math.round(collegeRow.expectedRangeHigh ?? summary.projected ?? 0)}`, 'expected-projection-range']
       ]],
@@ -12989,9 +13139,9 @@
         { label: 'Physical Campuses', value: selections.physical ? 'Included' : 'Excluded' }
       ],
       method: [
-        { label: 'Forecast type', value: 'Historical Benchmark Projection' },
-        { label: 'Forecast method', value: 'Completed like-term historical benchmark with current schedule-size context' },
-        { label: 'Projection method', value: 'Historical average growth, historical CAGR, historical max growth, and conservative schedule-size adjustment' },
+        { label: 'Forecast type', value: 'Sustainable Growth Projection' },
+        { label: 'Forecast method', value: 'Most recent comparable benchmark with dampened sustainable growth' },
+        { label: 'Projection method', value: 'Recovery spikes are capped, negative routine-growth assumptions are floored at zero, and current schedule size is schedule-readiness context only' },
         { label: 'Forecast scope', value: document.getElementById('demForecastScope')?.value === 'year' ? 'Academic year' : 'Single term' },
         { label: 'Active term rows', value: activeSnapshot.rows ?? 'N/A' },
         { label: 'Active term distinct CRNs', value: activeSnapshot.distinctCrns ?? 'N/A' },
@@ -13305,7 +13455,7 @@
   }
 
   function demandColumns() {
-    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'growthSeriesUsed', 'growthTermsUsed', 'finalEnrollmentGrowthRateUsed', 'finalFtesGrowthRateUsed', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeConservative', 'expectedRangeMostLikely', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeMostLikely', 'expectedFtesRangeHigh', 'historicalFtesPerEnrollment', 'currentFtesPerEnrollment', 'projectedFtesPerEnrollment', 'ftesProjectionMethod', 'ftesProjectionFormula', 'ftesProjectionWarningSummary', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'projectedWaitlistLabel', 'projectedWaitlistMethod', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'historicalAverageGrowth', 'historicalCagr', 'historicalMaxGrowth', 'recencyWeightedGrowth', 'uncappedAdjustedForecastGrowth', 'adjustedForecastGrowth', 'projectedGrowthCapped', 'materialScheduleIncrease', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'growthSeriesUsed', 'growthTermsUsed', 'finalEnrollmentGrowthRateUsed', 'finalFtesGrowthRateUsed', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'historicalAverageBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeConservative', 'expectedRangeMostLikely', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeMostLikely', 'expectedFtesRangeHigh', 'historicalFtesPerEnrollment', 'currentFtesPerEnrollment', 'projectedFtesPerEnrollment', 'ftesProjectionMethod', 'ftesProjectionFormula', 'ftesProjectionWarningSummary', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'projectedWaitlistLabel', 'projectedWaitlistMethod', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'historicalAverageGrowth', 'historicalCagr', 'historicalMaxGrowth', 'recencyWeightedGrowth', 'sustainableGrowthRate', 'recoverySpikeGrowthThreshold', 'recoverySpikeGrowthCap', 'cappedRecoverySpikeCount', 'negativeGrowthFlooredCount', 'scheduleSupplyReadinessFactor', 'scheduleAdjustmentUsedAsDemandFactor', 'uncappedAdjustedForecastGrowth', 'adjustedForecastGrowth', 'projectedGrowthCapped', 'materialScheduleIncrease', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
   }
 
   function demandExportColumns() {
@@ -13393,6 +13543,47 @@
     };
   }
 
+  const DEMAND_RECOVERY_SPIKE_THRESHOLD = 0.12;
+  const DEMAND_RECOVERY_SPIKE_CAP = 0.1;
+  const DEMAND_EXPECTED_RANGE_MIN_SPREAD = 0.025;
+  const DEMAND_EXPECTED_RANGE_MAX_SPREAD = 0.08;
+
+  function demandSustainableGrowthProfile(termRows = [], trend = {}, stats = {}) {
+    const growthRows = (trend.yearOverYearGrowth || stats.yearOverYearGrowth || [])
+      .map((row, index) => ({
+        fromTerm: row.fromTerm || row.from || '',
+        toTerm: row.toTerm || row.term || '',
+        rawRate: Number(row.rate ?? row.enrollmentGrowth ?? row.growth ?? 0),
+        weight: Number((trend.recencyWeights || [])[index + 1]?.weight || row.weight || 1)
+      }))
+      .filter(row => Number.isFinite(row.rawRate));
+    const adjusted = growthRows.map(row => {
+      const nonRegressionRate = Math.max(0, row.rawRate);
+      const cappedRate = nonRegressionRate > DEMAND_RECOVERY_SPIKE_THRESHOLD
+        ? Math.min(nonRegressionRate, DEMAND_RECOVERY_SPIKE_CAP)
+        : nonRegressionRate;
+      return {
+        ...row,
+        adjustedRate: cappedRate,
+        cappedAsRecoverySpike: cappedRate !== nonRegressionRate,
+        negativeGrowthFloored: row.rawRate < 0
+      };
+    });
+    const denominator = adjusted.reduce((total, row) => total + row.weight, 0);
+    const sustainableGrowthRate = denominator
+      ? adjusted.reduce((total, row) => total + row.adjustedRate * row.weight, 0) / denominator
+      : Math.max(0, Number(stats.cagr || 0));
+    return {
+      sustainableGrowthRate,
+      rows: adjusted,
+      outlierCap: DEMAND_RECOVERY_SPIKE_CAP,
+      outlierThreshold: DEMAND_RECOVERY_SPIKE_THRESHOLD,
+      negativeFloor: 0,
+      cappedOutlierCount: adjusted.filter(row => row.cappedAsRecoverySpike).length,
+      negativeFlooredCount: adjusted.filter(row => row.negativeGrowthFloored).length
+    };
+  }
+
   function demandHistoricalBenchmarkProjection(termRows = [], currentTotals = {}, options = {}) {
     const selectedGrowthSeries = options.selectedGrowthSeries || options.forecastScopeLabel || '';
     const trend = buildTrendProjection(termRows, currentTotals, {
@@ -13401,20 +13592,25 @@
       forecastScopeLabel: selectedGrowthSeries
     }) || {};
     const stats = growthStatsFromTermRows(termRows);
-    const baselineEnrollment = Number(trend.historicalBaseline?.enrollment || average(termRows.map(row => row.census)) || 0);
-    const baselineFtes = Number(trend.historicalBaseline?.ftes || average(termRows.map(row => row.ftes)) || 0);
+    const historicalAverageEnrollment = Number(trend.historicalBaseline?.enrollment || average(termRows.map(row => row.census)) || 0);
+    const historicalAverageFtes = Number(trend.historicalBaseline?.ftes || average(termRows.map(row => row.ftes)) || 0);
+    const mostRecentTerm = termRows.at(-1) || {};
+    const baselineEnrollment = Number(mostRecentTerm.census || historicalAverageEnrollment || 0);
+    const baselineFtes = Number(mostRecentTerm.ftes || historicalAverageFtes || 0);
     const scheduleAdjustment = trend.scheduleAdjustment || { offeringFactor: 1, seatFactor: 1, combinedFactor: 1 };
     const threshold = Number(options.scheduleIncreaseThreshold ?? 0.05);
     const materialScheduleIncrease = Number(scheduleAdjustment.offeringFactor || 1) >= 1 + threshold || Number(scheduleAdjustment.seatFactor || 1) >= 1 + threshold;
-    const uncappedMostLikely = Number(trend.finalExpectedProjection?.enrollment || baselineEnrollment * (1 + stats.cagr) * Number(scheduleAdjustment.combinedFactor || 1));
+    const sustainable = demandSustainableGrowthProfile(termRows, trend, stats);
+    const growthWithModifier = Math.max(0, Number(sustainable.sustainableGrowthRate || 0) + Number(options.growthModifier || 0));
+    const uncappedMostLikely = baselineEnrollment * (1 + growthWithModifier);
     const uncappedGrowth = safeDiv(uncappedMostLikely, baselineEnrollment) - 1;
-    const cappedGrowth = !materialScheduleIncrease && uncappedGrowth > stats.maxGrowth + 0.01 ? stats.maxGrowth : uncappedGrowth;
-    const projectedGrowthCapped = cappedGrowth !== uncappedGrowth;
+    const cappedGrowth = growthWithModifier;
+    const projectedGrowthCapped = sustainable.cappedOutlierCount > 0 || sustainable.negativeFlooredCount > 0;
     const scheduleFactor = Number(scheduleAdjustment.combinedFactor || 1);
     const currentEnrollment = Number(currentTotals.enrollment || 0);
     const hasCensus = Number(currentTotals.censusEnrollment || 0) > 0;
     const historicalFtesPerEnrollment = safeDiv(baselineFtes, baselineEnrollment);
-    const mostLikely = Math.max(0, baselineEnrollment * (1 + cappedGrowth));
+    const mostLikely = Math.max(baselineEnrollment, baselineEnrollment * (1 + cappedGrowth));
     const confidenceFactors = demandBenchmarkConfidenceFactors(termRows, currentTotals, trend, {
       stats,
       materialScheduleIncrease,
@@ -13422,14 +13618,11 @@
       currentEnrollment,
       baselineEnrollment
     });
-    const volatility = average((stats.yearOverYearGrowth || []).map(row => Math.abs(Number(row.rate || 0) - Number(stats.averageGrowth || 0))));
-    const confidenceSpread = confidenceFactors.label === 'High' ? 0.04 : confidenceFactors.label === 'Medium' ? 0.08 : 0.14;
-    const rangeSpread = Math.max(confidenceSpread, Math.min(0.35, volatility || 0));
-    const conservative = Math.max(0, mostLikely * (1 - rangeSpread));
-    let high = Math.max(
-      mostLikely * (1 + rangeSpread),
-      baselineEnrollment * (1 + (materialScheduleIncrease ? Math.max(stats.maxGrowth, uncappedGrowth) : stats.maxGrowth))
-    );
+    const volatility = average((sustainable.rows || []).map(row => Math.abs(Number(row.adjustedRate || 0) - Number(sustainable.sustainableGrowthRate || 0))));
+    const confidenceSpread = confidenceFactors.label === 'High' ? 0.03 : confidenceFactors.label === 'Medium' ? 0.05 : 0.07;
+    const rangeSpread = Math.min(DEMAND_EXPECTED_RANGE_MAX_SPREAD, Math.max(DEMAND_EXPECTED_RANGE_MIN_SPREAD, confidenceSpread, volatility || 0));
+    const conservative = Math.max(baselineEnrollment, mostLikely * (1 - rangeSpread));
+    let high = mostLikely * (1 + rangeSpread);
     if (mostLikely > 0 && high <= mostLikely) high = mostLikely * 1.03;
     const currentFtes = Number(currentTotals.ftes || currentTotals.estimatedFtes || 0);
     const currentFtesPerEnrollment = safeDiv(currentFtes, currentEnrollment);
@@ -13466,17 +13659,25 @@
     };
     return {
       ...trend,
-      method: 'Historical Benchmark Projection',
+      method: 'Sustainable Growth Projection',
       confidence: confidenceFactors.label,
       confidenceFactors,
       historicalAverageGrowth: stats.averageGrowth,
       historicalCagr: stats.cagr,
       historicalMaxGrowth: stats.maxGrowth,
+      sustainableGrowthRate: sustainable.sustainableGrowthRate,
+      sustainableGrowthRows: sustainable.rows,
+      recoverySpikeGrowthThreshold: sustainable.outlierThreshold,
+      recoverySpikeGrowthCap: sustainable.outlierCap,
+      cappedRecoverySpikeCount: sustainable.cappedOutlierCount,
+      negativeGrowthFlooredCount: sustainable.negativeFlooredCount,
       uncappedAdjustedForecastGrowth: uncappedGrowth,
       uncappedExpectedEnrollment: uncappedMostLikely,
       projectedGrowthCapped,
       materialScheduleIncrease,
       scheduleIncreaseThreshold: threshold,
+      scheduleSupplyReadinessFactor: scheduleFactor,
+      scheduleAdjustmentUsedAsDemandFactor: false,
       finalExpectedProjection: {
         ...(trend.finalExpectedProjection || {}),
         enrollment: mostLikely,
@@ -13503,6 +13704,10 @@
         selectedGrowthSeries: trend.audit.selectedGrowthSeries || selectedGrowthSeries,
         enrollment: {
           ...trend.audit.enrollment,
+          baselineBeforeSustainableGrowth: baselineEnrollment,
+          sustainableGrowthRate: sustainable.sustainableGrowthRate,
+          sustainableGrowthRows: sustainable.rows,
+          scheduleAdjustmentUsedAsDemandFactor: false,
           finalExpectedProjection: mostLikely
         },
         ftes: {
@@ -13604,6 +13809,7 @@
       expectedSectionsNeeded,
       suggestedSectionCount,
       adjustedForecastGrowth,
+      sustainableGrowthRate: trendModel?.sustainableGrowthRate,
       hasWaitlistData
     });
     return {
@@ -13620,7 +13826,8 @@
       finalFtesGrowthRateUsed: trendModel?.audit?.ftes?.finalGrowthRateUsed ?? 0,
       totalSectionsOffered: sum(termRows, 'sections'),
       avgSectionsOffered: round1(avgSections),
-      historicalBaselineEnrollment: Math.round(trendModel?.historicalBaseline?.enrollment ?? avgCensusEnrollment),
+      historicalBaselineEnrollment: Math.round(trendModel?.audit?.enrollment?.baselineBeforeSustainableGrowth ?? termRows.at(-1)?.census ?? avgCensusEnrollment),
+      historicalAverageBaselineEnrollment: Math.round(trendModel?.historicalBaseline?.enrollment ?? avgCensusEnrollment),
       trendProjectionEnrollment: Math.round(trendModel?.trendProjection?.enrollment ?? expectedEnrollmentNextTerm),
       scheduleAdjustedProjectionEnrollment: Math.round(trendModel?.scheduleAdjustedProjection?.enrollment ?? expectedEnrollmentNextTerm),
       expectedRangeLow: Math.round(trendModel?.expectedRange?.low ?? expectedEnrollmentNextTerm),
@@ -13666,7 +13873,7 @@
       forecastConfidence: trendModel?.confidence || forecastConfidence,
       confidenceFactorsRaised: trendModel?.confidenceFactors?.raised || [],
       confidenceFactorsLowered: trendModel?.confidenceFactors?.lowered || [],
-      forecastMethod: trendModel?.method || 'Historical Benchmark Projection',
+      forecastMethod: trendModel?.method || 'Sustainable Growth Projection',
       expectedRange: trendModel?.expectedRange || null,
       expectedFtesRange,
       forecastGrowthAudit: trendModel?.audit || null,
@@ -13676,6 +13883,14 @@
       historicalAverageGrowth: trendModel?.historicalAverageGrowth ?? null,
       historicalCagr: trendModel?.historicalCagr ?? null,
       historicalMaxGrowth: trendModel?.historicalMaxGrowth ?? null,
+      sustainableGrowthRate: trendModel?.sustainableGrowthRate ?? trendModel?.recencyWeightedGrowth ?? adjustedForecastGrowth,
+      sustainableGrowthRows: trendModel?.sustainableGrowthRows || [],
+      recoverySpikeGrowthThreshold: trendModel?.recoverySpikeGrowthThreshold ?? DEMAND_RECOVERY_SPIKE_THRESHOLD,
+      recoverySpikeGrowthCap: trendModel?.recoverySpikeGrowthCap ?? DEMAND_RECOVERY_SPIKE_CAP,
+      cappedRecoverySpikeCount: trendModel?.cappedRecoverySpikeCount || 0,
+      negativeGrowthFlooredCount: trendModel?.negativeGrowthFlooredCount || 0,
+      scheduleSupplyReadinessFactor: trendModel?.scheduleSupplyReadinessFactor ?? trendModel?.scheduleAdjustment?.combinedFactor ?? 1,
+      scheduleAdjustmentUsedAsDemandFactor: Boolean(trendModel?.scheduleAdjustmentUsedAsDemandFactor),
       uncappedAdjustedForecastGrowth: trendModel?.uncappedAdjustedForecastGrowth ?? adjustedForecastGrowth,
       uncappedExpectedEnrollmentNextTerm: Math.round(trendModel?.uncappedExpectedEnrollment ?? expectedEnrollmentNextTerm),
       projectedGrowthCapped: Boolean(trendModel?.projectedGrowthCapped),
@@ -13789,10 +14004,11 @@
 
   function demandCapacityGuidance(row) {
     const sectionGap = row.suggestedSectionCount - Math.round(row.avgSections);
-    if (row.adjustedForecastGrowth >= 0.08 || sectionGap >= 2) return 'Expanding demand - plan additional capacity.';
-    if (row.adjustedForecastGrowth >= 0.03 || sectionGap >= 1) return 'Moderate growth - monitor for added capacity.';
-    if (row.adjustedForecastGrowth <= -0.08 || sectionGap <= -2) return 'Softening demand - review capacity assumptions.';
-    if (row.adjustedForecastGrowth <= -0.03 || sectionGap <= -1) return 'Slight softening - monitor before building schedule.';
+    const growth = Number(row.sustainableGrowthRate ?? row.adjustedForecastGrowth ?? 0);
+    if (growth >= 0.08 || sectionGap >= 2) return 'Expanding demand - plan additional capacity.';
+    if (growth >= 0.03 || sectionGap >= 1) return 'Moderate growth - monitor for added capacity.';
+    if (sectionGap <= -2) return 'Review schedule supply assumptions before reducing capacity.';
+    if (sectionGap <= -1) return 'Monitor schedule mix before changing baseline capacity.';
     return 'Stable demand - maintain planning baseline.';
   }
 
@@ -13853,17 +14069,19 @@
       const diff = safeDiv(projectedFtes - currentFtes, currentFtes);
       if (Math.abs(diff) > threshold) warnings.push(`Historical Trend Estimated FTES is ${pct(Math.abs(diff))} ${diff >= 0 ? 'higher' : 'lower'} than current snapshot estimated FTES.`);
     }
-    if (Math.abs(Number(college.adjustedForecastGrowth || 0)) > threshold) {
-      warnings.push(`Forecast Growth Rate Applied is ${pct(college.adjustedForecastGrowth || 0)}, above the ${pct(threshold)} review threshold.`);
+    if (Math.abs(Number(college.sustainableGrowthRate ?? college.adjustedForecastGrowth ?? 0)) > threshold) {
+      warnings.push(`Sustainable growth rate is ${pct(college.sustainableGrowthRate ?? college.adjustedForecastGrowth ?? 0)}, above the ${pct(threshold)} review threshold.`);
     }
     (college.ftesProjectionWarnings || []).forEach(item => warnings.push(item));
     if (college.projectedGrowthCapped) {
-      warnings.push('Projected growth exceeds historical growth patterns and is capped for planning conservatism because no registration-pace snapshots are available.');
+      warnings.push('One or more historical growth rates were dampened for planning conservatism before calculating sustainable growth.');
     }
     const scheduleAdjustment = college.scheduleAdjustment || {};
     if (Number.isFinite(Number(scheduleAdjustment.combinedFactor)) && Math.abs(Number(scheduleAdjustment.combinedFactor) - 1) > threshold) {
-      warnings.push(`Current schedule size differs materially from historical schedule size; schedule adjustment factor is ${round1(Number(scheduleAdjustment.combinedFactor) * 100)}%.`);
+      warnings.push(`Current loaded schedule size differs materially from historical schedule size; schedule readiness factor is ${round1(Number(scheduleAdjustment.combinedFactor) * 100)}%. This is supply/readiness context and does not reduce the enrollment-demand forecast.`);
     }
+    if (college.cappedRecoverySpikeCount > 0) warnings.push(`${college.cappedRecoverySpikeCount} unusually high historical growth rate(s) were capped before calculating sustainable growth.`);
+    if (college.negativeGrowthFlooredCount > 0) warnings.push(`${college.negativeGrowthFlooredCount} negative historical growth rate(s) were floored at zero for normal planning assumptions.`);
     if (snapshot.currentEnrollment > 0 && !snapshot.censusEnrollment) {
       warnings.push('Current snapshot uses current/actual enrollment because census enrollment is unavailable; the active term may still be incomplete.');
     }
@@ -14672,7 +14890,7 @@
       { Section: 'Executive Recommendation Summary', Field: 'Forecast Target', Value: context.target?.label || '' }
     );
     [
-      ['Forecast Type', 'Historical Benchmark Projection'],
+      ['Forecast Type', 'Sustainable Growth Projection'],
       ['Registration Pace Basis', 'Not registration-pace based; weekly enrollment snapshots are not loaded'],
       ['Historical Terms Used', termListLabel(context.diagnostics?.termsUsedInForecast || [])],
       ['Comparison Terms Used', termListLabel(context.diagnostics?.termsIncludedAfterFilters || [])],
@@ -14700,10 +14918,16 @@
       ['Projected FTES per Enrollment Ratio', round1(Number(college.projectedFtesPerEnrollment || 0) * 1000) / 1000],
       ['Projected Waitlist Method', college.projectedWaitlistMethod || 'No waitlist source columns were loaded; waitlist is not estimated'],
       ['Dual Enrollment Inclusion Status', context.populationSelections?.dual ? 'Included as subset of total' : 'Excluded from total'],
-      ['Forecast Growth Rate Applied', pct(college.adjustedForecastGrowth || 0)],
+      ['Sustainable Growth Rate', pct(college.sustainableGrowthRate ?? college.adjustedForecastGrowth ?? 0)],
+      ['Previous Comparable Benchmark', Math.round(college.historicalBaselineEnrollment || 0)],
+      ['Schedule Readiness Factor', college.scheduleSupplyReadinessFactor == null ? 'N/A' : `${round1(Number(college.scheduleSupplyReadinessFactor) * 100)}%`],
+      ['Schedule Readiness Affects Demand Forecast', college.scheduleAdjustmentUsedAsDemandFactor ? 'Yes' : 'No'],
       ['Historical Average Growth', pct(college.historicalAverageGrowth || 0)],
       ['Historical CAGR', pct(college.historicalCagr || 0)],
       ['Historical Max Year-over-Year Growth', pct(college.historicalMaxGrowth || 0)],
+      ['Recovery Spike Growth Cap', pct(college.recoverySpikeGrowthCap ?? DEMAND_RECOVERY_SPIKE_CAP)],
+      ['Recovery Spikes Capped', college.cappedRecoverySpikeCount || 0],
+      ['Negative Growth Rates Floored', college.negativeGrowthFlooredCount || 0],
       ['Uncapped Growth', pct(college.uncappedAdjustedForecastGrowth || 0)],
       ['Growth Capped for Conservatism', college.projectedGrowthCapped ? 'Yes' : 'No'],
       ['Confidence Label', confidence.label || 'Low'],
@@ -14716,10 +14940,13 @@
     [
       ['Historical Values by Term', (context.rows || []).length ? demandTrendSeries(context.rows).map(row => `${row.term}: ${row.census} census, ${round1(row.ftes)} FTES`).join('; ') : 'N/A'],
       ['Recency Weights', (college.recencyWeights || []).map(row => `${row.term}: ${row.weight} (${row.relation || 'weight'})`).join('; ') || 'N/A'],
-      ['Year-over-Year Growth Rates', (college.yearOverYearGrowth || []).map(row => `${row.term || row.from || 'Term'}: ${pct(row.enrollmentGrowth ?? row.growth ?? 0)}`).join('; ') || 'N/A'],
-      ['Historical Baseline', Math.round(college.historicalBaselineEnrollment || 0)],
+      ['Year-over-Year Growth Rates', (college.yearOverYearGrowth || []).map(row => `${row.fromTerm || row.from || 'Term'} to ${row.toTerm || row.term || 'Term'}: ${pct(row.rate ?? row.enrollmentGrowth ?? row.growth ?? 0)}`).join('; ') || 'N/A'],
+      ['Sustainable Growth Inputs', (college.sustainableGrowthRows || []).map(row => `${row.fromTerm || 'Term'} to ${row.toTerm || 'Term'}: raw ${pct(row.rawRate || 0)}, used ${pct(row.adjustedRate || 0)}${row.cappedAsRecoverySpike ? ' (recovery spike capped)' : ''}${row.negativeGrowthFloored ? ' (negative floored)' : ''}`).join('; ') || 'N/A'],
+      ['Previous Comparable Benchmark', Math.round(college.historicalBaselineEnrollment || 0)],
+      ['Historical Average Baseline', Math.round(college.historicalAverageBaselineEnrollment || 0)],
       ['Trend Projection', Math.round(college.trendProjectionEnrollment || 0)],
-      ['Schedule Adjustment Factor', college.scheduleAdjustment?.combinedFactor == null ? 'N/A' : `${round1(Number(college.scheduleAdjustment.combinedFactor) * 100)}%`],
+      ['Schedule Readiness Factor', college.scheduleAdjustment?.combinedFactor == null ? 'N/A' : `${round1(Number(college.scheduleAdjustment.combinedFactor) * 100)}%`],
+      ['Schedule Readiness Affects Demand Forecast', college.scheduleAdjustmentUsedAsDemandFactor ? 'Yes' : 'No'],
       ['Material Schedule Increase', college.materialScheduleIncrease ? 'Yes' : 'No'],
       ['Uncapped Projected Value', Math.round(college.uncappedExpectedEnrollmentNextTerm || college.expectedEnrollmentNextTerm || 0)],
       ['Final Projected Value', Math.round(college.expectedEnrollmentNextTerm || 0)]
@@ -14803,7 +15030,7 @@
         <p>${escapeAttr(row.capacityGuidance || 'Maintain planning baseline.')}</p>
         <dl>
           <div><dt>Confidence</dt><dd>${escapeAttr(row.forecastConfidence || 'N/A')}</dd></div>
-          <div><dt>Forecast Growth Rate Applied</dt><dd>${pct(row.adjustedForecastGrowth || 0)}</dd></div>
+          <div><dt>Sustainable Growth Rate</dt><dd>${pct(row.sustainableGrowthRate ?? row.adjustedForecastGrowth ?? 0)}</dd></div>
           <div><dt>Trend projection</dt><dd>${row.trendProjectionEnrollment || row.avgCensusEnrollment || 0}</dd></div>
           <div><dt>Historical Trend Expected Enrollment</dt><dd>${row.expectedEnrollmentNextTerm || 0}</dd></div>
         </dl>
@@ -14842,7 +15069,7 @@
 
   function demandForecastTypePanel(context = {}) {
     return `<section class="demand-method-card demand-forecast-type-panel">
-      <h4>Forecast Type: Historical Benchmark Projection</h4>
+      <h4>Forecast Type: Sustainable Growth Projection</h4>
       <p><strong>This forecast is not registration-pace based because weekly enrollment snapshots are not loaded.</strong></p>
       <p>This projection estimates what enrollment/FTES would be expected based on completed like-term history, current active-term snapshot, current section count, current seats offered, historical enrollment per section, historical fill rate, and historical year-over-year growth. It is not the same as actual current enrollment.</p>
       <dl>
@@ -14912,27 +15139,33 @@
     const terms = context.diagnostics?.termsUsedInForecast || trends.map(row => row.term).filter(Boolean);
     const historicalValues = trends.map(row => `${row.term}: census ${Math.round(row.census || 0)}, final/current ${Math.round(row.final || 0)}, FTES ${round1(row.ftes || 0)}`);
     const weights = (college.recencyWeights || []).map(row => `${row.term}: ${row.weight} (${row.relation || 'weight'})`);
-    const yoy = (college.yearOverYearGrowth || []).map(row => `${row.term || row.from || 'Term'}: ${pct(row.enrollmentGrowth ?? row.growth ?? 0)}`);
+    const yoy = (college.yearOverYearGrowth || []).map(row => `${row.fromTerm || row.from || 'Term'} to ${row.toTerm || row.term || 'Term'}: ${pct(row.rate ?? row.enrollmentGrowth ?? row.growth ?? 0)}`);
+    const sustainableRows = (college.sustainableGrowthRows || []).map(row => `${row.fromTerm || 'Term'} to ${row.toTerm || 'Term'}: raw ${pct(row.rawRate || 0)}, used ${pct(row.adjustedRate || 0)}${row.cappedAsRecoverySpike ? ' (recovery spike capped)' : ''}${row.negativeGrowthFloored ? ' (negative floored)' : ''}`);
     const scheduleFactor = college.scheduleAdjustment?.combinedFactor == null ? 'N/A' : `${round1(Number(college.scheduleAdjustment.combinedFactor) * 100)}%`;
     return `<section class="demand-method-card" data-collapsible-title="How This Projection Was Calculated" data-collapsible-id="demand-projection-calculation-path" data-collapsible-default-open="false">
       <h4>How This Projection Was Calculated</h4>
-      <p>${escapeAttr(context.target?.label || 'Forecast')} expected enrollment is based on ${escapeAttr(termListLabel(terms))} completed like-term history. The displayed most-likely estimate is capped at historical maximum growth unless current sections or seats offered increased materially.</p>
+      <p>${escapeAttr(context.target?.label || 'Forecast')} expected enrollment starts from the most recent comparable completed term or FY/AY, then applies a sustainable growth rate. Unusually high recovery spikes are capped, negative routine-growth assumptions are floored at zero, and current schedule size is shown as readiness context rather than reducing demand.</p>
       <dl>
         <div><dt>Historical terms included</dt><dd>${escapeAttr(termListLabel(terms))}</dd></div>
         <div><dt>Historical values by term</dt><dd>${escapeAttr(historicalValues.join('; ') || 'N/A')}</dd></div>
         <div><dt>Recency weights</dt><dd>${escapeAttr(weights.join('; ') || 'N/A')}</dd></div>
         <div><dt>Year-over-year growth rates</dt><dd>${escapeAttr(yoy.join('; ') || 'N/A')}</dd></div>
+        <div><dt>Sustainable growth inputs</dt><dd>${escapeAttr(sustainableRows.join('; ') || 'N/A')}</dd></div>
         <div><dt>Historical average growth</dt><dd>${pct(college.historicalAverageGrowth || 0)}</dd></div>
         <div><dt>Historical CAGR</dt><dd>${pct(college.historicalCagr || 0)}</dd></div>
         <div><dt>Historical max year-over-year growth</dt><dd>${pct(college.historicalMaxGrowth || 0)}</dd></div>
         <div><dt>Recency-weighted growth rate</dt><dd>${pct(college.recencyWeightedGrowth || 0)}</dd></div>
+        <div><dt>Sustainable growth rate</dt><dd>${pct(college.sustainableGrowthRate ?? college.adjustedForecastGrowth ?? 0)}</dd></div>
+        <div><dt>Recovery spike cap</dt><dd>${pct(college.recoverySpikeGrowthCap ?? DEMAND_RECOVERY_SPIKE_CAP)}</dd></div>
         <div><dt>Uncapped projected growth</dt><dd>${pct(college.uncappedAdjustedForecastGrowth || 0)}</dd></div>
-        <div><dt>Forecast Growth Rate Applied</dt><dd>${pct(college.adjustedForecastGrowth || 0)}</dd></div>
-        <div><dt>Growth capped for conservatism</dt><dd>${college.projectedGrowthCapped ? 'Yes' : 'No'}</dd></div>
-        <div><dt>Historical baseline</dt><dd>${Math.round(college.historicalBaselineEnrollment || summary.expected || 0)}</dd></div>
+        <div><dt>Projection growth vs historical average</dt><dd>${pct(college.adjustedForecastGrowth || 0)}</dd></div>
+        <div><dt>Growth adjusted for conservatism</dt><dd>${college.projectedGrowthCapped ? 'Yes' : 'No'}</dd></div>
+        <div><dt>Previous comparable benchmark</dt><dd>${Math.round(college.historicalBaselineEnrollment || summary.expected || 0)}</dd></div>
+        <div><dt>Historical average baseline</dt><dd>${Math.round(college.historicalAverageBaselineEnrollment || 0)}</dd></div>
         <div><dt>Most recent historical value</dt><dd>${Math.round(trends.at(-1)?.census || 0)}</dd></div>
         <div><dt>Trend projection</dt><dd>${Math.round(college.trendProjectionEnrollment || 0)}</dd></div>
-        <div><dt>Current schedule adjustment factor</dt><dd>${escapeAttr(scheduleFactor)}</dd></div>
+        <div><dt>Schedule readiness factor</dt><dd>${escapeAttr(scheduleFactor)}</dd></div>
+        <div><dt>Schedule readiness reduces demand forecast</dt><dd>${college.scheduleAdjustmentUsedAsDemandFactor ? 'Yes' : 'No'}</dd></div>
         <div><dt>Material schedule increase threshold</dt><dd>${pct(college.scheduleIncreaseThreshold ?? 0.05)}</dd></div>
         <div><dt>Material schedule increase detected</dt><dd>${college.materialScheduleIncrease ? 'Yes' : 'No'}</dd></div>
         <div><dt>Growth modifier</dt><dd>${pct(context.growthModifier || 0)}</dd></div>
@@ -14954,9 +15187,9 @@
     return `<section class="demand-method-card">
       <h4>Forecast Method</h4>
       <dl>
-        <div><dt>Forecast method used</dt><dd>Historical Benchmark Projection</dd></div>
+        <div><dt>Forecast method used</dt><dd>Sustainable Growth Projection</dd></div>
         <div><dt>Historical aggregation mode</dt><dd>${target.scope === 'year' ? 'Academic-year buckets' : 'Same-season terms'}</dd></div>
-        <div><dt>Trend model</dt><dd>Historical average growth, historical CAGR, historical max year-over-year growth, expected range, and current schedule size context</dd></div>
+        <div><dt>Trend model</dt><dd>Most recent comparable benchmark plus sustainable growth. Recovery spikes are capped, normal-planning negative growth is floored at zero, and current schedule size is readiness context.</dd></div>
         <div><dt>Registration pace</dt><dd>Not used because weekly enrollment snapshots are not loaded.</dd></div>
         <div><dt>Growth modifier</dt><dd>${pct(context.growthModifier || 0)}</dd></div>
         <div><dt>Schedule basis</dt><dd>Scheduled Class Offerings use unique CRNs; enrollment uses census first and actual/current fallback</dd></div>
@@ -15047,7 +15280,7 @@
         ['Historical baseline', row.historicalBaseline],
         ['Historical Trend Expected Enrollment', row.forecastEnrollment],
         ['Demand variance', variance],
-        ['Forecast Growth Rate Applied', pct(row.forecastGrowth)],
+        ['Projection growth vs historical average', pct(row.forecastGrowth)],
         ['Confidence', row.confidence]
       ]);
       const leftWidth = variance < 0 ? width : 0;
@@ -15443,6 +15676,7 @@
     [REPORTS.conflictCheck]: 'conflictReport',
     [REPORTS.duration]: 'durationReport',
     [REPORTS.dashboard]: 'dashboardReport',
+    [REPORTS.dataHub]: 'sourceDataHubReport',
     [REPORTS.attrition]: 'attritionReport',
     [REPORTS.demand]: 'demandReport',
     [REPORTS.snapshotManager]: 'snapshotManagerReport',
@@ -16016,14 +16250,17 @@
       ['Discipline Growth', 'Table column. Growth rate for the row discipline across included terms. Formula: average per-term change in discipline census enrollment / first included discipline census enrollment. Falls back to Division Growth when discipline data is unavailable.'],
       ['Course Growth', 'Table column. Course or group-specific growth rate across included terms. Formula: average per-term change in the row census enrollment / first included census enrollment. For aggregate rows, this represents that aggregate row trend.'],
       ['Modifier Growth', 'Table column. Manual enrollment-growth assumption from Overall enrollment modifier %. Formula: entered percentage / 100.'],
-      ['Forecast Growth Rate Applied', 'Table column. Adjusted growth rate used for the historical trend projection. Course rows use 50% course growth + 20% discipline growth + 15% division growth + 15% college growth + modifier. Division rows use 70% division growth + 30% college growth + modifier. Discipline rows use 60% discipline growth + 25% division growth + 15% college growth + modifier. College rows use college growth + modifier. Values are capped between -75% and +150%.'],
-      ['Historical Trend Expected Enrollment', 'Table column. Census enrollment expected from historical trend modeling for the selected forecast term or FY/AY. Formula: Historical Avg Census Enrollment x (1 + Forecast Growth Rate Applied), rounded to the nearest whole student, with schedule adjustment when available.'],
+      ['Sustainable Growth Rate', 'Table column. Planning growth rate calculated from comparable historical growth after dampening unusually high recovery spikes and flooring routine negative-growth assumptions at zero.'],
+      ['Projection Growth vs Historical Average', 'Table column. Final expected enrollment compared with the historical average baseline. This is diagnostic context, not the demand-growth rate used to project enrollment.'],
+      ['Previous Comparable Benchmark', 'Table column. Most recent completed comparable term or FY/AY used as the starting enrollment benchmark.'],
+      ['Schedule Readiness Factor', 'Table column. Current loaded schedule offerings/seats compared with historical schedule size. This is supply/readiness context and does not reduce projected demand.'],
+      ['Historical Trend Expected Enrollment', 'Table column. Census enrollment expected from the most recent comparable benchmark plus sustainable growth, rounded to the nearest whole student. Current schedule size is shown separately as readiness context.'],
       ['Historical Trend Estimated FTES', 'Table column. Estimated FTES for the selected forecast term or FY/AY. Formula: Historical Trend Expected Enrollment x Historical FTES per Enrollment Ratio. This is a planning estimate, not reportable FTES.'],
       ['Expected Census Fill Rate', 'Table column. Forecasted utilization of offered capacity. Formula: Historical Trend Expected Enrollment / average historical capacity.'],
       ['Forecast Sections Needed', 'Table column. Forecasted section need for the selected forecast term or FY/AY based on average section capacity. Formula: ceiling((Historical Trend Expected Enrollment + Average Waitlist Count) / average section capacity).'],
       ['Suggested Section Count', 'Table column. Planning estimate currently equal to Forecast Sections Needed, floored at 1. This is a planning input, not an instruction to add, cancel, or consolidate sections.'],
       ['Forecast Confidence', 'Table column. High when at least four terms are included and average fill-rate variance is below 5 percentage points. Medium when at least three terms are included. Otherwise Low.'],
-      ['Capacity Guidance', 'Table column. Plain-language interpretation of Forecast Growth Rate Applied and section need: expanding, moderate growth, stable, slight softening, or softening. It is not a direct cancellation or consolidation recommendation.'],
+      ['Capacity Guidance', 'Table column. Plain-language interpretation of sustainable growth and section need. It is not a direct cancellation or consolidation recommendation.'],
       ['Demand Trend Line', 'Insight chart. Term-by-term total census enrollment for the filtered dataset.'],
       ['FTES Trend', 'Insight chart. Term-by-term total FTES for the filtered dataset.'],
       ['Fill Rate Trend', 'Insight chart. Term-by-term sum(census enrollment) / sum(MAX ENROLL) for the filtered dataset.'],
@@ -16290,17 +16527,26 @@
       expectedFtesNextTerm: 'Historical Trend Estimated FTES',
       expectedRangeConservative: 'Conservative Enrollment Estimate',
       expectedRangeMostLikely: 'Most Likely Estimate',
+      historicalBaselineEnrollment: 'Previous Comparable Benchmark',
+      historicalAverageBaselineEnrollment: 'Historical Average Baseline',
       trendProjectionEnrollment: 'Trend Projection Enrollment',
-      scheduleAdjustedProjectionEnrollment: 'Schedule-Adjusted Trend Enrollment',
+      scheduleAdjustedProjectionEnrollment: 'Legacy Schedule-Adjusted Trend Enrollment',
       trendProjectionFtes: 'Trend Projection FTES',
-      scheduleAdjustedProjectionFtes: 'Schedule-Adjusted Trend FTES',
+      scheduleAdjustedProjectionFtes: 'Legacy Schedule-Adjusted Trend FTES',
       historicalAverageGrowth: 'Historical Average Growth',
       historicalCagr: 'Historical CAGR',
       historicalMaxGrowth: 'Historical Max Year-over-Year Growth',
+      sustainableGrowthRate: 'Sustainable Growth Rate',
+      recoverySpikeGrowthThreshold: 'Recovery Spike Growth Threshold',
+      recoverySpikeGrowthCap: 'Recovery Spike Growth Cap',
+      cappedRecoverySpikeCount: 'Recovery Spikes Capped',
+      negativeGrowthFlooredCount: 'Negative Growth Rates Floored',
+      scheduleSupplyReadinessFactor: 'Schedule Readiness Factor',
+      scheduleAdjustmentUsedAsDemandFactor: 'Schedule Readiness Affects Demand Forecast',
       uncappedAdjustedForecastGrowth: 'Uncapped Growth',
       projectedGrowthCapped: 'Growth Capped',
       materialScheduleIncrease: 'Material Schedule Increase',
-      adjustedForecastGrowth: 'Forecast Growth Rate Applied',
+      adjustedForecastGrowth: 'Projection Growth vs Historical Average',
       firstDayToCensus1Attrition: 'First Day to Census 1 Attrition',
       firstDayToCensus2Attrition: 'First Day to Census 2 Attrition',
       firstDayToEndFinalAttrition: 'First Day to End/Final Attrition',
@@ -16406,7 +16652,9 @@
       disciplineGrowth: 'Discipline Growth',
       courseGrowth: 'Course Growth',
       modifierGrowth: 'Modifier Growth',
-      adjustedForecastGrowth: 'Forecast Growth Rate Applied',
+      adjustedForecastGrowth: 'Projection Growth vs Historical Average',
+      sustainableGrowthRate: 'Sustainable Growth Rate',
+      scheduleSupplyReadinessFactor: 'Schedule Readiness Factor',
       expectedEnrollmentNextTerm: 'Historical Trend Expected Enrollment',
       expectedFtesNextTerm: 'Historical Trend Estimated FTES',
       expectedRangeConservative: 'Conservative Enrollment Estimate',
@@ -16822,6 +17070,7 @@
     setReportDisplay(REPORTS.demand, 'demandReport');
     setReportDisplay(REPORTS.conflictCheck, 'conflictCheckReport');
     setReportDisplay(REPORTS.archiveInspection, 'archiveInspectionReport');
+    setReportDisplay(REPORTS.dataHub, 'sourceDataHubReport');
     setReportDisplay(REPORTS.roomFit, 'roomFitReport');
     setReportDisplay(REPORTS.snapshotManager, 'snapshotManagerReport');
     setReportDisplay(REPORTS.studentPresence, 'studentPresenceReport');
@@ -16883,6 +17132,16 @@
         document.getElementById('archiveInspectionSummary').innerHTML = '<p class="analytics-empty">Select an archived term, then click Inspect Archived Schedule.</p>';
         document.getElementById('archiveInspectionSamples').innerHTML = '<p class="analytics-empty">No archive inspection has been run.</p>';
       }
+    }
+    if (selected === REPORTS.dataHub) {
+      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), loadEnrollmentSnapshots()])
+        .then(() => renderSourceDataHubStatus())
+        .catch(err => {
+          console.warn('Source Data Hub refresh skipped:', err);
+          renderSourceDataHubStatus(`Source Data Hub refresh skipped: ${err?.message || err}`);
+        });
+      renderWorkExperienceUploadStatus();
+      renderSourceDataHubStatus();
     }
     if (selected === REPORTS.utilization) {
       window.COSScheduleApp?.renderUtilizationMap?.();
@@ -16985,6 +17244,14 @@
       .analytics-busy-card span{color:#51657c;font-size:13px}
       .analytics-busy-spinner{width:36px;height:36px;border:4px solid #d8e8f3;border-top-color:#1f7aa8;border-radius:50%;animation:analytics-spin .85s linear infinite}
       @keyframes analytics-spin{to{transform:rotate(360deg)}}
+      .source-data-hub-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:14px;margin:14px 0}
+      .source-data-card{border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff;padding:14px;display:flex;flex-direction:column;gap:9px}
+      .source-data-card h3{margin:0;color:#123367;font-size:17px}
+      .source-data-card p{margin:0;color:#40546b;line-height:1.4}
+      .source-data-card .analytics-toolbar{margin:0;padding:0;border:0;background:transparent;box-shadow:none}
+      .source-data-status-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:8px}
+      .source-data-status-row span{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border:1px solid #d8e1ec;border-radius:8px;background:#fff;color:#40546b}
+      .source-data-status-row strong{color:#123367}
       .em-access-panel{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-bottom:14px;padding:10px;border:1px solid #e2eaf3;border-radius:10px;background:#f8fbff}
       .em-access-status{display:flex;flex-direction:column;gap:2px;margin-right:4px;padding:7px 10px;border:1px solid #d8e1ec;border-radius:8px;background:#f8fbff;color:#51657c;font-size:11px;text-transform:uppercase;font-weight:800}
       .em-access-status strong{color:#123367;font-size:14px;text-transform:none}
@@ -17336,6 +17603,20 @@
     document.getElementById('dashboardCsv')?.addEventListener('change', rerunDashboard);
     document.getElementById('dashArchiveTerms')?.addEventListener('change', rerunDashboard);
     document.getElementById('archiveDashboardUploads')?.addEventListener('click', () => archiveUploads('dashboardCsv').catch(err => alert(err.message || 'Archive failed.')));
+    attachBusyClick('dataHubArchiveSectionUploads', 'Archiving Section Seating / Schedule Data...', () => archiveUploads('dataHubSectionCsv'), { key: 'dataHubArchiveSectionUploads', runningLabel: 'Archiving...' });
+    attachBusyClick('dataHubRefreshArchives', 'Refreshing Section Seating archives...', () => refreshAnalyticsArchiveOptions(), { key: 'dataHubRefreshArchives', runningLabel: 'Refreshing...' });
+    attachBusyClick('dataHubSaveFacultySchedule', 'Saving Faculty Schedule archive...', () => saveFacultyScheduleArchive('dataHubFacultyScheduleCsv'), { key: 'dataHubSaveFacultySchedule', runningLabel: 'Saving...' });
+    attachBusyClick('dataHubRefreshFacultyArchives', 'Refreshing Faculty Schedule archives...', () => refreshFacultyScheduleArchives(), { key: 'dataHubRefreshFacultyArchives', runningLabel: 'Refreshing...' });
+    document.getElementById('dataHubLoadWorkExperience')?.addEventListener('click', () => {
+      loadWorkExperienceRows('dataHubWorkExperienceCsv')
+        .then(() => renderSourceDataHubStatus('Work Experience rows loaded for this browser session.'))
+        .catch(err => alert(err.message || 'Work Experience upload failed.'));
+    });
+    attachBusyClick('dataHubSaveSnapshotBatch', 'Saving enrollment snapshot...', () => saveDataHubSnapshotBatch(), { key: 'dataHubSaveSnapshotBatch', runningLabel: 'Saving...' });
+    document.getElementById('dataHubJumpAdminImports')?.addEventListener('click', () => {
+      const adminTools = document.getElementById('admin-tools');
+      if (adminTools) adminTools.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     document.getElementById('workExperienceCsv')?.addEventListener('change', () => {
       loadWorkExperienceRows()
         .then(() => {
