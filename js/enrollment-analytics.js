@@ -1666,14 +1666,6 @@
           <span class="em-workbench-note">Dashboard and factual reports support dean/division review. Scenario modeling and schedule simulation are future Enrollment Management Workbench tools.</span>
         </div>
         <div id="lockedReportPanel" class="analytics-locked-panel" hidden></div>
-        <div id="workExperienceUploadPanel" class="analytics-upload-panel" hidden>
-          <h3>Work Experience Enrollment Upload</h3>
-          <p>Upload Work Experience enrollment rows that are not present in Section Seating. These rows are included in enrollment, attrition, lifecycle, demand, and FTES calculations when the report toggle is on, and excluded from room, time, conflict, and physical presence tools.</p>
-          <div class="analytics-toolbar">
-            <label>Work Experience CSV(s) <input id="workExperienceCsv" type="file" accept=".csv" multiple></label>
-            <span id="workExperienceUploadStatus" class="analytics-note">No Work Experience rows loaded. Work Experience uploads are session only until archive support is added.</span>
-          </div>
-        </div>
         <div id="dashboardReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Analytics Dashboard</h2>
@@ -1682,7 +1674,7 @@
               <div>
                 <h3>How to Use This Dashboard</h3>
                 <ul>
-                  <li>Select one or more archived dashboard terms, or upload dashboard CSVs, before refreshing. If no dashboard source is selected, the dashboard falls back to the active room availability grid term.</li>
+                  <li>Select one or more archived dashboard terms before refreshing. Source files are uploaded from the Source Data Hub.</li>
                   <li>Use the filters to focus the summary by division, campus, modality, discipline, course, instructor, day, or start hour.</li>
                   <li>Review the top cards first, then use the drill-down buttons for detailed factual demand, attrition, consolidation, rotation, room, and methodology views.</li>
                   <li>Scenario modeling and schedule simulation are intentionally not enabled here yet; those controls are reserved for a future Enrollment Management Workbench once backend support exists.</li>
@@ -1703,8 +1695,6 @@
             </div>
           </div>
           <div class="analytics-toolbar dashboard-toolbar">
-            <label>Dashboard CSV(s) <input id="dashboardCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveDashboardUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="dashArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Loaded decision term <select id="dashFocusTerm"></select></label>
             <label>Decision season
@@ -1738,12 +1728,12 @@
         <div id="snapshotManagerReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Snapshot</h2>
-            <p>Stores partial lifecycle enrollment snapshots by term, CRN, snapshot type, and snapshot date. First Day snapshots are uploaded from Section Seating files pulled on the actual section start date.</p>
+            <p>Stores partial lifecycle enrollment snapshots by term, CRN, snapshot type, and snapshot date. Snapshot uploads are managed from the Source Data Hub.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Manager</h3>
                 <ul>
-                  <li>Select the term, snapshot type, and snapshot date, then upload the Section Seating export for that date.</li>
+                  <li>Use the Source Data Hub to upload a snapshot, then use this report to view, export, or clear stored snapshot records.</li>
                   <li>Snapshot uploads may contain only the sections that begin on the selected snapshot date. Missing CRNs will not delete or overwrite previously saved snapshot records.</li>
                   <li>First Day and Final snapshots use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present.</li>
                   <li>If the uploaded file has no term field, the selected term is used. If the file has a conflicting term, the selected term remains authoritative for storage.</li>
@@ -1790,8 +1780,6 @@
             <label>Days After Term Start <input id="snapDaysAfter" type="number" step="1" placeholder="optional"></label>
             <label>Snapshot Notes <input id="snapNotes" type="text" placeholder="optional notes"></label>
             <label>Data Completeness Notes <input id="snapCompletenessNotes" type="text" placeholder="optional coverage notes"></label>
-            <label>Snapshot CSV <input id="snapshotCsv" type="file" accept=".csv"></label>
-            <button id="saveSnapshotBatch" type="button">Archive/Save Snapshot</button>
             <button id="viewStoredSnapshots" type="button">View Stored Snapshots</button>
             <button id="exportStoredSnapshots" type="button">Export Stored Snapshots</button>
             <button id="clearSnapshotBatch" type="button">Clear Selected Snapshot Batch</button>
@@ -1809,7 +1797,7 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload or select archived Section Seating files, choose the term, then select one or more conflict modes.</li>
+                  <li>Select archived Section Seating terms, choose the term, then select one or more conflict modes. Source files are uploaded from the Source Data Hub.</li>
                   <li>Use filters to narrow the review by division, discipline, course, campus, room, modality, instructor, day, or start hour.</li>
                   <li>Online/TBA rows are excluded unless they contain fixed meeting days and times.</li>
                   <li>Cross-listed rows are omitted by default when either side of a conflict pair has a CROSS_LIST value. Uncheck the omit option to inspect them.</li>
@@ -1828,8 +1816,6 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Conflict CSV(s) <input id="conflictCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveConflictUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="conflictArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Term <select id="conflictTerm"></select></label>
             <label>Conflict modes
@@ -1880,7 +1866,6 @@
           </div>
           <div class="analytics-toolbar">
             <label>Archived term <select id="archiveInspectionTerm"></select></label>
-            <label>Optional CSV <input id="archiveInspectionCsv" type="file" accept=".csv"></label>
             <button id="inspectArchivedSchedule" type="button">Inspect Archived Schedule</button>
             <button id="exportArchiveInspection" type="button">Export Parsed Archive CSV</button>
           </div>
@@ -1906,7 +1891,7 @@
                 <h3>Safety</h3>
                 <ul>
                   <li>This hub centralizes upload workflow only. It does not merge backend collections or report state arrays.</li>
-                  <li>Existing report upload controls remain available during this transition for compatibility.</li>
+                  <li>Report screens consume saved source data; uploads are managed here rather than inside individual reports.</li>
                   <li>Reports continue to select terms and source scopes inside each report; this hub manages what source data is available.</li>
                 </ul>
               </div>
@@ -1972,7 +1957,7 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload a Section Seating CSV or select archived terms, then choose the term and filters to review.</li>
+                  <li>Select archived Section Seating terms, then choose the term and filters to review. Source files are uploaded from the Source Data Hub.</li>
                   <li>Click a flag card to filter the table to that flag. Export CSV respects the active filters.</li>
                   <li>Work Experience, online, TBA, and no-room rows are excluded because they do not represent physical room assignments.</li>
                   <li>Tutoring/Open Lab sections are excluded by default because their scheduling and enrollment behavior is not comparable to standard scheduled instruction.</li>
@@ -1990,7 +1975,6 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Room Fit CSV(s) <input id="roomFitCsv" type="file" accept=".csv" multiple></label>
             <label>Archived terms <select id="roomFitArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Term <select id="roomFitTerm"></select></label>
             <label>Campus <select id="roomFitCampus"></select></label>
@@ -2033,8 +2017,6 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Presence CSV(s) <input id="studentPresenceCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveStudentPresenceUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="spArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Focus Term <select id="spFocusTerm"></select></label>
             <label>Compare Terms <select id="spCompareTerms" multiple data-placeholder="No comparison terms"></select></label>
@@ -2082,12 +2064,12 @@
           <div class="analytics-report-intro">
             <h2>Instructor Availability - Planning View</h2>
             <p>This first-layer planning view uses Faculty Schedule Data when loaded to identify when instructors are already scheduled. It does not prove contractual or personal availability; it only separates known schedule conflicts from open windows where no loaded teaching assignment is found.</p>
-            <p class="analytics-direction"><strong><u>Use the Faculty Schedule upload or saved Faculty Schedule term for Full-Time and Part-Time filtering. Section Seating / Schedule Data is used only as a fallback when no Faculty Schedule Data is loaded.</u></strong></p>
+            <p class="analytics-direction"><strong><u>Use the Source Data Hub to upload Faculty Schedule Data, then load a saved Faculty Schedule term here for Full-Time and Part-Time filtering. Section Seating / Schedule Data is used only as a fallback when no Faculty Schedule Data is loaded.</u></strong></p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload a Faculty Schedule CSV or load a saved Faculty Schedule term, then select one or more instructors and a day/time window.</li>
+                  <li>Load a saved Faculty Schedule term, then select one or more instructors and a day/time window. Faculty Schedule uploads are managed from the Source Data Hub.</li>
                   <li>Leave all instructors selected for a broad first pass, or select a smaller group to compare schedules side by side.</li>
                   <li>Online/TBA rows are excluded from day/time conflict checks because they do not provide a fixed meeting window.</li>
                   <li>Hybrid fixed-time meetings are flagged in the grid and conflict table because their physical meeting pattern may require date-level verification.</li>
@@ -2101,17 +2083,15 @@
                   <li>The weekly grid shows loaded meetings by instructor and day. Shared available time windows are calculated by subtracting the combined loaded meetings for all selected instructors from 8:00 AM-6:00 PM, Monday-Friday.</li>
                   <li>Fixed-time hybrid rows are included in overlap calculations, but the report does not evaluate section-specific meeting dates, alternating weeks, or irregular hybrid calendars.</li>
                   <li>Full-Time and Part-Time filters use FCNT_CODE from Faculty Schedule Data: FT and TE are Full-Time, JP is Part-Time, and AE/X rows are excluded.</li>
-                  <li>Availability is inferred only from uploaded Faculty Schedule rows or fallback schedule rows; it does not include faculty preferences, office hours, reassigned time, leave, overload limits, or department-specific rules.</li>
+                  <li>Availability is inferred only from loaded Faculty Schedule rows or fallback schedule rows; it does not include faculty preferences, office hours, reassigned time, leave, overload limits, or department-specific rules.</li>
                   <li>Future enhancement: optional date-aware or week-by-week instructor availability using section meeting-date patterns.</li>
                 </ul>
               </div>
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Faculty Schedule CSV(s) <input id="iaFacultyScheduleCsv" type="file" accept=".csv" multiple></label>
             <label>Saved Faculty Schedule Term <select id="iaFacultyArchiveTerm"></select></label>
             <button id="loadSavedInstructorAvailabilityFaculty" type="button">Load Saved Faculty Schedule</button>
-            <button id="loadInstructorAvailabilityFaculty" type="button">Load Faculty Schedule</button>
             <span id="iaFacultyScheduleStatus" class="analytics-note">Using Section Seating fallback until Faculty Schedule Data is loaded.</span>
             <label>Faculty Type
               <select id="iaFacultyType">
@@ -2170,7 +2150,7 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload one or more Faculty Schedule CSV files, or load a saved Faculty Schedule term from the backend, then click Load Faculty Schedule.</li>
+                  <li>Load a saved Faculty Schedule term from the backend. Faculty Schedule uploads are managed from the Source Data Hub.</li>
                   <li>Use the metric toggle to switch the heatmap between sections, unique faculty count, enrollment, seats, and LHE.</li>
                   <li>Use faculty type, meeting type, term, campus, division, department, discipline, course, and modality filters to isolate the schedule population.</li>
                 </ul>
@@ -2180,7 +2160,7 @@
                 <ul>
                   <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor. Saved Faculty Schedule archives are stored separately from Section Seating / Schedule Data.</li>
                   <li>A meeting contributes to every half-hour interval it overlaps on each scheduled day.</li>
-                  <li>Sections counts instructional meeting rows once per day/time block. Faculty Count counts distinct faculty in each day/time block. Enrollment uses ActualEnroll, Seats uses MaxEnroll, and LHE uses the uploaded LHE value.</li>
+                  <li>Sections counts instructional meeting rows once per day/time block. Faculty Count counts distinct faculty in each day/time block. Enrollment uses ActualEnroll, Seats uses MaxEnroll, and LHE uses the loaded LHE value.</li>
                   <li>Faculty Type maps FCNT_CODE values: FT and TE are Full-Time, JP is Part-Time, unknown codes are Unknown, and omitted faculty types are excluded from this report.</li>
                   <li>Meeting Type maps SCHD_CODE_SSRMEET values: 2 is Lecture, 4 is Lab, XX is Activity, and all other codes are Other.</li>
                 </ul>
@@ -2188,11 +2168,8 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Faculty Schedule CSV(s) <input id="facultyScheduleCsv" type="file" accept=".csv" multiple></label>
-            <button id="saveFacultyScheduleArchive" type="button">Save Faculty Schedule to Backend</button>
             <label>Saved Faculty Schedule Term <select id="facultyScheduleArchiveTerm"></select></label>
             <button id="loadSavedFacultyScheduleHeatmap" type="button">Load Saved Faculty Schedule</button>
-            <button id="loadFacultyScheduleHeatmap" type="button">Load Faculty Schedule</button>
             <span id="facultyScheduleHeatmapStatus" class="analytics-note">No faculty schedule rows loaded.</span>
             <span id="facultyScheduleArchiveStatus" class="analytics-note">No saved Faculty Schedule metadata loaded.</span>
             <label>Metric
@@ -2241,7 +2218,7 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload one or more Faculty Schedule CSV files, or load a saved Faculty Schedule term from the backend, then click Load Faculty Modality.</li>
+                  <li>Load a saved Faculty Schedule term from the backend. Faculty Schedule uploads are managed from the Source Data Hub.</li>
                   <li>Review Full-Time, Part-Time, and Unknown faculty type rows split into In-Person, Hybrid, and Online modality buckets.</li>
                   <li>Use campus, division, department, course, and term filters to narrow the population before exporting.</li>
                 </ul>
@@ -2258,10 +2235,8 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Faculty Schedule CSV(s) <input id="facultyModalityCsv" type="file" accept=".csv" multiple></label>
             <label>Saved Faculty Schedule Term <select id="facultyModalityArchiveTerm"></select></label>
             <button id="loadSavedFacultyModality" type="button">Load Saved Faculty Schedule</button>
-            <button id="loadFacultyModality" type="button">Load Faculty Modality</button>
             <span id="facultyModalityStatus" class="analytics-note">No faculty schedule rows loaded.</span>
             <label>Term <select id="fmTerm"></select></label>
             <label>Campus <select id="fmCampus"></select></label>
@@ -2287,7 +2262,7 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload Section Seating or Faculty Schedule CSV files, or select archived terms, then click Run Validation.</li>
+                  <li>Select archived Section Seating or saved Faculty Schedule terms, then click Run Validation. Source files are uploaded from the Source Data Hub.</li>
                   <li>Review unknown/unmapped codes before relying on modality, time-based, or physical-presence analytics.</li>
                   <li>Export the table when a code needs to be reviewed or added through the existing safe mapping-maintenance tools.</li>
                 </ul>
@@ -2304,8 +2279,6 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Validation CSV(s) <input id="instructionalMethodValidationCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveInstructionalMethodValidationUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="instructionalMethodValidationArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <span id="instructionalMethodValidationStatus" class="analytics-note">No instructional method rows loaded.</span>
             <button id="runInstructionalMethodValidation" type="button">Run Validation</button>
@@ -2325,7 +2298,7 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload one or more Faculty Schedule CSV files, or load a saved Faculty Schedule term from the backend, then click Load Prime Time Analysis.</li>
+                  <li>Load a saved Faculty Schedule term from the backend. Faculty Schedule uploads are managed from the Source Data Hub.</li>
                   <li>Use the prime-time day and time controls to test a different local definition.</li>
                   <li>Review the gauges and table to compare Full-Time, Part-Time, meeting type, enrollment, and LHE concentration inside prime time.</li>
                 </ul>
@@ -2336,17 +2309,15 @@
                   <li>Rows are parsed by the Faculty Schedule parser and deduplicated by CRN + days + start + end + meeting type + instructor.</li>
                   <li>A meeting is counted in prime time when any scheduled day overlaps the selected prime-time days and any part of the meeting overlaps the selected time window.</li>
                   <li>The default modality scope is In-Person and Hybrid only. Use the modality multi-select or All Modalities button to include Online sections manually.</li>
-                  <li>Enrollment uses ActualEnroll, seats uses MaxEnroll, and LHE uses uploaded LHE. Omitted faculty type rows are excluded.</li>
+                  <li>Enrollment uses ActualEnroll, seats uses MaxEnroll, and LHE uses loaded LHE. Omitted faculty type rows are excluded.</li>
                   <li>Percentages are prime-time value divided by total value for the filtered population.</li>
                 </ul>
               </div>
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Faculty Schedule CSV(s) <input id="primeTimeCsv" type="file" accept=".csv" multiple></label>
             <label>Saved Faculty Schedule Term <select id="primeTimeArchiveTerm"></select></label>
             <button id="loadSavedPrimeTimeAnalysis" type="button">Load Saved Faculty Schedule</button>
-            <button id="loadPrimeTimeAnalysis" type="button">Load Prime Time Analysis</button>
             <span id="primeTimeStatus" class="analytics-note">No faculty schedule rows loaded.</span>
             <label>Prime start <input id="ptStart" type="time" value="09:00" step="300"></label>
             <label>Prime end <input id="ptEnd" type="time" value="15:00" step="300"></label>
@@ -2395,7 +2366,7 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload Section Seating CSV files or select archived terms, then click Run.</li>
+                  <li>Select archived Section Seating terms, then click Run. Source files are uploaded from the Source Data Hub.</li>
                   <li>Use the metric toggle to inspect sections, seats, enrollment, student presence, fill rate, waitlist, or empty seats by day/time.</li>
                   <li>Use campus, division, department, course, CAL-GETC, modality, and term filters to narrow the population.</li>
                   <li>The default planning window focuses the analysis on realistic scheduling periods: Monday-Thursday daytime/evening starts and Friday before mid-afternoon.</li>
@@ -2415,8 +2386,6 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Supply/Demand CSV(s) <input id="supplyDemandCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveSupplyDemandUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="sdArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <span id="supplyDemandStatus" class="analytics-note">No supply/demand rows loaded.</span>
             <label>View
@@ -2469,9 +2438,9 @@
               <div>
                 <h3>Inputs</h3>
                 <ul>
-                  <li>Use Section Seating CSV files or archived terms for student, section, seat, demand, and room utilization signals.</li>
+                  <li>Use archived Section Seating source data for student, section, seat, demand, and room utilization signals. Upload source files from the Source Data Hub.</li>
                   <li>Use an optional Faculty Schedule CSV or saved Faculty Schedule term to add full-time and part-time faculty concentration signals.</li>
-                  <li>Existing loaded Faculty Heatmap rows are reused when no Faculty CSV is selected here.</li>
+                  <li>Existing loaded Faculty Schedule rows are reused when available.</li>
                 </ul>
               </div>
               <div>
@@ -2485,10 +2454,7 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Schedule CSV(s) <input id="busyTimeCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveBusyTimeUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="busyTimeArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
-            <label>Faculty CSV <input id="busyTimeFacultyCsv" type="file" accept=".csv" multiple></label>
             <label>Saved Faculty Schedule Term <select id="busyTimeFacultyArchiveTerm"></select></label>
             <button id="loadSavedBusyTimeFaculty" type="button">Load Saved Faculty Schedule</button>
             <span id="busyTimeStatus" class="analytics-note">No Busy Time rows loaded.</span>
@@ -2543,10 +2509,7 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Choice CSV(s) <input id="studentChoiceCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveStudentChoiceUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="studentChoiceArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
-            <label>Faculty CSV <input id="studentChoiceFacultyCsv" type="file" accept=".csv" multiple></label>
             <label>Saved Faculty Schedule Term <select id="studentChoiceFacultyArchiveTerm"></select></label>
             <button id="loadSavedStudentChoiceFaculty" type="button">Load Saved Faculty Schedule</button>
             <span id="studentChoiceStatus" class="analytics-note">No schedule opportunity rows loaded.</span>
@@ -2675,10 +2638,7 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Recommendation CSV(s) <input id="recommendationCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveRecommendationUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="recommendationArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
-            <label>Faculty CSV <input id="recommendationFacultyCsv" type="file" accept=".csv" multiple></label>
             <label>Saved Faculty Schedule Term <select id="recommendationFacultyArchiveTerm"></select></label>
             <button id="loadSavedRecommendationFaculty" type="button">Load Saved Faculty Schedule</button>
             <span id="recommendationStatus" class="analytics-note">No recommendation rows loaded.</span>
@@ -2813,8 +2773,6 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Schedule CSV(s) <input id="optimizationCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveOptimizationUploads" type="button">Archive Uploads</button>
             <label>Archived schedule terms <select id="optimizationArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Saved Faculty Schedule terms <select id="optimizationFacultyArchiveTerms" multiple data-placeholder="No saved Faculty Schedule terms"></select></label>
             <button id="refreshOptimizationArchives" type="button">Refresh Backend Archives</button>
@@ -2909,14 +2867,13 @@
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition</h2>
-            <p>Upload historical enrollment snapshot CSV files to review Census 1 and End/Final movement over time. This report is a historical trend baseline for planning; current or future planning terms are excluded from the trend rather than treated as the analysis target.</p>
+            <p>Review archived historical enrollment snapshot data for Census 1 and End/Final movement over time. This report is a historical trend baseline for planning; current or future planning terms are excluded from the trend rather than treated as the analysis target.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
-                  <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
-                  <li>Upload completed historical enrollment CSV files, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
+                  <li>Use historical enrollment files loaded through the Source Data Hub, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
                   <li>Use the planning term controls only to exclude an active, future, or otherwise non-final term from the historical trend. No current/decision term is required for this report.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
@@ -2941,8 +2898,6 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Enrollment CSV(s) <input id="enrollmentCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveAttritionUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="attrArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Planning term to exclude
               <select id="attrDecisionSeason">
@@ -2974,7 +2929,7 @@
                 <h3>How to Use This Report</h3>
                 <ul>
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
-                  <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
+                  <li>Use Section Seating source data loaded through the Source Data Hub.</li>
                   <li>Start with the current decision term, then use historical context to decide whether a low-filled pattern is recurring.</li>
                   <li>Compare like terms where possible: Fall to Fall, Spring to Spring, and Summer to Summer. Limit historical review to 2022 and newer terms.</li>
                   <li>Use the filters and thresholds to create a review list, then evaluate operational constraints before making any schedule decision.</li>
@@ -2994,8 +2949,6 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Consolidation CSV(s) <input id="consolidationCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveConsolidationUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="conArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Decision term <select id="conDecisionTerm"></select></label>
             <label>Decision season
@@ -3037,10 +2990,10 @@
                 <h3>How to Use This Report</h3>
                 <ul>
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
-                  <li>For archived uploads, name files with the Banner term code, such as <strong>202710.csv</strong>, so the app can assign the correct term automatically.</li>
+                  <li>Use Section Seating source data loaded through the Source Data Hub.</li>
                   <li>Select three to five comparable historical terms where possible, such as Fall to Fall or Spring to Spring. For academic-year forecasts, select archived Summer, Fall, and Spring terms for each historical year.</li>
                   <li>Forecast year uses the trailing fiscal/academic-year convention. FY/AY 2027 means Summer 2026, Fall 2026, and Spring 2027; selecting FY/AY 2027 + Fall targets Fall 2026 / Banner term 202710.</li>
-                  <li>Upload or select archived historical terms, then use the filters to isolate discipline, course, division, campus, modality, day pattern, or time range.</li>
+                  <li>Select archived historical terms, then use the filters to isolate discipline, course, division, campus, modality, day pattern, or time range.</li>
                   <li>The forecast target does not need an uploaded section seating report. Select the target season/year or academic year directly, then the report uses only comparable finalized historical rows before that target.</li>
                   <li>For a single-term forecast, enter known or projected FTES for the other terms in the same FY/AY so the cap comparison reflects the whole year.</li>
                 </ul>
@@ -3060,8 +3013,6 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Demand CSV(s) <input id="demandCsv" type="file" accept=".csv" multiple></label>
-            <button id="archiveDemandUploads" type="button">Archive Uploads</button>
             <label>Archived terms <select id="demArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
             <label>Forecast scope <select id="demForecastScope"><option value="term">Single term</option><option value="year">Academic year</option></select></label>
             <label>Forecast season <select id="demForecastSeason"><option>FALL</option><option>SPRING</option><option>SUMMER</option></select></label>
@@ -4169,7 +4120,7 @@
     if (!sourceRows.length) {
       if (status) status.textContent = 'No faculty schedule rows loaded.';
       clearLegacyFacultyHeatmapSlots();
-      document.getElementById('facultyHeatmapContainer').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Schedule.</p>';
+      document.getElementById('facultyHeatmapContainer').innerHTML = '<p class="analytics-empty">Load a saved Faculty Schedule term. Upload Faculty Schedule files from the Source Data Hub.</p>';
       document.getElementById('facultyHeatmapComparisonTable').innerHTML = '<p class="analytics-empty">No faculty schedule data loaded.</p>';
       document.getElementById('facultyHeatmapDistributionChart').innerHTML = '';
       document.getElementById('facultyHeatmapRatioHeatmap').innerHTML = '';
@@ -4667,7 +4618,7 @@
         ['Section seating matches', 0],
         ['Unknown/Omitted rows excluded', reportableFacultyRows(sourceRows).filter(row => !['In-Person', 'Hybrid', 'Online'].includes(facultyInstructionModality(row))).length]
       ]);
-      document.getElementById('facultyModalityChart').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Faculty Modality.</p>';
+      document.getElementById('facultyModalityChart').innerHTML = '<p class="analytics-empty">Load a saved Faculty Schedule term. Upload Faculty Schedule files from the Source Data Hub.</p>';
       document.getElementById('facultyModalityTable').innerHTML = '<p class="analytics-empty">No faculty modality data loaded.</p>';
       document.getElementById('facultyModalityLegend').innerHTML = '';
       return;
@@ -4707,7 +4658,7 @@
       metricsUsed: ['Scheduled Class Offerings', 'Instructional Meetings', 'Faculty Count', 'Enrollment Present', 'Seats Offered', 'LHE', 'Modality Choice Count'],
       calculationRules: 'Modality is mapped from INSM_CODE_SSBSECT with the shared TIMBER modality normalizer. Class offerings count distinct term + CRN values after filters. Faculty Count counts distinct instructors within each faculty type/modality bucket, so a row can have more class offerings than faculty because one instructor can teach multiple CRNs. Enrollment and seats are matched from loaded Section Seating rows by term + CRN when available, then fall back to Faculty Schedule ActualEnroll and MaxEnroll. Instructional meeting rows are retained in exports as Meeting Components, but they are not emphasized in the visible table because they can exceed class offerings when one CRN has multiple meeting components.',
       assumptions: 'User-facing modality results display only In-Person, Hybrid, and Online. Unknown or omitted codes are excluded from standard analytics and should be reviewed in diagnostics/validation outputs. For the most complete enrollment and seat totals, load the matching Section Seating term before reviewing Faculty Modality.',
-      limitations: 'This report does not infer faculty preference, load eligibility, or assignment policy. It only summarizes uploaded schedule rows.',
+      limitations: 'This report does not infer faculty preference, load eligibility, or assignment policy. It only summarizes loaded schedule rows.',
       items: [
         ['Class Offering Share', 'Distinct CRNs in the faculty type/modality row divided by all included displayed class offering rows after filters.'],
         ['Faculty Count', 'Distinct instructors represented in the row. This is not expected to equal class offerings because faculty may teach more than one CRN.'],
@@ -5232,7 +5183,7 @@
     const sourceRows = state.primeTimeRows || [];
     if (!sourceRows.length) {
       if (status) status.textContent = 'No faculty schedule rows loaded.';
-      document.getElementById('primeTimeGauges').innerHTML = '<p class="analytics-empty">Upload a Faculty Schedule CSV and click Load Prime Time Analysis.</p>';
+      document.getElementById('primeTimeGauges').innerHTML = '<p class="analytics-empty">Load a saved Faculty Schedule term. Upload Faculty Schedule files from the Source Data Hub.</p>';
       metric('primeTimeMetrics', [
         ['Historical Aggregation', historicalAggregationLabel(historicalAggregationMode('ptHistoricalAggregation')), 'average-per-selected-term'],
         ['Class offerings prime time', '0%', 'scheduled-class-offerings'],
@@ -7510,7 +7461,7 @@
         evidenceSummary: 'No usable schedule rows were loaded for the selected scope.',
         metricsUsed: 'No metrics available',
         whyThisMatters: 'Recommendations require schedule, enrollment, supply, and choice evidence.',
-        suggestedAction: 'Upload a schedule CSV or select archived terms.',
+        suggestedAction: 'Select archived terms. Upload source files from the Source Data Hub.',
         cautionsLimitations: 'No conclusion can be drawn without data.'
       }));
     }
@@ -12815,7 +12766,7 @@
     const historicalTerms = context.historicalTerms.length ? context.historicalTerms.join(', ') : 'None';
     const warning = context.totalRows
       ? ''
-      : '<div class="dashboard-scope-warnings"><p>No Consolidation CSVs or archived terms are selected. This report will not silently use other archived terms or the current room grid.</p></div>';
+      : '<div class="dashboard-scope-warnings"><p>No archived terms are selected. This report will not silently use other archived terms or the current room grid.</p></div>';
     node.innerHTML = `
       <h3>Consolidation Scope</h3>
       <div class="analytics-governance-statement">
@@ -13330,7 +13281,7 @@
       };
       if (!allRows.length) {
         state.demandRows = [];
-        renderEmptyDemand('No enrollment rows were loaded for the selected planning populations. Select archived terms, upload CSV files, or enable additional population types.', demandTermDiagnostics(baseTermDiagnostics), { loadedRows, populationSelections });
+        renderEmptyDemand('No enrollment rows were loaded for the selected planning populations. Select archived terms or enable additional population types. Upload source files from the Source Data Hub.', demandTermDiagnostics(baseTermDiagnostics), { loadedRows, populationSelections });
         return;
       }
       const filtered = applyFilters(allRows, 'dem');
@@ -16150,7 +16101,7 @@
     const legend = document.getElementById('consolidationLegend');
     if (!legend) return;
     const items = [
-      ['Consolidation CSV(s)', 'Optional upload for this report. Calculations use only selected Consolidation CSV upload files and archived terms selected in the Consolidation archived-term selector. The report does not silently pull every archived term or the current room grid.'],
+      ['Consolidation Archived Terms', 'Calculations use only archived terms selected in the Consolidation archived-term selector. Upload source files from the Source Data Hub. The report does not silently pull every archived term or the current room grid.'],
       ['Instructional methods', 'Online, In-Person, and Hybrid are derived from instructional method codes. Online codes include ONL, 71, 72, O1, OL, ONN, ONS, OO, OS, OSS, OT, OTS, ON, and OSL. In-person codes include IP, 02, 22, 022, 02H, 02O, 02S, 02T, 02N, 04, 06, 07, 08, 09, 12, XX, and YY. Hybrid codes include HYB, OH, OHF, FLX, and OHS. CPL, DE, CBE, 20, and unmapped archived code 98 are omitted from this report.'],
       ['Decision term', 'The term being reviewed for planned consolidation opportunities. For in-person rows, the decision term supplies planned sections, meeting patterns, and capacity, not the enrollment demand used to trigger recommendations.'],
       ['Curriculum Crosswalk', 'Configured curriculum/CCN crosswalk rows map old course numbers to current/synonym course numbers before historical demand, online reduction, and in-person consolidation groupings are calculated. Example: ENGL 001 history can support ENGL C1000 when that crosswalk row exists.'],
@@ -17105,7 +17056,7 @@
       const rows = rowsWithWorkExperience(state.enrollment.length ? state.enrollment : currentRows().filter(row => !isOmittedInstructionalMethod(row)), 'attr');
       updateDecisionTermOptions(state.attritionTerms.length ? state.attritionTerms : collectTerms(rows));
       populateAnalyticsFilters('attr', rows);
-      document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Upload enrollment CSV files, then click Run.</p>';
+      document.getElementById('attritionTable').innerHTML = '<p class="analytics-empty">Select archived terms, then click Run. Upload source files from the Source Data Hub.</p>';
     }
     if (selected === REPORTS.consolidation) {
       populateAnalyticsFilters('con', state.consolidationInput || []);
@@ -17116,12 +17067,12 @@
       const rows = rowsWithWorkExperience(state.demandInput.length ? state.demandInput : currentRows().filter(row => !isOmittedInstructionalMethod(row)), 'dem');
       updateDemandTermOptions(state.demandTerms.length ? state.demandTerms : collectTerms(rows));
       populateAnalyticsFilters('dem', rows);
-      document.getElementById('demandTable').innerHTML = '<p class="analytics-empty">Upload or select archived historical CSV files, then click Run.</p>';
+      document.getElementById('demandTable').innerHTML = '<p class="analytics-empty">Select archived historical terms, then click Run. Upload source files from the Source Data Hub.</p>';
       renderDemandLegend();
     }
     if (selected === REPORTS.conflictCheck && !state.conflictRan) {
       loadConflictRows().then(() => {
-        document.getElementById('conflictTable').innerHTML = '<p class="analytics-empty">Upload/select schedule CSVs or use the current loaded schedule, then click Run.</p>';
+        document.getElementById('conflictTable').innerHTML = '<p class="analytics-empty">Select archived schedule terms or use the current loaded schedule, then click Run. Upload source files from the Source Data Hub.</p>';
         renderConflictLegend();
       }).catch(err => console.warn(err));
     }
@@ -17183,19 +17134,19 @@
     if (selected === REPORTS.supplyDemand && !state.supplyDemandRan) {
       updateSupplyDemandFilterOptions();
       setSupplyDemandCalGetcOptions();
-      document.getElementById('supplyDemandTable').innerHTML = '<p class="analytics-empty">Upload CSV files or select archived terms, then click Run.</p>';
+      document.getElementById('supplyDemandTable').innerHTML = '<p class="analytics-empty">Select archived terms, then click Run. Upload source files from the Source Data Hub.</p>';
     }
     if (selected === REPORTS.busyTimeDashboard && !state.busyTimeRan) {
       updateBusyTimeFilterOptions();
-      document.getElementById('busyTimeTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
+      document.getElementById('busyTimeTable').innerHTML = '<p class="analytics-empty">Select archived terms, then click Run. Upload source files from the Source Data Hub.</p>';
     }
     if (selected === REPORTS.studentChoiceOpportunity && !state.studentChoiceRan) {
       updateStudentChoiceFilterOptions();
-      document.getElementById('studentChoiceTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
+      document.getElementById('studentChoiceTable').innerHTML = '<p class="analytics-empty">Select archived terms, then click Run. Upload source files from the Source Data Hub.</p>';
     }
     if (selected === REPORTS.recommendationEngine && !state.recommendationRan) {
       updateRecommendationFilterOptions();
-      document.getElementById('recommendationTable').innerHTML = '<p class="analytics-empty">Upload schedule CSV files or select archived terms, then click Run.</p>';
+      document.getElementById('recommendationTable').innerHTML = '<p class="analytics-empty">Select archived terms, then click Run. Upload source files from the Source Data Hub.</p>';
     }
     if (selected === REPORTS.scheduleOptimizationLab && !state.optimizationRan) {
       Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives()])
@@ -17607,9 +17558,7 @@
       if (selectedEnrollmentReport() === REPORTS.studentPresence) runStudentPresence().catch(err => console.warn(err));
     });
     attachBusyClick('runDashboard', 'Building Enrollment Analytics Dashboard...', () => rerunDashboard(), { key: 'runDashboard', runningLabel: 'Building...' });
-    document.getElementById('dashboardCsv')?.addEventListener('change', rerunDashboard);
     document.getElementById('dashArchiveTerms')?.addEventListener('change', rerunDashboard);
-    document.getElementById('archiveDashboardUploads')?.addEventListener('click', () => archiveUploads('dashboardCsv').catch(err => alert(err.message || 'Archive failed.')));
     attachBusyClick('dataHubArchiveSectionUploads', 'Archiving Section Seating / Schedule Data...', () => archiveUploads('dataHubSectionCsv'), { key: 'dataHubArchiveSectionUploads', runningLabel: 'Archiving...' });
     attachBusyClick('dataHubRefreshArchives', 'Refreshing Section Seating archives...', () => refreshAnalyticsArchiveOptions(), { key: 'dataHubRefreshArchives', runningLabel: 'Refreshing...' });
     attachBusyClick('dataHubSaveFacultySchedule', 'Saving Faculty Schedule archive...', () => saveFacultyScheduleArchive('dataHubFacultyScheduleCsv'), { key: 'dataHubSaveFacultySchedule', runningLabel: 'Saving...' });
@@ -17620,16 +17569,6 @@
         .catch(err => alert(err.message || 'Work Experience upload failed.'));
     });
     attachBusyClick('dataHubSaveSnapshotBatch', 'Saving enrollment snapshot...', () => saveDataHubSnapshotBatch(), { key: 'dataHubSaveSnapshotBatch', runningLabel: 'Saving...' });
-    document.getElementById('workExperienceCsv')?.addEventListener('change', () => {
-      loadWorkExperienceRows()
-        .then(() => {
-          const selected = selectedEnrollmentReport();
-          if (selected === REPORTS.dashboard) rerunDashboard();
-          if (selected === REPORTS.attrition) runAttrition().catch(handleAttritionError);
-          if (selected === REPORTS.demand) runDemand();
-        })
-        .catch(err => alert(err.message || 'Work Experience upload failed.'));
-    });
     document.getElementById('dashFocusTerm')?.addEventListener('change', () => {
       const value = document.getElementById('dashFocusTerm')?.value || '';
       const parts = termParts(value);
@@ -17654,13 +17593,11 @@
     });
     document.getElementById('spCompareTerms')?.addEventListener('change', () => { if (state.studentPresenceRan) runStudentPresence().catch(err => console.warn(err)); });
     document.getElementById('spGroup')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
-    document.getElementById('studentPresenceCsv')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('spArchiveTerms')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     document.getElementById('spHideOnline')?.addEventListener('change', () => runStudentPresence().catch(err => console.warn(err)));
     ['spIncludeDualEnrollment', 'spIncludeOtherModalities', 'spCampusScope', 'spPresenceMode'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.studentPresenceRan) runStudentPresence().catch(err => console.warn(err)); });
     });
-    document.getElementById('archiveStudentPresenceUploads')?.addEventListener('click', () => archiveUploads('studentPresenceCsv').catch(err => alert(err.message || 'Archive failed.')));
     attachBusyClick('exportStudentPresence', 'Exporting Student Presence rows...', () => exportStudentPresenceRows(), { key: 'exportStudentPresence', runningLabel: 'Exporting...' });
     document.getElementById('runAttrition')?.addEventListener('click', () => runAttrition().catch(handleAttritionError));
     document.getElementById('dashIncludeWorkExperience')?.addEventListener('change', rerunDashboard);
@@ -17668,12 +17605,9 @@
     ['demIncludePhysicalCampuses', 'demIncludeDualEnrollment', 'demIncludeWorkExperience'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', runDemand);
     });
-    document.getElementById('enrollmentCsv')?.addEventListener('change', () => loadAttritionFiles().catch(handleAttritionError));
     document.getElementById('attrArchiveTerms')?.addEventListener('change', () => loadAttritionFiles().catch(handleAttritionError));
-    document.getElementById('archiveAttritionUploads')?.addEventListener('click', () => archiveUploads('enrollmentCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearAttrition')?.addEventListener('click', () => resetAnalyticsControls('attr'));
     attachBusyClick('runConsolidation', 'Building consolidation recommendations...', () => runConsolidation(), { key: 'runConsolidation', runningLabel: 'Building...' });
-    document.getElementById('consolidationCsv')?.addEventListener('change', loadConsolidationRows);
     document.getElementById('conArchiveTerms')?.addEventListener('change', loadConsolidationRows);
     document.getElementById('conDecisionTerm')?.addEventListener('change', () => {
       const parts = termParts(document.getElementById('conDecisionTerm')?.value || '');
@@ -17688,10 +17622,8 @@
         if (select) select.value = '__MANUAL__';
       });
     });
-    document.getElementById('archiveConsolidationUploads')?.addEventListener('click', () => archiveUploads('consolidationCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearConsolidation')?.addEventListener('click', () => resetAnalyticsControls('con'));
     attachBusyClick('runDemand', 'Calculating enrollment planning forecast...', () => runDemand(), { key: 'runDemand', runningLabel: 'Calculating...' });
-    document.getElementById('demandCsv')?.addEventListener('change', () => loadDemandRows().catch(err => renderEmptyDemand(`Demand source load failed: ${err.message || err}`)));
     document.getElementById('demArchiveTerms')?.addEventListener('change', () => loadDemandRows().catch(err => renderEmptyDemand(`Demand source load failed: ${err.message || err}`)));
     document.getElementById('demForecastScope')?.addEventListener('change', updateDemandTargetControls);
     ['demForecastSeason', 'demForecastYear'].forEach(id => {
@@ -17700,10 +17632,8 @@
         if (yearInput) yearInput.dataset.autoDefault = 'false';
       });
     });
-    document.getElementById('archiveDemandUploads')?.addEventListener('click', () => archiveUploads('demandCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearDemand')?.addEventListener('click', () => resetAnalyticsControls('dem'));
     attachBusyClick('runConflictCheck', 'Checking schedule conflicts...', () => runConflictCheck(), { key: 'runConflictCheck', runningLabel: 'Checking...' });
-    document.getElementById('conflictCsv')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
     document.getElementById('conflictArchiveTerms')?.addEventListener('change', () => loadConflictRows().catch(err => console.warn(err)));
     document.getElementById('conflictTerm')?.addEventListener('change', () => {
       if (state.conflictRan) runConflictCheck().catch(err => console.warn(err));
@@ -17713,7 +17643,6 @@
     document.getElementById('conflictModes')?.addEventListener('change', () => { if (state.conflictRan) runConflictCheck().catch(err => console.warn(err)); });
     document.getElementById('conflictOmitCrossListed')?.addEventListener('change', () => { if (state.conflictRan) runConflictCheck().catch(err => console.warn(err)); });
     document.getElementById('conflictSeparateTypes')?.addEventListener('change', () => { if (state.conflictRan) runConflictCheck().catch(err => console.warn(err)); });
-    document.getElementById('archiveConflictUploads')?.addEventListener('click', () => archiveUploads('conflictCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearConflictCheck')?.addEventListener('click', () => {
       resetAnalyticsControls('conflict');
       state.conflictRows = [];
@@ -17760,7 +17689,6 @@
     ['roomFitTerm', 'roomFitCampus', 'roomFitBuilding', 'roomFitRoom', 'roomFitDivision', 'roomFitSubject', 'roomFitCourse', 'roomFitFlag', 'roomFitExcludeTutoringOpenLab'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => window.COSScheduleApp?.renderRoomFitReportTable?.());
     });
-    document.getElementById('saveSnapshotBatch')?.addEventListener('click', () => saveSnapshotBatch().catch(err => alert(err.message || 'Snapshot save failed.')));
     document.getElementById('snapSeason')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('snapYear')?.addEventListener('change', () => renderSnapshotManager());
     document.getElementById('viewStoredSnapshots')?.addEventListener('click', () => renderSnapshotManager());
@@ -17786,15 +17714,11 @@
     attachBusyClick('runInstructorAvailability', 'Building instructor availability...', () => runInstructorAvailability(), { key: 'runInstructorAvailability', runningLabel: 'Building...' });
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
     attachBusyClick('loadSavedInstructorAvailabilityFaculty', 'Loading saved Faculty Schedule...', () => loadSavedInstructorAvailabilityFacultySchedule(), { key: 'loadSavedInstructorAvailabilityFaculty', runningLabel: 'Loading...' });
-    attachBusyClick('loadInstructorAvailabilityFaculty', 'Loading Faculty Schedule CSV...', () => loadInstructorAvailabilityFacultySchedule(), { key: 'loadInstructorAvailabilityFaculty', runningLabel: 'Loading...' });
-    document.getElementById('iaFacultyScheduleCsv')?.addEventListener('change', () => loadInstructorAvailabilityFacultySchedule().catch(err => console.warn(err)));
     document.getElementById('iaMinSharedWindow')?.addEventListener('change', runInstructorAvailability);
     document.getElementById('iaCustomSharedWindow')?.addEventListener('input', runInstructorAvailability);
     document.getElementById('iaTargetMeetingLength')?.addEventListener('input', runInstructorAvailability);
     document.getElementById('copyInstructorAvailabilitySummary')?.addEventListener('click', () => copyInstructorAvailabilitySummary());
     attachBusyClick('loadSavedFacultyModality', 'Loading saved Faculty Schedule...', () => loadSavedFacultyModality(), { key: 'loadSavedFacultyModality', runningLabel: 'Loading...' });
-    attachBusyClick('loadFacultyModality', 'Building Faculty Modality...', () => loadFacultyModality(), { key: 'loadFacultyModality', runningLabel: 'Building...' });
-    document.getElementById('facultyModalityCsv')?.addEventListener('change', () => loadFacultyModality().catch(err => console.warn(err)));
     ['fmTerm', 'fmCampus', 'fmModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderFacultyModality);
     });
@@ -17807,14 +17731,10 @@
     document.getElementById('clearFacultyModality')?.addEventListener('click', clearFacultyModality);
     document.getElementById('exportFacultyModality')?.addEventListener('click', () => exportRowsWithoutMethodology(state.facultyModalityTableRows, 'faculty-modality.csv'));
     document.getElementById('runInstructionalMethodValidation')?.addEventListener('click', () => runInstructionalMethodValidation().catch(err => alert(err.message || 'Data Validation failed.')));
-    document.getElementById('instructionalMethodValidationCsv')?.addEventListener('change', () => runInstructionalMethodValidation().catch(err => console.warn(err)));
     document.getElementById('instructionalMethodValidationArchiveTerms')?.addEventListener('change', () => runInstructionalMethodValidation().catch(err => console.warn(err)));
-    document.getElementById('archiveInstructionalMethodValidationUploads')?.addEventListener('click', () => archiveUploads('instructionalMethodValidationCsv').catch(err => alert(err.message || 'Archive failed.')));
     document.getElementById('clearInstructionalMethodValidation')?.addEventListener('click', clearInstructionalMethodValidation);
     document.getElementById('exportInstructionalMethodValidation')?.addEventListener('click', () => exportRowsWithoutMethodology(state.instructionalMethodValidationTableRows, 'instructional-method-validation.csv'));
     attachBusyClick('loadSavedPrimeTimeAnalysis', 'Loading saved Faculty Schedule...', () => loadSavedPrimeTimeAnalysis(), { key: 'loadSavedPrimeTimeAnalysis', runningLabel: 'Loading...' });
-    attachBusyClick('loadPrimeTimeAnalysis', 'Building Prime Time Analysis...', () => loadPrimeTimeAnalysis(), { key: 'loadPrimeTimeAnalysis', runningLabel: 'Building...' });
-    document.getElementById('primeTimeCsv')?.addEventListener('change', () => loadPrimeTimeAnalysis().catch(err => console.warn(err)));
     ['ptTerm', 'ptCampus', 'ptStart', 'ptEnd', 'ptHistoricalAggregation', 'ptModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderPrimeTimeAnalysis);
     });
@@ -17831,9 +17751,7 @@
     document.getElementById('clearPrimeTimeAnalysis')?.addEventListener('click', clearPrimeTimeAnalysis);
     document.getElementById('exportPrimeTimeAnalysis')?.addEventListener('click', () => exportRowsWithoutMethodology(state.primeTimeTableRows, 'prime-time-analysis.csv'));
     attachBusyClick('runSupplyDemand', 'Building Supply vs. Demand...', () => runSupplyDemand(), { key: 'runSupplyDemand', runningLabel: 'Building...' });
-    document.getElementById('supplyDemandCsv')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
     document.getElementById('sdArchiveTerms')?.addEventListener('change', () => runSupplyDemand().catch(err => console.warn(err)));
-    document.getElementById('archiveSupplyDemandUploads')?.addEventListener('click', () => archiveUploads('supplyDemandCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['sdView', 'sdMetric', 'sdTerm', 'sdCampus', 'sdCalGetc', 'sdModality', 'sdPlanningWindow', 'sdMinCapacity', 'sdMaxCapacity'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.supplyDemandRan) runSupplyDemand().catch(err => console.warn(err)); });
     });
@@ -17846,11 +17764,8 @@
     document.getElementById('clearSupplyDemand')?.addEventListener('click', clearSupplyDemand);
     document.getElementById('exportSupplyDemand')?.addEventListener('click', () => exportRowsWithoutMethodology(state.supplyDemandResourceRows?.length ? state.supplyDemandResourceRows : state.supplyDemandBucketRows, 'supply-vs-demand.csv'));
     attachBusyClick('runBusyTimeDashboard', 'Building Busy Time Dashboard...', () => runBusyTimeDashboard(), { key: 'runBusyTimeDashboard', runningLabel: 'Building...' });
-    document.getElementById('busyTimeCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
-    document.getElementById('busyTimeFacultyCsv')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
     attachBusyClick('loadSavedBusyTimeFaculty', 'Loading saved Faculty Schedule...', () => loadSavedBusyTimeFacultySchedule(), { key: 'loadSavedBusyTimeFaculty', runningLabel: 'Loading...' });
     document.getElementById('busyTimeArchiveTerms')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
-    document.getElementById('archiveBusyTimeUploads')?.addEventListener('click', () => archiveUploads('busyTimeCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['busyTimeTerm', 'busyTimeCampus', 'busyTimeHistoricalAggregation', 'busyTimeModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.busyTimeRan) renderBusyTimeDashboard(); });
     });
@@ -17863,11 +17778,8 @@
     document.getElementById('clearBusyTimeDashboard')?.addEventListener('click', clearBusyTimeDashboard);
     document.getElementById('exportBusyTimeDashboard')?.addEventListener('click', () => exportRowsWithoutMethodology(state.busyTimeTableRows, 'busy-time-dashboard.csv'));
     attachBusyClick('runStudentChoiceOpportunity', 'Building Schedule Opportunity Analysis...', () => runStudentChoiceOpportunity(), { key: 'runStudentChoiceOpportunity', runningLabel: 'Building...' });
-    document.getElementById('studentChoiceCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
-    document.getElementById('studentChoiceFacultyCsv')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
     attachBusyClick('loadSavedStudentChoiceFaculty', 'Loading saved Faculty Schedule...', () => loadSavedStudentChoiceFacultySchedule(), { key: 'loadSavedStudentChoiceFaculty', runningLabel: 'Loading...' });
     document.getElementById('studentChoiceArchiveTerms')?.addEventListener('change', () => runStudentChoiceOpportunity().catch(err => console.warn(err)));
-    document.getElementById('archiveStudentChoiceUploads')?.addEventListener('click', () => archiveUploads('studentChoiceCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['studentChoiceView', 'studentChoiceMode', 'studentChoiceHistoricalAggregation', 'studentChoiceHistoricalTerms', 'studentChoiceDemandSource', 'studentChoiceMetric', 'studentChoiceTerm', 'studentChoiceCampus', 'studentChoiceCalGetc', 'studentChoiceModality', 'studentChoiceOnlineTreatment', 'studentChoiceShowInactiveHours', 'studentChoiceFacultyType', 'studentChoiceScenarioCrns', 'studentChoiceScenarioAction', 'studentChoiceScenarioDays', 'studentChoiceScenarioStart', 'studentChoiceScenarioEnd', 'studentChoiceScenarioModality', 'studentChoiceExcludeTutoring'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.studentChoiceRan) renderStudentChoiceOpportunity(); });
     });
@@ -17880,11 +17792,8 @@
     document.getElementById('clearStudentChoiceOpportunity')?.addEventListener('click', clearStudentChoiceOpportunity);
     document.getElementById('exportStudentChoiceOpportunity')?.addEventListener('click', () => exportRowsWithoutMethodology(state.studentChoiceExportRows || state.studentChoiceBucketRows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), 'schedule-opportunity-analysis.csv'));
     attachBusyClick('runRecommendationEngine', 'Generating scheduling recommendations...', () => runRecommendationEngine(), { key: 'runRecommendationEngine', runningLabel: 'Generating...' });
-    document.getElementById('recommendationCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
-    document.getElementById('recommendationFacultyCsv')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
     attachBusyClick('loadSavedRecommendationFaculty', 'Loading saved Faculty Schedule...', () => loadSavedRecommendationFacultySchedule(), { key: 'loadSavedRecommendationFaculty', runningLabel: 'Loading...' });
     document.getElementById('recommendationArchiveTerms')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
-    document.getElementById('archiveRecommendationUploads')?.addEventListener('click', () => archiveUploads('recommendationCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['recommendationCategory', 'recommendationConfidence', 'recommendationTerm', 'recommendationCampus', 'recommendationTimeBlock', 'recommendationHistoricalAggregation', 'recommendationStartEarliest', 'recommendationStartLatest', 'recommendationModality', 'recommendationFacultyType', 'recommendationExcludeTutoring'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.recommendationRan) renderRecommendationEngine(); });
     });
@@ -17976,10 +17885,6 @@
     attachBusyClick('runScheduleOptimizationLab', 'Running Schedule Optimization Lab...', () => runScheduleOptimizationLab(), { key: 'runScheduleOptimizationLab', runningLabel: 'Running...' });
     attachBusyClick('runOptimizationPlacement', 'Ranking add-a-class placement options...', () => runOptimizationPlacement(), { key: 'runOptimizationPlacement', runningLabel: 'Ranking...' });
     document.getElementById('clearOptimizationResults')?.addEventListener('click', clearOptimizationResults);
-    document.getElementById('optimizationCsv')?.addEventListener('change', () => {
-      invalidateOptimizationCache('Schedule CSV changed. Run optimization again to refresh results.');
-      loadOptimizationRows().catch(err => console.warn(err));
-    });
     document.getElementById('optimizationArchiveTerms')?.addEventListener('change', () => {
       invalidateOptimizationCache('Archived schedule terms changed. Run optimization again to refresh results.');
       loadOptimizationRows().catch(err => console.warn(err));
@@ -17998,7 +17903,6 @@
           invalidateOptimizationCache('Backend archives refreshed. Run optimization again to refresh results.');
         });
     }, { key: 'refreshOptimizationArchives', runningLabel: 'Refreshing...' });
-    document.getElementById('archiveOptimizationUploads')?.addEventListener('click', () => archiveUploads('optimizationCsv').catch(err => alert(err.message || 'Archive failed.')));
     ['optimizationTerm', 'optimizationHistoryTerms', 'optimizationDemandTerms', 'optimizationTermPreset', 'optimizationPriorityBehavior', 'optimizationAllowCrossCampus', 'optimizationAllowedShift', 'optimizationMaxCandidateRooms'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {
         if (id === 'optimizationTerm' || id === 'optimizationTermPreset') updateOptimizationTermOptions();
@@ -18025,10 +17929,7 @@
     attachBusyClick('exportOptimizationProposed', 'Exporting proposed-time evaluation...', () => exportOptimizationRows('proposed'), { key: 'exportOptimizationProposed', runningLabel: 'Exporting...' });
     attachBusyClick('exportOptimizationBetterTimes', 'Exporting better-time recommendations...', () => exportOptimizationRows('betterTimes'), { key: 'exportOptimizationBetterTimes', runningLabel: 'Exporting...' });
     attachBusyClick('exportOptimizationAudit', 'Exporting priority audit...', () => exportOptimizationRows('audit'), { key: 'exportOptimizationAudit', runningLabel: 'Exporting...' });
-    attachBusyClick('saveFacultyScheduleArchive', 'Saving Faculty Schedule archive...', () => saveFacultyScheduleArchive(), { key: 'saveFacultyScheduleArchive', runningLabel: 'Saving...' });
     attachBusyClick('loadSavedFacultyScheduleHeatmap', 'Loading saved Faculty Schedule Heatmap data...', () => loadSavedFacultyScheduleHeatmap(), { key: 'loadSavedFacultyScheduleHeatmap', runningLabel: 'Loading...' });
-    attachBusyClick('loadFacultyScheduleHeatmap', 'Loading Faculty Schedule Heatmap CSV...', () => loadFacultyScheduleHeatmap(), { key: 'loadFacultyScheduleHeatmap', runningLabel: 'Loading...' });
-    document.getElementById('facultyScheduleCsv')?.addEventListener('change', () => loadFacultyScheduleHeatmap().catch(err => console.warn(err)));
     ['fhMetric', 'fhFacultyType', 'fhMeetingType', 'fhTerm', 'fhCampus', 'fhModality'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', renderFacultyScheduleHeatmap);
     });

@@ -1908,7 +1908,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const archiveSelect = document.getElementById(`${prefix}-archive-terms`);
     const selectedArchiveTerms = selectedOptions(archiveSelect);
     if (!uploadInput?.files?.length && !selectedArchiveTerms.length) {
-      setScheduleAnalysisStatus(prefix, 'Choose a CSV or archived term, then click Load Source.', true);
+      setScheduleAnalysisStatus(prefix, 'Choose an archived term, then click Load Source. Upload source files from Source Data Hub.', true);
       return getScheduleAnalysisRows();
     }
     setScheduleAnalysisStatus(prefix, 'Loading source...');
@@ -1933,7 +1933,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const archiveSelect = document.getElementById('modality-archive-terms');
     const selectedArchiveTerms = selectedOptions(archiveSelect);
     if (!uploadInput?.files?.length && !selectedArchiveTerms.length) {
-      setScheduleAnalysisStatus('modality', 'Choose a CSV or archived term, then click Load Source.', true);
+      setScheduleAnalysisStatus('modality', 'Choose an archived term, then click Load Source. Upload source files from Source Data Hub.', true);
       return getModalitySourceRows();
     }
     setScheduleAnalysisStatus('modality', 'Loading source...');

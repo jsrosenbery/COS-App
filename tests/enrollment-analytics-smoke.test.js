@@ -2233,7 +2233,7 @@ test('dashboard source does not silently load all archived terms', () => {
   assert.doesNotMatch(sourceBlock, /state\.enrollment/);
   assert.doesNotMatch(sourceBlock, /state\.demandInput/);
   assert.doesNotMatch(sourceBlock, /state\.consolidationInput/);
-  assert.match(text, /id="dashboardCsv"/);
+  assert.doesNotMatch(text, /id="dashboardCsv"/);
   assert.match(text, /id="dashArchiveTerms"/);
   assert.match(loadBlock, /readArchivedRows\('dashArchiveTerms', \{ reportLabel: 'Enrollment Analytics Dashboard' \}\)/);
 });
@@ -3270,10 +3270,8 @@ test('instructor availability supports all full-time and part-time faculty filte
   assert.equal(facultyRows.filter(row => COSEnrollmentAnalytics.instructorAvailabilityMatchesFacultyType(row, 'PART_TIME')).length, 1);
 
   const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
-  assert.match(source, /id="iaFacultyScheduleCsv"/);
   assert.match(source, /id="iaFacultyArchiveTerm"/);
   assert.match(source, /loadSavedInstructorAvailabilityFaculty/);
-  assert.match(source, /loadInstructorAvailabilityFaculty/);
   assert.match(source, /Using Section Seating fallback until Faculty Schedule Data is loaded/);
   assert.match(source, /state\.instructorAvailabilityFacultyRows/);
   assert.match(source, /id="iaFacultyType"/);
@@ -3282,7 +3280,8 @@ test('instructor availability supports all full-time and part-time faculty filte
   assert.match(source, /Faculty Schedule Data/);
   assert.match(source, /instructorAvailabilityMatchesFacultyType\(row, facultyType\)/);
   assert.match(source, /document\.getElementById\('iaFacultyType'\)\?\.addEventListener\('change'/);
-  assert.match(source, /document\.getElementById\('iaFacultyScheduleCsv'\)\?\.addEventListener\('change'/);
+  assert.doesNotMatch(source, /id="iaFacultyScheduleCsv"/);
+  assert.doesNotMatch(source, /document\.getElementById\('iaFacultyScheduleCsv'\)\?\.addEventListener\('change'/);
   assert.match(source, /\['Faculty Type', facultyType \? instructorAvailabilityFacultyTypeLabel\(facultyType\) : 'All faculty'\]/);
 });
 
@@ -3517,7 +3516,7 @@ test('TIMBER report organization moves analytics tools into enrollment managemen
   assert.match(text, /roomFitArchiveTerms/);
   assert.match(app, /renderRoomFitReport/);
   assert.match(app, /function setScheduleAnalysisStatus/);
-  assert.match(app, /Choose a CSV or archived term, then click Load Source/);
+  assert.match(app, /Choose an archived term, then click Load Source\. Upload source files from Source Data Hub/);
   assert.match(app, /Loaded \$\{rows\.length\} row\(s\)/);
   assert.match(app, /parseHour\(row\[5\]\?\.split/);
   assert.match(app, /r\.Days \|\| r\.days \|\| r\.dayPattern/);
@@ -3679,8 +3678,8 @@ test('data validation and mapping report is an Admin diagnostic', () => {
   assert.match(app, /Meeting Type Mapping/);
   assert.match(app, /SCHD_CODE_SSRMEET mapping: 2 is Lecture, 4 is Lab, XX is Activity/);
   assert.match(app, /id="instructionalMethodValidationReport"/);
-  assert.match(app, /id="instructionalMethodValidationCsv"/);
   assert.match(app, /id="instructionalMethodValidationArchiveTerms"/);
+  assert.doesNotMatch(app, /id="instructionalMethodValidationCsv"/);
   assert.match(app, /id="runInstructionalMethodValidation"/);
   assert.match(app, /id="exportInstructionalMethodValidation"/);
   assert.match(app, /setReportDisplay\(REPORTS\.instructionalMethodValidation, 'instructionalMethodValidationReport'\)/);
@@ -3717,6 +3716,48 @@ test('source data hub centralizes upload controls while keeping datasets separat
   assert.match(app, /setReportDisplay\(REPORTS\.dataHub, 'sourceDataHubReport'\)/);
   assert.doesNotMatch(app, /Go to Administrative Imports/);
   assert.doesNotMatch(app, /shown in the Administration import area below the reports/);
+});
+
+test('report screens do not expose CSV upload controls outside source data hub', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const legacyReportUploadIds = [
+    'dashboardCsv',
+    'snapshotCsv',
+    'conflictCsv',
+    'archiveInspectionCsv',
+    'roomFitCsv',
+    'studentPresenceCsv',
+    'iaFacultyScheduleCsv',
+    'facultyScheduleCsv',
+    'facultyModalityCsv',
+    'instructionalMethodValidationCsv',
+    'primeTimeCsv',
+    'supplyDemandCsv',
+    'busyTimeCsv',
+    'busyTimeFacultyCsv',
+    'studentChoiceCsv',
+    'studentChoiceFacultyCsv',
+    'recommendationCsv',
+    'recommendationFacultyCsv',
+    'optimizationCsv',
+    'enrollmentCsv',
+    'consolidationCsv',
+    'demandCsv',
+    'heatmap-source-csv',
+    'modality-source-csv',
+    'linechart-source-csv'
+  ];
+
+  legacyReportUploadIds.forEach(id => {
+    const pattern = new RegExp(`id="${id}"`);
+    assert.doesNotMatch(app, pattern, `${id} should not be rendered in analytics report templates`);
+    assert.doesNotMatch(index, pattern, `${id} should not be rendered in index report tools`);
+  });
+  assert.match(app, /id="dataHubSectionCsv"/);
+  assert.match(app, /id="dataHubFacultyScheduleCsv"/);
+  assert.match(app, /id="dataHubWorkExperienceCsv"/);
+  assert.match(app, /id="dataHubSnapshotCsv"/);
 });
 
 test('backend keeps faculty schedule archives isolated from section schedule storage', () => {
@@ -3763,11 +3804,11 @@ test('course heatmap is Division Chair and faculty schedule heatmap is Dean repo
   assert.doesNotMatch(divisionBlock, /REPORTS\.facultyHeatmap/);
   assert.match(text, /Faculty Schedule Heatmap/);
   assert.match(text, /id="facultyHeatmapReport"/);
-  assert.match(text, /id="facultyScheduleCsv"/);
-  assert.match(text, /id="saveFacultyScheduleArchive"/);
   assert.match(text, /id="facultyScheduleArchiveTerm"/);
   assert.match(text, /id="loadSavedFacultyScheduleHeatmap"/);
   assert.match(text, /id="facultyScheduleArchiveStatus"/);
+  assert.doesNotMatch(text, /id="facultyScheduleCsv"/);
+  assert.doesNotMatch(text, /id="saveFacultyScheduleArchive"/);
   assert.match(text, /id="fhMetric"/);
   assert.match(text, /<option value="sections">Sections<\/option>/);
   assert.match(text, /<option value="facultyCount">Faculty Count<\/option>/);
@@ -3894,9 +3935,9 @@ test('faculty modality is a standalone Development report using INSM codes', () 
   assert.match(text, /\[REPORTS\.facultyModality\]: 'development'/);
   assert.match(text, /Faculty Modality/);
   assert.match(text, /id="facultyModalityReport"/);
-  assert.match(text, /id="facultyModalityCsv"/);
   assert.match(text, /id="facultyModalityArchiveTerm"/);
   assert.match(text, /id="loadSavedFacultyModality"/);
+  assert.doesNotMatch(text, /id="facultyModalityCsv"/);
   assert.match(text, /function loadSavedFacultyModality/);
   assert.match(text, /id="fmCampus"/);
   assert.match(text, /id="fmDivision"/);
@@ -4098,9 +4139,9 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /Prime Time Analysis/);
   assert.match(text, /Prime Time Analysis defaults to physical instruction because it is intended to evaluate campus time-of-day concentration\. Online sections can be included manually\./);
   assert.match(text, /id="primeTimeAnalysisReport"/);
-  assert.match(text, /id="primeTimeCsv"/);
   assert.match(text, /id="primeTimeArchiveTerm"/);
   assert.match(text, /id="loadSavedPrimeTimeAnalysis"/);
+  assert.doesNotMatch(text, /id="primeTimeCsv"/);
   assert.match(text, /function loadSavedPrimeTimeAnalysis/);
   assert.match(text, /id="ptStart" type="time" value="09:00"/);
   assert.match(text, /id="ptEnd" type="time" value="15:00"/);
@@ -4152,8 +4193,8 @@ test('supply vs demand is a standalone Development report with heatmap line and 
   assert.match(text, /\[REPORTS\.supplyDemand\]: 'development'/);
   assert.match(text, /Supply vs. Demand/);
   assert.match(text, /id="supplyDemandReport"/);
-  assert.match(text, /id="supplyDemandCsv"/);
   assert.match(text, /id="sdArchiveTerms"/);
+  assert.doesNotMatch(text, /id="supplyDemandCsv"/);
   assert.match(text, /id="sdView"/);
   assert.match(text, /id="sdMetric"/);
   assert.match(text, /Sections/);
@@ -4200,10 +4241,10 @@ test('busy time dashboard is a standalone Development report summarizing core bu
   assert.match(text, /\[REPORTS\.busyTimeDashboard\]: 'development'/);
   assert.match(text, /Busy Time Dashboard/);
   assert.match(text, /id="busyTimeDashboardReport"/);
-  assert.match(text, /id="busyTimeCsv"/);
   assert.match(text, /id="busyTimeArchiveTerms"/);
-  assert.match(text, /id="busyTimeFacultyCsv"/);
   assert.match(text, /id="busyTimeFacultyArchiveTerm"/);
+  assert.doesNotMatch(text, /id="busyTimeCsv"/);
+  assert.doesNotMatch(text, /id="busyTimeFacultyCsv"/);
   assert.match(text, /id="loadSavedBusyTimeFaculty"/);
   assert.match(text, /function loadSavedBusyTimeFacultySchedule/);
   assert.match(text, /Prime Time Score/);
@@ -4233,10 +4274,10 @@ test('schedule opportunity analysis is a standalone Development report with plan
   assert.match(text, /Schedule Opportunity/);
   assert.match(text, /Schedule Opportunity identifies where faculty, time, and compatible-room conditions may allow an additional or relocated section/);
   assert.match(text, /id="studentChoiceOpportunityReport"/);
-  assert.match(text, /id="studentChoiceCsv"/);
   assert.match(text, /id="studentChoiceArchiveTerms"/);
-  assert.match(text, /id="studentChoiceFacultyCsv"/);
   assert.match(text, /id="studentChoiceFacultyArchiveTerm"/);
+  assert.doesNotMatch(text, /id="studentChoiceCsv"/);
+  assert.doesNotMatch(text, /id="studentChoiceFacultyCsv"/);
   assert.match(text, /id="loadSavedStudentChoiceFaculty"/);
   assert.match(text, /function loadSavedStudentChoiceFacultySchedule/);
   assert.match(text, /Historical Evaluation/);
@@ -4386,10 +4427,10 @@ test('scheduling recommendation engine is advisory and covers recommendation cat
   assert.match(text, /Schedule Recommendation/);
   assert.match(text, /Schedule Recommendation evaluates feasible scheduling opportunities using available demand, room, faculty, modality, and schedule-pattern information/);
   assert.match(text, /id="recommendationEngineReport"/);
-  assert.match(text, /id="recommendationCsv"/);
   assert.match(text, /id="recommendationArchiveTerms"/);
-  assert.match(text, /id="recommendationFacultyCsv"/);
   assert.match(text, /id="recommendationFacultyArchiveTerm"/);
+  assert.doesNotMatch(text, /id="recommendationCsv"/);
+  assert.doesNotMatch(text, /id="recommendationFacultyCsv"/);
   assert.match(text, /id="loadSavedRecommendationFaculty"/);
   assert.match(text, /function loadSavedRecommendationFacultySchedule/);
   assert.match(text, /id="recommendationStartEarliest" type="time" value="07:00"/);
@@ -4460,12 +4501,14 @@ test('development reports use multi-select modality filters with quick-select co
   assert.match(text, /function facultyMatchesSelectedModality/);
 });
 
-test('enrollment analytics supports supplemental work experience upload controls', () => {
+test('enrollment analytics supports supplemental work experience source data hub controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
-  assert.match(text, /Work Experience Enrollment Upload/);
-  assert.match(text, /id="workExperienceCsv"/);
-  assert.match(text, /session only until archive support is added/);
+  assert.match(text, /Work Experience Enrollment/);
+  assert.match(text, /id="dataHubWorkExperienceCsv"/);
+  assert.match(text, /loadWorkExperienceRows\('dataHubWorkExperienceCsv'\)/);
+  assert.doesNotMatch(text, /id="workExperienceCsv"/);
+  assert.doesNotMatch(text, /id="workExperienceUploadPanel"/);
   assert.match(text, /dashIncludeWorkExperience/);
   assert.match(text, /attrIncludeWorkExperience/);
   assert.match(text, /demIncludeWorkExperience/);
@@ -4596,8 +4639,8 @@ test('schedule optimization lab is a standalone Development planning tool', () =
   assert.match(text, /Clear Results/);
   assert.match(text, /optimizationRunStatus/);
   assert.match(text, /optimizationPerformanceDetails/);
-  assert.match(text, /optimizationCsv/);
   assert.match(text, /optimizationArchiveTerms/);
+  assert.doesNotMatch(text, /id="optimizationCsv"/);
   assert.match(text, /optimizationFacultyArchiveTerms/);
   assert.match(text, /refreshOptimizationArchives/);
   assert.match(text, /Backend archives:/);
@@ -4966,8 +5009,8 @@ test('data validation and mapping keeps instructional method diagnostics availab
   assert.match(app, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
   assert.match(app, /Data Validation/);
   assert.match(app, /id="instructionalMethodValidationReport"/);
-  assert.match(app, /id="instructionalMethodValidationCsv"/);
   assert.match(app, /id="instructionalMethodValidationArchiveTerms"/);
+  assert.doesNotMatch(app, /id="instructionalMethodValidationCsv"/);
   assert.match(app, /id="runInstructionalMethodValidation"/);
   assert.match(app, /id="exportInstructionalMethodValidation"/);
   assert.match(app, /setReportDisplay\(REPORTS\.instructionalMethodValidation, 'instructionalMethodValidationReport'\)/);
