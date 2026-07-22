@@ -2315,6 +2315,34 @@ test('enrollment planning population summary reconciles instructional dual and w
   assert.ok(Math.abs(componentEnrollment - summary.total.projectedEnrollment) < 0.0001);
 });
 
+test('enrollment management snapshot compares requested campus population buckets', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const current = [
+    section({ campus: 'HAN', census: 40, cap: 50, ftes: 12, hasDirectFtesData: true, waitlist: 5, crn: 'H1' }),
+    section({ campus: 'VIS', census: 80, cap: 100, ftes: 24, hasDirectFtesData: true, waitlist: 2, crn: 'V1' }),
+    section({ campus: 'ONC', census: 20, cap: 25, ftes: 6, hasDirectFtesData: true, waitlist: 3, crn: 'O1' }),
+    section({ campus: 'UNK', census: 10, cap: 15, ftes: 3, hasDirectFtesData: true, waitlist: 0, crn: 'X1' })
+  ];
+  const prior = [
+    section({ campus: 'HAN', census: 35, cap: 50, ftes: 10, hasDirectFtesData: true, crn: 'PH1' }),
+    section({ campus: 'VIS', census: 90, cap: 100, ftes: 27, hasDirectFtesData: true, crn: 'PV1' })
+  ];
+  const rows = COSEnrollmentAnalytics.emSnapshotCompareRows(current, prior);
+  const hac = rows.find(row => row.group === 'HAC');
+  const cos = rows.find(row => row.group === 'COS');
+  const online = rows.find(row => row.group === 'ONC/ONV/ONT/ONH');
+  const other = rows.find(row => row.group === 'All Other Campuses');
+
+  assert.equal(hac.currentEnrollment, 40);
+  assert.equal(hac.priorEnrollment, 35);
+  assert.equal(hac.ftesDifference, 2);
+  assert.equal(cos.enrollmentDifference, -10);
+  assert.equal(online.currentFtes, 6);
+  assert.equal(other.currentEnrollment, 10);
+  assert.ok(hac.waitlistPressurePct > 0);
+  assert.ok(rows.reduce((total, row) => total + row.shareOfTotal, 0) > 0.99);
+});
+
 test('demand term diagnostics count selected loaded filtered empty and failed terms', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const diagnostics = COSEnrollmentAnalytics.demandTermDiagnostics({
