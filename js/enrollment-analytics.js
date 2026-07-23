@@ -122,7 +122,7 @@
     [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
     [REPORTS.attrition]: 'Enrollment Attrition',
     [REPORTS.demand]: 'Enrollment Planning Forecast',
-    [REPORTS.emSnapshot]: 'Enrollment Management Snapshot',
+    [REPORTS.emSnapshot]: 'Enrollment Management FTES Review',
     [REPORTS.snapshotManager]: 'Enrollment Snapshot',
     [REPORTS.heatmap]: 'Course Start-Time Heatmap',
     [REPORTS.instructorAvailability]: 'Instructor Availability',
@@ -244,7 +244,7 @@
     [REPORTS.dashboard]: 'Review enrollment health, registration pace, demand, attrition, and schedule signals.',
     [REPORTS.attrition]: 'Compare census and end/final enrollment movement across completed historical terms.',
     [REPORTS.demand]: 'Forecast enrollment, FTES, schedule supply, demand, and planning gaps.',
-    [REPORTS.emSnapshot]: 'Replicate the manual FTES/campus/cap snapshot from current and prior-year same-date data.',
+    [REPORTS.emSnapshot]: 'Review current section seating FTES by campus, modality, and instructional method with optional prior-term comparison.',
     [REPORTS.snapshotManager]: 'Manage first-day, census, and enrollment snapshot uploads.',
     [REPORTS.heatmap]: 'Show when classes begin by day and scheduled start time, with enrollment and capacity views.',
     [REPORTS.instructorAvailability]: 'Check instructor teaching conflicts and shared availability windows.',
@@ -3052,15 +3052,15 @@
         </div>
         <div id="emSnapshotReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Management Snapshot</h2>
-            <p>Builds a point-in-time FTES and enrollment snapshot from current data and an optional prior-year same-date comparison file. This report is separate from forecasting so current actuals, prior-year movement, campus mix, and cap position stay readable.</p>
+            <h2>Enrollment Management FTES Review</h2>
+            <p>Builds a current FTES and enrollment view from the selected term section seating data, with an optional prior term comparison. This is separate from enrollment snapshot tracking and does not store first-day, census, or final snapshot records.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Upload the current snapshot file first. Upload a prior-year same-date snapshot when available for spring-to-spring, fall-to-fall, or summer-to-summer comparison.</li>
-                  <li>Enter optional positive-attendance and FTES cap assumptions only when they are not present in the uploaded files.</li>
-                  <li>Campus rows are grouped as HAC, COS, TCC, Online campuses, Dual Enrollment, and All Other Campuses.</li>
+                  <li>Select or load the applicable term in the main workspace, then run this report to use the available Section Seating rows for that term.</li>
+                  <li>Enter an optional prior term when a simple same-season or prior-year comparison is useful.</li>
+                  <li>Campus rows are grouped as HAC, COS, TCC, Online campuses, Dual Enrollment, and All Other Campuses. Modality rows also show the source instructional method code.</li>
                 </ul>
               </div>
               <div>
@@ -3068,19 +3068,19 @@
                 <ul>
                   <li>Enrollment uses census enrollment when present and actual/current enrollment as fallback.</li>
                   <li>FTES uses direct FTES fields when present, then the same reportable FTES estimator used elsewhere in TIMBER.</li>
-                  <li>Variance is current snapshot minus prior-year same-date snapshot. Missing comparison data is shown as unavailable rather than zero.</li>
+                  <li>Variance is current selected-term section seating minus the optional prior term. Missing comparison data is shown as unavailable rather than zero.</li>
                 </ul>
               </div>
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Current snapshot CSV(s) <input id="emSnapshotCurrentCsv" type="file" accept=".csv" multiple></label>
-            <label>Prior-year same-date CSV(s) <input id="emSnapshotPriorCsv" type="file" accept=".csv" multiple></label>
-            <label>Snapshot label <input id="emSnapshotLabel" type="text" placeholder="Spring 2026 as of 3/8/26"></label>
-            <label>Prior comparison label <input id="emSnapshotPriorLabel" type="text" placeholder="Spring 2025 Census"></label>
+            <span class="analytics-note">Current term comes from the selected Section Seating term.</span>
+            <label>Current label <input id="emSnapshotLabel" type="text" placeholder="Selected term"></label>
+            <label>Prior comparison term <input id="emSnapshotPriorTerm" type="text" placeholder="Spring 2025"></label>
+            <label>Prior comparison label <input id="emSnapshotPriorLabel" type="text" placeholder="Prior term"></label>
             <label>FTES cap <input id="emSnapshotFtesCap" type="number" min="0" step="0.1" placeholder="optional"></label>
             <label>Positive attendance estimate <input id="emSnapshotPositiveAttendance" type="number" min="0" step="0.1" placeholder="optional"></label>
-            <button id="runEmSnapshot" type="button">Run Snapshot</button>
+            <button id="runEmSnapshot" type="button">Run FTES Review</button>
             <button id="clearEmSnapshot" type="button">Clear</button>
             <button id="exportEmSnapshot" type="button">Export CSV</button>
           </div>
@@ -14908,13 +14908,19 @@
   }
 
   async function loadEmSnapshotRows() {
-    const currentRowsRaw = await readCsv(document.getElementById('emSnapshotCurrentCsv'));
-    const priorRowsRaw = await readCsv(document.getElementById('emSnapshotPriorCsv'));
-    state.emSnapshotCurrentInput = dedupeEnrollmentRows(currentRowsRaw.map(normalize));
-    state.emSnapshotPriorInput = dedupeEnrollmentRows(priorRowsRaw.map(normalize));
+    const selectedTerm = normalizeTermLabel(currentTerm());
+    const priorTerm = normalizeTermLabel(document.getElementById('emSnapshotPriorTerm')?.value || '');
+    const currentRowsRaw = selectedTerm ? await loadScheduleTermRows(selectedTerm) : currentRows();
+    const priorRowsRaw = priorTerm ? await loadScheduleTermRows(priorTerm) : [];
+    state.emSnapshotCurrentInput = dedupeEnrollmentRows((currentRowsRaw || []).map(normalize))
+      .filter(row => !selectedTerm || normalizeTermLabel(row.term) === selectedTerm);
+    state.emSnapshotPriorInput = dedupeEnrollmentRows((priorRowsRaw || []).map(normalize))
+      .filter(row => !priorTerm || normalizeTermLabel(row.term) === priorTerm);
     return {
       current: state.emSnapshotCurrentInput,
-      prior: state.emSnapshotPriorInput
+      prior: state.emSnapshotPriorInput,
+      selectedTerm,
+      priorTerm
     };
   }
 
@@ -14987,27 +14993,35 @@
     });
   }
 
-  function emSnapshotExportRows(summary = {}, rows = []) {
+  function emSnapshotModalityMethodBucket(row = {}) {
+    const modality = demandModalityLabel(row);
+    const code = instructionalMethodRawCode(row);
+    return `${modality} / ${code || 'BLANK'}`;
+  }
+
+  function emSnapshotExportRows(summary = {}, tables = {}) {
     const output = [];
     const add = (Section, Field, Value) => output.push({ Section, Field, Value });
     add('Report Context', 'Report name', REPORT_LABEL[REPORTS.emSnapshot]);
     add('Report Context', 'Generated date/time', new Date().toISOString());
-    add('Report Context', 'Current snapshot label', summary.currentLabel);
+    add('Report Context', 'Current selected term', summary.selectedTerm || 'Not selected');
+    add('Report Context', 'Current label', summary.currentLabel);
+    add('Report Context', 'Prior comparison term', summary.priorTerm || 'Not selected');
     add('Report Context', 'Prior comparison label', summary.priorLabel || 'Not loaded');
     add('Report Context', 'Current rows included', summary.current.rows);
     add('Report Context', 'Prior rows included', summary.prior.rows);
-    add('Current Snapshot', 'Enrollment', summary.current.enrollment);
-    add('Current Snapshot', 'FTES', round1(summary.current.ftes));
-    add('Current Snapshot', 'Sections', summary.current.sections);
-    add('Current Snapshot', 'Seats', summary.current.seats);
-    add('Current Snapshot', 'Fill Rate', pct(summary.current.fillRate));
-    add('Current Snapshot', 'Waitlist', summary.current.waitlist);
-    add('Current Snapshot', 'Waitlist Pressure', pct(summary.current.waitlistPressurePct));
+    add('Current Section Seating', 'Enrollment', summary.current.enrollment);
+    add('Current Section Seating', 'FTES', round1(summary.current.ftes));
+    add('Current Section Seating', 'Sections', summary.current.sections);
+    add('Current Section Seating', 'Seats', summary.current.seats);
+    add('Current Section Seating', 'Fill Rate', pct(summary.current.fillRate));
+    add('Current Section Seating', 'Waitlist', summary.current.waitlist);
+    add('Current Section Seating', 'Waitlist Pressure', pct(summary.current.waitlistPressurePct));
     if (summary.prior.rows) {
-      add('Prior-Year Comparison', 'Enrollment Difference', summary.current.enrollment - summary.prior.enrollment);
-      add('Prior-Year Comparison', 'Enrollment % Difference', pct(safeDiv(summary.current.enrollment - summary.prior.enrollment, summary.prior.enrollment)));
-      add('Prior-Year Comparison', 'FTES Difference', round1(summary.current.ftes - summary.prior.ftes));
-      add('Prior-Year Comparison', 'FTES % Difference', pct(safeDiv(summary.current.ftes - summary.prior.ftes, summary.prior.ftes)));
+      add('Prior Term Comparison', 'Enrollment Difference', summary.current.enrollment - summary.prior.enrollment);
+      add('Prior Term Comparison', 'Enrollment % Difference', pct(safeDiv(summary.current.enrollment - summary.prior.enrollment, summary.prior.enrollment)));
+      add('Prior Term Comparison', 'FTES Difference', round1(summary.current.ftes - summary.prior.ftes));
+      add('Prior Term Comparison', 'FTES % Difference', pct(safeDiv(summary.current.ftes - summary.prior.ftes, summary.prior.ftes)));
     }
     if (summary.ftesCap > 0) {
       add('Cap Position', 'FTES Cap', summary.ftesCap);
@@ -15015,13 +15029,18 @@
       add('Cap Position', 'Estimated Total with Positive Attendance', round1(summary.current.ftes + summary.positiveAttendance));
       add('Cap Position', 'Over / Under Cap', round1(summary.ftesCap - (summary.current.ftes + summary.positiveAttendance)));
     }
-    rows.forEach(row => {
+    (tables.campus || []).forEach(row => {
       add('Campus / Population Table', row.group, `Current FTES ${round1(row.currentFtes)}; Prior FTES ${row.priorFtes == null ? 'N/A' : round1(row.priorFtes)}; Difference ${row.ftesDifference == null ? 'N/A' : round1(row.ftesDifference)}; Share ${pct(row.shareOfTotal)}`);
+    });
+    (tables.modalityMethod || []).forEach(row => {
+      add('Modality / Instructional Method Table', row.group, `Current FTES ${round1(row.currentFtes)}; Prior FTES ${row.priorFtes == null ? 'N/A' : round1(row.priorFtes)}; Difference ${row.ftesDifference == null ? 'N/A' : round1(row.ftesDifference)}; Share ${pct(row.shareOfTotal)}`);
     });
     return output;
   }
 
-  function renderEmSnapshot(summary = {}, rows = []) {
+  function renderEmSnapshot(summary = {}, tables = {}) {
+    const campusRows = tables.campus || [];
+    const modalityRows = tables.modalityMethod || [];
     renderReportContext(REPORTS.emSnapshot, {
       reportName: REPORT_LABEL[REPORTS.emSnapshot],
       focusTerm: summary.currentLabel,
@@ -15034,8 +15053,9 @@
       method: [
         { label: 'Enrollment basis', value: 'Census preferred, actual/current fallback' },
         { label: 'FTES basis', value: 'Direct FTES when present, otherwise TIMBER FTES estimator' },
-        { label: 'Comparison basis', value: 'Current snapshot minus prior-year same-date snapshot when loaded' },
-        { label: 'Campus grouping', value: 'HAC; COS; TCC; ONC/ONV/ONT/ONH; Dual Enrollment; All Other Campuses' }
+        { label: 'Comparison basis', value: 'Selected section seating term minus optional prior term when loaded' },
+        { label: 'Campus grouping', value: 'HAC; COS; TCC; ONC/ONV/ONT/ONH; Dual Enrollment; All Other Campuses' },
+        { label: 'Modality grouping', value: 'Normalized modality plus raw instructional method code' }
       ]
     });
     metric('emSnapshotMetrics', [
@@ -15052,10 +15072,12 @@
     const summaryNode = document.getElementById('emSnapshotSummary');
     if (summaryNode) {
       summaryNode.innerHTML = `
-        <h3>Snapshot Summary</h3>
+        <h3>Current FTES Review Summary</h3>
         <dl>
-          <div><dt>Current snapshot</dt><dd>${escapeAttr(summary.currentLabel)}</dd></div>
+          <div><dt>Selected term</dt><dd>${escapeAttr(summary.selectedTerm || 'N/A')}</dd></div>
+          <div><dt>Current label</dt><dd>${escapeAttr(summary.currentLabel)}</dd></div>
           <div><dt>Prior comparison</dt><dd>${escapeAttr(summary.prior.rows ? summary.priorLabel : 'Not loaded')}</dd></div>
+          <div><dt>Prior term</dt><dd>${escapeAttr(summary.priorTerm || 'Not selected')}</dd></div>
           <div><dt>Current terms detected</dt><dd>${escapeAttr(termListLabel(summary.current.terms))}</dd></div>
           <div><dt>Prior terms detected</dt><dd>${escapeAttr(termListLabel(summary.prior.terms))}</dd></div>
           <div><dt>Direct FTES rows</dt><dd>${summary.current.directFtesRows}</dd></div>
@@ -15069,22 +15091,31 @@
         ? `Estimated total including positive attendance is ${formatDecimal(summary.current.ftes + summary.positiveAttendance, 1)} FTES, ${formatDecimal(Math.abs(summary.ftesCap - (summary.current.ftes + summary.positiveAttendance)), 1)} ${summary.ftesCap >= summary.current.ftes + summary.positiveAttendance ? 'under' : 'over'} cap.`
         : 'No FTES cap entered.';
       insights.innerHTML = `
-        <section class="demand-report-section"><h3>Manual Snapshot Replication</h3>
+        <section class="demand-report-section"><h3>Current Section Seating Position</h3>
           <p>${escapeAttr(capText)}</p>
           <p>Waitlist pressure is ${pct(summary.current.waitlistPressurePct)} of visible waitlist plus available open-seat capacity. Missing waitlist fields are treated as unavailable evidence, not confirmed zero demand.</p>
         </section>`;
     }
     const tableNode = document.getElementById('emSnapshotTable');
     if (tableNode) {
-      tableNode.innerHTML = analyticsTableMarkup(rows, ['group', 'currentEnrollment', 'priorEnrollment', 'enrollmentDifference', 'enrollmentPercentDifference', 'currentFtes', 'priorFtes', 'ftesDifference', 'ftesPercentDifference', 'sections', 'seats', 'fillRate', 'waitlist', 'waitlistPressurePct', 'shareOfTotal']);
+      const columns = ['group', 'currentEnrollment', 'priorEnrollment', 'enrollmentDifference', 'enrollmentPercentDifference', 'currentFtes', 'priorFtes', 'ftesDifference', 'ftesPercentDifference', 'sections', 'seats', 'fillRate', 'waitlist', 'waitlistPressurePct', 'shareOfTotal'];
+      tableNode.innerHTML = `
+        <section class="demand-report-section" data-collapsible-title="FTES by Campus / Population" data-collapsible-id="em-ftes-campus" data-collapsible-default-open="true">
+          <h3>FTES by Campus / Population</h3>
+          ${analyticsTableMarkup(campusRows, columns)}
+        </section>
+        <section class="demand-report-section" data-collapsible-title="FTES by Modality / Instructional Method" data-collapsible-id="em-ftes-modality-method" data-collapsible-default-open="true">
+          <h3>FTES by Modality / Instructional Method</h3>
+          ${analyticsTableMarkup(modalityRows, columns)}
+        </section>`;
     }
   }
 
   async function runEmSnapshot() {
     state.emSnapshotRan = true;
-    const { current, prior } = await loadEmSnapshotRows();
+    const { current, prior, selectedTerm, priorTerm } = await loadEmSnapshotRows();
     if (!current.length) {
-      clearEmSnapshot('Upload at least one current snapshot CSV, then run the report.');
+      clearEmSnapshot('No section seating rows are available for the selected term. Load or select a term, then run the FTES review.');
       return;
     }
     const currentSummary = emSnapshotSummary(current);
@@ -15092,18 +15123,23 @@
     const summary = {
       current: currentSummary,
       prior: priorSummary,
-      currentLabel: document.getElementById('emSnapshotLabel')?.value || termListLabel(currentSummary.terms) || 'Current snapshot',
-      priorLabel: document.getElementById('emSnapshotPriorLabel')?.value || termListLabel(priorSummary.terms) || 'Prior-year same-date snapshot',
+      selectedTerm,
+      priorTerm,
+      currentLabel: document.getElementById('emSnapshotLabel')?.value || termListLabel(currentSummary.terms) || 'Selected term',
+      priorLabel: document.getElementById('emSnapshotPriorLabel')?.value || termListLabel(priorSummary.terms) || 'Prior term',
       ftesCap: Number(document.getElementById('emSnapshotFtesCap')?.value || 0),
       positiveAttendance: Number(document.getElementById('emSnapshotPositiveAttendance')?.value || 0)
     };
-    const rows = emSnapshotCompareRows(current, prior);
-    state.emSnapshotRows = rows;
-    state.emSnapshotExportRows = emSnapshotExportRows(summary, rows);
-    renderEmSnapshot(summary, rows);
+    const tables = {
+      campus: emSnapshotCompareRows(current, prior, emSnapshotCampusBucket),
+      modalityMethod: emSnapshotCompareRows(current, prior, emSnapshotModalityMethodBucket)
+    };
+    state.emSnapshotRows = [...tables.campus, ...tables.modalityMethod];
+    state.emSnapshotExportRows = emSnapshotExportRows(summary, tables);
+    renderEmSnapshot(summary, tables);
   }
 
-  function clearEmSnapshot(message = 'Results cleared. Upload current and optional prior-year CSV files, then run the report.') {
+  function clearEmSnapshot(message = 'Results cleared. Load or select the current term, optionally enter a prior comparison term, then run the FTES review.') {
     state.emSnapshotRows = [];
     state.emSnapshotExportRows = [];
     state.emSnapshotRan = false;
@@ -17399,7 +17435,7 @@
       renderDemandLegend();
     }
     if (selected === REPORTS.emSnapshot && !state.emSnapshotRan) {
-      clearEmSnapshot('Upload current and optional prior-year same-date CSV files, then click Run Snapshot.');
+      clearEmSnapshot('Load or select the current section seating term, optionally enter a prior comparison term, then click Run FTES Review.');
     }
     if (selected === REPORTS.conflictCheck && !state.conflictRan) {
       loadConflictRows().then(() => {
@@ -18098,14 +18134,12 @@
     });
     document.getElementById('clearSupplyDemand')?.addEventListener('click', clearSupplyDemand);
     document.getElementById('exportSupplyDemand')?.addEventListener('click', () => exportRowsWithoutMethodology(state.supplyDemandResourceRows?.length ? state.supplyDemandResourceRows : state.supplyDemandBucketRows, 'supply-vs-demand.csv'));
-    document.getElementById('runEmSnapshot')?.addEventListener('click', () => runEmSnapshot().catch(err => alert(err.message || 'Enrollment Management Snapshot failed.')));
-    document.getElementById('emSnapshotCurrentCsv')?.addEventListener('change', () => { if (state.emSnapshotRan) runEmSnapshot().catch(err => console.warn(err)); });
-    document.getElementById('emSnapshotPriorCsv')?.addEventListener('change', () => { if (state.emSnapshotRan) runEmSnapshot().catch(err => console.warn(err)); });
-    ['emSnapshotLabel', 'emSnapshotPriorLabel', 'emSnapshotFtesCap', 'emSnapshotPositiveAttendance'].forEach(id => {
+    document.getElementById('runEmSnapshot')?.addEventListener('click', () => runEmSnapshot().catch(err => alert(err.message || 'Enrollment Management FTES Review failed.')));
+    ['emSnapshotLabel', 'emSnapshotPriorTerm', 'emSnapshotPriorLabel', 'emSnapshotFtesCap', 'emSnapshotPositiveAttendance'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.emSnapshotRan) runEmSnapshot().catch(err => console.warn(err)); });
     });
     document.getElementById('clearEmSnapshot')?.addEventListener('click', () => clearEmSnapshot());
-    document.getElementById('exportEmSnapshot')?.addEventListener('click', () => exportRows(state.emSnapshotExportRows, 'enrollment-management-snapshot.csv'));
+    document.getElementById('exportEmSnapshot')?.addEventListener('click', () => exportRows(state.emSnapshotExportRows, 'enrollment-management-ftes-review.csv'));
     attachBusyClick('runBusyTimeDashboard', 'Building Busy Time Dashboard...', () => runBusyTimeDashboard(), { key: 'runBusyTimeDashboard', runningLabel: 'Building...' });
     attachBusyClick('loadSavedBusyTimeFaculty', 'Loading saved Faculty Schedule...', () => loadSavedBusyTimeFacultySchedule(), { key: 'loadSavedBusyTimeFaculty', runningLabel: 'Loading...' });
     document.getElementById('busyTimeArchiveTerms')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
@@ -18433,6 +18467,7 @@
     demandPopulationSummary,
     demandPlanningBreakdowns,
     emSnapshotCampusBucket,
+    emSnapshotModalityMethodBucket,
     emSnapshotSummary,
     emSnapshotCompareRows,
     formatDemandFtesRange,

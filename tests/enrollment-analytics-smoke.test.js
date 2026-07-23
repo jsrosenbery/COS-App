@@ -2315,23 +2315,26 @@ test('enrollment planning population summary reconciles instructional dual and w
   assert.ok(Math.abs(componentEnrollment - summary.total.projectedEnrollment) < 0.0001);
 });
 
-test('enrollment management snapshot compares requested campus population buckets', () => {
+test('enrollment management FTES review compares campus and instructional method buckets', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const current = [
-    section({ campus: 'HAN', census: 40, cap: 50, ftes: 12, hasDirectFtesData: true, waitlist: 5, crn: 'H1' }),
-    section({ campus: 'VIS', census: 80, cap: 100, ftes: 24, hasDirectFtesData: true, waitlist: 2, crn: 'V1' }),
-    section({ campus: 'ONC', census: 20, cap: 25, ftes: 6, hasDirectFtesData: true, waitlist: 3, crn: 'O1' }),
-    section({ campus: 'UNK', census: 10, cap: 15, ftes: 3, hasDirectFtesData: true, waitlist: 0, crn: 'X1' })
+    section({ campus: 'HAN', modality: 'IN-PERSON', census: 40, cap: 50, ftes: 12, hasDirectFtesData: true, waitlist: 5, crn: 'H1', raw: { INSM_CODE_SSBSECT: '02' } }),
+    section({ campus: 'VIS', modality: 'HYBRID', census: 80, cap: 100, ftes: 24, hasDirectFtesData: true, waitlist: 2, crn: 'V1', raw: { INSM_CODE_SSBSECT: 'HYB' } }),
+    section({ campus: 'ONC', modality: 'ONLINE', census: 20, cap: 25, ftes: 6, hasDirectFtesData: true, waitlist: 3, crn: 'O1', raw: { INSM_CODE_SSBSECT: 'ONL' } }),
+    section({ campus: 'UNK', modality: 'OMIT', census: 10, cap: 15, ftes: 3, hasDirectFtesData: true, waitlist: 0, crn: 'X1', raw: { INSM_CODE_SSBSECT: '98' } })
   ];
   const prior = [
-    section({ campus: 'HAN', census: 35, cap: 50, ftes: 10, hasDirectFtesData: true, crn: 'PH1' }),
-    section({ campus: 'VIS', census: 90, cap: 100, ftes: 27, hasDirectFtesData: true, crn: 'PV1' })
+    section({ campus: 'HAN', modality: 'IN-PERSON', census: 35, cap: 50, ftes: 10, hasDirectFtesData: true, crn: 'PH1', raw: { INSM_CODE_SSBSECT: '02' } }),
+    section({ campus: 'VIS', modality: 'HYBRID', census: 90, cap: 100, ftes: 27, hasDirectFtesData: true, crn: 'PV1', raw: { INSM_CODE_SSBSECT: 'HYB' } })
   ];
   const rows = COSEnrollmentAnalytics.emSnapshotCompareRows(current, prior);
+  const modalityRows = COSEnrollmentAnalytics.emSnapshotCompareRows(current, prior, COSEnrollmentAnalytics.emSnapshotModalityMethodBucket);
   const hac = rows.find(row => row.group === 'HAC');
   const cos = rows.find(row => row.group === 'COS');
   const online = rows.find(row => row.group === 'ONC/ONV/ONT/ONH');
   const other = rows.find(row => row.group === 'All Other Campuses');
+  const inPerson = modalityRows.find(row => row.group === 'IN-PERSON / 02');
+  const omitted = modalityRows.find(row => row.group === 'Other / Omitted Method / 98');
 
   assert.equal(hac.currentEnrollment, 40);
   assert.equal(hac.priorEnrollment, 35);
@@ -2339,6 +2342,8 @@ test('enrollment management snapshot compares requested campus population bucket
   assert.equal(cos.enrollmentDifference, -10);
   assert.equal(online.currentFtes, 6);
   assert.equal(other.currentEnrollment, 10);
+  assert.equal(inPerson.currentFtes, 12);
+  assert.equal(omitted.currentEnrollment, 10);
   assert.ok(hac.waitlistPressurePct > 0);
   assert.ok(rows.reduce((total, row) => total + row.shareOfTotal, 0) > 0.99);
 });
