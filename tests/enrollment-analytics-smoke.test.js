@@ -1051,8 +1051,8 @@ test('snapshot manager stores lifecycle metadata for registration phase tracking
   assert.equal(records[0].sourceFileName, 'fall-2027-week5.csv');
   assert.match(source, /SNAPSHOT_LIFECYCLE_PHASES/);
   assert.match(source, /Registration Week 8\+/);
-  assert.match(source, /id="snapLifecyclePhase"/);
-  assert.match(source, /id="snapCompletenessNotes"/);
+  assert.match(source, /id="dataHubSnapshotType"/);
+  assert.match(source, /id="dataHubSnapshotDate"/);
 });
 
 test('snapshot manager updates same term CRN type instead of duplicating', () => {
@@ -2061,12 +2061,13 @@ test('enrollment analytics report labels are operational', () => {
   assert.match(text, /Open Student Presence Report/);
   assert.match(text, /REPORTS\.studentPresence/);
   assert.match(text, /Instructor Availability - Planning View/);
-  assert.match(text, /Enrollment Snapshot/);
+  assert.match(text, /Current Enrollment & FTES/);
   assert.match(text, /REPORTS\.snapshotManager/);
-  assert.match(text, /snapSeason/);
-  assert.match(text, /snapYear/);
+  assert.match(text, /cefFocusTerm/);
+  assert.match(text, /cefCompareTerm/);
+  assert.match(text, /runCurrentEnrollmentFtes/);
   assert.match(text, /function snapshotTerm/);
-  assert.match(text, /Term \+ CRN \+ Snapshot Type/);
+  assert.match(text, /Term \+ CRN/);
   assert.match(text, /snapshotKey\(record\)/);
   assert.doesNotMatch(text, /id="snapTerm"/);
   assert.match(text, /dashDecisionSeason/);
@@ -4554,13 +4555,36 @@ test('enrollment analytics supports supplemental work experience source data hub
   assert.match(text, /studentPresence.*filter\(row => !row\.isWorkExperience\)/s);
 });
 
-test('snapshot manager defaults first day as primary manual snapshot', () => {
+test('current enrollment and FTES report replaces manual snapshot controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
-  const snapBlock = text.slice(text.indexOf('<select id="snapType">'), text.indexOf('</select>', text.indexOf('<select id="snapType">')));
 
-  assert.ok(snapBlock.indexOf('<option>First Day</option>') < snapBlock.indexOf('<option>Census 1</option>'));
-  assert.match(text, /First Day is the primary manual snapshot/);
-  assert.match(text, /Census 1 and Final are already present in Banner source exports/);
+  assert.match(text, /Current Enrollment & FTES/);
+  assert.match(text, /id="cefArchiveTerms"/);
+  assert.match(text, /id="cefFocusTerm"/);
+  assert.match(text, /id="cefCompareTerm"/);
+  assert.match(text, /id="cefIncludeWorkExperience"/);
+  assert.match(text, /id="cefIncludeDualEnrollment"/);
+  assert.match(text, /function buildCurrentEnrollmentFtesSummary/);
+  assert.doesNotMatch(text, /id="snapSeason"/);
+  assert.doesNotMatch(text, /id="snapType"/);
+});
+
+test('current enrollment and FTES summary dedupes CRNs and separates populations', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', INSTRUCTIONAL_METHOD: 'IP' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', INSTRUCTIONAL_METHOD: 'IP' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10002', Subject: 'HIST', Course: '001', Section: '001', ACTUAL_ENROLL: '20', MAX_ENROLL: '30', FTES: '2.0', 'Instructional Method': 'DE' }),
+    COSEnrollmentAnalytics.normalizeRow({ __sourceType: 'WORK_EXPERIENCE', Term: 'FALL 2026', CRN: 'WX001', Subject: 'WKEX', Course: '001', Section: '001', ACTUAL_ENROLL: '10', FTES: '1.0' })
+  ];
+
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026' });
+  const populationNames = summary.breakdowns.population.map(row => row.name);
+
+  assert.equal(summary.focus.classOfferings, 3);
+  assert.equal(summary.focus.enrollment, 60);
+  assert.equal(summary.focus.ftes, 6);
+  assert.equal(populationNames.sort().join('|'), ['COS Classes', 'Dual Enrollment', 'Work Experience'].sort().join('|'));
 });
 
 test('modality balance uses shared modality category normalization and diagnostics', () => {
@@ -5115,8 +5139,9 @@ test('requested analytics regression coverage is represented in smoke tests', ()
     /dashDecisionSeason/,
     /dashDecisionYear/,
     /function dashboardFocusTerm/,
-    /snapSeason/,
-    /snapYear/,
+    /cefFocusTerm/,
+    /cefCompareTerm/,
+    /function buildCurrentEnrollmentFtesSummary/,
     /function snapshotTerm/,
     /spHideOnline/,
     /spIncludeDualEnrollment/,

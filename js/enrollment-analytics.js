@@ -122,8 +122,8 @@
     [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
     [REPORTS.attrition]: 'Enrollment Attrition',
     [REPORTS.demand]: 'Enrollment Planning Forecast',
-    [REPORTS.emSnapshot]: 'Enrollment Management FTES Review',
-    [REPORTS.snapshotManager]: 'Enrollment Snapshot',
+    [REPORTS.emSnapshot]: 'Current Enrollment & FTES',
+    [REPORTS.snapshotManager]: 'Current Enrollment & FTES',
     [REPORTS.heatmap]: 'Course Start-Time Heatmap',
     [REPORTS.instructorAvailability]: 'Instructor Availability',
     [REPORTS.modality]: 'Modality Balance',
@@ -244,8 +244,8 @@
     [REPORTS.dashboard]: 'Review enrollment health, registration pace, demand, attrition, and schedule signals.',
     [REPORTS.attrition]: 'Compare census and end/final enrollment movement across completed historical terms.',
     [REPORTS.demand]: 'Forecast enrollment, FTES, schedule supply, demand, and planning gaps.',
-    [REPORTS.emSnapshot]: 'Review current section seating FTES by campus, modality, and instructional method with optional prior-term comparison.',
-    [REPORTS.snapshotManager]: 'Manage first-day, census, and enrollment snapshot uploads.',
+    [REPORTS.emSnapshot]: 'Review current enrollment and FTES by campus, modality, population, and attendance method with optional prior-term comparison.',
+    [REPORTS.snapshotManager]: 'Report current enrollment and FTES from loaded Section Seating data with like-term comparison.',
     [REPORTS.heatmap]: 'Show when classes begin by day and scheduled start time, with enrollment and capacity views.',
     [REPORTS.instructorAvailability]: 'Check instructor teaching conflicts and shared availability windows.',
     [REPORTS.modality]: 'Compare class offerings and enrollment by in-person, hybrid, online, and Dual Enrollment.',
@@ -1739,65 +1739,48 @@
         </div>
         <div id="snapshotManagerReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Snapshot</h2>
-            <p>Stores partial lifecycle enrollment snapshots by term, CRN, snapshot type, and snapshot date. Snapshot uploads are managed from the Source Data Hub.</p>
+            <h2>Current Enrollment & FTES</h2>
+            <p>Reports current enrollment and estimated FTES for a selected term using the Section Seating / Schedule Data and optional Work Experience rows loaded from the Source Data Hub.</p>
             <div class="analytics-methodology">
               <div>
-                <h3>How to Use This Manager</h3>
+                <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Use the Source Data Hub to upload a snapshot, then use this report to view, export, or clear stored snapshot records.</li>
-                  <li>Snapshot uploads may contain only the sections that begin on the selected snapshot date. Missing CRNs will not delete or overwrite previously saved snapshot records.</li>
-                  <li>First Day and Final snapshots use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present.</li>
-                  <li>If the uploaded file has no term field, the selected term is used. If the file has a conflicting term, the selected term remains authoritative for storage.</li>
+                  <li>Select a focus term to answer: what is current enrollment and FTES right now for this term?</li>
+                  <li>Select a comparison term to benchmark the focus term against a prior like term, such as Fall 2026 compared with Fall 2025.</li>
+                  <li>Upload and archive Section Seating, Work Experience, and related source files from the Source Data Hub. This report does not accept direct CSV uploads.</li>
+                  <li>Work Experience rows are optional and are displayed as their own population category when loaded.</li>
                 </ul>
               </div>
               <div>
-                <h3>Lifecycle Integration</h3>
+                <h3>Data Scope</h3>
                 <ul>
-                  <li>Enrollment Lifecycle Diagnostics merges stored snapshots by Term + CRN.</li>
-                  <li>Stored snapshot values are preferred over source-file milestone fields when the snapshot type matches the lifecycle milestone.</li>
-                  <li>The unique storage key is Term + CRN + Snapshot Type, so a later upload updates that milestone for the CRN instead of duplicating it.</li>
+                  <li>Class offerings are distinct CRNs after filters and deduplication.</li>
+                  <li>Current enrollment uses ACTUAL_ENROLL/current enrollment first, with census/final fields only as fallbacks when current enrollment is unavailable.</li>
+                  <li>FTES uses direct FTES when available; otherwise the app's existing attendance-accounting-method estimate is used.</li>
+                  <li>Breakdowns are shown by campus, modality, population category, and attendance accounting method.</li>
                 </ul>
               </div>
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Snapshot Season
-              <select id="snapSeason">
-                <option value="SUMMER">Summer</option>
-                <option value="FALL">Fall</option>
-                <option value="SPRING">Spring</option>
-              </select>
+            <label>Available backend terms
+              <select id="cefArchiveTerms" multiple data-placeholder="Optional backend terms to preload"></select>
             </label>
-            <label>Snapshot Year <input id="snapYear" type="number" min="2022" max="2035" step="1" required></label>
-            <label>Snapshot Type
-              <select id="snapType">
-                <option>First Day</option>
-                <option>Census 1</option>
-                ${SHOW_CENSUS2 ? '<option>Census 2</option>' : ''}
-                <option>Final</option>
-                <option>Custom</option>
-              </select>
+            <label>Focus term
+              <select id="cefFocusTerm"></select>
             </label>
-            <span class="analytics-note snapshot-note">First Day is the primary manual snapshot. Census 1 and Final are already present in Banner source exports and generally do not need manual snapshot capture; keep those options for correction or manual override only.</span>
-            <label>Snapshot Date <input id="snapDate" type="date" required></label>
-            <label>Snapshot Time <input id="snapTime" type="time" step="60"></label>
-            <label>Lifecycle Phase
-              <select id="snapLifecyclePhase">
-                ${SNAPSHOT_LIFECYCLE_PHASES.map(phase => `<option value="${escapeAttr(phase)}">${escapeAttr(phase)}</option>`).join('')}
-              </select>
+            <label>Comparison term
+              <select id="cefCompareTerm"></select>
             </label>
-            <label>Custom Lifecycle Label <input id="snapCustomLifecycleLabel" type="text" placeholder="Required only for Custom"></label>
-            <label>Days Before Term Start <input id="snapDaysBefore" type="number" step="1" placeholder="optional"></label>
-            <label>Days After Term Start <input id="snapDaysAfter" type="number" step="1" placeholder="optional"></label>
-            <label>Snapshot Notes <input id="snapNotes" type="text" placeholder="optional notes"></label>
-            <label>Data Completeness Notes <input id="snapCompletenessNotes" type="text" placeholder="optional coverage notes"></label>
-            <button id="viewStoredSnapshots" type="button">View Stored Snapshots</button>
-            <button id="exportStoredSnapshots" type="button">Export Stored Snapshots</button>
-            <button id="clearSnapshotBatch" type="button">Clear Selected Snapshot Batch</button>
+            <label><input id="cefIncludeWorkExperience" type="checkbox" checked> Include Work Experience</label>
+            <label><input id="cefIncludeDualEnrollment" type="checkbox" checked> Include Dual Enrollment</label>
+            <button id="loadCurrentEnrollmentFtesTerms" type="button">Load Terms</button>
+            <button id="runCurrentEnrollmentFtes" type="button">Run Current FTES</button>
+            <button id="exportCurrentEnrollmentFtes" type="button">Export Current FTES CSV</button>
           </div>
           <div id="snapshotWarnings" class="analytics-warning-list"></div>
           <div id="snapshotMetrics" class="analytics-metrics"></div>
+          <div id="snapshotBreakdowns" class="dashboard-grid"></div>
           <div id="snapshotTable" class="analytics-table"></div>
           <div id="snapshotLegend" class="analytics-legend"></div>
         </div>
@@ -3052,7 +3035,7 @@
         </div>
         <div id="emSnapshotReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Enrollment Management FTES Review</h2>
+            <h2>Current Enrollment & FTES</h2>
             <p>Builds a current FTES and enrollment view from the selected term section seating data, with an optional prior term comparison. This is separate from enrollment snapshot tracking and does not store first-day, census, or final snapshot records.</p>
             <div class="analytics-methodology">
               <div>
@@ -3080,7 +3063,7 @@
             <label>Prior comparison label <input id="emSnapshotPriorLabel" type="text" placeholder="Prior term"></label>
             <label>FTES cap <input id="emSnapshotFtesCap" type="number" min="0" step="0.1" placeholder="optional"></label>
             <label>Positive attendance estimate <input id="emSnapshotPositiveAttendance" type="number" min="0" step="0.1" placeholder="optional"></label>
-            <button id="runEmSnapshot" type="button">Run FTES Review</button>
+            <button id="runEmSnapshot" type="button">Run Current FTES</button>
             <button id="clearEmSnapshot" type="button">Clear</button>
             <button id="exportEmSnapshot" type="button">Export CSV</button>
           </div>
@@ -9034,7 +9017,9 @@
       setSelectOptions('studentChoiceArchiveTerms', options);
       setSelectOptions('recommendationArchiveTerms', options);
       setSelectOptions('optimizationArchiveTerms', options);
+      setSelectOptions('cefArchiveTerms', options);
       setArchiveInspectionTermOptions();
+      updateCurrentEnrollmentFtesTermOptions(state.currentEnrollmentFtesRows || []);
       updateScheduleBuilderTermOptions();
       renderOptimizationArchiveStatus();
       renderSourceDataHubStatus();
@@ -9841,68 +9826,263 @@
     return warnings;
   }
 
-  async function renderSnapshotManager(warnings = [], saveResult = null) {
-    await loadEnrollmentSnapshots();
-    const rows = dashboardSourceRows();
-    const snapYearInput = document.getElementById('snapYear');
-    if (snapYearInput && !snapYearInput.value) setSnapshotTermControls(attritionDecisionTerm() || currentTerm());
-    const term = snapshotTerm();
-    const coverage = snapshotCoverage(rows, state.enrollmentSnapshots, term);
+  function currentEnrollmentValue(row) {
+    return finiteOrNull(row?.actual) ??
+      finiteOrNull(row?.currentEnrollment) ??
+      finiteOrNull(row?.enrollment) ??
+      finiteOrNull(row?.census1) ??
+      finiteOrNull(row?.census) ??
+      finiteOrNull(row?.finalEnrollment) ??
+      0;
+  }
+
+  function currentEnrollmentPopulation(row) {
+    if (row?.isWorkExperience || row?.modality === 'WORK EXPERIENCE') return 'Work Experience';
+    if (isDualEnrollmentRow(row)) return 'Dual Enrollment';
+    return 'COS Classes';
+  }
+
+  function aggregateCurrentEnrollmentFtes(rows, getter) {
+    const buckets = new Map();
+    (rows || []).forEach(row => {
+      const name = getter(row) || 'Unknown';
+      if (!buckets.has(name)) {
+        buckets.set(name, {
+          name,
+          classOfferings: 0,
+          enrollment: 0,
+          ftes: 0,
+          seats: 0,
+          directFtesRows: 0,
+          estimatedFtesRows: 0,
+          unavailableFtesRows: 0
+        });
+      }
+      const bucket = buckets.get(name);
+      bucket.classOfferings += 1;
+      bucket.enrollment += currentEnrollmentValue(row);
+      bucket.ftes += Number(row.ftes) || 0;
+      bucket.seats += Number(row.cap) || 0;
+      if (row.hasDirectFtesData) bucket.directFtesRows += 1;
+      else if (row.hasFtesData) bucket.estimatedFtesRows += 1;
+      if (row.ftesUnavailable) bucket.unavailableFtesRows += 1;
+    });
+    const totalEnrollment = [...buckets.values()].reduce((total, row) => total + row.enrollment, 0);
+    const totalFtes = [...buckets.values()].reduce((total, row) => total + row.ftes, 0);
+    return [...buckets.values()]
+      .map(row => ({
+        ...row,
+        enrollmentShare: safeDiv(row.enrollment, totalEnrollment),
+        ftesShare: safeDiv(row.ftes, totalFtes)
+      }))
+      .sort((a, b) => b.enrollment - a.enrollment || a.name.localeCompare(b.name));
+  }
+
+  function filterCurrentEnrollmentFtesRows(rows, options = {}) {
+    const includeWorkExperience = options.includeWorkExperience !== false;
+    const includeDualEnrollment = options.includeDualEnrollment !== false;
+    return (rows || []).filter(row => {
+      if (!includeWorkExperience && currentEnrollmentPopulation(row) === 'Work Experience') return false;
+      if (!includeDualEnrollment && currentEnrollmentPopulation(row) === 'Dual Enrollment') return false;
+      return true;
+    });
+  }
+
+  function buildCurrentEnrollmentFtesSummary(rows, options = {}) {
+    const focusTerm = normalizeTermLabel(options.focusTerm || '');
+    const comparisonTerm = normalizeTermLabel(options.comparisonTerm || '');
+    const scoped = filterCurrentEnrollmentFtesRows(dedupeEnrollmentRows(rows || []), options);
+    const focusRows = scoped.filter(row => !focusTerm || normalizeTermLabel(row.term) === focusTerm);
+    const comparisonRows = scoped.filter(row => comparisonTerm && normalizeTermLabel(row.term) === comparisonTerm);
+    const totalsFor = sourceRows => ({
+      rowsLoaded: sourceRows.length,
+      classOfferings: sourceRows.length,
+      enrollment: sourceRows.reduce((total, row) => total + currentEnrollmentValue(row), 0),
+      ftes: sourceRows.reduce((total, row) => total + (Number(row.ftes) || 0), 0),
+      seats: sourceRows.reduce((total, row) => total + (Number(row.cap) || 0), 0),
+      directFtesRows: sourceRows.filter(row => row.hasDirectFtesData).length,
+      estimatedFtesRows: sourceRows.filter(row => !row.hasDirectFtesData && row.hasFtesData).length,
+      unavailableFtesRows: sourceRows.filter(row => row.ftesUnavailable).length
+    });
+    const focus = totalsFor(focusRows);
+    const comparison = totalsFor(comparisonRows);
+    return {
+      focusTerm,
+      comparisonTerm,
+      focus,
+      comparison,
+      variances: {
+        classOfferings: focus.classOfferings - comparison.classOfferings,
+        enrollment: focus.enrollment - comparison.enrollment,
+        enrollmentPct: safeDiv(focus.enrollment - comparison.enrollment, comparison.enrollment),
+        ftes: focus.ftes - comparison.ftes,
+        ftesPct: safeDiv(focus.ftes - comparison.ftes, comparison.ftes)
+      },
+      breakdowns: {
+        population: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulation),
+        campus: aggregateCurrentEnrollmentFtes(focusRows, row => row.campus),
+        modality: aggregateCurrentEnrollmentFtes(focusRows, row => currentEnrollmentPopulation(row) === 'Work Experience' ? 'Work Experience' : displayModalityLabel(row.modality, row)),
+        accountingMethod: aggregateCurrentEnrollmentFtes(focusRows, row => row.accountingMethodLabel || row.accountingMethod || 'Unknown')
+      },
+      rows: focusRows.map(row => ({
+        term: row.term,
+        crn: row.crn,
+        course: normalizedSubjectCourse(row),
+        section: row.section,
+        population: currentEnrollmentPopulation(row),
+        campus: row.campus,
+        modality: currentEnrollmentPopulation(row) === 'Work Experience' ? 'Work Experience' : displayModalityLabel(row.modality, row),
+        accountingMethod: row.accountingMethodLabel || row.accountingMethod || 'Unknown',
+        classOfferings: 1,
+        currentEnrollment: currentEnrollmentValue(row),
+        seats: row.cap || 0,
+        ftes: row.ftes || 0,
+        ftesSource: row.hasDirectFtesData ? 'Direct FTES' : row.hasFtesData ? 'Estimated FTES' : 'FTES unavailable',
+        ftesWarning: row.ftesWarning || ''
+      }))
+    };
+  }
+
+  function updateCurrentEnrollmentFtesTermOptions(rows = []) {
+    const terms = [...new Set([...(state.archivedAnalyticsTerms || []), ...collectRowTerms(rows), ...collectRowTerms(currentRows())])]
+      .filter(Boolean)
+      .sort((a, b) => termSortValue(a) - termSortValue(b));
+    const focus = document.getElementById('cefFocusTerm');
+    const compare = document.getElementById('cefCompareTerm');
+    if (!focus || !compare) return;
+    const priorFocus = focus.value;
+    const priorCompare = compare.value;
+    const active = normalizeTermLabel(currentTerm());
+    const defaultFocus = terms.includes(priorFocus) ? priorFocus : terms.includes(active) ? active : terms[terms.length - 1] || '';
+    focus.replaceChildren();
+    terms.forEach(term => focus.appendChild(new Option(term, term, false, term === defaultFocus)));
+    focus.value = defaultFocus;
+    compare.replaceChildren();
+    compare.appendChild(new Option('No comparison', '', false, !priorCompare));
+    terms.filter(term => term !== defaultFocus).forEach(term => compare.appendChild(new Option(term, term, false, term === priorCompare)));
+    if (priorCompare && terms.includes(priorCompare) && priorCompare !== defaultFocus) compare.value = priorCompare;
+    else compare.value = previousLikeTerm(defaultFocus, terms) || '';
+  }
+
+  function previousLikeTerm(term, terms = []) {
+    const parts = termParts(term);
+    if (!parts.season || !parts.year) return '';
+    return (terms || [])
+      .filter(candidate => {
+        const candidateParts = termParts(candidate);
+        return candidateParts.season === parts.season && candidateParts.year < parts.year;
+      })
+      .sort((a, b) => termSortValue(b) - termSortValue(a))[0] || '';
+  }
+
+  async function loadCurrentEnrollmentFtesRows() {
+    const uploadedRows = await readCsv(document.getElementById('dataHubSectionCsv'), { sourceType: 'CURRENT_ENROLLMENT_FTES' });
+    const archivedRows = await readArchivedRows('cefArchiveTerms', { reportLabel: 'Current Enrollment & FTES' });
+    if (document.getElementById('dataHubWorkExperienceCsv')?.files?.length) await loadWorkExperienceRows('dataHubWorkExperienceCsv');
+    const rows = dedupeEnrollmentRows([...currentRows(), ...uploadedRows.map(normalize), ...archivedRows.map(normalize)]);
+    state.currentEnrollmentFtesRows = rowsWithWorkExperience(rows, 'cef');
+    updateCurrentEnrollmentFtesTermOptions(state.currentEnrollmentFtesRows);
+    return state.currentEnrollmentFtesRows;
+  }
+
+  async function runCurrentEnrollmentFtes() {
+    const loadedRows = await loadCurrentEnrollmentFtesRows();
+    const focusTerm = normalizeTermLabel(document.getElementById('cefFocusTerm')?.value || currentTerm());
+    const comparisonTerm = normalizeTermLabel(document.getElementById('cefCompareTerm')?.value || '');
+    const termRows = [];
+    if (focusTerm) termRows.push(...await loadScheduleTermRows(focusTerm).catch(() => []));
+    if (comparisonTerm) termRows.push(...await loadScheduleTermRows(comparisonTerm).catch(() => []));
+    const rows = rowsWithWorkExperience(dedupeEnrollmentRows([...loadedRows, ...termRows]), 'cef');
+    state.currentEnrollmentFtesSummary = buildCurrentEnrollmentFtesSummary(rows, {
+      focusTerm,
+      comparisonTerm,
+      includeWorkExperience: includeWorkExperience('cef'),
+      includeDualEnrollment: document.getElementById('cefIncludeDualEnrollment')?.checked !== false
+    });
+    renderCurrentEnrollmentFtesSummary();
+  }
+
+  async function renderSnapshotManager() {
+    await refreshAnalyticsArchiveOptions();
+    await loadCurrentEnrollmentFtesRows();
+    if (!state.currentEnrollmentFtesSummary) {
+      const rows = state.currentEnrollmentFtesRows || [];
+      const focusTerm = normalizeTermLabel(document.getElementById('cefFocusTerm')?.value || currentTerm());
+      const comparisonTerm = normalizeTermLabel(document.getElementById('cefCompareTerm')?.value || '');
+      state.currentEnrollmentFtesSummary = buildCurrentEnrollmentFtesSummary(rows, {
+        focusTerm,
+        comparisonTerm,
+        includeWorkExperience: includeWorkExperience('cef'),
+        includeDualEnrollment: document.getElementById('cefIncludeDualEnrollment')?.checked !== false
+      });
+    }
+    renderCurrentEnrollmentFtesSummary();
+  }
+
+  function renderCurrentEnrollmentFtesSummary() {
+    const summary = state.currentEnrollmentFtesSummary || buildCurrentEnrollmentFtesSummary([], {});
     metric('snapshotMetrics', [
-      ['Sections in Focus Term', coverage.sectionsInFocusTerm],
-      ['Sections with First Day Snapshot', coverage.sectionsWithFirstDaySnapshot],
-      ['First Day Coverage', pct(coverage.firstDayCoveragePct)],
-      ['Missing First Day Snapshot', coverage.sectionsMissingFirstDaySnapshot],
-      ['Snapshot Batches Uploaded', coverage.snapshotBatchesUploaded],
-      ['Latest Snapshot Date', coverage.latestSnapshotDate || 'N/A'],
-      ['Snapshot Records Stored', coverage.snapshotRecordsStored],
-      ['Last Save', saveResult ? `+${saveResult.appended} / updated ${saveResult.updated}` : (state.snapshotLastUpdated || 'N/A')]
+      ['Focus Term', summary.focusTerm || 'Select term'],
+      ['Comparison Term', summary.comparisonTerm || 'None'],
+      ['Current Class Offerings', formatWholeNumber(summary.focus.classOfferings), 'scheduled-class-offerings'],
+      ['Current Enrollment', formatWholeNumber(summary.focus.enrollment), 'enrollment'],
+      ['Current FTES', round1(summary.focus.ftes), 'ftes'],
+      ['Enrollment vs Comparison', summary.comparisonTerm ? `${summary.variances.enrollment >= 0 ? '+' : ''}${formatWholeNumber(summary.variances.enrollment)} (${pct(summary.variances.enrollmentPct)})` : 'N/A'],
+      ['FTES vs Comparison', summary.comparisonTerm ? `${summary.variances.ftes >= 0 ? '+' : ''}${round1(summary.variances.ftes)} (${pct(summary.variances.ftesPct)})` : 'N/A'],
+      ['FTES Unavailable Rows', formatWholeNumber(summary.focus.unavailableFtesRows)]
     ]);
     const warningNode = document.getElementById('snapshotWarnings');
     if (warningNode) {
-      warningNode.innerHTML = warnings.length ? warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('') : '';
+      const warnings = [];
+      if (!summary.focus.rowsLoaded) warnings.push('No focus-term rows are loaded yet. Select Source Data Hub backend terms or upload current Section Seating data in the Source Data Hub, then run the report.');
+      if (summary.focus.unavailableFtesRows) warnings.push(`${summary.focus.unavailableFtesRows} row(s) have enrollment but missing FTES inputs. Review Work Experience or attendance accounting method fields.`);
+      warningNode.innerHTML = warnings.map(warning => `<p>${escapeAttr(warning)}</p>`).join('');
     }
-    table('snapshotTable', state.enrollmentSnapshots || [], [
-      'term',
-      'snapshotType',
-      'snapshotDate',
-      'snapshotTime',
-      'lifecyclePhase',
-      'lifecycleLabel',
-      'daysBeforeTermStart',
-      'daysAfterTermStart',
-      'crn',
-      'course',
-      'section',
-      'startDate',
-      'enrollment',
-      'sourceFieldUsed',
-      'sourceFileName',
-      'notes',
-      'dataCompletenessNotes',
-      'uploadedAt',
-      'action'
-    ]);
+    const breakdowns = document.getElementById('snapshotBreakdowns');
+    if (breakdowns) {
+      breakdowns.innerHTML = [
+        dashboardPanel('FTES by Population', miniTable(summary.breakdowns.population, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
+        dashboardPanel('FTES by Campus', miniTable(summary.breakdowns.campus, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
+        dashboardPanel('FTES by Modality', miniTable(summary.breakdowns.modality, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
+        dashboardPanel('FTES by Attendance Accounting Method', miniTable(summary.breakdowns.accountingMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows'], 'ftes'))
+      ].join('');
+    }
+    table('snapshotTable', summary.rows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'modality', 'accountingMethod', 'currentEnrollment', 'seats', 'ftes', 'ftesSource', 'ftesWarning']);
     renderSnapshotLegend();
+  }
+
+  function exportCurrentEnrollmentFtes() {
+    const summary = state.currentEnrollmentFtesSummary || buildCurrentEnrollmentFtesSummary([], {});
+    const rows = [
+      { Section: 'Summary', Metric: 'Focus Term', Value: summary.focusTerm || '' },
+      { Section: 'Summary', Metric: 'Comparison Term', Value: summary.comparisonTerm || '' },
+      { Section: 'Summary', Metric: 'Current Class Offerings', Value: summary.focus.classOfferings },
+      { Section: 'Summary', Metric: 'Current Enrollment', Value: summary.focus.enrollment },
+      { Section: 'Summary', Metric: 'Current FTES', Value: summary.focus.ftes },
+      { Section: 'Summary', Metric: 'Enrollment vs Comparison', Value: summary.variances.enrollment },
+      { Section: 'Summary', Metric: 'FTES vs Comparison', Value: summary.variances.ftes },
+      ...Object.entries(summary.breakdowns).flatMap(([section, entries]) => entries.map(row => ({ Section: section, ...row }))),
+      ...summary.rows.map(row => ({ Section: 'Detail', ...row }))
+    ];
+    exportRows(rows, `current-enrollment-ftes-${(summary.focusTerm || 'term').replace(/\s+/g, '-').toLowerCase()}.csv`);
   }
 
   function renderSnapshotLegend() {
     const legend = document.getElementById('snapshotLegend');
     if (!legend) return;
     renderMethodologyPanel(legend, {
-      title: 'Enrollment Snapshot Methodology & Data Dictionary',
-      purpose: 'Captures lifecycle enrollment points that are not available as standing fields in the source system, especially First Day enrollment.',
-      methodology: 'Records are stored by Term + CRN + Snapshot Type. New CRNs append. Existing Term + CRN + Snapshot Type records update with the latest snapshot date/enrollment. Missing CRNs in later partial uploads are not deleted.',
-      assumptions: SHOW_CENSUS2
-        ? 'First Day and Final use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present, with ACTUAL_ENROLL fallback only when needed and visibly labeled. Census 2 uses CENSUS_ENROLL2 when present, then documented fallbacks.'
-        : 'First Day and Final use ACTUAL_ENROLL. Census 1 uses CENSUS_ENROLL when present, with ACTUAL_ENROLL fallback only when needed and visibly labeled.',
-      limitations: 'Snapshot coverage depends on the user uploading every partial start-date batch for the term. Coverage below 100% means First Day lifecycle measures are incomplete.',
+      title: 'Current Enrollment & FTES Methodology & Data Dictionary',
+      purpose: 'Provides a current point-in-time enrollment and FTES view for the selected term, plus a like-term comparison benchmark.',
+      methodology: 'Rows are normalized using the Section Seating parser and deduplicated by Term + CRN. Current enrollment uses ACTUAL_ENROLL/current enrollment first, then census/final fields only when current enrollment is unavailable. FTES uses direct FTES when present; otherwise existing attendance-accounting-method estimation is applied. Work Experience is included only from the separate Work Experience source data when loaded.',
+      assumptions: 'Class offerings are unique CRNs. Work Experience and Dual Enrollment are reported as separate population categories so they can be reviewed without blending into COS regular classes.',
+      limitations: 'This report is not a lifecycle snapshot manager and does not measure first-day registration progression. It reflects the most recently loaded or archived source rows available to the application.',
       items: [
-        ['Enrollment Snapshot', 'A point-in-time captured enrollment value for a section.'],
-        ['Snapshot Type', SHOW_CENSUS2 ? 'Lifecycle milestone being captured: First Day, Census 1, Census 2, Final, or Custom.' : 'Lifecycle milestone being captured: First Day, Census 1, Final, or Custom.'],
-        ['Snapshot Date', 'The actual date represented by the uploaded partial export.'],
-        ['Snapshot Coverage', 'Sections with a stored First Day snapshot divided by sections in the selected focus term.'],
-        ['Source Field Used', 'The upload column used to populate the snapshot enrollment value.']
+        ['Current Enrollment', 'Point-in-time enrollment from ACTUAL_ENROLL/current enrollment, with documented fallback fields only when needed.'],
+        ['Current FTES', 'Direct FTES or estimated FTES from attendance accounting method, enrollment, and available contact-hour/unit inputs.'],
+        ['COS Classes', 'Regular non-Dual Enrollment, non-Work Experience class offerings.'],
+        ['Dual Enrollment', 'Sections identified as Dual Enrollment in source instructional method fields.'],
+        ['Work Experience', 'Supplemental Work Experience source rows loaded from the Source Data Hub.'],
+        ['Comparison Term', 'A selected prior term used as a benchmark against the current focus term.']
       ],
       version: 'Methodology v1.0'
     });
@@ -15072,7 +15252,7 @@
     const summaryNode = document.getElementById('emSnapshotSummary');
     if (summaryNode) {
       summaryNode.innerHTML = `
-        <h3>Current FTES Review Summary</h3>
+        <h3>Current Enrollment & FTES Summary</h3>
         <dl>
           <div><dt>Selected term</dt><dd>${escapeAttr(summary.selectedTerm || 'N/A')}</dd></div>
           <div><dt>Current label</dt><dd>${escapeAttr(summary.currentLabel)}</dd></div>
@@ -15115,7 +15295,7 @@
     state.emSnapshotRan = true;
     const { current, prior, selectedTerm, priorTerm } = await loadEmSnapshotRows();
     if (!current.length) {
-      clearEmSnapshot('No section seating rows are available for the selected term. Load or select a term, then run the FTES review.');
+      clearEmSnapshot('No section seating rows are available for the selected term. Load or select a term, then run Current Enrollment & FTES.');
       return;
     }
     const currentSummary = emSnapshotSummary(current);
@@ -15139,7 +15319,7 @@
     renderEmSnapshot(summary, tables);
   }
 
-  function clearEmSnapshot(message = 'Results cleared. Load or select the current term, optionally enter a prior comparison term, then run the FTES review.') {
+  function clearEmSnapshot(message = 'Results cleared. Load or select the current term, optionally enter a prior comparison term, then run Current Enrollment & FTES.') {
     state.emSnapshotRows = [];
     state.emSnapshotExportRows = [];
     state.emSnapshotRan = false;
@@ -18060,11 +18240,19 @@
     ['roomFitTerm', 'roomFitCampus', 'roomFitBuilding', 'roomFitRoom', 'roomFitDivision', 'roomFitSubject', 'roomFitCourse', 'roomFitFlag', 'roomFitExcludeTutoringOpenLab'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => window.COSScheduleApp?.renderRoomFitReportTable?.());
     });
-    document.getElementById('snapSeason')?.addEventListener('change', () => renderSnapshotManager());
-    document.getElementById('snapYear')?.addEventListener('change', () => renderSnapshotManager());
-    document.getElementById('viewStoredSnapshots')?.addEventListener('click', () => renderSnapshotManager());
-    document.getElementById('exportStoredSnapshots')?.addEventListener('click', () => exportRows(state.enrollmentSnapshots, 'enrollment-snapshots.csv'));
-    document.getElementById('clearSnapshotBatch')?.addEventListener('click', () => clearSelectedSnapshotBatch().catch(err => alert(err.message || 'Snapshot clear failed.')));
+    attachBusyClick('loadCurrentEnrollmentFtesTerms', 'Loading Current Enrollment & FTES source terms...', () => loadCurrentEnrollmentFtesRows().then(() => {
+      state.currentEnrollmentFtesSummary = null;
+      return runCurrentEnrollmentFtes();
+    }), { key: 'loadCurrentEnrollmentFtesTerms', runningLabel: 'Loading...' });
+    attachBusyClick('runCurrentEnrollmentFtes', 'Building Current Enrollment & FTES...', () => runCurrentEnrollmentFtes(), { key: 'runCurrentEnrollmentFtes', runningLabel: 'Building...' });
+    document.getElementById('exportCurrentEnrollmentFtes')?.addEventListener('click', exportCurrentEnrollmentFtes);
+    document.getElementById('cefArchiveTerms')?.addEventListener('change', () => loadCurrentEnrollmentFtesRows().then(() => renderCurrentEnrollmentFtesSummary()).catch(err => console.warn(err)));
+    ['cefFocusTerm', 'cefCompareTerm', 'cefIncludeWorkExperience', 'cefIncludeDualEnrollment'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        state.currentEnrollmentFtesSummary = null;
+        runCurrentEnrollmentFtes().catch(err => console.warn(err));
+      });
+    });
     document.getElementById('iaFacultyType')?.addEventListener('change', () => {
       populateInstructorAvailabilityFilters(currentRows());
       runInstructorAvailability();
@@ -18134,12 +18322,12 @@
     });
     document.getElementById('clearSupplyDemand')?.addEventListener('click', clearSupplyDemand);
     document.getElementById('exportSupplyDemand')?.addEventListener('click', () => exportRowsWithoutMethodology(state.supplyDemandResourceRows?.length ? state.supplyDemandResourceRows : state.supplyDemandBucketRows, 'supply-vs-demand.csv'));
-    document.getElementById('runEmSnapshot')?.addEventListener('click', () => runEmSnapshot().catch(err => alert(err.message || 'Enrollment Management FTES Review failed.')));
+    document.getElementById('runEmSnapshot')?.addEventListener('click', () => runEmSnapshot().catch(err => alert(err.message || 'Current Enrollment & FTES failed.')));
     ['emSnapshotLabel', 'emSnapshotPriorTerm', 'emSnapshotPriorLabel', 'emSnapshotFtesCap', 'emSnapshotPositiveAttendance'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.emSnapshotRan) runEmSnapshot().catch(err => console.warn(err)); });
     });
     document.getElementById('clearEmSnapshot')?.addEventListener('click', () => clearEmSnapshot());
-    document.getElementById('exportEmSnapshot')?.addEventListener('click', () => exportRows(state.emSnapshotExportRows, 'enrollment-management-ftes-review.csv'));
+    document.getElementById('exportEmSnapshot')?.addEventListener('click', () => exportRows(state.emSnapshotExportRows, 'current-enrollment-ftes.csv'));
     attachBusyClick('runBusyTimeDashboard', 'Building Busy Time Dashboard...', () => runBusyTimeDashboard(), { key: 'runBusyTimeDashboard', runningLabel: 'Building...' });
     attachBusyClick('loadSavedBusyTimeFaculty', 'Loading saved Faculty Schedule...', () => loadSavedBusyTimeFacultySchedule(), { key: 'loadSavedBusyTimeFaculty', runningLabel: 'Loading...' });
     document.getElementById('busyTimeArchiveTerms')?.addEventListener('change', () => runBusyTimeDashboard().catch(err => console.warn(err)));
@@ -18441,6 +18629,7 @@
     dashboardScopeContext,
     dashboardScopeWarnings,
     summaryLifecycleAvailability,
+    buildCurrentEnrollmentFtesSummary,
     buildSnapshotRecords,
     upsertSnapshotRecords,
     mergeSnapshotsIntoRows,
