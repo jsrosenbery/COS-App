@@ -801,7 +801,12 @@
 
   function isDualEnrollmentRow(row) {
     const rawMethod = canon(val(row?.raw || {}, fields.modality));
-    return rawMethod === 'DE' || /DUAL\s*ENROLL/.test(rawMethod);
+    const modality = canon(row?.modality || row?.populationType || '');
+    return rawMethod === 'DE' ||
+      modality === 'DUAL ENROLLMENT' ||
+      modality === 'DUAL' ||
+      /DUAL\s*ENROLL/.test(rawMethod) ||
+      /DUAL\s*ENROLL/.test(modality);
   }
 
   function isStudentPresenceOmitted(row) {
@@ -9857,6 +9862,18 @@
     return `COS Classes - ${currentEnrollmentCampusBucket(row)}`;
   }
 
+  function currentEnrollmentPopulationCampus(row = {}) {
+    const population = currentEnrollmentPopulation(row);
+    if (population === 'Work Experience' || population === 'Dual Enrollment') return population;
+    return currentEnrollmentCampusBucket(row);
+  }
+
+  function currentEnrollmentInstructionalMethod(row = {}) {
+    if (currentEnrollmentPopulation(row) === 'Work Experience') return 'Work Experience';
+    if (currentEnrollmentPopulation(row) === 'Dual Enrollment') return 'Dual Enrollment';
+    return displayModalityLabel(row.modality, row);
+  }
+
   function accountingMethodCalculationNote(row = {}) {
     const method = canon(row.accountingMethod || row.name || '');
     const directInfo = accountingMethodInfo(method);
@@ -9864,19 +9881,22 @@
     const info = directInfo.category !== 'unknown' ? directInfo : (labelInfo || directInfo);
     const hasZeroFtes = Number(row.ftes || 0) === 0 && Number(row.enrollment || 0) > 0;
     const formula = {
-      weekly: 'Estimated as enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
-      independentWeekly: 'Estimated as enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
-      daily: 'Estimated as enrollment x total contact hours / 525 when direct FTES is missing.',
-      independentDaily: 'Estimated as enrollment x total contact hours / 525 when direct FTES is missing.',
-      positive: 'Estimated as enrollment x total contact hours / 525 when direct FTES is missing.',
+      weekly: 'Formula-calculated as enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
+      independentWeekly: 'Formula-calculated as enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
+      daily: 'Formula-calculated as enrollment x total contact hours / 525 when direct FTES is missing.',
+      independentDaily: 'Formula-calculated as enrollment x total contact hours / 525 when direct FTES is missing.',
+      positive: 'Formula-calculated as enrollment x total contact hours / 525 when direct FTES is missing. Positive Attendance final FTES is normally confirmed after completed student hours are submitted.',
       omit: 'Marked non-reportable in Section Seating. It contributes 0 FTES unless supplied through the separate Work Experience source.',
-      unknown: 'Estimated only when usable hours, contact hours, or units are present; otherwise FTES remains unavailable.'
-    }[info.category] || 'Estimated only when usable FTES inputs are present.';
+      unknown: 'Formula-calculated only when usable hours, contact hours, or units are present; otherwise FTES remains unavailable.'
+    }[info.category] || 'Formula-calculated only when usable FTES inputs are present.';
     if (hasZeroFtes && ['positive', 'daily', 'independentDaily'].includes(info.category)) {
       return `${formula} This row is 0 FTES because total contact hours/direct FTES were not available in the loaded data.`;
     }
     if (hasZeroFtes && ['weekly', 'independentWeekly'].includes(info.category)) {
       return `${formula} This row is 0 FTES because weekly hours/direct FTES were not available in the loaded data.`;
+    }
+    if (row.name === 'Work Experience' || method === 'WORK EXPERIENCE') {
+      return 'Work Experience final FTES depends on completed student hours/units. This report uses direct FTES when loaded, or formula inputs when available; otherwise it remains unavailable until a completion-estimate model is configured.';
     }
     return formula;
   }
@@ -9961,8 +9981,9 @@
       breakdowns: {
         population: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulation),
         populationDetail: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulationDetail),
+        populationCampus: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulationCampus),
         campus: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentCampusBucket),
-        modality: aggregateCurrentEnrollmentFtes(focusRows, row => currentEnrollmentPopulation(row) === 'Work Experience' ? 'Work Experience' : displayModalityLabel(row.modality, row)),
+        instructionalMethod: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentInstructionalMethod),
         accountingMethod: aggregateCurrentEnrollmentFtes(focusRows, row => row.accountingMethodLabel || row.accountingMethod || 'Unknown')
       },
       rows: focusRows.map(row => ({
@@ -9971,14 +9992,14 @@
         course: normalizedSubjectCourse(row),
         section: row.section,
         population: currentEnrollmentPopulation(row),
-        campus: row.campus,
-        modality: currentEnrollmentPopulation(row) === 'Work Experience' ? 'Work Experience' : displayModalityLabel(row.modality, row),
+        campus: currentEnrollmentCampusBucket(row),
+        instructionalMethod: currentEnrollmentInstructionalMethod(row),
         accountingMethod: row.accountingMethodLabel || row.accountingMethod || 'Unknown',
         classOfferings: 1,
         currentEnrollment: currentEnrollmentValue(row),
         seats: row.cap || 0,
         ftes: row.ftes || 0,
-        ftesSource: row.hasDirectFtesData ? 'Direct FTES' : row.hasFtesData ? 'Estimated FTES' : 'FTES unavailable',
+        ftesSource: row.hasDirectFtesData ? 'Direct FTES' : row.hasFtesData ? 'Formula-calculated FTES' : 'FTES unavailable',
         ftesWarning: row.ftesWarning || ''
       })),
       comparisonRows: [
@@ -10093,7 +10114,7 @@
       ['Comparison Term', summary.comparisonTerm || 'None'],
       ['Current Class Offerings', formatWholeNumber(summary.focus.classOfferings), 'scheduled-class-offerings'],
       ['Current Enrollment', formatWholeNumber(summary.focus.enrollment), 'enrollment'],
-      ['Current FTES', round1(summary.focus.ftes), 'ftes'],
+      ['Current Calculated FTES', round1(summary.focus.ftes), 'ftes'],
       ['Comparison Enrollment', summary.comparisonTerm ? formatWholeNumber(summary.comparison.enrollment) : 'N/A', 'enrollment'],
       ['Enrollment Difference', summary.comparisonTerm ? `${summary.variances.enrollment >= 0 ? '+' : ''}${formatWholeNumber(summary.variances.enrollment)} (${pct(summary.variances.enrollmentPct)})` : 'N/A'],
       ['Comparison FTES', summary.comparisonTerm ? round1(summary.comparison.ftes) : 'N/A', 'ftes'],
@@ -10111,32 +10132,66 @@
     if (breakdowns) {
       breakdowns.innerHTML = [
         dashboardPanel('Focus vs Comparison', miniTable(summary.comparisonRows, ['line', 'term', 'classOfferings', 'enrollment', 'ftes', 'seats'], 'ftes')),
-        dashboardPanel('FTES by Population', miniTable(summary.breakdowns.population, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
-        dashboardPanel('FTES by Population Detail', miniTable(summary.breakdowns.populationDetail, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
-        dashboardPanel('FTES by Campus', miniTable(summary.breakdowns.campus, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
-        dashboardPanel('FTES by Modality', miniTable(summary.breakdowns.modality, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
-        dashboardPanel('FTES by Attendance Accounting Method', `<p class="analytics-chart-note">Class Offerings are unique CRNs. Direct FTES Rows have an FTES value in the source file. Estimated FTES Rows do not include direct FTES but have enough attendance-accounting, enrollment, contact-hour, weekly-hour, or unit inputs for TIMBER to estimate FTES. FTES Unavailable Rows lack the inputs needed for an estimate or are non-reportable in ordinary Section Seating data.</p>${miniTable(summary.breakdowns.accountingMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'calculationNote'], 'ftes')}`)
+        dashboardPanel('FTES by Population / Campus', `<p class="analytics-chart-note">COS, TCC, HAC, Online Campuses, Dual Enrollment, Work Experience, and All Other Campuses are shown as one planning breakdown to avoid duplicating separate population and campus tables.</p>${miniTable(summary.breakdowns.populationCampus, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')}`),
+        dashboardPanel('FTES by Instructional Method', miniTable(summary.breakdowns.instructionalMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
+        dashboardPanel('FTES by Attendance Accounting Method', `<p class="analytics-chart-note">Class Offerings are unique CRNs. Direct FTES Rows have an FTES value in the source file. Formula-Calculated FTES Rows do not include direct FTES but have enough attendance-accounting, enrollment, contact-hour, weekly-hour, or unit inputs for TIMBER to calculate FTES. FTES Unavailable Rows lack the inputs needed for a current calculation. Positive Attendance, Open Entry/Open Exit, and Work Experience may need a separate conservative completion estimate because final FTES depends on completed attendance hours or units.</p>${miniTable(summary.breakdowns.accountingMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'calculationNote'], 'ftes')}`)
       ].join('');
     }
-    table('snapshotTable', summary.rows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'modality', 'accountingMethod', 'currentEnrollment', 'seats', 'ftes', 'ftesSource', 'ftesWarning']);
+    table('snapshotTable', summary.rows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'currentEnrollment', 'seats', 'ftes', 'ftesSource', 'ftesWarning']);
     renderSnapshotLegend();
+  }
+
+  function currentEnrollmentFtesExportRows(summary = buildCurrentEnrollmentFtesSummary([], {})) {
+    const exportRow = (section, row = {}, extra = {}) => ({
+      Section: section,
+      Line: row.line || '',
+      Term: row.term || '',
+      Category: row.name || '',
+      Metric: extra.Metric || '',
+      Value: extra.Value ?? '',
+      'Class Offerings': row.classOfferings ?? '',
+      Enrollment: row.enrollment ?? row.currentEnrollment ?? '',
+      Seats: row.seats ?? '',
+      FTES: row.ftes ?? '',
+      'Enrollment Share': row.enrollmentShare == null ? '' : row.enrollmentShare,
+      'FTES Share': row.ftesShare == null ? '' : row.ftesShare,
+      'Direct FTES Rows': row.directFtesRows ?? '',
+      'Formula-Calculated FTES Rows': row.estimatedFtesRows ?? '',
+      'FTES Unavailable Rows': row.unavailableFtesRows ?? '',
+      'Calculation Note': row.calculationNote || '',
+      CRN: row.crn || '',
+      Course: row.course || '',
+      'Course Section': row.section || '',
+      Population: row.population || '',
+      Campus: row.campus || '',
+      'Instructional Method': row.instructionalMethod || '',
+      'Attendance Accounting Method': row.accountingMethod || '',
+      'FTES Source': row.ftesSource || '',
+      'FTES Warning': row.ftesWarning || ''
+    });
+    const summaryRows = [
+      ['Focus Term', summary.focusTerm || ''],
+      ['Comparison Term', summary.comparisonTerm || ''],
+      ['Current Class Offerings', summary.focus.classOfferings],
+      ['Current Enrollment', summary.focus.enrollment],
+      ['Current Calculated FTES', summary.focus.ftes],
+      ['Enrollment vs Comparison', summary.variances.enrollment],
+      ['FTES vs Comparison', summary.variances.ftes],
+      ['Conservative Estimated Completed FTES', 'Not calculated yet - requires completion assumptions for Positive Attendance, Open Entry/Open Exit, and Work Experience.']
+    ].map(([metricName, value]) => exportRow('Summary', {}, { Metric: metricName, Value: value }));
+    return [
+      ...summaryRows,
+      ...summary.comparisonRows.map(row => exportRow('Focus vs Comparison', row)),
+      ...summary.breakdowns.populationCampus.map(row => exportRow('FTES by Population / Campus', row)),
+      ...summary.breakdowns.instructionalMethod.map(row => exportRow('FTES by Instructional Method', row)),
+      ...summary.breakdowns.accountingMethod.map(row => exportRow('FTES by Attendance Accounting Method', row)),
+      ...summary.rows.map(row => exportRow('Detail', row))
+    ];
   }
 
   function exportCurrentEnrollmentFtes() {
     const summary = state.currentEnrollmentFtesSummary || buildCurrentEnrollmentFtesSummary([], {});
-    const rows = [
-      { Section: 'Summary', Metric: 'Focus Term', Value: summary.focusTerm || '' },
-      { Section: 'Summary', Metric: 'Comparison Term', Value: summary.comparisonTerm || '' },
-      { Section: 'Summary', Metric: 'Current Class Offerings', Value: summary.focus.classOfferings },
-      { Section: 'Summary', Metric: 'Current Enrollment', Value: summary.focus.enrollment },
-      { Section: 'Summary', Metric: 'Current FTES', Value: summary.focus.ftes },
-      { Section: 'Summary', Metric: 'Enrollment vs Comparison', Value: summary.variances.enrollment },
-      { Section: 'Summary', Metric: 'FTES vs Comparison', Value: summary.variances.ftes },
-      ...summary.comparisonRows.map(row => ({ Section: 'Focus vs Comparison', ...row })),
-      ...Object.entries(summary.breakdowns).flatMap(([section, entries]) => entries.map(row => ({ Section: section, ...row }))),
-      ...summary.rows.map(row => ({ Section: 'Detail', ...row }))
-    ];
-    exportRows(rows, `current-enrollment-ftes-${(summary.focusTerm || 'term').replace(/\s+/g, '-').toLowerCase()}.csv`);
+    exportRows(currentEnrollmentFtesExportRows(summary), `current-enrollment-ftes-${(summary.focusTerm || 'term').replace(/\s+/g, '-').toLowerCase()}.csv`);
   }
 
   function renderSnapshotLegend() {
@@ -10145,20 +10200,21 @@
     renderMethodologyPanel(legend, {
       title: 'Current Enrollment & FTES Methodology & Data Dictionary',
       purpose: 'Provides a current point-in-time enrollment and FTES view for the selected term, plus a like-term comparison benchmark.',
-      methodology: 'Rows are normalized using the Section Seating parser and deduplicated by Term + CRN. Current enrollment uses ACTUAL_ENROLL/current enrollment first, then census/final fields only when current enrollment is unavailable. FTES uses direct FTES when present; otherwise existing attendance-accounting-method estimation is applied. Work Experience is included only from the separate Work Experience source data when loaded.',
-      assumptions: 'Class offerings are unique CRNs. Work Experience and Dual Enrollment are reported as separate population categories so they can be reviewed without blending into COS regular classes.',
-      limitations: 'This report is not a lifecycle snapshot manager and does not measure first-day registration progression. It reflects the most recently loaded or archived source rows available to the application.',
+      methodology: 'Rows are normalized using the Section Seating parser and deduplicated by Term + CRN. Current enrollment uses ACTUAL_ENROLL/current enrollment first, then census/final fields only when current enrollment is unavailable. Current Calculated FTES uses direct FTES when present; otherwise TIMBER applies the attendance-accounting formula only when the loaded row has enough enrollment, contact-hour, weekly-hour, or unit inputs. Code DE is reported as Dual Enrollment. Code 20 is reported as Work Experience.',
+      assumptions: 'Class offerings are unique CRNs. Work Experience and Dual Enrollment are reported as separate planning categories so they can be reviewed without blending into COS regular classes. Online campus codes are grouped together for campus-level review.',
+      limitations: 'This report is not a lifecycle snapshot manager and does not measure first-day registration progression. It reflects the most recently loaded or archived source rows available to the application. Positive Attendance, Open Entry/Open Exit, and Work Experience final FTES may not be fully known until completed attendance hours or units are submitted; a conservative completed-FTES planning estimate should use explicit historical completion assumptions before being treated as a forecast.',
       items: [
         ['Current Enrollment', 'Point-in-time enrollment from ACTUAL_ENROLL/current enrollment, with documented fallback fields only when needed.'],
-        ['Current FTES', 'Direct FTES or estimated FTES from attendance accounting method, enrollment, and available contact-hour/unit inputs.'],
+        ['Current Calculated FTES', 'Direct FTES or formula-calculated FTES from attendance accounting method, enrollment, and available contact-hour/unit inputs.'],
         ['Class Offerings', 'Unique CRNs after selected filters are applied. Duplicate meeting rows for the same CRN do not inflate this count.'],
         ['COS Classes', 'Regular non-Dual Enrollment, non-Work Experience class offerings.'],
         ['Dual Enrollment', 'Sections identified as Dual Enrollment in source instructional method fields.'],
-        ['Work Experience', 'Supplemental Work Experience source rows loaded from the Source Data Hub.'],
+        ['Work Experience', 'Rows identified by code 20 or supplemental Work Experience source rows loaded from the Source Data Hub. Work Experience final FTES depends on completed student hours/units.'],
         ['Online Campuses', 'Online campus codes such as ONC, ONH, ONT, HNC, TNC, and VNC are grouped together for campus FTES review.'],
         ['Direct FTES Rows', 'Rows where the source file supplied an FTES value directly.'],
-        ['Estimated FTES Rows', 'Rows where FTES was estimated from the attendance accounting method and available enrollment/contact-hour/weekly-hour/unit inputs.'],
+        ['Formula-Calculated FTES Rows', 'Rows where the source file did not supply direct FTES, but TIMBER could calculate current FTES from the attendance accounting method and available enrollment/contact-hour/weekly-hour/unit inputs. This is not the same as a historical completion forecast.'],
         ['FTES Unavailable Rows', 'Rows where FTES could not be calculated from the loaded fields. For Open Entry/Open Exit or positive-attendance rows, this usually means total contact hours or direct FTES was not available.'],
+        ['Conservative Estimated Completed FTES', 'A future planning estimate concept for Positive Attendance, Open Entry/Open Exit, and Work Experience. It should be based on documented historical completion ratios or other approved assumptions before appearing as a numeric forecast.'],
         ['Comparison Term', 'A selected prior term used as a benchmark against the current focus term. The Focus vs Comparison table shows focus, comparison, and difference rows for enrollment, FTES, seats, and class offerings.']
       ],
       version: 'Methodology v1.0'
@@ -10226,7 +10282,7 @@
         ftes: 'FTES',
         seats: 'Seats',
         directFtesRows: 'Direct FTES Rows',
-        estimatedFtesRows: 'Estimated FTES Rows',
+        estimatedFtesRows: 'Formula-Calculated FTES Rows',
         unavailableFtesRows: 'FTES Unavailable Rows',
         calculationNote: 'Calculation Note',
         enrollmentShare: 'Enrollment Share',
@@ -18741,6 +18797,7 @@
     demandRowsForPopulationSelections,
     demandPopulationSummary,
     demandPlanningBreakdowns,
+    currentEnrollmentFtesExportRows,
     emSnapshotCampusBucket,
     emSnapshotModalityMethodBucket,
     emSnapshotSummary,

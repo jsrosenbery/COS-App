@@ -4594,6 +4594,8 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', comparisonTerm: 'FALL 2025' });
   const populationNames = summary.breakdowns.population.map(row => row.name);
   const campusNames = summary.breakdowns.campus.map(row => row.name);
+  const populationCampusNames = summary.breakdowns.populationCampus.map(row => row.name);
+  const methodNames = summary.breakdowns.instructionalMethod.map(row => row.name);
   const accountingRows = summary.breakdowns.accountingMethod;
 
   assert.equal(summary.focus.classOfferings, 5);
@@ -4604,11 +4606,21 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   assert.equal(rows.find(row => row.crn === 'WX002').timeBlock, 'WORK EXPERIENCE');
   assert.ok(summary.breakdowns.populationDetail.some(row => row.name === 'COS Classes - Online Campuses'));
   assert.ok(campusNames.includes('Online Campuses'));
+  assert.ok(populationCampusNames.includes('Dual Enrollment'));
+  assert.ok(populationCampusNames.includes('Work Experience'));
+  assert.ok(methodNames.includes('Dual Enrollment'));
+  assert.ok(methodNames.includes('Work Experience'));
   assert.equal(summary.comparison.enrollment, 28);
   assert.equal(summary.variances.enrollment, 64);
   assert.equal(summary.comparisonRows[0].line, 'Focus Term');
   assert.equal(summary.comparisonRows[2].enrollment, 64);
   assert.ok(accountingRows.some(row => /Open Entry\/Open Exit|Positive Attendance/.test(row.name) && /total contact hours|direct FTES/i.test(row.calculationNote)));
+  const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
+  const exportSections = exportRows.map(row => row.Section);
+  assert.ok(exportSections.includes('FTES by Population / Campus'));
+  assert.ok(exportSections.includes('FTES by Instructional Method'));
+  assert.ok(exportRows.every(row => Object.hasOwn(row, 'Class Offerings') && Object.hasOwn(row, 'Formula-Calculated FTES Rows')));
+  assert.ok(exportRows.some(row => row.Section === 'Summary' && row.Metric === 'Conservative Estimated Completed FTES' && /requires completion assumptions/i.test(row.Value)));
 });
 
 test('modality balance uses shared modality category normalization and diagnostics', () => {
@@ -5889,7 +5901,7 @@ test('dashboard compact tables use short headers and nowrap CSS', () => {
   assert.match(text, /availableRoomCapacity: 'Open Cap\.'/);
   assert.match(text, /FTES by Attendance Accounting Method/);
   assert.match(text, /accountingMethod: 'Accounting Method'/);
-  assert.match(text, /estimatedFtesRows: 'Estimated FTES Rows'/);
+  assert.match(text, /estimatedFtesRows: 'Formula-Calculated FTES Rows'/);
   assert.match(text, /dashboardVisibleLifecycle/);
   assert.match(text, /item\.label !== 'Census 2'/);
   assert.match(text, /Census 1 \(pre-term estimate\)/);
