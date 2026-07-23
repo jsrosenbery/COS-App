@@ -2332,7 +2332,7 @@ test('enrollment management FTES review compares campus and instructional method
   const modalityRows = COSEnrollmentAnalytics.emSnapshotCompareRows(current, prior, COSEnrollmentAnalytics.emSnapshotModalityMethodBucket);
   const hac = rows.find(row => row.group === 'HAC');
   const cos = rows.find(row => row.group === 'COS');
-  const online = rows.find(row => row.group === 'ONC/ONV/ONT/ONH');
+  const online = rows.find(row => row.group === 'Online Campuses');
   const other = rows.find(row => row.group === 'All Other Campuses');
   const inPerson = modalityRows.find(row => row.group === 'IN-PERSON / 02');
   const omitted = modalityRows.find(row => row.group === 'Other / Omitted Method / 98');
@@ -4572,19 +4572,30 @@ test('current enrollment and FTES report replaces manual snapshot controls', () 
 test('current enrollment and FTES summary dedupes CRNs and separates populations', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', INSTRUCTIONAL_METHOD: 'IP' }),
-    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', INSTRUCTIONAL_METHOD: 'IP' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', INSTRUCTIONAL_METHOD: 'IP', Campus: 'COS' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', INSTRUCTIONAL_METHOD: 'IP', Campus: 'COS' }),
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10002', Subject: 'HIST', Course: '001', Section: '001', ACTUAL_ENROLL: '20', MAX_ENROLL: '30', FTES: '2.0', 'Instructional Method': 'DE' }),
-    COSEnrollmentAnalytics.normalizeRow({ __sourceType: 'WORK_EXPERIENCE', Term: 'FALL 2026', CRN: 'WX001', Subject: 'WKEX', Course: '001', Section: '001', ACTUAL_ENROLL: '10', FTES: '1.0' })
+    COSEnrollmentAnalytics.normalizeRow({ __sourceType: 'WORK_EXPERIENCE', Term: 'FALL 2026', CRN: 'WX001', Subject: 'WKEX', Course: '001', Section: '001', ACTUAL_ENROLL: '10', FTES: '1.0' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10003', Subject: 'PSYC', Course: '001', Section: '001', ACTUAL_ENROLL: '25', MAX_ENROLL: '30', Campus: 'HNC', ACCOUNTING_METHOD: 'E' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '90001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '28', MAX_ENROLL: '35', FTES: '2.8', INSTRUCTIONAL_METHOD: 'IP', Campus: 'COS' })
   ];
 
-  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026' });
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', comparisonTerm: 'FALL 2025' });
   const populationNames = summary.breakdowns.population.map(row => row.name);
+  const campusNames = summary.breakdowns.campus.map(row => row.name);
+  const accountingRows = summary.breakdowns.accountingMethod;
 
-  assert.equal(summary.focus.classOfferings, 3);
-  assert.equal(summary.focus.enrollment, 60);
+  assert.equal(summary.focus.classOfferings, 4);
+  assert.equal(summary.focus.enrollment, 85);
   assert.equal(summary.focus.ftes, 6);
   assert.equal(populationNames.sort().join('|'), ['COS Classes', 'Dual Enrollment', 'Work Experience'].sort().join('|'));
+  assert.ok(summary.breakdowns.populationDetail.some(row => row.name === 'COS Classes - Online Campuses'));
+  assert.ok(campusNames.includes('Online Campuses'));
+  assert.equal(summary.comparison.enrollment, 28);
+  assert.equal(summary.variances.enrollment, 57);
+  assert.equal(summary.comparisonRows[0].line, 'Focus Term');
+  assert.equal(summary.comparisonRows[2].enrollment, 57);
+  assert.ok(accountingRows.some(row => /Open Entry\/Open Exit|Positive Attendance/.test(row.name) && /total contact hours|direct FTES/i.test(row.calculationNote)));
 });
 
 test('modality balance uses shared modality category normalization and diagnostics', () => {
@@ -5865,7 +5876,7 @@ test('dashboard compact tables use short headers and nowrap CSS', () => {
   assert.match(text, /availableRoomCapacity: 'Open Cap\.'/);
   assert.match(text, /FTES by Attendance Accounting Method/);
   assert.match(text, /accountingMethod: 'Accounting Method'/);
-  assert.match(text, /estimatedFtesRows: 'Estimated'/);
+  assert.match(text, /estimatedFtesRows: 'Estimated FTES Rows'/);
   assert.match(text, /dashboardVisibleLifecycle/);
   assert.match(text, /item\.label !== 'Census 2'/);
   assert.match(text, /Census 1 \(pre-term estimate\)/);

@@ -8625,15 +8625,7 @@
   }
 
   function emSnapshotCampusBucket(row = {}) {
-    if (row?.isWorkExperience || row?.modality === 'WORK EXPERIENCE') return 'Work Experience';
-    if (isDualEnrollmentRow(row) || row?.populationType === 'Dual Enrollment' || row?.modality === 'DUAL ENROLLMENT') return 'Dual Enrollment';
-    const campus = canon(row.campus || row.raw?.Campus || row.raw?.CAMPUS);
-    if (['HAC', 'HAN', 'HANFORD'].includes(campus)) return 'HAC';
-    if (['COS', 'VIS', 'VISALIA', 'MAIN'].includes(campus)) return 'COS';
-    if (['TCC', 'TUL', 'TULARE'].includes(campus)) return 'TCC';
-    if (['ONC', 'ONV', 'ONT', 'ONH'].includes(campus)) return 'ONC/ONV/ONT/ONH';
-    if (['ONLINE', 'ONL', 'ON'].includes(campus) || /^ON[CVTH]$/.test(campus)) return 'ONC/ONV/ONT/ONH';
-    return 'All Other Campuses';
+    return currentEnrollmentCampusBucket(row);
   }
 
   function demandRowsForPopulationSelections(rows, selections = demandPopulationSelections()) {
@@ -9842,6 +9834,47 @@
     return 'COS Classes';
   }
 
+  function currentEnrollmentCampusBucket(row = {}) {
+    if (row?.isWorkExperience || row?.modality === 'WORK EXPERIENCE') return 'Work Experience';
+    if (isDualEnrollmentRow(row) || row?.populationType === 'Dual Enrollment' || row?.modality === 'DUAL ENROLLMENT') return 'Dual Enrollment';
+    const campus = canon(row.campus || row.raw?.Campus || row.raw?.CAMPUS);
+    if (['HAC', 'HAN', 'HANFORD'].includes(campus)) return 'HAC';
+    if (['COS', 'VIS', 'VISALIA', 'MAIN'].includes(campus)) return 'COS';
+    if (['TCC', 'TUL', 'TULARE'].includes(campus)) return 'TCC';
+    if (['ONC', 'ONV', 'ONT', 'ONH', 'HNC', 'TNC', 'VNC', 'ONLINE', 'ONL', 'ON'].includes(campus) || /^ON[CVTH]$/.test(campus)) return 'Online Campuses';
+    return 'All Other Campuses';
+  }
+
+  function currentEnrollmentPopulationDetail(row = {}) {
+    const population = currentEnrollmentPopulation(row);
+    if (population !== 'COS Classes') return population;
+    return `COS Classes - ${currentEnrollmentCampusBucket(row)}`;
+  }
+
+  function accountingMethodCalculationNote(row = {}) {
+    const method = canon(row.accountingMethod || row.name || '');
+    const directInfo = accountingMethodInfo(method);
+    const labelInfo = Object.values(ACCOUNTING_METHODS).find(item => canon(item.label) === method);
+    const info = directInfo.category !== 'unknown' ? directInfo : (labelInfo || directInfo);
+    const hasZeroFtes = Number(row.ftes || 0) === 0 && Number(row.enrollment || 0) > 0;
+    const formula = {
+      weekly: 'Estimated as enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
+      independentWeekly: 'Estimated as enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
+      daily: 'Estimated as enrollment x total contact hours / 525 when direct FTES is missing.',
+      independentDaily: 'Estimated as enrollment x total contact hours / 525 when direct FTES is missing.',
+      positive: 'Estimated as enrollment x total contact hours / 525 when direct FTES is missing.',
+      omit: 'Marked non-reportable in Section Seating. It contributes 0 FTES unless supplied through the separate Work Experience source.',
+      unknown: 'Estimated only when usable hours, contact hours, or units are present; otherwise FTES remains unavailable.'
+    }[info.category] || 'Estimated only when usable FTES inputs are present.';
+    if (hasZeroFtes && ['positive', 'daily', 'independentDaily'].includes(info.category)) {
+      return `${formula} This row is 0 FTES because total contact hours/direct FTES were not available in the loaded data.`;
+    }
+    if (hasZeroFtes && ['weekly', 'independentWeekly'].includes(info.category)) {
+      return `${formula} This row is 0 FTES because weekly hours/direct FTES were not available in the loaded data.`;
+    }
+    return formula;
+  }
+
   function aggregateCurrentEnrollmentFtes(rows, getter) {
     const buckets = new Map();
     (rows || []).forEach(row => {
@@ -9873,7 +9906,8 @@
       .map(row => ({
         ...row,
         enrollmentShare: safeDiv(row.enrollment, totalEnrollment),
-        ftesShare: safeDiv(row.ftes, totalFtes)
+        ftesShare: safeDiv(row.ftes, totalFtes),
+        calculationNote: accountingMethodCalculationNote(row)
       }))
       .sort((a, b) => b.enrollment - a.enrollment || a.name.localeCompare(b.name));
   }
@@ -9920,7 +9954,8 @@
       },
       breakdowns: {
         population: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulation),
-        campus: aggregateCurrentEnrollmentFtes(focusRows, row => row.campus),
+        populationDetail: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulationDetail),
+        campus: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentCampusBucket),
         modality: aggregateCurrentEnrollmentFtes(focusRows, row => currentEnrollmentPopulation(row) === 'Work Experience' ? 'Work Experience' : displayModalityLabel(row.modality, row)),
         accountingMethod: aggregateCurrentEnrollmentFtes(focusRows, row => row.accountingMethodLabel || row.accountingMethod || 'Unknown')
       },
@@ -9939,7 +9974,33 @@
         ftes: row.ftes || 0,
         ftesSource: row.hasDirectFtesData ? 'Direct FTES' : row.hasFtesData ? 'Estimated FTES' : 'FTES unavailable',
         ftesWarning: row.ftesWarning || ''
-      }))
+      })),
+      comparisonRows: [
+        {
+          line: 'Focus Term',
+          term: focusTerm || 'Selected focus term',
+          classOfferings: focus.classOfferings,
+          enrollment: focus.enrollment,
+          ftes: focus.ftes,
+          seats: focus.seats
+        },
+        {
+          line: 'Comparison Term',
+          term: comparisonTerm || 'No comparison selected',
+          classOfferings: comparison.classOfferings,
+          enrollment: comparison.enrollment,
+          ftes: comparison.ftes,
+          seats: comparison.seats
+        },
+        {
+          line: 'Difference',
+          term: comparisonTerm ? `${focusTerm || 'Focus'} minus ${comparisonTerm}` : 'No comparison selected',
+          classOfferings: focus.classOfferings - comparison.classOfferings,
+          enrollment: focus.enrollment - comparison.enrollment,
+          ftes: focus.ftes - comparison.ftes,
+          seats: focus.seats - comparison.seats
+        }
+      ]
     };
   }
 
@@ -10027,8 +10088,10 @@
       ['Current Class Offerings', formatWholeNumber(summary.focus.classOfferings), 'scheduled-class-offerings'],
       ['Current Enrollment', formatWholeNumber(summary.focus.enrollment), 'enrollment'],
       ['Current FTES', round1(summary.focus.ftes), 'ftes'],
-      ['Enrollment vs Comparison', summary.comparisonTerm ? `${summary.variances.enrollment >= 0 ? '+' : ''}${formatWholeNumber(summary.variances.enrollment)} (${pct(summary.variances.enrollmentPct)})` : 'N/A'],
-      ['FTES vs Comparison', summary.comparisonTerm ? `${summary.variances.ftes >= 0 ? '+' : ''}${round1(summary.variances.ftes)} (${pct(summary.variances.ftesPct)})` : 'N/A'],
+      ['Comparison Enrollment', summary.comparisonTerm ? formatWholeNumber(summary.comparison.enrollment) : 'N/A', 'enrollment'],
+      ['Enrollment Difference', summary.comparisonTerm ? `${summary.variances.enrollment >= 0 ? '+' : ''}${formatWholeNumber(summary.variances.enrollment)} (${pct(summary.variances.enrollmentPct)})` : 'N/A'],
+      ['Comparison FTES', summary.comparisonTerm ? round1(summary.comparison.ftes) : 'N/A', 'ftes'],
+      ['FTES Difference', summary.comparisonTerm ? `${summary.variances.ftes >= 0 ? '+' : ''}${round1(summary.variances.ftes)} (${pct(summary.variances.ftesPct)})` : 'N/A'],
       ['FTES Unavailable Rows', formatWholeNumber(summary.focus.unavailableFtesRows)]
     ]);
     const warningNode = document.getElementById('snapshotWarnings');
@@ -10041,10 +10104,12 @@
     const breakdowns = document.getElementById('snapshotBreakdowns');
     if (breakdowns) {
       breakdowns.innerHTML = [
+        dashboardPanel('Focus vs Comparison', miniTable(summary.comparisonRows, ['line', 'term', 'classOfferings', 'enrollment', 'ftes', 'seats'], 'ftes')),
         dashboardPanel('FTES by Population', miniTable(summary.breakdowns.population, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
+        dashboardPanel('FTES by Population Detail', miniTable(summary.breakdowns.populationDetail, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
         dashboardPanel('FTES by Campus', miniTable(summary.breakdowns.campus, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
         dashboardPanel('FTES by Modality', miniTable(summary.breakdowns.modality, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
-        dashboardPanel('FTES by Attendance Accounting Method', miniTable(summary.breakdowns.accountingMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows'], 'ftes'))
+        dashboardPanel('FTES by Attendance Accounting Method', `<p class="analytics-chart-note">Class Offerings are unique CRNs. Direct FTES Rows have an FTES value in the source file. Estimated FTES Rows do not include direct FTES but have enough attendance-accounting, enrollment, contact-hour, weekly-hour, or unit inputs for TIMBER to estimate FTES. FTES Unavailable Rows lack the inputs needed for an estimate or are non-reportable in ordinary Section Seating data.</p>${miniTable(summary.breakdowns.accountingMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'calculationNote'], 'ftes')}`)
       ].join('');
     }
     table('snapshotTable', summary.rows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'modality', 'accountingMethod', 'currentEnrollment', 'seats', 'ftes', 'ftesSource', 'ftesWarning']);
@@ -10061,6 +10126,7 @@
       { Section: 'Summary', Metric: 'Current FTES', Value: summary.focus.ftes },
       { Section: 'Summary', Metric: 'Enrollment vs Comparison', Value: summary.variances.enrollment },
       { Section: 'Summary', Metric: 'FTES vs Comparison', Value: summary.variances.ftes },
+      ...summary.comparisonRows.map(row => ({ Section: 'Focus vs Comparison', ...row })),
       ...Object.entries(summary.breakdowns).flatMap(([section, entries]) => entries.map(row => ({ Section: section, ...row }))),
       ...summary.rows.map(row => ({ Section: 'Detail', ...row }))
     ];
@@ -10079,10 +10145,15 @@
       items: [
         ['Current Enrollment', 'Point-in-time enrollment from ACTUAL_ENROLL/current enrollment, with documented fallback fields only when needed.'],
         ['Current FTES', 'Direct FTES or estimated FTES from attendance accounting method, enrollment, and available contact-hour/unit inputs.'],
+        ['Class Offerings', 'Unique CRNs after selected filters are applied. Duplicate meeting rows for the same CRN do not inflate this count.'],
         ['COS Classes', 'Regular non-Dual Enrollment, non-Work Experience class offerings.'],
         ['Dual Enrollment', 'Sections identified as Dual Enrollment in source instructional method fields.'],
         ['Work Experience', 'Supplemental Work Experience source rows loaded from the Source Data Hub.'],
-        ['Comparison Term', 'A selected prior term used as a benchmark against the current focus term.']
+        ['Online Campuses', 'Online campus codes such as ONC, ONH, ONT, HNC, TNC, and VNC are grouped together for campus FTES review.'],
+        ['Direct FTES Rows', 'Rows where the source file supplied an FTES value directly.'],
+        ['Estimated FTES Rows', 'Rows where FTES was estimated from the attendance accounting method and available enrollment/contact-hour/weekly-hour/unit inputs.'],
+        ['FTES Unavailable Rows', 'Rows where FTES could not be calculated from the loaded fields. For Open Entry/Open Exit or positive-attendance rows, this usually means total contact hours or direct FTES was not available.'],
+        ['Comparison Term', 'A selected prior term used as a benchmark against the current focus term. The Focus vs Comparison table shows focus, comparison, and difference rows for enrollment, FTES, seats, and class offerings.']
       ],
       version: 'Methodology v1.0'
     });
@@ -10140,13 +10211,20 @@
         availableRoomCapacity: 'Open Cap.'
       },
       ftes: {
+        name: 'Category',
+        line: 'Line',
+        term: 'Term',
         accountingMethod: 'Accounting Method',
-        classOfferings: 'Offerings',
-        enrollment: 'Enroll.',
+        classOfferings: 'Class Offerings',
+        enrollment: 'Enrollment',
         ftes: 'FTES',
-        directFtesRows: 'Direct',
-        estimatedFtesRows: 'Estimated',
-        unavailableFtesRows: 'Unavailable'
+        seats: 'Seats',
+        directFtesRows: 'Direct FTES Rows',
+        estimatedFtesRows: 'Estimated FTES Rows',
+        unavailableFtesRows: 'FTES Unavailable Rows',
+        calculationNote: 'Calculation Note',
+        enrollmentShare: 'Enrollment Share',
+        ftesShare: 'FTES Share'
       },
       structure: {
         modality: 'Modality',
@@ -10158,7 +10236,7 @@
   }
 
   function dashboardCellClass(column) {
-    return column === 'recommendation' || column === 'status' ? 'dashboard-cell-text' : '';
+    return ['recommendation', 'status', 'calculationNote'].includes(column) ? 'dashboard-cell-text' : '';
   }
 
   function dashboardCellHtml(row, column, tableType = '') {
@@ -15141,7 +15219,7 @@
     const currentMap = group(dedupeEnrollmentRows(currentRows), keyer);
     const priorMap = group(dedupeEnrollmentRows(priorRows), keyer);
     const keys = [...new Set([...currentMap.keys(), ...priorMap.keys()])];
-    const order = ['HAC', 'COS', 'TCC', 'ONC/ONV/ONT/ONH', 'Dual Enrollment', 'All Other Campuses', 'Work Experience'];
+    const order = ['HAC', 'COS', 'TCC', 'Online Campuses', 'Dual Enrollment', 'All Other Campuses', 'Work Experience'];
     return keys.map(name => {
       const current = emSnapshotSummary(currentMap.get(name) || []);
       const prior = emSnapshotSummary(priorMap.get(name) || []);
