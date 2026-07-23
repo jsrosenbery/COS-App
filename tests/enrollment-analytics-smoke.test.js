@@ -4575,6 +4575,9 @@ test('current enrollment and FTES report replaces manual snapshot controls', () 
   assert.match(text, /id="cefIncludeWorkExperience"/);
   assert.match(text, /id="cefIncludeDualEnrollment"/);
   assert.match(text, /function buildCurrentEnrollmentFtesSummary/);
+  assert.match(text, /function workExperienceRowsForTerms/);
+  assert.match(text, /const selectedTerms = \[\.\.\.new Set\(\[focusTerm, comparisonTerm\]/);
+  assert.match(text, /const matchingWorkRows = includeWorkExperience\('cef'\) \? workExperienceRowsForTerms\(selectedTerms\) : \[\]/);
   assert.doesNotMatch(text, /id="snapSeason"/);
   assert.doesNotMatch(text, /id="snapType"/);
 });
@@ -4588,7 +4591,8 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
     COSEnrollmentAnalytics.normalizeRow({ __sourceType: 'WORK_EXPERIENCE', Term: 'FALL 2026', CRN: 'WX001', Subject: 'WKEX', Course: '001', Section: '001', ACTUAL_ENROLL: '10', FTES: '1.0' }),
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'WX002', Subject: 'WKEX', Course: '002', Section: '001', ACTUAL_ENROLL: '7', FTES: '0.7', 'Instructional Method': '20' }),
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10003', Subject: 'PSYC', Course: '001', Section: '001', ACTUAL_ENROLL: '25', MAX_ENROLL: '30', Campus: 'HNC', ACCOUNTING_METHOD: 'E' }),
-    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '90001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '28', MAX_ENROLL: '35', FTES: '2.8', INSTRUCTIONAL_METHOD: 'IP', Campus: 'COS' })
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '90001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '28', MAX_ENROLL: '35', FTES: '2.8', INSTRUCTIONAL_METHOD: 'IP', Campus: 'COS' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: 'WX900', Subject: 'WKEX', Course: '002', Section: '001', ACTUAL_ENROLL: '6', FTES: '0.6', 'Instructional Method': '20' })
   ];
 
   const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', comparisonTerm: 'FALL 2025' });
@@ -4610,10 +4614,11 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   assert.ok(populationCampusNames.includes('Work Experience'));
   assert.ok(methodNames.includes('Dual Enrollment'));
   assert.ok(methodNames.includes('Work Experience'));
-  assert.equal(summary.comparison.enrollment, 28);
-  assert.equal(summary.variances.enrollment, 64);
+  assert.equal(summary.comparison.enrollment, 34);
+  assert.equal(summary.comparison.ftes, 3.4);
+  assert.equal(summary.variances.enrollment, 58);
   assert.equal(summary.comparisonRows[0].line, 'Focus Term');
-  assert.equal(summary.comparisonRows[2].enrollment, 64);
+  assert.equal(summary.comparisonRows[2].enrollment, 58);
   assert.ok(accountingRows.some(row => /Open Entry\/Open Exit|Positive Attendance/.test(row.name) && /total contact hours|direct FTES/i.test(row.calculationNote)));
   const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
   const exportSections = exportRows.map(row => row.Section);

@@ -8615,6 +8615,13 @@
     return dedupeEnrollmentRows([...base, ...workExperienceRows()]);
   }
 
+  function workExperienceRowsForTerms(terms = []) {
+    const normalizedTerms = new Set((terms || []).map(normalizeTermLabel).filter(Boolean));
+    const rows = workExperienceRows();
+    if (!normalizedTerms.size) return rows;
+    return rows.filter(row => normalizedTerms.has(normalizeTermLabel(row.term)));
+  }
+
   function demandPopulationSelections() {
     return {
       physical: document.getElementById('demIncludePhysicalCampuses')?.checked !== false,
@@ -10077,10 +10084,15 @@
     const loadedRows = await loadCurrentEnrollmentFtesRows();
     const focusTerm = normalizeTermLabel(document.getElementById('cefFocusTerm')?.value || currentTerm());
     const comparisonTerm = normalizeTermLabel(document.getElementById('cefCompareTerm')?.value || '');
-    const termRows = [];
-    if (focusTerm) termRows.push(...await loadScheduleTermRows(focusTerm).catch(() => []));
-    if (comparisonTerm) termRows.push(...await loadScheduleTermRows(comparisonTerm).catch(() => []));
-    const rows = rowsWithWorkExperience(dedupeEnrollmentRows([...loadedRows, ...termRows]), 'cef');
+    const selectedTerms = [...new Set([focusTerm, comparisonTerm].filter(Boolean))];
+    const termRows = (await Promise.all(selectedTerms.map(term => loadScheduleTermRows(term).catch(() => [])))).flat();
+    const matchingWorkRows = includeWorkExperience('cef') ? workExperienceRowsForTerms(selectedTerms) : [];
+    const selectedTermSet = new Set(selectedTerms);
+    const rows = dedupeEnrollmentRows([
+      ...loadedRows.filter(row => !row.isWorkExperience || !selectedTermSet.size || selectedTermSet.has(normalizeTermLabel(row.term))),
+      ...termRows,
+      ...matchingWorkRows
+    ]);
     state.currentEnrollmentFtesSummary = buildCurrentEnrollmentFtesSummary(rows, {
       focusTerm,
       comparisonTerm,
