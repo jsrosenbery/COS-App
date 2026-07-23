@@ -1791,6 +1791,7 @@
             <label><input id="cefIncludeDualEnrollment" type="checkbox" checked> Include Dual Enrollment</label>
             <button id="loadCurrentEnrollmentFtesTerms" type="button">Load Terms</button>
             <button id="runCurrentEnrollmentFtes" type="button">Run Current FTES</button>
+            <button id="clearCurrentEnrollmentFtes" type="button">Clear Current FTES</button>
             <button id="exportCurrentEnrollmentFtes" type="button">Export Current FTES CSV</button>
           </div>
           <div id="snapshotWarnings" class="analytics-warning-list"></div>
@@ -10211,6 +10212,30 @@
     renderCurrentEnrollmentFtesSummary();
   }
 
+  function clearCurrentEnrollmentFtes(message = 'Results cleared. Select focus/comparison terms and click Run Current FTES when ready.') {
+    state.currentEnrollmentFtesRows = [];
+    state.currentEnrollmentFtesSummary = null;
+    state.workExperienceInput = [];
+    state.workExperienceTermCache = {};
+    state.workExperienceTermLoading = {};
+    state.workExperienceMetadata = null;
+    const archiveSelect = document.getElementById('cefArchiveTerms');
+    if (archiveSelect) Array.from(archiveSelect.options || []).forEach(option => { option.selected = false; });
+    ['snapshotMetrics', 'snapshotBreakdowns', 'snapshotTable'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.innerHTML = `<p class="analytics-empty">${escapeAttr(message)}</p>`;
+    });
+    const warnings = document.getElementById('snapshotWarnings');
+    if (warnings) warnings.innerHTML = '';
+    const legend = document.getElementById('snapshotLegend');
+    if (legend) legend.innerHTML = '';
+    const input = document.getElementById('dataHubWorkExperienceCsv');
+    if (input) input.value = '';
+    renderWorkExperienceUploadStatus();
+    renderSourceDataHubStatus('Current Enrollment & FTES loaded report rows cleared. Saved backend archives were not deleted.');
+    updateCurrentEnrollmentFtesTermOptions([]);
+  }
+
   async function renderSnapshotManager() {
     await refreshAnalyticsArchiveOptions();
     await loadCurrentEnrollmentFtesRows();
@@ -18510,6 +18535,7 @@
       return runCurrentEnrollmentFtes();
     }), { key: 'loadCurrentEnrollmentFtesTerms', runningLabel: 'Loading...' });
     attachBusyClick('runCurrentEnrollmentFtes', 'Building Current Enrollment & FTES...', () => runCurrentEnrollmentFtes(), { key: 'runCurrentEnrollmentFtes', runningLabel: 'Building...' });
+    document.getElementById('clearCurrentEnrollmentFtes')?.addEventListener('click', () => clearCurrentEnrollmentFtes());
     document.getElementById('exportCurrentEnrollmentFtes')?.addEventListener('click', exportCurrentEnrollmentFtes);
     document.getElementById('cefArchiveTerms')?.addEventListener('change', () => loadCurrentEnrollmentFtesRows().then(() => renderCurrentEnrollmentFtesSummary()).catch(err => console.warn(err)));
     ['cefFocusTerm', 'cefCompareTerm', 'cefIncludeWorkExperience', 'cefIncludeDualEnrollment'].forEach(id => {

@@ -4574,6 +4574,9 @@ test('current enrollment and FTES report replaces manual snapshot controls', () 
   assert.match(text, /id="cefCompareTerm"/);
   assert.match(text, /id="cefIncludeWorkExperience"/);
   assert.match(text, /id="cefIncludeDualEnrollment"/);
+  assert.match(text, /id="clearCurrentEnrollmentFtes"/);
+  assert.match(text, /function clearCurrentEnrollmentFtes/);
+  assert.match(text, /state\.currentEnrollmentFtesRows = \[\]/);
   assert.match(text, /id="dataHubSaveWorkExperience"/);
   assert.match(text, /\/api\/work-experience/);
   assert.match(text, /function buildCurrentEnrollmentFtesSummary/);
