@@ -4574,10 +4574,14 @@ test('current enrollment and FTES report replaces manual snapshot controls', () 
   assert.match(text, /id="cefCompareTerm"/);
   assert.match(text, /id="cefIncludeWorkExperience"/);
   assert.match(text, /id="cefIncludeDualEnrollment"/);
+  assert.match(text, /id="dataHubSaveWorkExperience"/);
+  assert.match(text, /\/api\/work-experience/);
   assert.match(text, /function buildCurrentEnrollmentFtesSummary/);
   assert.match(text, /function workExperienceRowsForTerms/);
+  assert.match(text, /function loadWorkExperienceTermRows/);
   assert.match(text, /const selectedTerms = \[\.\.\.new Set\(\[focusTerm, comparisonTerm\]/);
-  assert.match(text, /const matchingWorkRows = includeWorkExperience\('cef'\) \? workExperienceRowsForTerms\(selectedTerms\) : \[\]/);
+  assert.match(text, /selectedTerms\.map\(term => loadWorkExperienceTermRows\(term\)/);
+  assert.match(text, /const matchingWorkRows = includeWorkExperience\('cef'\) \? dedupeEnrollmentRows\(\[\.\.\.workExperienceRowsForTerms\(selectedTerms\), \.\.\.savedWorkRows\]\) : \[\]/);
   assert.doesNotMatch(text, /id="snapSeason"/);
   assert.doesNotMatch(text, /id="snapType"/);
 });

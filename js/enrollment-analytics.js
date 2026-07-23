@@ -294,6 +294,10 @@
     emSnapshotExportRows: [],
     emSnapshotRan: false,
     workExperienceInput: [],
+    workExperienceArchiveTerms: [],
+    workExperienceTermCache: {},
+    workExperienceTermLoading: {},
+    workExperienceMetadata: null,
     dashboardInput: [],
     dashboardRows: [],
     rotationRows: [],
@@ -1931,8 +1935,10 @@
               <div class="analytics-toolbar">
                 <label>Work Experience CSV(s) <input id="dataHubWorkExperienceCsv" type="file" accept=".csv" multiple></label>
                 <button id="dataHubLoadWorkExperience" type="button">Load Work Experience</button>
+                <button id="dataHubSaveWorkExperience" type="button">Save Work Experience</button>
+                <button id="dataHubRefreshWorkExperienceArchives" type="button">Refresh Work Experience Archives</button>
               </div>
-              <p id="dataHubWorkExperienceStatus" class="analytics-note">No Work Experience rows loaded in this session.</p>
+              <p id="dataHubWorkExperienceStatus" class="analytics-note">Saved Work Experience archives not refreshed yet.</p>
             </section>
             <section class="source-data-card" data-source-type="snapshots">
               <h3>Enrollment Snapshots</h3>
@@ -8617,9 +8623,101 @@
 
   function workExperienceRowsForTerms(terms = []) {
     const normalizedTerms = new Set((terms || []).map(normalizeTermLabel).filter(Boolean));
-    const rows = workExperienceRows();
+    const cachedRows = Object.values(state.workExperienceTermCache || {}).flat();
+    const rows = dedupeEnrollmentRows([...workExperienceRows(), ...cachedRows]);
     if (!normalizedTerms.size) return rows;
     return rows.filter(row => normalizedTerms.has(normalizeTermLabel(row.term)));
+  }
+
+  function workExperienceArchiveTermLabels() {
+    return (state.workExperienceArchiveTerms || []).map(item => item.term || item).filter(Boolean);
+  }
+
+  async function refreshWorkExperienceArchives() {
+    if (!window.BACKEND_BASE_URL) {
+      state.workExperienceArchiveTerms = [];
+      renderSourceDataHubStatus('Backend is not configured; saved Work Experience terms cannot be listed.');
+      return [];
+    }
+    try {
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/work-experience`);
+      const payload = response.ok ? await response.json() : { data: [] };
+      state.workExperienceArchiveTerms = Array.isArray(payload.data) ? payload.data : [];
+      updateCurrentEnrollmentFtesTermOptions(state.currentEnrollmentFtesRows || []);
+      renderSourceDataHubStatus();
+      return state.workExperienceArchiveTerms;
+    } catch (err) {
+      console.warn('Work Experience archive list skipped:', err);
+      renderSourceDataHubStatus(`Work Experience archive list failed: ${err?.message || err}`);
+      return [];
+    }
+  }
+
+  async function loadWorkExperienceTermRows(term) {
+    const requestedTerm = normalizeTermLabel(term);
+    if (!requestedTerm) return [];
+    if (state.workExperienceTermCache?.[requestedTerm]) return state.workExperienceTermCache[requestedTerm];
+    if (state.workExperienceTermLoading?.[requestedTerm]) return state.workExperienceTermLoading[requestedTerm];
+    if (!window.BACKEND_BASE_URL) return [];
+    const promise = fetch(`${window.BACKEND_BASE_URL}/api/work-experience/${encodeURIComponent(requestedTerm)}`)
+      .then(async response => {
+        let payload = {};
+        try { payload = await response.json(); } catch { payload = {}; }
+        if (!response.ok) throw new Error(payload.error || `Work Experience load failed for ${requestedTerm}.`);
+        const rows = Array.isArray(payload.data)
+          ? payload.data.map(row => normalize({ ...row, __sourceTerm: normalizeTermLabel(payload.term || requestedTerm), __sourceType: 'WORK_EXPERIENCE' }))
+          : [];
+        const normalizedRows = rows.map(row => ({ ...row, isWorkExperience: true, modality: 'WORK EXPERIENCE' }));
+        state.workExperienceMetadata = payload.metadata || state.workExperienceMetadata || null;
+        state.workExperienceTermCache = { ...(state.workExperienceTermCache || {}), [requestedTerm]: normalizedRows };
+        renderSourceDataHubStatus();
+        return normalizedRows;
+      })
+      .finally(() => {
+        state.workExperienceTermLoading = { ...(state.workExperienceTermLoading || {}) };
+        delete state.workExperienceTermLoading[requestedTerm];
+      });
+    state.workExperienceTermLoading = { ...(state.workExperienceTermLoading || {}), [requestedTerm]: promise };
+    return promise;
+  }
+
+  async function saveWorkExperienceArchive(inputId = 'dataHubWorkExperienceCsv') {
+    if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so Work Experience data cannot be saved.');
+    const token = enrollmentManagementToken();
+    if (!token) {
+      requestReportAccess(REPORTS.workExperience, REPORT_ACCESS[REPORTS.workExperience] || 'admin');
+      throw new Error('Unlock a report role before saving Work Experience data.');
+    }
+    const input = document.getElementById(inputId);
+    const files = Array.from(input?.files || []);
+    if (!files.length) throw new Error('Choose one or more Work Experience CSV files before saving.');
+    const savedTerms = [];
+    for (const file of files) {
+      const text = await readTextFile(file);
+      const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+      const rawRows = Array.isArray(parsed.data) ? parsed.data.filter(row => Object.values(row || {}).some(value => String(value || '').trim())) : [];
+      const termProbeRows = rawRows.map(row => normalize({ ...row, __sourceType: 'WORK_EXPERIENCE', __sourceTerm: termFromFilename(file.name) }));
+      const terms = collectRowTerms(termProbeRows);
+      const term = normalizeTermLabel(terms[0] || termFromFilename(file.name) || file.name.replace(/\.csv$/i, ''));
+      if (!term) throw new Error(`Could not determine a term for ${file.name}.`);
+      const normalizedRows = rawRows.map(row => normalize({ ...row, __sourceType: 'WORK_EXPERIENCE', __sourceTerm: term }));
+      const response = await fetch(`${window.BACKEND_BASE_URL}/api/work-experience/${encodeURIComponent(term)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ rows: rawRows, sourceFileName: file.name })
+      });
+      if (!response.ok) throw new Error(await response.text() || `Work Experience save failed for ${term}.`);
+      const payload = await response.json();
+      savedTerms.push(payload.term || term);
+      state.workExperienceTermCache = { ...(state.workExperienceTermCache || {}), [term]: normalizedRows.map(row => ({ ...row, isWorkExperience: true, modality: 'WORK EXPERIENCE' })) };
+    }
+    await refreshWorkExperienceArchives();
+    renderWorkExperienceUploadStatus();
+    renderSourceDataHubStatus(`Saved Work Experience term(s): ${savedTerms.join(', ')}`);
+    alert(`Saved Work Experience term(s): ${savedTerms.join(', ')}`);
   }
 
   function demandPopulationSelections() {
@@ -8665,11 +8763,14 @@
 
   function renderWorkExperienceUploadStatus() {
     const rows = workExperienceRows();
+    const savedTerms = workExperienceArchiveTermLabels();
     const terms = collectRowTerms(rows);
     const missingFtes = rows.filter(row => row.ftesUnavailable).length;
     const text = rows.length
       ? `${rows.length} Work Experience row(s) loaded for this session${terms.length ? `; terms: ${terms.join(', ')}` : ''}${missingFtes ? `; ${missingFtes} missing FTES inputs` : ''}.`
-      : 'No Work Experience rows loaded. Work Experience uploads are session only until archive support is added.';
+      : savedTerms.length
+        ? `${savedTerms.length} saved Work Experience term(s) available: ${savedTerms.slice(0, 8).join(', ')}${savedTerms.length > 8 ? ', ...' : ''}.`
+        : 'No Work Experience rows loaded or saved yet.';
     ['workExperienceUploadStatus', 'dataHubWorkExperienceStatus'].forEach(id => {
       const node = document.getElementById(id);
       if (node) node.textContent = text;
@@ -8679,6 +8780,7 @@
   function renderSourceDataHubStatus(message = '') {
     const archiveTerms = state.archivedAnalyticsTerms || [];
     const facultyTerms = state.facultyScheduleArchiveTerms || [];
+    const savedWorkTerms = workExperienceArchiveTermLabels();
     const workRows = workExperienceRows();
     const snapshotRows = state.enrollmentSnapshots || [];
     const sectionStatus = document.getElementById('dataHubSectionStatus');
@@ -8692,9 +8794,13 @@
     const workStatus = document.getElementById('dataHubWorkExperienceStatus');
     if (workStatus) {
       const terms = collectRowTerms(workRows);
-      workStatus.textContent = workRows.length
-        ? `${workRows.length} Work Experience row(s) loaded in this session${terms.length ? `; terms: ${terms.join(', ')}` : ''}.`
-        : 'No Work Experience rows loaded in this session.';
+      const savedText = savedWorkTerms.length
+        ? `${savedWorkTerms.length} saved Work Experience term(s): ${savedWorkTerms.slice(0, 8).join(', ')}${savedWorkTerms.length > 8 ? ', ...' : ''}.`
+        : 'No saved Work Experience terms listed.';
+      const sessionText = workRows.length
+        ? `${workRows.length} session row(s)${terms.length ? `; terms: ${terms.join(', ')}` : ''}.`
+        : 'No session rows loaded.';
+      workStatus.textContent = window.BACKEND_BASE_URL ? `${savedText} ${sessionText}` : 'Backend is not configured; Work Experience archives cannot be listed from this browser.';
     }
     const snapshotStatus = document.getElementById('dataHubSnapshotStatus');
     if (snapshotStatus) snapshotStatus.textContent = `${snapshotRows.length} stored enrollment snapshot record(s) loaded in this browser session.`;
@@ -8704,7 +8810,7 @@
         <div class="source-data-status-row">
           <span><strong>Section Seating / Schedule Data</strong>${archiveTerms.length} backend term(s)</span>
           <span><strong>Faculty Schedule Data</strong>${facultyTerms.length} backend term(s)</span>
-          <span><strong>Work Experience</strong>${workRows.length} session row(s)</span>
+          <span><strong>Work Experience</strong>${savedWorkTerms.length} backend term(s), ${workRows.length} session row(s)</span>
           <span><strong>Enrollment Snapshots</strong>${snapshotRows.length} stored record(s)</span>
         </div>
         ${message ? `<p class="analytics-note">${escapeAttr(message)}</p>` : '<p class="analytics-note">Data source storage remains separated by dataset type. Reports consume these sources through their existing selectors and filters.</p>'}
@@ -10039,7 +10145,7 @@
   }
 
   function updateCurrentEnrollmentFtesTermOptions(rows = []) {
-    const terms = [...new Set([...(state.archivedAnalyticsTerms || []), ...collectRowTerms(rows), ...collectRowTerms(currentRows())])]
+    const terms = [...new Set([...(state.archivedAnalyticsTerms || []), ...workExperienceArchiveTermLabels(), ...collectRowTerms(rows), ...collectRowTerms(currentRows())])]
       .filter(Boolean)
       .sort((a, b) => termSortValue(a) - termSortValue(b));
     const focus = document.getElementById('cefFocusTerm');
@@ -10086,7 +10192,10 @@
     const comparisonTerm = normalizeTermLabel(document.getElementById('cefCompareTerm')?.value || '');
     const selectedTerms = [...new Set([focusTerm, comparisonTerm].filter(Boolean))];
     const termRows = (await Promise.all(selectedTerms.map(term => loadScheduleTermRows(term).catch(() => [])))).flat();
-    const matchingWorkRows = includeWorkExperience('cef') ? workExperienceRowsForTerms(selectedTerms) : [];
+    const savedWorkRows = includeWorkExperience('cef')
+      ? (await Promise.all(selectedTerms.map(term => loadWorkExperienceTermRows(term).catch(() => [])))).flat()
+      : [];
+    const matchingWorkRows = includeWorkExperience('cef') ? dedupeEnrollmentRows([...workExperienceRowsForTerms(selectedTerms), ...savedWorkRows]) : [];
     const selectedTermSet = new Set(selectedTerms);
     const rows = dedupeEnrollmentRows([
       ...loadedRows.filter(row => !row.isWorkExperience || !selectedTermSet.size || selectedTermSet.has(normalizeTermLabel(row.term))),
@@ -17790,7 +17899,7 @@
       }
     }
     if (selected === REPORTS.dataHub) {
-      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), loadEnrollmentSnapshots()])
+      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), refreshWorkExperienceArchives(), loadEnrollmentSnapshots()])
         .then(() => renderSourceDataHubStatus())
         .catch(err => {
           console.warn('Source Data Hub refresh skipped:', err);
@@ -17850,7 +17959,7 @@
       document.getElementById('recommendationTable').innerHTML = '<p class="analytics-empty">Select archived terms, then click Run. Upload source files from the Source Data Hub.</p>';
     }
     if (selected === REPORTS.scheduleOptimizationLab && !state.optimizationRan) {
-      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives()])
+      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), refreshWorkExperienceArchives()])
         .then(() => {
           updateOptimizationTermOptions();
           updateOptimizationCourseControls();
@@ -18273,6 +18382,8 @@
         .then(() => renderSourceDataHubStatus('Work Experience rows loaded for this browser session.'))
         .catch(err => alert(err.message || 'Work Experience upload failed.'));
     });
+    attachBusyClick('dataHubSaveWorkExperience', 'Saving Work Experience archive...', () => saveWorkExperienceArchive('dataHubWorkExperienceCsv'), { key: 'dataHubSaveWorkExperience', runningLabel: 'Saving...' });
+    attachBusyClick('dataHubRefreshWorkExperienceArchives', 'Refreshing Work Experience archives...', () => refreshWorkExperienceArchives(), { key: 'dataHubRefreshWorkExperienceArchives', runningLabel: 'Refreshing...' });
     attachBusyClick('dataHubSaveSnapshotBatch', 'Saving enrollment snapshot...', () => saveDataHubSnapshotBatch(), { key: 'dataHubSaveSnapshotBatch', runningLabel: 'Saving...' });
     document.getElementById('dashFocusTerm')?.addEventListener('change', () => {
       const value = document.getElementById('dashFocusTerm')?.value || '';
@@ -18614,7 +18725,7 @@
         .catch(err => console.warn(err));
     });
     attachBusyClick('refreshOptimizationArchives', 'Refreshing backend archives...', () => {
-      return Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives()])
+      return Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), refreshWorkExperienceArchives()])
         .then(() => {
           updateOptimizationTermOptions();
           updateOptimizationCourseControls();
@@ -18703,6 +18814,7 @@
     registerEnrollmentCollapsibleSections();
     wire();
     refreshAnalyticsArchiveOptions();
+    refreshWorkExperienceArchives();
     refreshFacultyScheduleArchives();
     loadEnrollmentSnapshots().catch(err => console.warn('Enrollment snapshot preload skipped:', err));
     updateVisibility();

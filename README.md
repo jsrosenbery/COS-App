@@ -79,6 +79,10 @@ Important endpoints used by the frontend:
 - `GET /api/faculty-schedules/:term`
 - `POST /api/faculty-schedules/:term`
 - `DELETE /api/faculty-schedules/:term`
+- `GET /api/work-experience`
+- `GET /api/work-experience/:term`
+- `POST /api/work-experience/:term`
+- `DELETE /api/work-experience/:term`
 - `POST /api/auth/role`
 - `POST /api/auth/enrollment-management`
 
@@ -91,6 +95,8 @@ TIMBER role unlock uses `POST /api/auth/role`. Configure `GENERAL_PASSWORD`, `DI
 Schedule uploads are expected to include fields such as term, CRN, subject/course, title, division, campus, building, room, days, meeting time, date range, instructor, modality/instructional method, capacity, enrollment, census, waitlist, FTES/contact-hour fields, and accounting method. The frontend contains normalization helpers for common header variants.
 
 Faculty Schedule Data is a separate optional dataset used only for faculty-pattern and Developer reports such as Faculty Modality, Prime Time Analysis, Busy Time Dashboard, Schedule Opportunity, and Schedule Recommendation. It is not the same as Section Seating / Schedule Data used for Room Availability, and it is stored through separate `/api/faculty-schedules` endpoints and backend storage. Faculty Schedule files must include `FCNT_CODE`, faculty identity, `CRN`, `DAYS`, `STARTTIME`, `ENDTIME`, and `SCHD_CODE_SSRMEET`.
+
+Work Experience Enrollment is a separate optional source dataset stored through `/api/work-experience` endpoints. Current Enrollment & FTES and related Enrollment Management reports can load saved Work Experience rows by selected focus/comparison term and display them as their own planning category. Work Experience archives do not share Section Seating, Faculty Schedule, Room Availability, or analytics archive storage.
 
 Schema references:
 
