@@ -15,7 +15,9 @@
     online: new Set(['ONL', '71', '72', 'O1', 'OL', 'ONN', 'ONS', 'OO', 'OS', 'OSS', 'OT', 'OTS', 'ON', 'OSL']),
     inPerson: new Set(['IP', '02', '22', '022', '02H', '02O', '02S', '02T', '02N', '04', '06', '07', '08', '09', '12', 'XX', 'YY']),
     hybrid: new Set(['HYB', 'OH', 'OHF', 'FLX', 'OHS']),
-    omitted: new Set(['CPL', 'DE', 'CBE', '98', '20'])
+    dualEnrollment: new Set(['DE']),
+    workExperience: new Set(['20']),
+    omitted: new Set(['CPL', 'CBE', '98'])
   };
   const tutoringOpenLabCourses = new Set(['MATH 400', 'ENGL 400', 'LIBR 490AB', 'LA 425']);
 
@@ -111,6 +113,8 @@
     if (modalityNormalizer?.normalize) return modalityNormalizer.normalize(method, row);
     const raw = csv.canon(method || csv.extractField(row, csv.fields.instructionalMethod));
     const code = csv.canon(csv.extractField(row, ['INSTRUCTIONAL_METHOD_CODE', 'Instructional Method Code', 'Method Code']) || raw);
+    if (modalityGroups.dualEnrollment.has(code) || /DUAL\s*ENROLL/.test(raw)) return 'DUAL ENROLLMENT';
+    if (modalityGroups.workExperience.has(code) || /WORK\s*EXP/.test(raw)) return 'WORK EXPERIENCE';
     if (modalityGroups.omitted.has(code)) return 'OMIT';
     if (modalityGroups.online.has(code)) return 'ONLINE';
     if (modalityGroups.inPerson.has(code)) return 'IN PERSON';

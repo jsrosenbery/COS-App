@@ -12,13 +12,17 @@
     online: ['ONL', '71', '72', 'O1', 'OL', 'ONN', 'ONS', 'OO', 'OS', 'OSS', 'OT', 'OTS', 'ON', 'OSL'],
     inPerson: ['IP', '02', '22', '022', '02H', '02O', '02S', '02T', '02N', '04', '06', '07', '08', '09', '12', 'XX', 'YY'],
     hybrid: ['HYB', 'OH', 'OHF', 'FLX', 'OHS'],
-    omitted: ['CPL', 'DE', 'CBE', '98', '20']
+    dualEnrollment: ['DE'],
+    workExperience: ['20'],
+    omitted: ['CPL', 'CBE', '98']
   };
 
   const GROUPS = {
     online: new Set(KNOWN_CODES.online),
     inPerson: new Set(KNOWN_CODES.inPerson),
     hybrid: new Set(KNOWN_CODES.hybrid),
+    dualEnrollment: new Set(KNOWN_CODES.dualEnrollment),
+    workExperience: new Set(KNOWN_CODES.workExperience),
     omitted: new Set(KNOWN_CODES.omitted)
   };
 
@@ -26,6 +30,8 @@
     'IN PERSON': 'In-Person',
     HYBRID: 'Hybrid',
     ONLINE: 'Online',
+    'DUAL ENROLLMENT': 'Dual Enrollment',
+    'WORK EXPERIENCE': 'Work Experience',
     UNKNOWN: 'Unknown',
     OMIT: 'Omitted'
   };
@@ -52,7 +58,9 @@
     const raw = canon(value || extractInstructionalCode(row));
     const code = extractInstructionalCode(row, raw);
     if (!raw && !code) return 'UNKNOWN';
-    if (GROUPS.omitted.has(code) || /DUAL\s*ENROLL/.test(raw)) return 'OMIT';
+    if (GROUPS.dualEnrollment.has(code) || /DUAL\s*ENROLL/.test(raw)) return 'DUAL ENROLLMENT';
+    if (GROUPS.workExperience.has(code) || /WORK\s*EXP/.test(raw)) return 'WORK EXPERIENCE';
+    if (GROUPS.omitted.has(code)) return 'OMIT';
     if (GROUPS.online.has(code)) return 'ONLINE';
     if (GROUPS.inPerson.has(code)) return 'IN PERSON';
     if (GROUPS.hybrid.has(code)) return 'HYBRID';
@@ -67,7 +75,7 @@
   }
 
   function isReportable(category) {
-    return ['IN PERSON', 'HYBRID', 'ONLINE'].includes(canon(category));
+    return ['IN PERSON', 'HYBRID', 'ONLINE', 'DUAL ENROLLMENT', 'WORK EXPERIENCE'].includes(canon(category));
   }
 
   function diagnosticRows(rows = [], getCode = row => row.instructionalMethod || row.insmCode || row.modality || '') {

@@ -432,10 +432,10 @@ const DEFAULT_MODALITY_DEFINITIONS = [
   { code: 'FLX', modality: 'Hybrid', omitted: false },
   { code: 'OHS', modality: 'Hybrid', omitted: false },
   { code: 'CPL', modality: 'Omitted from modality analysis', omitted: true },
-  { code: 'DE', modality: 'Omitted from modality analysis', omitted: true },
+  { code: 'DE', modality: 'Dual Enrollment', omitted: false },
   { code: 'CBE', modality: 'Omitted from modality analysis', omitted: true },
   { code: '98', modality: 'Omitted from modality analysis', omitted: true },
-  { code: '20', modality: 'Omitted from modality analysis', omitted: true }
+  { code: '20', modality: 'Work Experience', omitted: false }
 ];
 let modalityDefinitions = normalizeModalityDefinitions(DEFAULT_MODALITY_DEFINITIONS);
 let modalityDefinitionMap = new Map();

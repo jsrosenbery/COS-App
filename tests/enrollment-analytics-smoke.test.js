@@ -619,6 +619,14 @@ test('shared modality normalizer maps every known app instructional method code'
   modality.KNOWN_CODES.online.forEach(code => {
     assert.equal(modality.normalize(code, { INSTRUCTIONAL_METHOD_CODE: code }), 'ONLINE', code);
   });
+  modality.KNOWN_CODES.dualEnrollment.forEach(code => {
+    assert.equal(modality.normalize(code, { INSTRUCTIONAL_METHOD_CODE: code }), 'DUAL ENROLLMENT', code);
+    assert.equal(modality.displayLabel('DUAL ENROLLMENT'), 'Dual Enrollment');
+  });
+  modality.KNOWN_CODES.workExperience.forEach(code => {
+    assert.equal(modality.normalize(code, { INSTRUCTIONAL_METHOD_CODE: code }), 'WORK EXPERIENCE', code);
+    assert.equal(modality.displayLabel('WORK EXPERIENCE'), 'Work Experience');
+  });
   modality.KNOWN_CODES.omitted.forEach(code => {
     assert.equal(modality.normalize(code, { INSTRUCTIONAL_METHOD_CODE: code }), 'OMIT', code);
   });
@@ -634,6 +642,8 @@ test('shared modality normalizer stores unmapped codes as UNKNOWN diagnostics', 
 
   assert.equal(modality.normalize('ZZZ'), 'UNKNOWN');
   assert.equal(modality.isReportable('UNKNOWN'), false);
+  assert.equal(modality.isReportable('DUAL ENROLLMENT'), true);
+  assert.equal(modality.isReportable('WORK EXPERIENCE'), true);
   assert.deepEqual(diagnostics.map(row => ({
     originalInstructionalMethodCode: row.originalInstructionalMethodCode,
     count: row.count,
@@ -4576,6 +4586,7 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', INSTRUCTIONAL_METHOD: 'IP', Campus: 'COS' }),
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10002', Subject: 'HIST', Course: '001', Section: '001', ACTUAL_ENROLL: '20', MAX_ENROLL: '30', FTES: '2.0', 'Instructional Method': 'DE' }),
     COSEnrollmentAnalytics.normalizeRow({ __sourceType: 'WORK_EXPERIENCE', Term: 'FALL 2026', CRN: 'WX001', Subject: 'WKEX', Course: '001', Section: '001', ACTUAL_ENROLL: '10', FTES: '1.0' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'WX002', Subject: 'WKEX', Course: '002', Section: '001', ACTUAL_ENROLL: '7', FTES: '0.7', 'Instructional Method': '20' }),
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10003', Subject: 'PSYC', Course: '001', Section: '001', ACTUAL_ENROLL: '25', MAX_ENROLL: '30', Campus: 'HNC', ACCOUNTING_METHOD: 'E' }),
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '90001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '28', MAX_ENROLL: '35', FTES: '2.8', INSTRUCTIONAL_METHOD: 'IP', Campus: 'COS' })
   ];
@@ -4585,16 +4596,18 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   const campusNames = summary.breakdowns.campus.map(row => row.name);
   const accountingRows = summary.breakdowns.accountingMethod;
 
-  assert.equal(summary.focus.classOfferings, 4);
-  assert.equal(summary.focus.enrollment, 85);
-  assert.equal(summary.focus.ftes, 6);
+  assert.equal(summary.focus.classOfferings, 5);
+  assert.equal(summary.focus.enrollment, 92);
+  assert.equal(summary.focus.ftes, 6.7);
   assert.equal(populationNames.sort().join('|'), ['COS Classes', 'Dual Enrollment', 'Work Experience'].sort().join('|'));
+  assert.equal(rows.find(row => row.crn === 'WX002').isWorkExperience, true);
+  assert.equal(rows.find(row => row.crn === 'WX002').timeBlock, 'WORK EXPERIENCE');
   assert.ok(summary.breakdowns.populationDetail.some(row => row.name === 'COS Classes - Online Campuses'));
   assert.ok(campusNames.includes('Online Campuses'));
   assert.equal(summary.comparison.enrollment, 28);
-  assert.equal(summary.variances.enrollment, 57);
+  assert.equal(summary.variances.enrollment, 64);
   assert.equal(summary.comparisonRows[0].line, 'Focus Term');
-  assert.equal(summary.comparisonRows[2].enrollment, 57);
+  assert.equal(summary.comparisonRows[2].enrollment, 64);
   assert.ok(accountingRows.some(row => /Open Entry\/Open Exit|Positive Attendance/.test(row.name) && /total contact hours|direct FTES/i.test(row.calculationNote)));
 });
 

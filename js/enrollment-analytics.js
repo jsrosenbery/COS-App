@@ -434,7 +434,9 @@
     online: new Set(['ONL', '71', '72', 'O1', 'OL', 'ONN', 'ONS', 'OO', 'OS', 'OSS', 'OT', 'OTS', 'ON', 'OSL']),
     inPerson: new Set(['IP', '02', '22', '022', '02H', '02O', '02S', '02T', '02N', '04', '06', '07', '08', '09', '12', 'XX', 'YY']),
     hybrid: new Set(['HYB', 'OH', 'OHF', 'FLX', 'OHS']),
-    omitted: new Set(['CPL', 'DE', 'CBE', '98'])
+    dualEnrollment: new Set(['DE']),
+    workExperience: new Set(['20']),
+    omitted: new Set(['CPL', 'CBE', '98'])
   };
   const TUTORING_OPEN_LAB_CONFIG = {
     label: 'Tutoring / Open Lab Sections',
@@ -611,6 +613,8 @@
     const roomOnly = canonical?.roomOnly || canon(val(row, fields.room));
     const campus = canonical?.campus || normalizeCampus(row);
     const modality = canonical?.modality || normalizeModality(val(row, fields.modality), row);
+    const isWorkExperienceModality = modality === 'WORK EXPERIENCE';
+    const isWorkExperienceRow = isWorkExperienceSource || isWorkExperienceModality;
     const meetingDate = val(row, fields.meetingDate);
     const normalizedDays = canonical?.days || normalizeDays(val(row, fields.days), row);
     const dayFromMeetingDate = meetingDateDayCode(meetingDate);
@@ -636,8 +640,8 @@
     const enrollmentForFtes = census == null ? actual : census;
     const enrollmentForPlanning = census == null ? actual : census;
     const hasFtesEstimationInputs = units > 0 || weeklyHours > 0 || totalContactHours > 0;
-    const estimatedFtesValue = estimatedFtes(enrollmentForFtes, { units, weeklyHours, dailyHours, totalContactHours, accountingMethod, allowOmitted: isWorkExperienceSource });
-    const ftesUnavailable = isWorkExperienceSource && ftesValue === '' && !hasFtesEstimationInputs;
+    const estimatedFtesValue = estimatedFtes(enrollmentForFtes, { units, weeklyHours, dailyHours, totalContactHours, accountingMethod, allowOmitted: isWorkExperienceRow });
+    const ftesUnavailable = isWorkExperienceRow && ftesValue === '' && !hasFtesEstimationInputs;
     const normalized = {
       raw: row,
       term: normalizeTermLabel(canonical?.term || val(row, fields.term) || row.__sourceTerm || currentTerm()),
@@ -650,16 +654,16 @@
       section: canon(val(row, fields.section)),
       crossList: canon(val(row, fields.crossList)),
       campus,
-      modality: isWorkExperienceSource ? 'WORK EXPERIENCE' : modality,
+      modality: isWorkExperienceRow ? 'WORK EXPERIENCE' : modality,
       instructor: canon(val(row, fields.instructor)),
-      days: isWorkExperienceSource ? [] : days,
-      dayPattern: isWorkExperienceSource ? 'WORK EXPERIENCE' : dayPattern(days),
-      start: isWorkExperienceSource ? '' : times.start,
-      end: isWorkExperienceSource ? '' : times.end,
+      days: isWorkExperienceRow ? [] : days,
+      dayPattern: isWorkExperienceRow ? 'WORK EXPERIENCE' : dayPattern(days),
+      start: isWorkExperienceRow ? '' : times.start,
+      end: isWorkExperienceRow ? '' : times.end,
       startDate: val(row, fields.startDate),
       endDate: val(row, fields.endDate),
       meetingDate,
-      timeBlock: isWorkExperienceSource ? 'WORK EXPERIENCE' : (isOnlinePlaceholderTime({ modality, start: times.start, end: times.end }) ? 'ONLINE/TBA' : timeBlock(times.start, modality)),
+      timeBlock: isWorkExperienceRow ? 'WORK EXPERIENCE' : (isOnlinePlaceholderTime({ modality, start: times.start, end: times.end }) ? 'ONLINE/TBA' : timeBlock(times.start, modality)),
       building,
       roomOnly,
       room: canon([building, roomOnly].filter(Boolean).join(' ')),
@@ -671,9 +675,9 @@
       accountingMethod,
       accountingCategory: accountingMethodInfo(accountingMethod).category,
       accountingMethodLabel: accountingMethodInfo(accountingMethod).label,
-      accountingReportable: isWorkExperienceSource ? true : accountingMethodInfo(accountingMethod).reportable,
-      sourceType: isWorkExperienceSource ? 'WORK EXPERIENCE' : 'SECTION SEATING',
-      isWorkExperience: isWorkExperienceSource,
+      accountingReportable: isWorkExperienceRow ? true : accountingMethodInfo(accountingMethod).reportable,
+      sourceType: isWorkExperienceRow ? 'WORK EXPERIENCE' : 'SECTION SEATING',
+      isWorkExperience: isWorkExperienceRow,
       ftes: ftesValue === '' ? estimatedFtesValue : num(ftesValue),
       hasFtesData: ftesValue !== '' || hasFtesEstimationInputs,
       hasDirectFtesData: ftesValue !== '',
@@ -774,7 +778,8 @@
     if (window.COSModalityNormalizer?.normalize) return window.COSModalityNormalizer.normalize(text, row?.raw || row);
     const raw = canon(text);
     const code = canon(val(row, ['INSTRUCTIONAL_METHOD_CODE', 'Instructional Method Code', 'Method Code']) || text);
-    if (code === 'DE' || /DUAL\s*ENROLL/.test(raw)) return 'OMIT';
+    if (modalityGroups.dualEnrollment.has(code) || /DUAL\s*ENROLL/.test(raw)) return 'DUAL ENROLLMENT';
+    if (modalityGroups.workExperience.has(code) || /WORK\s*EXP/.test(raw)) return 'WORK EXPERIENCE';
     if (modalityGroups.omitted.has(code)) return 'OMIT';
     if (modalityGroups.online.has(code)) return 'ONLINE';
     if (modalityGroups.inPerson.has(code)) return 'IN PERSON';
@@ -791,8 +796,7 @@
     return row.modality === 'OMIT' ||
       row.modality === 'UNKNOWN' ||
       row.accountingReportable === false ||
-      modalityGroups.omitted.has(rawMethod) ||
-      /DUAL\s*ENROLL/.test(rawMethod);
+      modalityGroups.omitted.has(rawMethod);
   }
 
   function isDualEnrollmentRow(row) {
@@ -966,6 +970,8 @@
     if (category === 'IN PERSON') return 'In-Person';
     if (category === 'HYBRID') return 'Hybrid';
     if (category === 'ONLINE') return 'Online';
+    if (category === 'DUAL ENROLLMENT') return 'Dual Enrollment';
+    if (category === 'WORK EXPERIENCE') return 'Work Experience';
     return 'Unknown';
   }
 
@@ -15187,6 +15193,8 @@
   }
 
   function demandModalityLabel(row = {}) {
+    if (row.isWorkExperience || row.modality === 'WORK EXPERIENCE') return 'Work Experience';
+    if (isDualEnrollmentRow(row) || row.modality === 'DUAL ENROLLMENT') return 'Dual Enrollment';
     if (row.modality === 'OMIT') return 'Other / Omitted Method';
     return row.modality || 'Unknown';
   }
@@ -16715,7 +16723,7 @@
     if (!legend) return;
     const items = [
       ['Consolidation Archived Terms', 'Calculations use only archived terms selected in the Consolidation archived-term selector. Upload source files from the Source Data Hub. The report does not silently pull every archived term or the current room grid.'],
-      ['Instructional methods', 'Online, In-Person, and Hybrid are derived from instructional method codes. Online codes include ONL, 71, 72, O1, OL, ONN, ONS, OO, OS, OSS, OT, OTS, ON, and OSL. In-person codes include IP, 02, 22, 022, 02H, 02O, 02S, 02T, 02N, 04, 06, 07, 08, 09, 12, XX, and YY. Hybrid codes include HYB, OH, OHF, FLX, and OHS. CPL, DE, CBE, 20, and unmapped archived code 98 are omitted from this report.'],
+      ['Instructional methods', 'Online, In-Person, and Hybrid are derived from instructional method codes. Online codes include ONL, 71, 72, O1, OL, ONN, ONS, OO, OS, OSS, OT, OTS, ON, and OSL. In-person codes include IP, 02, 22, 022, 02H, 02O, 02S, 02T, 02N, 04, 06, 07, 08, 09, 12, XX, and YY. Hybrid codes include HYB, OH, OHF, FLX, and OHS. DE is reported separately as Dual Enrollment. Code 20 is reported separately as Work Experience. CPL, CBE, and unmapped archived code 98 are omitted from this report.'],
       ['Decision term', 'The term being reviewed for planned consolidation opportunities. For in-person rows, the decision term supplies planned sections, meeting patterns, and capacity, not the enrollment demand used to trigger recommendations.'],
       ['Curriculum Crosswalk', 'Configured curriculum/CCN crosswalk rows map old course numbers to current/synonym course numbers before historical demand, online reduction, and in-person consolidation groupings are calculated. Example: ENGL 001 history can support ENGL C1000 when that crosswalk row exists.'],
       ['Min sections', 'Minimum number of decision-term in-person or hybrid sections a course must have before consolidation groups are considered. Online reduction rows use a separate minimum of two online sections, then require enough historical vacancy to remove at least one section.'],
@@ -16846,7 +16854,7 @@
       ['ACCOUNTING METHOD I', 'Independent Study/Work Experience. Omitted from reporting and FTES forecast calculations.'],
       ['ACCOUNTING METHOD O', 'Not reportable for 320. Omitted from reporting and FTES forecast calculations.'],
       ['Work Experience Upload Source', 'Separate Work Experience upload rows override the normal ACCOUNTING METHOD I omission because they are the supplemental source for Work Experience enrollment/FTES that does not appear in Section Seating. Direct FTES is used when present. If direct FTES is absent, FTES is estimated only when units or contact-hour fields are available; otherwise the row is counted for enrollment and flagged as FTES unavailable.'],
-      ['Not Included', 'This report does not use applications, registration intent, student education plans, section-level waitlist snapshots over time, room constraints, faculty availability, budget limits, or external labor-market demand. It also excludes rows omitted by instructional-method rules such as CPL, DE, CBE, and unmapped archived code 98, plus any rows removed by active filters.'],
+      ['Not Included', 'This report does not use applications, registration intent, student education plans, section-level waitlist snapshots over time, room constraints, faculty availability, budget limits, or external labor-market demand. It also excludes rows omitted by instructional-method rules such as CPL, CBE, and unmapped archived code 98, plus any rows removed by active filters. Dual Enrollment and Work Experience are reported as separate categories rather than omitted.'],
       ['Data Limitations', 'Forecasts depend on uploaded columns. Missing FTES, contact-hour, unit, and accounting-method columns reduce FTES reliability. Missing Work Experience FTES inputs are flagged rather than treated as a confirmed zero. Missing waitlist columns make waitlist demand unknown, not zero. Missing division, department, or course title values appear blank or UNKNOWN. Terms that are still enrolling should not be selected as historical archives unless they are intentionally being reviewed as incomplete scenario data.']
     ];
     renderMethodologyPanel(legend, {
