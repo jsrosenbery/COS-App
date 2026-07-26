@@ -4795,14 +4795,24 @@ test('FTES reconciliation aggregates blank-CRN child detail FTES under the activ
   assert.equal(Math.round(institutional.diagnostics.childDetailFtes * 1000000000000) / 1000000000000, 321.384356874);
   assert.equal(Math.round(institutional.institutionalTotal * 1000000000000) / 1000000000000, 5501.569830112);
   assert.equal(institutional.diagnostics.grandTotalValidation, 5501.569830112);
+  assert.equal(institutional.diagnostics.rowAudit.length, 5);
+  assert.equal(JSON.stringify(institutional.diagnostics.rowAudit.map(row => row.rowClassification)), JSON.stringify(['CRN_PARENT', 'CRN_CHILD', 'CRN_CHILD', 'CRN_CHILD', 'GRAND_TOTAL']));
+  assert.equal(institutional.diagnostics.workbookGrandTotalResidual, 0);
   assert.equal(institutional.records[0].crn, '14998');
   assert.equal(Math.round(institutional.records[0].institutionalFtes * 1000000000000) / 1000000000000, 5501.569830112);
+
+  const summary = COSEnrollmentAnalytics.buildFtesReconciliation(cubeRows, [], { term: 'FALL 2025' });
+  const exportRows = COSEnrollmentAnalytics.ftesReconciliationExportRows(summary);
+  assert.ok(exportRows.some(row => row.Section === 'Institutional Row Audit' && row.status === 'CRN_CHILD' && row.crn === '14998'));
+  assert.ok(exportRows.some(row => row.Section === 'Institutional Cube Import' && row.accountingMethod === 'Parent FTES' && String(row.institutionalFtes).includes('5180.185473238')));
 });
 
 test('FTES reconciliation loads SheetJS before enrollment analytics for XLSX validation imports', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const enrollmentAnalytics = fs.readFileSync(path.join(__dirname, '..', 'js', 'enrollment-analytics.js'), 'utf8');
   assert.ok(index.indexOf('xlsx.full.min.js') > -1);
   assert.ok(index.indexOf('xlsx.full.min.js') < index.indexOf('src="js/enrollment-analytics.js"'));
+  assert.match(enrollmentAnalytics, /sheet_to_json\(worksheet,\s*\{\s*header:\s*1,\s*defval:\s*'',\s*raw:\s*true\s*\}/);
 });
 
 test('modality balance uses shared modality category normalization and diagnostics', () => {
