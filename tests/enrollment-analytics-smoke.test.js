@@ -4737,6 +4737,52 @@ test('FTES reconciliation parses institutional Cube hierarchy and compares CRNs'
   assert.ok(exportRows.some(row => row.Section === 'By CRN' && row.crn === '10003' && row.status === 'Missing From TIMBER'));
 });
 
+test('FTES reconciliation detects messy Cube headers and blocks invalid institutional parses', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const table = [
+    ['Institutional Cube Export'],
+    ['Campus', 'Division', 'Subject', 'Course', 'CRN', 'Accounting\n Method ', 'Enrollment', 'Student Contact\r\nHours', 'Part of Term', ' Individual FTES '],
+    ['COS', 'Arts', 'ART', '001', '', 'W', '', '', '1', ''],
+    ['', '', '', '', '20001', '', '10', '100', '', '100.25'],
+    ['', '', '', '', '', '', '', '', '', '9999'],
+    ['', '', '', '', 'TOTAL', '', '10', '', '', '100.25']
+  ];
+  const header = COSEnrollmentAnalytics.detectInstitutionalCubeHeader(table);
+  assert.equal(header.rowIndex, 1);
+  assert.equal(header.columnMap.accountingMethod, 5);
+  assert.equal(header.columnMap.studentContactHours, 7);
+  const parsed = COSEnrollmentAnalytics.institutionalCubeObjectsFromTable(table, { sheetName: 'Cube' });
+  const normalized = COSEnrollmentAnalytics.normalizeInstitutionalCubeRows(parsed.rows, 'FALL 2025', { diagnostics: parsed.diagnostics });
+  assert.equal(normalized.records.length, 1);
+  assert.equal(normalized.records[0].crn, '20001');
+  assert.equal(normalized.records[0].accountingMethod, 'W');
+  assert.equal(normalized.records[0].partOfTerm, '1');
+  assert.equal(normalized.records[0].institutionalFtes, 100.25);
+  assert.equal(normalized.diagnostics.rowsMissingCrn, 2);
+  assert.equal(normalized.diagnostics.rowsIgnoredAsSubtotals, 1);
+
+  const invalidSummary = COSEnrollmentAnalytics.buildFtesReconciliation(parsed.rows, [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '20001', Subject: 'ART', Course: '001', ACTUAL_ENROLL: '10', FTES: '100.25', ACCOUNTING_METHOD: 'W', Campus: 'COS' })
+  ], { term: 'FALL 2025' });
+  assert.equal(invalidSummary.invalidParse, true);
+  assert.equal(invalidSummary.variance, null);
+  assert.equal(invalidSummary.variancePercent, null);
+  assert.equal(invalidSummary.parseDiagnostics.parseStatus, 'INVALID');
+
+  const timberTrace = COSEnrollmentAnalytics.timberFtesTraceRows([
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '20002', Subject: 'ART', Course: '002', ACTUAL_ENROLL: '12', FTES: '3', ACCOUNTING_METHOD: 'IW', Campus: 'COS', PTRM_CODE: 'OE' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '20003', Subject: 'ART', Course: '003', ACTUAL_ENROLL: '12', FTES: '3', ACCOUNTING_METHOD: 'IW', Campus: 'COS' })
+  ], 'FALL 2025');
+  assert.equal(timberTrace.find(row => row.crn === '20002').partOfTerm, 'OE');
+  assert.equal(timberTrace.find(row => row.crn === '20003').partOfTerm, 'Unavailable');
+});
+
+test('FTES reconciliation loads SheetJS before enrollment analytics for XLSX validation imports', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.ok(index.indexOf('xlsx.full.min.js') > -1);
+  assert.ok(index.indexOf('xlsx.full.min.js') < index.indexOf('src="js/enrollment-analytics.js"'));
+});
+
 test('modality balance uses shared modality category normalization and diagnostics', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');

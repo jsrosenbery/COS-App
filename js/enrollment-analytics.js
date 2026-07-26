@@ -1919,7 +1919,7 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <label>Institutional FTES Validation Source <input id="ftesReconCubeCsv" type="file" accept=".csv"></label>
+            <label>Institutional FTES Validation Source <input id="ftesReconCubeCsv" type="file" accept=".csv,.xlsx,.xls"></label>
             <label>Term <input id="ftesReconTerm" type="text" value="FALL 2025"></label>
             <button id="runFtesReconciliation" type="button">Run FTES Reconciliation</button>
             <button id="exportFtesReconciliation" type="button">Export Reconciliation CSV</button>
@@ -10557,6 +10557,18 @@
   const ACCOUNTING_METHOD_KNOWN_LABELS = Object.freeze({
     E: 'Excluding Holidays'
   });
+  const CUBE_HEADER_ALIASES = Object.freeze({
+    campus: ['CAMPUS', 'CAMPUS CODE'],
+    division: ['DIVISION', 'DIVISION NAME', 'DIVISION ID'],
+    subject: ['SUBJECT', 'SUBJ', 'SUBJECT CODE'],
+    course: ['COURSE', 'COURSE NUMBER', 'COURSE NO', 'CATALOG NUMBER'],
+    crn: ['CRN', 'COURSE REFERENCE NUMBER', 'SECTION CRN'],
+    accountingMethod: ['ACCOUNTING METHOD', 'ACCOUNTING METHOD CODE', 'ACCT METHOD', 'ACCOUNTING'],
+    institutionalEnrollment: ['ENROLLMENT', 'ENROLL', 'HEADCOUNT'],
+    studentContactHours: ['STUDENT CONTACT HOURS', 'CONTACT HOURS', 'SCH', 'TOTAL STUDENT CONTACT HOURS'],
+    partOfTerm: ['PART OF TERM', 'PART-OF-TERM', 'PART_OF_TERM', 'POT', 'PTRM', 'PTRM CODE'],
+    institutionalFtes: ['INDIVIDUAL FTES', 'FTES', 'SECTION FTES']
+  });
 
   function cubeField(row, names) {
     return val(row || {}, names);
@@ -10569,6 +10581,114 @@
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  function normalizeCubeHeader(value) {
+    return canon(value).replace(/[\r\n]+/g, ' ').replace(/[_/-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function cubeHeaderKey(value) {
+    const normalized = normalizeCubeHeader(value);
+    return normalized.replace(/[^A-Z0-9]+/g, '');
+  }
+
+  function cubeAliasKeys(names = []) {
+    return names.map(cubeHeaderKey);
+  }
+
+  function detectInstitutionalCubeHeader(table = []) {
+    const aliasKeys = Object.fromEntries(Object.entries(CUBE_HEADER_ALIASES).map(([field, aliases]) => [field, cubeAliasKeys(aliases)]));
+    let best = { rowIndex: -1, score: 0, columnMap: {}, headers: [] };
+    (table || []).forEach((row, rowIndex) => {
+      const headers = (row || []).map(normalizeCubeHeader);
+      const keys = headers.map(cubeHeaderKey);
+      const columnMap = {};
+      Object.entries(aliasKeys).forEach(([field, aliases]) => {
+        const index = keys.findIndex(key => aliases.includes(key));
+        if (index >= 0) columnMap[field] = index;
+      });
+      const score = Object.keys(columnMap).length + (columnMap.crn != null ? 2 : 0) + (columnMap.institutionalFtes != null ? 2 : 0);
+      if (score > best.score) best = { rowIndex, score, columnMap, headers };
+    });
+    return best;
+  }
+
+  function institutionalCubeObjectsFromTable(table = [], options = {}) {
+    const sheetName = options.sheetName || 'CSV';
+    const header = detectInstitutionalCubeHeader(table);
+    const diagnostics = {
+      worksheet: sheetName,
+      headerRow: header.rowIndex >= 0 ? header.rowIndex + 1 : null,
+      detectedHeaders: header.headers.filter(Boolean),
+      detectedColumns: Object.keys(header.columnMap),
+      rowsIgnoredAsSubtotals: 0,
+      rowsMissingCrn: 0,
+      rowsMissingFtes: 0
+    };
+    if (header.rowIndex < 0 || header.columnMap.crn == null || header.columnMap.institutionalFtes == null) {
+      return { rows: [], diagnostics: { ...diagnostics, parseStatus: 'INVALID', error: 'Could not detect required CRN and Individual FTES columns.' } };
+    }
+    const rows = [];
+    (table || []).slice(header.rowIndex + 1).forEach(values => {
+      const row = {};
+      Object.entries(header.columnMap).forEach(([field, index]) => {
+        const headerName = {
+          campus: 'Campus',
+          division: 'Division',
+          subject: 'Subject',
+          course: 'Course',
+          crn: 'CRN',
+          accountingMethod: 'Accounting Method',
+          institutionalEnrollment: 'Enrollment',
+          studentContactHours: 'Student Contact Hours',
+          partOfTerm: 'Part of Term',
+          institutionalFtes: 'Individual FTES'
+        }[field];
+        row[headerName] = values?.[index] ?? '';
+      });
+      rows.push(row);
+    });
+    return { rows, diagnostics };
+  }
+
+  function parseCsvTable(text) {
+    return new Promise((resolve, reject) => {
+      Papa.parse(text, {
+        header: false,
+        skipEmptyLines: false,
+        complete: result => resolve(result.data || []),
+        error: reject
+      });
+    });
+  }
+
+  function parseInstitutionalCubeWorkbook(arrayBuffer, filename = '') {
+    if (!window.XLSX?.read) throw new Error('Excel parsing library is unavailable. Confirm xlsx.full.min.js is loaded.');
+    const workbook = window.XLSX.read(arrayBuffer, { type: 'array', cellDates: false, raw: false });
+    let best = null;
+    (workbook.SheetNames || []).forEach(sheetName => {
+      const worksheet = workbook.Sheets[sheetName];
+      const table = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+      const parsed = institutionalCubeObjectsFromTable(table, { sheetName, filename });
+      const score = (parsed.diagnostics.detectedColumns || []).length + parsed.rows.length / 100000;
+      if (!best || score > best.score) best = { ...parsed, score };
+    });
+    return best || { rows: [], diagnostics: { worksheet: '', headerRow: null, detectedHeaders: [], parseStatus: 'INVALID', error: 'Workbook contained no worksheets.' } };
+  }
+
+  async function parseInstitutionalCubeValidationInput(input) {
+    const file = input?.files?.[0];
+    if (!file) return { rows: [], diagnostics: { parseStatus: 'INVALID', error: 'No institutional validation source selected.' } };
+    const extension = String(file.name || '').split('.').pop().toLowerCase();
+    if (['xlsx', 'xls'].includes(extension)) {
+      const parsed = parseInstitutionalCubeWorkbook(await file.arrayBuffer(), file.name);
+      parsed.diagnostics = { ...parsed.diagnostics, sourceFileName: file.name, sourceType: 'Excel workbook' };
+      return parsed;
+    }
+    const table = await parseCsvTable(await readTextFile(file));
+    const parsed = institutionalCubeObjectsFromTable(table, { sheetName: 'CSV', filename: file.name });
+    parsed.diagnostics = { ...parsed.diagnostics, sourceFileName: file.name, sourceType: 'CSV' };
+    return parsed;
+  }
+
   function isCubeSubtotalRow(row) {
     const crn = canon(cubeField(row, ['CRN', 'Crn', 'Section CRN']));
     const joined = Object.values(row || {}).map(value => canon(value)).join(' ');
@@ -10577,10 +10697,13 @@
     return /\b(GRAND TOTAL|SUBTOTAL|TOTAL)\b/.test(joined) && !/\b\d{4,6}\b/.test(crn);
   }
 
-  function normalizeInstitutionalCubeRows(rows = [], term = 'FALL 2025') {
+  function normalizeInstitutionalCubeRows(rows = [], term = 'FALL 2025', options = {}) {
     const fill = { campus: '', division: '', subject: '', course: '', accountingMethod: '', partOfTerm: '' };
     const details = [];
     const omittedRows = [];
+    let rowsMissingCrn = 0;
+    let rowsIgnoredAsSubtotals = 0;
+    let rowsMissingFtes = 0;
     (rows || []).forEach((row, index) => {
       const campus = canon(cubeField(row, ['Campus', 'CAMPUS']));
       const division = canon(cubeField(row, ['Division', 'DIVISION']));
@@ -10594,11 +10717,23 @@
       if (course) fill.course = course;
       if (accountingMethod) fill.accountingMethod = accountingMethod;
       if (partOfTerm) fill.partOfTerm = partOfTerm;
-      if (isCubeSubtotalRow(row)) {
-        omittedRows.push({ rowIndex: index + 1, reason: 'Subtotal/group row or missing CRN' });
+      const crn = canon(cubeField(row, ['CRN', 'Crn', 'Section CRN']));
+      if (!crn) {
+        rowsMissingCrn += 1;
+        omittedRows.push({ rowIndex: index + 1, reason: 'Missing CRN/group row' });
         return;
       }
-      const crn = canon(cubeField(row, ['CRN', 'Crn', 'Section CRN']));
+      if (isCubeSubtotalRow(row)) {
+        rowsIgnoredAsSubtotals += 1;
+        omittedRows.push({ rowIndex: index + 1, reason: 'Subtotal/group row' });
+        return;
+      }
+      const institutionalFtes = cubeNumber(row, ['Individual FTES', 'INDIVIDUAL_FTES', 'FTES', 'Individual Ftes']);
+      if (institutionalFtes == null) {
+        rowsMissingFtes += 1;
+        omittedRows.push({ rowIndex: index + 1, reason: 'Missing Individual FTES' });
+        return;
+      }
       details.push({
         term: normalizeTermLabel(cubeField(row, ['Term', 'TERM']) || term),
         campus: campus || fill.campus,
@@ -10611,7 +10746,7 @@
         partOfTerm: partOfTerm || fill.partOfTerm,
         institutionalEnrollment: cubeNumber(row, ['Enrollment', 'ENROLLMENT', 'Enroll']),
         studentContactHours: cubeNumber(row, ['Student Contact Hours', 'STUDENT_CONTACT_HOURS', 'Contact Hours', 'SCH']),
-        institutionalFtes: cubeNumber(row, ['Individual FTES', 'INDIVIDUAL_FTES', 'FTES', 'Individual Ftes'])
+        institutionalFtes
       });
     });
     const grouped = new Map();
@@ -10627,11 +10762,27 @@
       existing.studentContactHours = sumNullable(existing.studentContactHours, record.studentContactHours);
       existing.institutionalFtes = sumNullable(existing.institutionalFtes, record.institutionalFtes);
     });
+    const records = [...grouped.values()];
+    const institutionalTotal = records.reduce((total, row) => total + (row.institutionalFtes ?? 0), 0);
+    const accountingMethods = [...new Set(records.map(row => row.accountingMethod || 'blank'))].sort();
+    const partOfTermValues = [...new Set(records.map(row => row.partOfTerm || 'blank'))].sort();
+    const diagnostics = {
+      ...(options.diagnostics || {}),
+      crnDetailRows: records.length,
+      institutionalFtesParsed: institutionalTotal,
+      accountingMethods,
+      partOfTermValues,
+      rowsIgnoredAsSubtotals: (options.diagnostics?.rowsIgnoredAsSubtotals || 0) + rowsIgnoredAsSubtotals,
+      rowsMissingCrn: (options.diagnostics?.rowsMissingCrn || 0) + rowsMissingCrn,
+      rowsMissingFtes: (options.diagnostics?.rowsMissingFtes || 0) + rowsMissingFtes
+    };
+    diagnostics.parseStatus = institutionalTotal > 0 && records.length > 0 ? 'VALID' : 'INVALID';
     return {
-      records: [...grouped.values()],
+      records,
       omittedRows,
       rawDetailRows: details.length,
-      institutionalTotal: [...grouped.values()].reduce((total, row) => total + (row.institutionalFtes ?? 0), 0)
+      institutionalTotal,
+      diagnostics
     };
   }
 
@@ -10655,7 +10806,7 @@
           campus: row.campus,
           division: row.division,
           accountingMethod: row.accountingMethod || '',
-          partOfTerm: canon(val(row.raw || {}, ['Part of Term', 'PART_OF_TERM', 'POT'])),
+          partOfTerm: canon(val(row.raw || {}, ['Part of Term', 'PART_OF_TERM', 'Part Of Term', 'POT', 'PTRM_CODE', 'PTRM Code'])) || 'Unavailable',
           timberEnrollment: 0,
           timberFtes: null,
           timberSeats: 0,
@@ -10799,7 +10950,7 @@
 
   function buildFtesReconciliation(cubeRows = [], timberRows = [], options = {}) {
     const term = normalizeTermLabel(options.term || 'FALL 2025');
-    const institutional = normalizeInstitutionalCubeRows(cubeRows, term);
+    const institutional = normalizeInstitutionalCubeRows(cubeRows, term, { diagnostics: options.diagnostics || {} });
     const timber = timberFtesTraceRows(timberRows, term);
     const crnRows = reconcileFtesRecords(institutional.records, timber, { term, tolerance: options.tolerance });
     const institutionalFtes = institutional.institutionalTotal;
@@ -10808,7 +10959,10 @@
     const positiveAttendance = aggregateFtesReconciliation(crnRows.filter(row => row.accountingMethod === 'P'), row => row.accountingMethod)[0] || { institutionalFtes: 0, timberFtes: 0, variance: 0 };
     const workExperience = aggregateFtesReconciliation(crnRows.filter(row => row.workExperience), row => 'Work Experience')[0] || { institutionalFtes: 0, timberFtes: 0, variance: 0 };
     const warnings = [];
-    if (Math.abs(institutionalFtes - FTES_RECONCILIATION_TARGET_TOTAL) > 0.05) {
+    const expectedTotal = options.expectedInstitutionalTotal ?? FTES_RECONCILIATION_TARGET_TOTAL;
+    const parseVariance = institutionalFtes - expectedTotal;
+    const parseValid = institutional.records.length > 0 && Math.abs(parseVariance) <= 0.05;
+    if (!parseValid) {
       warnings.push(`Parsed institutional total ${round1(institutionalFtes)} does not reproduce the validation reference ${FTES_RECONCILIATION_TARGET_TOTAL}. Confirm the Cube export detail grain and subtotal rows.`);
     }
     crnRows.filter(row => row.accountingMethod === 'P' && row.institutionalFtes > 0 && (row.timberFtes == null || row.timberFtes === 0)).forEach(row => {
@@ -10819,8 +10973,16 @@
       term,
       institutionalFtes,
       timberFtes,
-      variance,
-      variancePercent: safeDiv(variance, institutionalFtes),
+      variance: parseValid ? variance : null,
+      variancePercent: parseValid ? safeDiv(variance, institutionalFtes) : null,
+      invalidParse: !parseValid,
+      parseDiagnostics: {
+        ...institutional.diagnostics,
+        expectedInstitutionalTotal: expectedTotal,
+        parsedInstitutionalTotal: institutionalFtes,
+        parseVariance,
+        parseStatus: parseValid ? 'VALID' : 'INVALID'
+      },
       crnsCompared: crnRows.length,
       withinTolerance: crnRows.filter(row => ['Exact Match', 'Within Tolerance'].includes(row.status)).length,
       varianceCount: crnRows.filter(row => row.status === 'Variance').length,
@@ -10862,12 +11024,13 @@
       diagnosticCategory: row.diagnosticCategory || ''
     });
     return [
+      ...ftesImportDiagnosticRows(summary.parseDiagnostics).map(row => rowFor('Institutional Cube Import', { accountingMethod: row.metric, institutionalFtes: row.value })),
       rowFor('Summary', { accountingMethod: 'Institutional FTES', institutionalFtes: summary.institutionalFtes }),
       rowFor('Summary', { accountingMethod: 'TIMBER FTES', timberFtes: summary.timberFtes }),
       rowFor('Summary', { accountingMethod: 'Variance', variance: summary.variance, variancePercent: summary.variancePercent }),
-      ...summary.byAccountingMethod.map(row => rowFor('By Accounting Method', row)),
-      ...summary.byAccountingMethodPart.map(row => rowFor('By Accounting Method + Part of Term', row)),
-      ...summary.crnRows.map(row => rowFor('By CRN', row))
+      ...(summary.invalidParse ? [] : summary.byAccountingMethod.map(row => rowFor('By Accounting Method', row))),
+      ...(summary.invalidParse ? [] : summary.byAccountingMethodPart.map(row => rowFor('By Accounting Method + Part of Term', row))),
+      ...(summary.invalidParse ? [] : summary.crnRows.map(row => rowFor('By CRN', row)))
     ];
   }
 
@@ -10878,11 +11041,11 @@
       document.getElementById('ftesReconWarnings').innerHTML = '<p>Upload an Institutional FTES Validation Source CSV before running the reconciliation.</p>';
       return;
     }
-    const cubeRows = await readCsv(input, { sourceType: 'FTES_RECONCILIATION_CUBE' });
+    const cubeParse = await parseInstitutionalCubeValidationInput(input);
     const scheduleRows = await loadScheduleTermRows(term).catch(() => []);
     const workRows = await loadWorkExperienceTermRows(term).catch(() => []);
     const timberRows = dedupeEnrollmentRows([...scheduleRows, ...workRows]);
-    state.ftesReconciliation = buildFtesReconciliation(cubeRows, timberRows, { term });
+    state.ftesReconciliation = buildFtesReconciliation(cubeParse.rows, timberRows, { term, diagnostics: cubeParse.diagnostics });
     state.ftesReconciliationExportRows = ftesReconciliationExportRows(state.ftesReconciliation);
     state.ftesReconciliationRan = true;
     renderFtesReconciliation();
@@ -10892,6 +11055,24 @@
     const summary = state.ftesReconciliation;
     if (!summary) return;
     document.getElementById('ftesReconWarnings').innerHTML = (summary.warnings || []).map(warning => `<p>${escapeAttr(warning)}</p>`).join('');
+    if (summary.invalidParse) {
+      metric('ftesReconMetrics', [
+        ['Institutional FTES', 'Parse invalid', 'ftes'],
+        ['TIMBER FTES', round1(summary.timberFtes), 'ftes'],
+        ['Variance', 'Unavailable'],
+        ['CRNs Compared', 'Unavailable']
+      ]);
+      const summaryNode = document.getElementById('ftesReconSummary');
+      if (summaryNode) {
+        summaryNode.innerHTML = [
+          dashboardPanel('Institutional Cube Import', miniTable(ftesImportDiagnosticRows(summary.parseDiagnostics), ['metric', 'value'], 'ftesRecon')),
+          dashboardPanel('Reconciliation Unavailable', '<p class="analytics-empty">Reconciliation unavailable - institutional validation source could not be parsed to the expected Fall 2025 CRN-level FTES total. Variance tables are suppressed until the import is valid.</p>')
+        ].join('');
+      }
+      document.getElementById('ftesReconCrnTable').innerHTML = '<p class="analytics-empty">CRN reconciliation is unavailable until the institutional validation source parses successfully.</p>';
+      refreshGeneratedCollapsibleSections(document.getElementById('ftesReconciliationReport'));
+      return;
+    }
     metric('ftesReconMetrics', [
       ['Institutional FTES', round1(summary.institutionalFtes), 'ftes'],
       ['TIMBER FTES', round1(summary.timberFtes), 'ftes'],
@@ -10904,6 +11085,7 @@
     const summaryNode = document.getElementById('ftesReconSummary');
     if (summaryNode) {
       summaryNode.innerHTML = [
+        dashboardPanel('Institutional Cube Import', miniTable(ftesImportDiagnosticRows(summary.parseDiagnostics), ['metric', 'value'], 'ftesRecon')),
         dashboardPanel('By Accounting Method', miniTable(summary.byAccountingMethod, ['name', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'crns'], 'ftesRecon')),
         dashboardPanel('By Accounting Method + Part of Term', miniTable(summary.byAccountingMethodPart, ['name', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'crns'], 'ftesRecon')),
         dashboardPanel('Diagnostic Notes', `<p class="analytics-chart-note">Positive Attendance variance: ${round1(summary.positiveAttendance.variance || 0)} FTES. Work Experience variance: ${round1(summary.workExperience.variance || 0)} FTES. Statuses distinguish source-data gaps, calculation variances, mapping issues, and unknown review items.</p>`)
@@ -10911,6 +11093,23 @@
     }
     table('ftesReconCrnTable', summary.crnRows, ['crn', 'subject', 'course', 'accountingMethod', 'partOfTerm', 'institutionalEnrollment', 'studentContactHours', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'status', 'diagnosticCategory']);
     refreshGeneratedCollapsibleSections(document.getElementById('ftesReconciliationReport'));
+  }
+
+  function ftesImportDiagnosticRows(diagnostics = {}) {
+    return [
+      ['Worksheet', diagnostics.worksheet || 'N/A'],
+      ['Header Row', diagnostics.headerRow || 'N/A'],
+      ['CRN Detail Rows', diagnostics.crnDetailRows ?? 0],
+      ['Institutional FTES Parsed', diagnostics.parsedInstitutionalTotal ?? diagnostics.institutionalFtesParsed ?? 0],
+      ['Expected Validation FTES', diagnostics.expectedInstitutionalTotal ?? FTES_RECONCILIATION_TARGET_TOTAL],
+      ['Accounting Methods Detected', (diagnostics.accountingMethods || []).join(', ') || 'N/A'],
+      ['Part-of-Term Values Detected', (diagnostics.partOfTermValues || []).join(', ') || 'N/A'],
+      ['Rows Ignored as Subtotals', diagnostics.rowsIgnoredAsSubtotals ?? 0],
+      ['Rows Missing CRN', diagnostics.rowsMissingCrn ?? 0],
+      ['Rows Missing FTES', diagnostics.rowsMissingFtes ?? 0],
+      ['Detected Headers', (diagnostics.detectedHeaders || []).join(' | ') || 'N/A'],
+      ['Parse Status', diagnostics.parseStatus || 'UNKNOWN']
+    ].map(([metric, value]) => ({ metric, value }));
   }
 
   function exportFtesReconciliation() {
@@ -19527,6 +19726,8 @@
     buildCurrentEnrollmentFtesSummary,
     previousLikeTerm,
     normalizeInstitutionalCubeRows,
+    detectInstitutionalCubeHeader,
+    institutionalCubeObjectsFromTable,
     timberFtesTraceRows,
     reconcileFtesRecords,
     buildFtesReconciliation,
