@@ -686,6 +686,7 @@
       dailyHours,
       totalContactHours,
       accountingMethod,
+      scheduleType: canon(val(row, fields.scheduleType)),
       accountingCategory: accountingMethodInfo(accountingMethod).category,
       accountingMethodLabel: accountingMethodInfo(accountingMethod).label,
       accountingReportable: isWorkExperienceRow ? true : accountingMethodInfo(accountingMethod).reportable,
@@ -726,12 +727,25 @@
   }
 
   function meetingRowForFtes(row) {
+    const startMinutes = timeUtils.minutesFromTime?.(row.start) ?? null;
+    const endMinutes = timeUtils.minutesFromTime?.(row.end) ?? null;
+    const durationHours = Number.isFinite(startMinutes) && Number.isFinite(endMinutes) && endMinutes > startMinutes
+      ? (endMinutes - startMinutes) / 60
+      : 0;
     return {
       weeklyHours: row.weeklyHours || 0,
       dailyHours: row.dailyHours || 0,
       totalContactHours: row.totalContactHours || 0,
       sessionCreditHours: row.units || 0,
-      accountingMethod: row.accountingMethod || ''
+      accountingMethod: row.accountingMethod || '',
+      scheduleType: row.scheduleType || canon(val(row.raw || {}, fields.scheduleType)),
+      days: [...(row.days || [])],
+      dayPattern: row.dayPattern || dayPattern(row.days || []),
+      start: row.start || '',
+      end: row.end || '',
+      startDate: row.startDate || '',
+      endDate: row.endDate || '',
+      durationHours
     };
   }
 
@@ -747,7 +761,138 @@
     };
   }
 
-  function estimatedFtes(enrollment, details = {}) {
+  function roundedHoursKey(value) {
+    return String(Math.round((Number(value) || 0) * 10000) / 10000);
+  }
+
+  function meetingComponentExactKey(row = {}) {
+    return [
+      canon(row.scheduleType || ''),
+      roundedHoursKey(row.weeklyHours),
+      roundedHoursKey(row.dailyHours),
+      roundedHoursKey(row.totalContactHours),
+      roundedHoursKey(row.sessionCreditHours),
+      canon(row.startDate || ''),
+      canon(row.endDate || ''),
+      canon(row.dayPattern || (row.days || []).join('')),
+      canon(row.start || ''),
+      canon(row.end || '')
+    ].join('|');
+  }
+
+  function meetingComponentBasisKey(row = {}) {
+    return [
+      canon(row.scheduleType || ''),
+      roundedHoursKey(row.weeklyHours),
+      roundedHoursKey(row.dailyHours),
+      roundedHoursKey(row.totalContactHours),
+      roundedHoursKey(row.sessionCreditHours),
+      canon(row.startDate || ''),
+      canon(row.endDate || '')
+    ].join('|');
+  }
+
+  function meetingComponentDateRangeKey(row = {}) {
+    return [
+      canon(row.scheduleType || ''),
+      roundedHoursKey(row.weeklyHours),
+      roundedHoursKey(row.dailyHours),
+      roundedHoursKey(row.totalContactHours),
+      roundedHoursKey(row.sessionCreditHours)
+    ].join('|');
+  }
+
+  function meetingWeeklyHoursRepresentOccurrence(row = {}) {
+    const weeklyHours = Number(row.weeklyHours) || 0;
+    const durationHours = Number(row.durationHours) || 0;
+    const dayCount = (row.days || []).length || 0;
+    return weeklyHours > 0 && durationHours > 0 && dayCount <= 1 && Math.abs(weeklyHours - durationHours) <= 0.05;
+  }
+
+  // W/IW uses one enrollment count multiplied by the section's combined legitimate weekly contact-hour components.
+  function getSectionApplicableContactHours(section = {}, meetings = [], accountingMethod = '') {
+    const info = accountingMethodInfo(accountingMethod || section.accountingMethod);
+    const sourceRows = meetings.length ? meetings : (section._meetingRows?.length ? section._meetingRows : [meetingRowForFtes(section)]);
+    const oldHours = bestFtesHours(sourceRows);
+    const result = {
+      accountingMethod: accountingMethod || section.accountingMethod || '',
+      accountingCategory: info.category,
+      oldContactHourBasis: oldHours.weeklyHours || 0,
+      weeklyHours: oldHours.weeklyHours || 0,
+      dailyHours: oldHours.dailyHours || 0,
+      totalContactHours: oldHours.totalContactHours || 0,
+      sessionCreditHours: oldHours.sessionCreditHours || 0,
+      componentsIncluded: [],
+      componentsExcluded: [],
+      diagnosticReason: 'Existing max-contact-hour basis retained.'
+    };
+    if (!['weekly', 'independentWeekly'].includes(info.category)) return result;
+
+    const weeklyRows = sourceRows.filter(row => (Number(row.weeklyHours) || 0) > 0);
+    if (!weeklyRows.length) {
+      result.diagnosticReason = 'No W/IW weekly contact-hour rows were available.';
+      return result;
+    }
+
+    const exactSeen = new Set();
+    const basisSeen = new Set();
+    const dateRangeGroups = new Map();
+    weeklyRows.forEach(row => {
+      const rangeKey = meetingComponentDateRangeKey(row);
+      if (!dateRangeGroups.has(rangeKey)) dateRangeGroups.set(rangeKey, new Set());
+      dateRangeGroups.get(rangeKey).add(`${canon(row.startDate || '')}|${canon(row.endDate || '')}`);
+    });
+
+    let weeklyHours = 0;
+    weeklyRows.forEach((row, index) => {
+      const exactKey = meetingComponentExactKey(row);
+      if (exactSeen.has(exactKey)) {
+        result.componentsExcluded.push({ ...row, rowIndex: index, reason: 'Duplicate source artifact for the same CRN/component/day/time/date range.' });
+        return;
+      }
+      exactSeen.add(exactKey);
+
+      const dateRangeKey = meetingComponentDateRangeKey(row);
+      const hasMultipleDateRanges = (dateRangeGroups.get(dateRangeKey)?.size || 0) > 1;
+      if (hasMultipleDateRanges) {
+        const basisKey = meetingComponentBasisKey(row);
+        if (basisSeen.has(basisKey)) {
+          result.componentsExcluded.push({ ...row, rowIndex: index, reason: 'Repeated date-range component already represented; preserved existing max basis pending date-aware review.' });
+          return;
+        }
+        basisSeen.add(basisKey);
+        if (weeklyHours === 0 || row.weeklyHours > weeklyHours) {
+          weeklyHours = Math.max(weeklyHours, row.weeklyHours || 0);
+          result.componentsIncluded.push({ ...row, rowIndex: index, reason: 'Included as date-range control component; multiple date ranges are flagged rather than fully summed.' });
+        } else {
+          result.componentsExcluded.push({ ...row, rowIndex: index, reason: 'Excluded from W/IW production aggregation because multiple date ranges require date-aware review.' });
+        }
+        return;
+      }
+
+      if (!meetingWeeklyHoursRepresentOccurrence(row)) {
+        const basisKey = meetingComponentBasisKey(row);
+        if (basisSeen.has(basisKey)) {
+          result.componentsExcluded.push({ ...row, rowIndex: index, reason: 'Repeated weekly component basis; weekly hours already represent the component pattern.' });
+          return;
+        }
+        basisSeen.add(basisKey);
+      }
+
+      weeklyHours += row.weeklyHours || 0;
+      result.componentsIncluded.push({ ...row, rowIndex: index, reason: meetingWeeklyHoursRepresentOccurrence(row) ? 'Included as distinct per-occurrence weekly meeting contribution.' : 'Included as distinct instructional weekly component.' });
+    });
+
+    result.weeklyHours = weeklyHours || oldHours.weeklyHours || 0;
+    result.componentCount = result.componentsIncluded.length;
+    result.excludedComponentCount = result.componentsExcluded.length;
+    result.diagnosticReason = result.weeklyHours === result.oldContactHourBasis
+      ? 'W/IW applicable contact-hour basis matches existing max-contact-hour basis.'
+      : 'W/IW applicable contact-hour basis sums distinct legitimate instructional components while excluding duplicate/repeated component rows.';
+    return result;
+  }
+
+  function legacyEstimatedFtes(enrollment, details = {}) {
     const info = accountingMethodInfo(details.accountingMethod);
     if (!info.reportable && !details.allowOmitted) return 0;
     const weeklyHours = details.weeklyHours || 0;
@@ -766,19 +911,41 @@
     return 0;
   }
 
+  function estimatedFtes(enrollment, details = {}) {
+    const info = accountingMethodInfo(details.accountingMethod);
+    if (!info.reportable && !details.allowOmitted) return 0;
+    const contactHours = getSectionApplicableContactHours(details, details.meetingRows || details._meetingRows || [], details.accountingMethod);
+    const weeklyHours = ['weekly', 'independentWeekly'].includes(info.category) ? contactHours.weeklyHours || 0 : details.weeklyHours || 0;
+    const totalContactHours = details.totalContactHours || 0;
+    const units = details.units || details.sessionCreditHours || 0;
+    if (['weekly', 'independentWeekly', 'unknown'].includes(info.category) && weeklyHours > 0) {
+      return (enrollment * weeklyHours * 17.5) / 525;
+    }
+    if (['daily', 'independentDaily'].includes(info.category) && totalContactHours > 0) {
+      return (enrollment * totalContactHours) / 525;
+    }
+    if (info.category === 'positive' && totalContactHours > 0) {
+      return (enrollment * totalContactHours) / 525;
+    }
+    if (units > 0) return (enrollment * units) / 30;
+    return 0;
+  }
+
   function recalculateEstimatedFtes(row) {
     if (!row || row.hasDirectFtesData) return row;
-    const hours = bestFtesHours(row._meetingRows || []);
+    const hours = getSectionApplicableContactHours(row, row._meetingRows || [], row.accountingMethod);
     row.weeklyHours = hours.weeklyHours || row.weeklyHours || 0;
     row.dailyHours = hours.dailyHours || row.dailyHours || 0;
     row.totalContactHours = hours.totalContactHours || row.totalContactHours || 0;
     row.units = row.units || hours.sessionCreditHours || 0;
+    row.ftesContactHourDiagnostic = hours;
     row.ftes = estimatedFtes(row.census == null ? row.actual : row.census, {
       units: row.units,
       weeklyHours: row.weeklyHours,
       dailyHours: row.dailyHours,
       totalContactHours: row.totalContactHours,
       accountingMethod: row.accountingMethod,
+      _meetingRows: row._meetingRows || [],
       allowOmitted: row.isWorkExperience
     });
     row.hasFtesData = row.hasFtesData || row.weeklyHours > 0 || row.totalContactHours > 0 || row.units > 0;
@@ -10921,6 +11088,11 @@
           totalContactHours: 0,
           sumWeeklyHours: 0,
           sumTotalContactHours: 0,
+          oldContactHourBasis: 0,
+          newContactHourBasis: 0,
+          includedComponentCount: 0,
+          excludedComponentCount: 0,
+          legacyTimberFtes: null,
           meetingRowCount: 0,
           termLengthMultiplier: 17.5,
           startDate: '',
@@ -10945,6 +11117,11 @@
       record.totalContactHours = Math.max(record.totalContactHours || 0, row.totalContactHours || 0);
       record.sumWeeklyHours = Math.max(record.sumWeeklyHours || 0, meetingInputs.sumWeeklyHours || 0);
       record.sumTotalContactHours = Math.max(record.sumTotalContactHours || 0, meetingInputs.sumTotalContactHours || 0);
+      record.oldContactHourBasis = Math.max(record.oldContactHourBasis || 0, meetingInputs.oldContactHourBasis || 0);
+      record.newContactHourBasis = Math.max(record.newContactHourBasis || 0, meetingInputs.newContactHourBasis || 0);
+      record.includedComponentCount = Math.max(record.includedComponentCount || 0, meetingInputs.includedComponentCount || 0);
+      record.excludedComponentCount = Math.max(record.excludedComponentCount || 0, meetingInputs.excludedComponentCount || 0);
+      record.legacyTimberFtes = sumNullable(record.legacyTimberFtes, meetingInputs.legacyTimberFtes);
       record.meetingRowCount = Math.max(record.meetingRowCount || 0, meetingInputs.meetingRowCount || 0);
       record.startDate = record.startDate || row.startDate || '';
       record.endDate = record.endDate || row.endDate || '';
@@ -10967,10 +11144,25 @@
 
   function ftesMeetingComponentInputs(row = {}) {
     const meetingRows = row._meetingRows?.length ? row._meetingRows : [meetingRowForFtes(row)];
+    const applicable = getSectionApplicableContactHours(row, meetingRows, row.accountingMethod);
+    const legacy = legacyEstimatedFtes(row.census == null ? row.actual : row.census, {
+      units: row.units,
+      weeklyHours: applicable.oldContactHourBasis || row.weeklyHours || 0,
+      dailyHours: row.dailyHours,
+      totalContactHours: row.totalContactHours,
+      accountingMethod: row.accountingMethod,
+      allowOmitted: row.isWorkExperience
+    });
     return {
       meetingRowCount: meetingRows.length,
       sumWeeklyHours: meetingRows.reduce((total, meeting) => total + (Number(meeting.weeklyHours) || 0), 0),
-      sumTotalContactHours: meetingRows.reduce((total, meeting) => total + (Number(meeting.totalContactHours) || 0), 0)
+      sumTotalContactHours: meetingRows.reduce((total, meeting) => total + (Number(meeting.totalContactHours) || 0), 0),
+      oldContactHourBasis: applicable.oldContactHourBasis || 0,
+      newContactHourBasis: applicable.weeklyHours || 0,
+      includedComponentCount: applicable.componentsIncluded?.length || 0,
+      excludedComponentCount: applicable.componentsExcluded?.length || 0,
+      legacyTimberFtes: legacy,
+      contactHourDiagnostic: applicable
     };
   }
 
@@ -11021,6 +11213,11 @@
         totalContactHours: timber.totalContactHours,
         sumWeeklyHours: timber.sumWeeklyHours,
         sumTotalContactHours: timber.sumTotalContactHours,
+        oldContactHourBasis: timber.oldContactHourBasis,
+        newContactHourBasis: timber.newContactHourBasis,
+        includedComponentCount: timber.includedComponentCount,
+        excludedComponentCount: timber.excludedComponentCount,
+        legacyTimberFtes: timber.legacyTimberFtes,
         meetingRowCount: timber.meetingRowCount,
         termLengthMultiplier: timber.termLengthMultiplier,
         startDate: timber.startDate,
@@ -11066,6 +11263,11 @@
       totalContactHours: type === 'timber' ? Math.max(acc.totalContactHours || 0, row.totalContactHours || 0) : acc.totalContactHours,
       sumWeeklyHours: type === 'timber' ? Math.max(acc.sumWeeklyHours || 0, row.sumWeeklyHours || 0) : acc.sumWeeklyHours,
       sumTotalContactHours: type === 'timber' ? Math.max(acc.sumTotalContactHours || 0, row.sumTotalContactHours || 0) : acc.sumTotalContactHours,
+      oldContactHourBasis: type === 'timber' ? Math.max(acc.oldContactHourBasis || 0, row.oldContactHourBasis || 0) : acc.oldContactHourBasis,
+      newContactHourBasis: type === 'timber' ? Math.max(acc.newContactHourBasis || 0, row.newContactHourBasis || 0) : acc.newContactHourBasis,
+      includedComponentCount: type === 'timber' ? Math.max(acc.includedComponentCount || 0, row.includedComponentCount || 0) : acc.includedComponentCount,
+      excludedComponentCount: type === 'timber' ? Math.max(acc.excludedComponentCount || 0, row.excludedComponentCount || 0) : acc.excludedComponentCount,
+      legacyTimberFtes: type === 'timber' ? sumNullable(acc.legacyTimberFtes, row.legacyTimberFtes) : acc.legacyTimberFtes,
       meetingRowCount: type === 'timber' ? Math.max(acc.meetingRowCount || 0, row.meetingRowCount || 0) : acc.meetingRowCount,
       termLengthMultiplier: type === 'timber' ? (acc.termLengthMultiplier || row.termLengthMultiplier || 17.5) : acc.termLengthMultiplier,
       startDate: type === 'timber' ? (acc.startDate || row.startDate) : acc.startDate,
@@ -11273,10 +11475,12 @@
     const info = accountingMethodInfo(method);
     const enrollment = row.timberEnrollment ?? row.institutionalEnrollment ?? 0;
     if (!enrollment) return null;
-    if (['weekly', 'independentWeekly', 'unknown'].includes(info.category) && row.sumWeeklyHours > row.weeklyHours) {
+    const legacyWeeklyBasis = row.oldContactHourBasis || row.weeklyHours || 0;
+    const correctedWeeklyBasis = row.newContactHourBasis || row.sumWeeklyHours || row.weeklyHours || 0;
+    if (['weekly', 'independentWeekly', 'unknown'].includes(info.category) && correctedWeeklyBasis > legacyWeeklyBasis) {
       return {
-        candidateFtes: (enrollment * row.sumWeeklyHours * (row.termLengthMultiplier || 17.5)) / 525,
-        candidateCalculation: `Component-sum simulation: (${enrollment} enrollment x ${row.sumWeeklyHours} summed weekly contact hours x ${row.termLengthMultiplier || 17.5} TLM) / 525`,
+        candidateFtes: (enrollment * correctedWeeklyBasis * (row.termLengthMultiplier || 17.5)) / 525,
+        candidateCalculation: `Production W/IW correction: (${enrollment} enrollment x ${correctedWeeklyBasis} applicable weekly contact hours x ${row.termLengthMultiplier || 17.5} TLM) / 525`,
         suspectedDefect: 'MISSING LAB/ACTIVITY COMPONENT OR MULTIPLE MEETING ROW ERROR'
       };
     }
@@ -11331,13 +11535,23 @@
         units: row.units || 0,
         weeklyHours: row.weeklyHours || 0,
         summedWeeklyHours: row.sumWeeklyHours || 0,
+        oldContactHourBasis: row.oldContactHourBasis || 0,
+        newContactHourBasis: row.newContactHourBasis || 0,
+        includedComponentCount: row.includedComponentCount || 0,
+        excludedComponentCount: row.excludedComponentCount || 0,
+        oldTimberFtes: row.legacyTimberFtes,
+        ftesRecovered: row.legacyTimberFtes == null || row.timberFtes == null ? null : row.timberFtes - row.legacyTimberFtes,
         totalContactHours: row.totalContactHours || 0,
         summedContactHours: row.sumTotalContactHours || 0,
         meetingRowCount: row.meetingRowCount || 0,
         partOfTerm: row.institutionalPartOfTerm || row.partOfTerm || '',
         currentTimberFormula: currentTimberFtesFormula(row),
         suspectedDefect,
-        candidateCalculation: componentCandidate?.candidateCalculation || 'No evidence-supported candidate correction from currently loaded components.',
+        candidateCalculation: componentCandidate?.candidateCalculation || (
+          row.newContactHourBasis > row.oldContactHourBasis
+            ? `Production W/IW correction uses ${row.newContactHourBasis} weekly contact hours instead of legacy ${row.oldContactHourBasis}.`
+            : 'No evidence-supported candidate correction from currently loaded components.'
+        ),
         candidateFtes,
         candidateResidual,
         rootCause: rooted.rootCause || row.rootCause || '',
@@ -11472,7 +11686,13 @@
       suspectedDefect: row.suspectedDefect || '',
       candidateCalculation: row.candidateCalculation || '',
       candidateFtes: row.candidateFtes ?? '',
-      candidateResidual: row.candidateResidual ?? ''
+      candidateResidual: row.candidateResidual ?? '',
+      oldContactHourBasis: row.oldContactHourBasis ?? '',
+      newContactHourBasis: row.newContactHourBasis ?? '',
+      includedComponentCount: row.includedComponentCount ?? '',
+      excludedComponentCount: row.excludedComponentCount ?? '',
+      oldTimberFtes: row.oldTimberFtes ?? row.legacyTimberFtes ?? '',
+      ftesRecovered: row.ftesRecovered ?? ''
     });
     const auditRowFor = row => ({
       Section: 'Institutional Row Audit',
@@ -11504,7 +11724,13 @@
       suspectedDefect: '',
       candidateCalculation: '',
       candidateFtes: '',
-      candidateResidual: ''
+      candidateResidual: '',
+      oldContactHourBasis: '',
+      newContactHourBasis: '',
+      includedComponentCount: '',
+      excludedComponentCount: '',
+      oldTimberFtes: '',
+      ftesRecovered: ''
     });
     return [
       ...ftesImportDiagnosticRows(summary.parseDiagnostics).map(row => rowFor('Institutional Cube Import', { accountingMethod: row.metric, institutionalFtes: row.value })),
@@ -11627,7 +11853,7 @@
       '<h5>Formula Defect Summary</h5>',
       miniTable(diagnostics.defectSummary || [], ['name', 'affectedCrns', 'currentTimberFtes', 'institutionalFtes', 'currentVariance', 'candidateCorrectedFtes', 'remainingVarianceAfterCandidate', 'confidence'], 'ftesRecon'),
       '<h5>High-Variance CRN Formula Traces</h5>',
-      miniTable(diagnostics.rows || [], ['crn', 'subject', 'course', 'accountingMethod', 'institutionalFtes', 'timberFtes', 'variance', 'enrollment', 'weeklyHours', 'summedWeeklyHours', 'totalContactHours', 'summedContactHours', 'meetingRowCount', 'currentTimberFormula', 'suspectedDefect', 'candidateCalculation', 'candidateFtes', 'candidateResidual'], 'ftesRecon')
+      miniTable(diagnostics.rows || [], ['crn', 'subject', 'course', 'accountingMethod', 'institutionalFtes', 'oldTimberFtes', 'timberFtes', 'variance', 'ftesRecovered', 'enrollment', 'oldContactHourBasis', 'newContactHourBasis', 'includedComponentCount', 'excludedComponentCount', 'meetingRowCount', 'currentTimberFormula', 'suspectedDefect', 'candidateCalculation', 'candidateFtes', 'candidateResidual'], 'ftesRecon')
     ].join('');
   }
 
@@ -18607,6 +18833,12 @@
       candidateCalculation: 'Candidate Calculation',
       candidateFtes: 'Candidate FTES',
       candidateResidual: 'Candidate Residual',
+      oldContactHourBasis: 'Legacy Contact-Hour Basis',
+      newContactHourBasis: 'Corrected Contact-Hour Basis',
+      includedComponentCount: 'Included Components',
+      excludedComponentCount: 'Excluded Components',
+      oldTimberFtes: 'Old TIMBER FTES',
+      ftesRecovered: 'FTES Recovered',
       summedWeeklyHours: 'Summed Weekly Hours',
       summedContactHours: 'Summed Contact Hours',
       currentTimberFtes: 'Current TIMBER FTES',
@@ -20228,6 +20460,7 @@
     canAccessRole,
     canAccess,
     normalizeRow: normalize,
+    getSectionApplicableContactHours,
     normalizeTermLabel,
     modalityNormalizer: window.COSModalityNormalizer,
     displayModalityLabel,

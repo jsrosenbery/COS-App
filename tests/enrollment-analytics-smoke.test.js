@@ -4869,20 +4869,114 @@ test('FTES formula diagnostics simulate supported fixes without mutating product
 
   const summary = COSEnrollmentAnalytics.buildFtesReconciliation(cubeRows, timberRows, { term: 'FALL 2025', expectedInstitutionalTotal: 17 });
   const formula = summary.formulaDiagnostics;
-  const wTrace = formula.allRows.find(row => row.crn === '41001');
+  const wRow = summary.crnRows.find(row => row.crn === '41001');
   const pTrace = formula.allRows.find(row => row.crn === '41003');
   assert.equal(summary.crnRows.find(row => row.crn === '41002').status, 'Exact Match');
   assert.equal(summary.crnRows.find(row => row.crn === '41002').timberFtes, 10);
-  assert.equal(wTrace.suspectedDefect, 'MISSING LAB/ACTIVITY COMPONENT OR MULTIPLE MEETING ROW ERROR');
-  assert.ok(Math.abs(wTrace.candidateFtes - 2) < 0.000001);
-  assert.ok(Math.abs(wTrace.candidateResidual) < 0.000001);
-  assert.equal(wTrace.productionFtesUnchanged, true);
+  assert.equal(wRow.status, 'Exact Match');
+  assert.ok(Math.abs(wRow.legacyTimberFtes - 1.3333333333333333) < 0.000001);
+  assert.ok(Math.abs(wRow.timberFtes - 2) < 0.000001);
+  assert.equal(wRow.oldContactHourBasis, 2);
+  assert.equal(wRow.newContactHourBasis, 3);
   assert.equal(pTrace.suspectedDefect, 'POSITIVE ATTENDANCE DATA UNAVAILABLE');
   assert.equal(pTrace.candidateFtes, null);
-  assert.ok(formula.simulation.simulatedCorrectedFtes > formula.simulation.currentTimberFtes);
+  assert.equal(formula.simulation.simulatedRecovery, 0);
   assert.ok(summary.crnRows.find(row => row.crn === '41002').timberFtes === 10);
   const exportRows = COSEnrollmentAnalytics.ftesReconciliationExportRows(summary);
-  assert.ok(exportRows.some(row => row.Section === 'Formula Diagnostic' && row.crn === '41001' && row.suspectedDefect === 'MISSING LAB/ACTIVITY COMPONENT OR MULTIPLE MEETING ROW ERROR'));
+  assert.ok(exportRows.some(row => row.Section === 'By CRN' && row.crn === '41001' && row.oldContactHourBasis === 2 && row.newContactHourBasis === 3));
+});
+
+test('W and IW FTES contact-hour aggregation distinguishes components from repeated rows', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const normalize = raw => COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '50001', Subject: 'TEST', Course: '100', ACTUAL_ENROLL: '30', Campus: 'COS', ...raw });
+  const aggregate = rows => COSEnrollmentAnalytics.getSectionApplicableContactHours(
+    { accountingMethod: rows[0].accountingMethod, _meetingRows: rows.flatMap(row => row._meetingRows || []) },
+    rows.flatMap(row => row._meetingRows || []),
+    rows[0].accountingMethod
+  );
+
+  const singleComponent = aggregate([
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LEC', Days: 'MW', STARTTIME: '0900', ENDTIME: '1030' })
+  ]);
+  assert.equal(singleComponent.weeklyHours, 3);
+
+  const repeatedTotalBasis = aggregate([
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LEC', Days: 'M', STARTTIME: '0900', ENDTIME: '1030' }),
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LEC', Days: 'W', STARTTIME: '0900', ENDTIME: '1030' })
+  ]);
+  assert.equal(repeatedTotalBasis.weeklyHours, 3);
+  assert.equal(repeatedTotalBasis.componentsIncluded.length, 1);
+  assert.equal(repeatedTotalBasis.componentsExcluded.length, 1);
+
+  const perOccurrenceBasis = aggregate([
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '1.5', SCHD_CODE_SSRMEET: 'LEC', Days: 'M', STARTTIME: '0900', ENDTIME: '1030' }),
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '1.5', SCHD_CODE_SSRMEET: 'LEC', Days: 'W', STARTTIME: '0900', ENDTIME: '1030' })
+  ]);
+  assert.equal(perOccurrenceBasis.weeklyHours, 3);
+
+  const lectureLab = aggregate([
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LEC', Days: 'MW', STARTTIME: '0900', ENDTIME: '1030' }),
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LAB', Days: 'F', STARTTIME: '0900', ENDTIME: '1200' })
+  ]);
+  assert.equal(lectureLab.weeklyHours, 6);
+
+  const duplicateRows = aggregate([
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LEC', Days: 'MW', STARTTIME: '0900', ENDTIME: '1030' }),
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LEC', Days: 'MW', STARTTIME: '0900', ENDTIME: '1030' })
+  ]);
+  assert.equal(duplicateRows.weeklyHours, 3);
+  assert.match(duplicateRows.componentsExcluded[0].reason, /Duplicate source artifact/);
+
+  const iwLectureLab = aggregate([
+    normalize({ ACCOUNTING_METHOD: 'IW', HOURS_PER_WEEK: '2', SCHD_CODE_SSRMEET: 'LEC', Days: 'T', STARTTIME: '0800', ENDTIME: '1000' }),
+    normalize({ ACCOUNTING_METHOD: 'IW', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LAB', Days: 'R', STARTTIME: '0800', ENDTIME: '1100' })
+  ]);
+  assert.equal(iwLectureLab.weeklyHours, 5);
+
+  const dateRangeControl = aggregate([
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LEC', Days: 'M', STARTTIME: '0900', ENDTIME: '1200', START_DATE: '08/10/2025', END_DATE: '10/10/2025' }),
+    normalize({ ACCOUNTING_METHOD: 'W', HOURS_PER_WEEK: '3', SCHD_CODE_SSRMEET: 'LEC', Days: 'M', STARTTIME: '0900', ENDTIME: '1200', START_DATE: '10/11/2025', END_DATE: '12/10/2025' })
+  ]);
+  assert.equal(dateRangeControl.weeklyHours, 3);
+  assert.ok(dateRangeControl.componentsExcluded.some(row => /date-aware review|date-range/i.test(row.reason)));
+});
+
+test('W and IW production FTES uses component aggregation while non-W methods remain unchanged', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const cubeRows = [
+    { Campus: 'COS', Subject: 'PLSI', Course: '106', CRN: '51001', 'Accounting Method': 'W', 'Part of Term': '1', Enrollment: '23', 'Individual FTES': '17.48' },
+    { Campus: 'COS', Subject: 'BIOL', Course: '031', CRN: '51002', 'Accounting Method': 'W', 'Part of Term': '1', Enrollment: '30', 'Individual FTES': '6' },
+    { Campus: 'COS', Subject: 'LIBR', Course: '101', CRN: '51003', 'Accounting Method': 'IW', 'Part of Term': '1', Enrollment: '21', 'Individual FTES': '3.5' },
+    { Campus: 'COS', Subject: 'CHEM', Course: '001', CRN: '51004', 'Accounting Method': 'E', 'Part of Term': '1', Enrollment: '10', 'Individual FTES': '4' },
+    { Campus: 'COS', Subject: 'AUTO', Course: '120', CRN: '51005', 'Accounting Method': 'P', 'Part of Term': '1', Enrollment: '10', 'Individual FTES': '5' },
+    { Campus: 'COS', Subject: 'WKEX', Course: '020', CRN: '51006', 'Accounting Method': 'D', 'Part of Term': '1', Enrollment: '10', 'Individual FTES': '10' },
+    { Campus: 'COS', Subject: 'ART', Course: '010', CRN: '51007', 'Accounting Method': 'ID', 'Part of Term': '1', Enrollment: '10', 'Individual FTES': '2' },
+    { Campus: 'COS', Subject: 'LIBR', Course: '400', CRN: '51008', 'Accounting Method': 'O', 'Part of Term': '1', Enrollment: '10', 'Individual FTES': '0' },
+    { Campus: 'Total by COLUMNS', 'Individual FTES': '47.98' }
+  ];
+  const timberRows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51001', Subject: 'PLSI', Course: '106', ACTUAL_ENROLL: '23', HOURS_PER_WEEK: '3', ACCOUNTING_METHOD: 'W', SCHD_CODE_SSRMEET: 'LEC', Campus: 'COS', Days: 'MW', STARTTIME: '0900', ENDTIME: '1030' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51001', Subject: 'PLSI', Course: '106', ACTUAL_ENROLL: '23', HOURS_PER_WEEK: '19.8', ACCOUNTING_METHOD: 'W', SCHD_CODE_SSRMEET: 'LAB', Campus: 'COS', Days: 'F', STARTTIME: '0900', ENDTIME: '1200' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51002', Subject: 'BIOL', Course: '031', ACTUAL_ENROLL: '30', HOURS_PER_WEEK: '6', ACCOUNTING_METHOD: 'W', SCHD_CODE_SSRMEET: 'LEC', Campus: 'COS', Days: 'MW', STARTTIME: '0900', ENDTIME: '1200' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51003', Subject: 'LIBR', Course: '101', ACTUAL_ENROLL: '21', HOURS_PER_WEEK: '2', ACCOUNTING_METHOD: 'IW', SCHD_CODE_SSRMEET: 'LEC', Campus: 'COS', Days: 'T', STARTTIME: '0800', ENDTIME: '1000' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51003', Subject: 'LIBR', Course: '101', ACTUAL_ENROLL: '21', HOURS_PER_WEEK: '3', ACCOUNTING_METHOD: 'IW', SCHD_CODE_SSRMEET: 'LAB', Campus: 'COS', Days: 'R', STARTTIME: '0800', ENDTIME: '1100' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51004', Subject: 'CHEM', Course: '001', ACTUAL_ENROLL: '10', FTES: '4', ACCOUNTING_METHOD: 'E', Campus: 'COS' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51005', Subject: 'AUTO', Course: '120', ACTUAL_ENROLL: '10', ACCOUNTING_METHOD: 'P', TOTAL_CONTACT_HOURS: '262.5', Campus: 'COS' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51006', Subject: 'WKEX', Course: '020', ACTUAL_ENROLL: '10', FTES: '10', ACCOUNTING_METHOD: 'D', Campus: 'COS' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51007', Subject: 'ART', Course: '010', ACTUAL_ENROLL: '10', FTES: '2', ACCOUNTING_METHOD: 'ID', Campus: 'COS' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '51008', Subject: 'LIBR', Course: '400', ACTUAL_ENROLL: '10', FTES: '0', ACCOUNTING_METHOD: 'O', Campus: 'COS' })
+  ];
+  const summary = COSEnrollmentAnalytics.buildFtesReconciliation(cubeRows, timberRows, { term: 'FALL 2025', expectedInstitutionalTotal: 47.98, tolerance: 0.02 });
+  const byCrn = new Map(summary.crnRows.map(row => [row.crn, row]));
+  assert.ok(Math.abs(byCrn.get('51001').timberFtes - 17.48) < 0.02);
+  assert.ok(Math.abs(byCrn.get('51001').legacyTimberFtes - 15.18) < 0.02);
+  assert.equal(byCrn.get('51002').status, 'Exact Match');
+  assert.ok(Math.abs(byCrn.get('51003').timberFtes - 3.5) < 0.000001);
+  assert.equal(byCrn.get('51004').timberFtes, 4);
+  assert.equal(byCrn.get('51005').timberFtes, 5);
+  assert.equal(byCrn.get('51006').timberFtes, 10);
+  assert.equal(byCrn.get('51007').timberFtes, 2);
+  assert.equal(byCrn.get('51008').timberFtes, 0);
 });
 
 test('FTES reconciliation loads SheetJS before enrollment analytics for XLSX validation imports', () => {
