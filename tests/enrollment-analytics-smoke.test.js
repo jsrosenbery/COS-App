@@ -4585,8 +4585,20 @@ test('current enrollment and FTES report replaces manual snapshot controls', () 
   assert.match(text, /const selectedTerms = \[\.\.\.new Set\(\[focusTerm, comparisonTerm\]/);
   assert.match(text, /selectedTerms\.map\(term => loadWorkExperienceTermRows\(term\)/);
   assert.match(text, /const matchingWorkRows = includeWorkExperience\('cef'\) \? dedupeEnrollmentRows\(\[\.\.\.workExperienceRowsForTerms\(selectedTerms\), \.\.\.savedWorkRows\]\) : \[\]/);
+  assert.match(text, /Run Selected Term FTES/);
+  assert.match(text, /Calculation Context/);
+  assert.match(text, /Historical FTES\/enrollment ratios are not used/);
   assert.doesNotMatch(text, /id="snapSeason"/);
   assert.doesNotMatch(text, /id="snapType"/);
+});
+
+test('current enrollment and FTES comparison defaults to exact prior-year like term only', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const terms = ['FALL 2023', 'FALL 2024', 'SPRING 2025', 'FALL 2026', 'SPRING 2027'];
+
+  assert.equal(COSEnrollmentAnalytics.previousLikeTerm('FALL 2026', terms), '');
+  assert.equal(COSEnrollmentAnalytics.previousLikeTerm('SPRING 2027', terms), '');
+  assert.equal(COSEnrollmentAnalytics.previousLikeTerm('FALL 2025', terms), 'FALL 2024');
 });
 
 test('current enrollment and FTES summary dedupes CRNs and separates populations', () => {
@@ -4612,6 +4624,8 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   assert.equal(summary.focus.classOfferings, 5);
   assert.equal(summary.focus.enrollment, 92);
   assert.equal(summary.focus.ftes, 6.7);
+  assert.equal(summary.focus.unavailableFtesRows, 1);
+  assert.equal(summary.focus.ftesPerEnrollment, 6.7 / 92);
   assert.equal(populationNames.sort().join('|'), ['COS Classes', 'Dual Enrollment', 'Work Experience'].sort().join('|'));
   assert.equal(rows.find(row => row.crn === 'WX002').isWorkExperience, true);
   assert.equal(rows.find(row => row.crn === 'WX002').timeBlock, 'WORK EXPERIENCE');
@@ -4626,13 +4640,39 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   assert.equal(summary.variances.enrollment, 58);
   assert.equal(summary.comparisonRows[0].line, 'Focus Term');
   assert.equal(summary.comparisonRows[2].enrollment, 58);
+  assert.equal(summary.metricComparisonRows[0].metric, 'Enrollment');
+  assert.equal(summary.metricComparisonRows[1].metric, 'FTES');
+  assert.equal(summary.metricComparisonRows[2].metric, 'FTES per Enrollment');
+  assert.equal(summary.reconciliation.focus.matches, true);
+  assert.equal(summary.reconciliation.comparison.matches, true);
+  assert.equal(summary.context.selectedRowsLoaded, 5);
+  assert.equal(summary.context.comparisonRowsLoaded, 2);
+  assert.equal(summary.context.selectedWorkExperienceRows, 2);
+  assert.equal(summary.context.comparisonWorkExperienceRows, 1);
+  assert.match(summary.context.ftesSource, /Historical FTES\/enrollment ratios are not used/);
+  assert.ok(summary.warnings.some(warning => /missing FTES inputs/i.test(warning)));
+  assert.ok(summary.breakdowns.ftesComponents.some(row => row.name === 'Work Experience'));
+  assert.ok(summary.breakdowns.comparisonFtesComponents.some(row => row.name === 'Work Experience'));
   assert.ok(accountingRows.some(row => /Open Entry\/Open Exit|Positive Attendance/.test(row.name) && /total contact hours|direct FTES/i.test(row.calculationNote)));
+  const withoutWorkExperience = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', comparisonTerm: 'FALL 2025', includeWorkExperience: false });
+  assert.equal(withoutWorkExperience.focus.classOfferings, 3);
+  assert.equal(withoutWorkExperience.focus.enrollment, 75);
+  assert.equal(withoutWorkExperience.comparison.classOfferings, 1);
+  const withoutDualEnrollment = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', comparisonTerm: 'FALL 2025', includeDualEnrollment: false });
+  assert.equal(withoutDualEnrollment.focus.classOfferings, 4);
+  assert.equal(withoutDualEnrollment.focus.enrollment, 72);
   const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
   const exportSections = exportRows.map(row => row.Section);
+  assert.ok(exportSections.includes('Calculation Context'));
+  assert.ok(exportSections.includes('Warnings'));
+  assert.ok(exportSections.includes('Selected vs Comparison Metrics'));
+  assert.ok(exportSections.includes('Selected Term FTES Components'));
+  assert.ok(exportSections.includes('Comparison Term FTES Components'));
   assert.ok(exportSections.includes('FTES by Population / Campus'));
   assert.ok(exportSections.includes('FTES by Instructional Method'));
   assert.ok(exportRows.every(row => Object.hasOwn(row, 'Class Offerings') && Object.hasOwn(row, 'Formula-Calculated FTES Rows')));
-  assert.ok(exportRows.some(row => row.Section === 'Summary' && row.Metric === 'Conservative Estimated Completed FTES' && /requires completion assumptions/i.test(row.Value)));
+  assert.ok(exportRows.some(row => row.Section === 'Summary' && row.Metric === 'Selected Term FTES per Enrollment' && row.Value === 6.7 / 92));
+  assert.ok(exportRows.some(row => row.Section === 'Calculation Context' && row.Metric === 'Ftes Source' && /Historical FTES\/enrollment ratios are not used/.test(row.Value)));
 });
 
 test('modality balance uses shared modality category normalization and diagnostics', () => {
