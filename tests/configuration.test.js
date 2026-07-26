@@ -11,10 +11,13 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.equal(REPORTS.scheduleBuilder, 'schedule-builder');
   assert.equal(REPORTS.facultyHeatmap, 'faculty-schedule-heatmap');
   assert.equal(REPORTS.dataHub, 'source-data-hub');
+  assert.equal(REPORTS.ftesReconciliation, 'ftes-reconciliation');
   assert.equal(REPORT_ACCESS[REPORTS.scheduleBuilder], 'dean');
   assert.equal(REPORT_ACCESS[REPORTS.dataHub], 'admin');
+  assert.equal(REPORT_ACCESS[REPORTS.ftesReconciliation], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.heatmap], 'divchair');
   assert.equal(REPORT_LABEL[REPORTS.dataHub], 'Source Data Hub');
+  assert.equal(REPORT_LABEL[REPORTS.ftesReconciliation], 'FTES Reconciliation');
   assert.equal(REPORT_LABEL[REPORTS.demand], 'Enrollment Planning Forecast');
   assert.ok(REPORT_ORDER.indexOf(REPORTS.instructorAvailability) < REPORT_ORDER.indexOf(REPORTS.dashboard));
 });

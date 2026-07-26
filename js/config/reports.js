@@ -31,6 +31,7 @@
     scheduleBuilder: 'schedule-builder',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
+    ftesReconciliation: 'ftes-reconciliation',
     archiveInspection: 'archive-inspection',
     dataHub: 'source-data-hub'
   });
@@ -54,6 +55,7 @@
     [REPORTS.archiveInspection]: 'admin',
     [REPORTS.dataHub]: 'admin',
     [REPORTS.snapshotManager]: 'admin',
+    [REPORTS.ftesReconciliation]: 'admin',
     [REPORTS.workExperience]: 'admin',
     [REPORTS.dashboard]: 'dean',
     [REPORTS.duration]: 'divchair',
@@ -89,6 +91,7 @@
     [REPORTS.demand]: 'Enrollment Planning Forecast',
     [REPORTS.emSnapshot]: 'Current Enrollment & FTES',
     [REPORTS.snapshotManager]: 'Current Enrollment & FTES',
+    [REPORTS.ftesReconciliation]: 'FTES Reconciliation',
     [REPORTS.heatmap]: 'Course Start-Time Heatmap',
     [REPORTS.instructorAvailability]: 'Instructor Availability',
     [REPORTS.modality]: 'Modality Balance',
@@ -134,6 +137,7 @@
     REPORTS.instructionalMethodValidation,
     REPORTS.dataHub,
     REPORTS.snapshotManager,
+    REPORTS.ftesReconciliation,
     REPORTS.archiveInspection,
     REPORTS.workExperience
   ]);
@@ -185,6 +189,7 @@
         REPORTS.instructionalMethodValidation,
         REPORTS.dataHub,
         REPORTS.snapshotManager,
+        REPORTS.ftesReconciliation,
         REPORTS.archiveInspection,
         REPORTS.workExperience
       ])
@@ -211,6 +216,7 @@
     [REPORTS.demand]: 'Forecast enrollment, FTES, schedule supply, demand, and planning gaps.',
     [REPORTS.emSnapshot]: 'Review current enrollment and FTES by campus, modality, population, and attendance method with optional prior-term comparison.',
     [REPORTS.snapshotManager]: 'Report current enrollment and FTES from loaded Section Seating data with like-term comparison.',
+    [REPORTS.ftesReconciliation]: 'Compare TIMBER calculated FTES to an institutional Cube validation source by CRN, accounting method, and part of term.',
     [REPORTS.heatmap]: 'Show when classes begin by day and scheduled start time, with enrollment and capacity views.',
     [REPORTS.instructorAvailability]: 'Check instructor teaching conflicts and shared availability windows.',
     [REPORTS.modality]: 'Compare class offerings and enrollment by in-person, hybrid, online, and Dual Enrollment.',
