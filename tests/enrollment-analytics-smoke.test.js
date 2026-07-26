@@ -4852,6 +4852,39 @@ test('FTES reconciliation builds variance root-cause diagnostics without changin
   assert.ok(exportRows.some(row => row.Section === 'Variance Root Cause Summary'));
 });
 
+test('FTES formula diagnostics simulate supported fixes without mutating production FTES', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const cubeRows = [
+    { Campus: 'COS', Division: 'Arts', Subject: 'MATH', Course: '101', CRN: '41001', 'Accounting Method': 'W', 'Part of Term': '1', Enrollment: '20', 'Student Contact Hours': '', 'Individual FTES': '2' },
+    { Campus: 'COS', Division: 'Career', Subject: 'WKEX', Course: '020', CRN: '41002', 'Accounting Method': 'D', 'Part of Term': '1', Enrollment: '10', 'Student Contact Hours': '', 'Individual FTES': '10' },
+    { Campus: 'COS', Division: 'Career', Subject: 'AUTO', Course: '120', CRN: '41003', 'Accounting Method': 'P', 'Part of Term': 'OE', Enrollment: '10', 'Student Contact Hours': '262.5', 'Individual FTES': '5' },
+    { Campus: 'Total by COLUMNS', Division: '', Subject: '', Course: '', CRN: '', 'Accounting Method': '', 'Part of Term': '', Enrollment: '', 'Student Contact Hours': '', 'Individual FTES': '17' }
+  ];
+  const timberRows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '41001', Subject: 'MATH', Course: '101', ACTUAL_ENROLL: '20', HOURS_PER_WEEK: '2', ACCOUNTING_METHOD: 'W', Campus: 'COS', Days: 'MW', STARTTIME: '0900', ENDTIME: '1000' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '41001', Subject: 'MATH', Course: '101', ACTUAL_ENROLL: '20', HOURS_PER_WEEK: '1', ACCOUNTING_METHOD: 'W', Campus: 'COS', Days: 'F', STARTTIME: '1000', ENDTIME: '1100' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '41002', Subject: 'WKEX', Course: '020', ACTUAL_ENROLL: '10', FTES: '10', ACCOUNTING_METHOD: 'D', Campus: 'COS' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: '41003', Subject: 'AUTO', Course: '120', ACTUAL_ENROLL: '10', ACCOUNTING_METHOD: 'P', Campus: 'COS' })
+  ];
+
+  const summary = COSEnrollmentAnalytics.buildFtesReconciliation(cubeRows, timberRows, { term: 'FALL 2025', expectedInstitutionalTotal: 17 });
+  const formula = summary.formulaDiagnostics;
+  const wTrace = formula.allRows.find(row => row.crn === '41001');
+  const pTrace = formula.allRows.find(row => row.crn === '41003');
+  assert.equal(summary.crnRows.find(row => row.crn === '41002').status, 'Exact Match');
+  assert.equal(summary.crnRows.find(row => row.crn === '41002').timberFtes, 10);
+  assert.equal(wTrace.suspectedDefect, 'MISSING LAB/ACTIVITY COMPONENT OR MULTIPLE MEETING ROW ERROR');
+  assert.ok(Math.abs(wTrace.candidateFtes - 2) < 0.000001);
+  assert.ok(Math.abs(wTrace.candidateResidual) < 0.000001);
+  assert.equal(wTrace.productionFtesUnchanged, true);
+  assert.equal(pTrace.suspectedDefect, 'POSITIVE ATTENDANCE DATA UNAVAILABLE');
+  assert.equal(pTrace.candidateFtes, null);
+  assert.ok(formula.simulation.simulatedCorrectedFtes > formula.simulation.currentTimberFtes);
+  assert.ok(summary.crnRows.find(row => row.crn === '41002').timberFtes === 10);
+  const exportRows = COSEnrollmentAnalytics.ftesReconciliationExportRows(summary);
+  assert.ok(exportRows.some(row => row.Section === 'Formula Diagnostic' && row.crn === '41001' && row.suspectedDefect === 'MISSING LAB/ACTIVITY COMPONENT OR MULTIPLE MEETING ROW ERROR'));
+});
+
 test('FTES reconciliation loads SheetJS before enrollment analytics for XLSX validation imports', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const enrollmentAnalytics = fs.readFileSync(path.join(__dirname, '..', 'js', 'enrollment-analytics.js'), 'utf8');

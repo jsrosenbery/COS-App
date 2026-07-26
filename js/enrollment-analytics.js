@@ -10895,6 +10895,7 @@
     scoped.forEach(row => {
       const crn = canon(row.crn);
       if (!crn) return;
+      const meetingInputs = ftesMeetingComponentInputs(row);
       if (!grouped.has(crn)) {
         grouped.set(crn, {
           term: normalizeTermLabel(row.term),
@@ -10913,7 +10914,21 @@
           sourceDataset: new Set(),
           workExperience: false,
           unavailable: false,
-          duplicateCount: 0
+          duplicateCount: 0,
+          units: 0,
+          weeklyHours: 0,
+          dailyHours: 0,
+          totalContactHours: 0,
+          sumWeeklyHours: 0,
+          sumTotalContactHours: 0,
+          meetingRowCount: 0,
+          termLengthMultiplier: 17.5,
+          startDate: '',
+          endDate: '',
+          days: '',
+          start: '',
+          end: '',
+          modality: ''
         });
       }
       const record = grouped.get(crn);
@@ -10924,6 +10939,19 @@
       record.timberFtesSources.add(row.hasDirectFtesData ? 'Supplied FTES field' : row.hasFtesData ? 'TIMBER attendance-accounting formula' : 'FTES unavailable');
       record.workExperience = record.workExperience || row.isWorkExperience || currentEnrollmentPopulation(row) === 'Work Experience';
       record.unavailable = record.unavailable || currentEnrollmentFtesUnavailable(row);
+      record.units = Math.max(record.units || 0, row.units || 0);
+      record.weeklyHours = Math.max(record.weeklyHours || 0, row.weeklyHours || 0);
+      record.dailyHours = Math.max(record.dailyHours || 0, row.dailyHours || 0);
+      record.totalContactHours = Math.max(record.totalContactHours || 0, row.totalContactHours || 0);
+      record.sumWeeklyHours = Math.max(record.sumWeeklyHours || 0, meetingInputs.sumWeeklyHours || 0);
+      record.sumTotalContactHours = Math.max(record.sumTotalContactHours || 0, meetingInputs.sumTotalContactHours || 0);
+      record.meetingRowCount = Math.max(record.meetingRowCount || 0, meetingInputs.meetingRowCount || 0);
+      record.startDate = record.startDate || row.startDate || '';
+      record.endDate = record.endDate || row.endDate || '';
+      record.days = record.days || (row.days || []).join('') || '';
+      record.start = record.start || row.start || '';
+      record.end = record.end || row.end || '';
+      record.modality = record.modality || row.modality || '';
       const ftes = currentEnrollmentFtesUnavailable(row) ? null : currentEnrollmentFtesValue(row);
       record.timberFtes = sumNullable(record.timberFtes, ftes);
       record.duplicateCount += 1;
@@ -10935,6 +10963,15 @@
       timberFtesSources: [...record.timberFtesSources].join('; '),
       duplicateCount: Math.max(0, record.duplicateCount - 1)
     }));
+  }
+
+  function ftesMeetingComponentInputs(row = {}) {
+    const meetingRows = row._meetingRows?.length ? row._meetingRows : [meetingRowForFtes(row)];
+    return {
+      meetingRowCount: meetingRows.length,
+      sumWeeklyHours: meetingRows.reduce((total, meeting) => total + (Number(meeting.weeklyHours) || 0), 0),
+      sumTotalContactHours: meetingRows.reduce((total, meeting) => total + (Number(meeting.totalContactHours) || 0), 0)
+    };
   }
 
   function reconcileFtesRecords(institutionalRecords = [], timberRecords = [], options = {}) {
@@ -10978,6 +11015,20 @@
         timberPartOfTerm: timber.partOfTerm || '',
         institutionalEnrollment: institutional.institutionalEnrollment,
         timberEnrollment: timber.timberEnrollment,
+        units: timber.units,
+        weeklyHours: timber.weeklyHours,
+        dailyHours: timber.dailyHours,
+        totalContactHours: timber.totalContactHours,
+        sumWeeklyHours: timber.sumWeeklyHours,
+        sumTotalContactHours: timber.sumTotalContactHours,
+        meetingRowCount: timber.meetingRowCount,
+        termLengthMultiplier: timber.termLengthMultiplier,
+        startDate: timber.startDate,
+        endDate: timber.endDate,
+        days: timber.days,
+        start: timber.start,
+        end: timber.end,
+        modality: timber.modality,
         studentContactHours: institutional.studentContactHours,
         institutionalFtes,
         timberFtes,
@@ -11009,6 +11060,20 @@
       institutionalFtes: type === 'institutional' ? sumNullable(acc.institutionalFtes, row.institutionalFtes) : acc.institutionalFtes,
       timberEnrollment: type === 'timber' ? sumNullable(acc.timberEnrollment, row.timberEnrollment) : acc.timberEnrollment,
       timberFtes: type === 'timber' ? sumNullable(acc.timberFtes, row.timberFtes) : acc.timberFtes,
+      units: type === 'timber' ? Math.max(acc.units || 0, row.units || 0) : acc.units,
+      weeklyHours: type === 'timber' ? Math.max(acc.weeklyHours || 0, row.weeklyHours || 0) : acc.weeklyHours,
+      dailyHours: type === 'timber' ? Math.max(acc.dailyHours || 0, row.dailyHours || 0) : acc.dailyHours,
+      totalContactHours: type === 'timber' ? Math.max(acc.totalContactHours || 0, row.totalContactHours || 0) : acc.totalContactHours,
+      sumWeeklyHours: type === 'timber' ? Math.max(acc.sumWeeklyHours || 0, row.sumWeeklyHours || 0) : acc.sumWeeklyHours,
+      sumTotalContactHours: type === 'timber' ? Math.max(acc.sumTotalContactHours || 0, row.sumTotalContactHours || 0) : acc.sumTotalContactHours,
+      meetingRowCount: type === 'timber' ? Math.max(acc.meetingRowCount || 0, row.meetingRowCount || 0) : acc.meetingRowCount,
+      termLengthMultiplier: type === 'timber' ? (acc.termLengthMultiplier || row.termLengthMultiplier || 17.5) : acc.termLengthMultiplier,
+      startDate: type === 'timber' ? (acc.startDate || row.startDate) : acc.startDate,
+      endDate: type === 'timber' ? (acc.endDate || row.endDate) : acc.endDate,
+      days: type === 'timber' ? (acc.days || row.days) : acc.days,
+      start: type === 'timber' ? (acc.start || row.start) : acc.start,
+      end: type === 'timber' ? (acc.end || row.end) : acc.end,
+      modality: type === 'timber' ? (acc.modality || row.modality) : acc.modality,
       timberFtesSources: [acc.timberFtesSources, row.timberFtesSources].filter(Boolean).join('; '),
       sourceDataset: [acc.sourceDataset, row.sourceDataset].filter(Boolean).join('; '),
       workExperience: acc.workExperience || row.workExperience,
@@ -11181,6 +11246,144 @@
     return analysis;
   }
 
+  function currentTimberFtesFormula(row = {}) {
+    const method = row.timberAccountingMethod || row.accountingMethod || '';
+    const info = accountingMethodInfo(method);
+    const enrollment = row.timberEnrollment ?? 0;
+    if (/Supplied FTES field/.test(row.timberFtesSource || '')) {
+      return `TIMBER used the FTES value supplied in the operational source file. Formula fallback was not applied.`;
+    }
+    if (/unavailable/i.test(row.timberFtesSource || '') || row.timberFtes == null) {
+      return `TIMBER could not calculate FTES because direct FTES and required attendance-accounting inputs were unavailable.`;
+    }
+    if (['weekly', 'independentWeekly', 'unknown'].includes(info.category) && row.weeklyHours > 0) {
+      return `(${enrollment} enrollment x ${row.weeklyHours} weekly contact hours x ${row.termLengthMultiplier || 17.5} TLM) / 525 = ${formatFtesDiagnosticNumber(row.timberFtes)}`;
+    }
+    if (['daily', 'independentDaily', 'positive'].includes(info.category) && row.totalContactHours > 0) {
+      return `(${enrollment} enrollment x ${row.totalContactHours} total contact hours) / 525 = ${formatFtesDiagnosticNumber(row.timberFtes)}`;
+    }
+    if (row.units > 0) {
+      return `(${enrollment} enrollment x ${row.units} units) / 30 = ${formatFtesDiagnosticNumber(row.timberFtes)}`;
+    }
+    return `TIMBER produced ${formatFtesDiagnosticNumber(row.timberFtes)} FTES, but the source inputs do not identify the formula path.`;
+  }
+
+  function ftesCandidateFromComponents(row = {}) {
+    const method = row.timberAccountingMethod || row.institutionalAccountingMethod || row.accountingMethod || '';
+    const info = accountingMethodInfo(method);
+    const enrollment = row.timberEnrollment ?? row.institutionalEnrollment ?? 0;
+    if (!enrollment) return null;
+    if (['weekly', 'independentWeekly', 'unknown'].includes(info.category) && row.sumWeeklyHours > row.weeklyHours) {
+      return {
+        candidateFtes: (enrollment * row.sumWeeklyHours * (row.termLengthMultiplier || 17.5)) / 525,
+        candidateCalculation: `Component-sum simulation: (${enrollment} enrollment x ${row.sumWeeklyHours} summed weekly contact hours x ${row.termLengthMultiplier || 17.5} TLM) / 525`,
+        suspectedDefect: 'MISSING LAB/ACTIVITY COMPONENT OR MULTIPLE MEETING ROW ERROR'
+      };
+    }
+    if (['daily', 'independentDaily', 'positive'].includes(info.category) && row.sumTotalContactHours > row.totalContactHours) {
+      return {
+        candidateFtes: (enrollment * row.sumTotalContactHours) / 525,
+        candidateCalculation: `Component-sum simulation: (${enrollment} enrollment x ${row.sumTotalContactHours} summed total contact hours) / 525`,
+        suspectedDefect: 'MISSING CONTACT-HOUR COMPONENT OR MULTIPLE MEETING ROW ERROR'
+      };
+    }
+    return null;
+  }
+
+  function inferFtesFormulaDefect(row = {}, rootCause = '') {
+    if (row.workExperience) return 'WORK EXPERIENCE SOURCE ISSUE';
+    if (rootCause === 'SOURCE DATA INCOMPLETE' && (row.institutionalAccountingMethod || row.accountingMethod) === 'P') return 'POSITIVE ATTENDANCE DATA UNAVAILABLE';
+    if (row.status === 'Missing From TIMBER') return 'SOURCE DATA INCOMPLETE';
+    if (row.status === 'Missing From Institutional Source') return 'TIMBER ONLY';
+    if (rootCause === 'ACCOUNTING METHOD MISMATCH') return 'ACCOUNTING METHOD MISMATCH';
+    if (rootCause === 'ENROLLMENT MISMATCH') return 'WRONG ENROLLMENT INPUT';
+    if (rootCause === 'PART OF TERM ISSUE') return 'WRONG TERM LENGTH / PART OF TERM';
+    const componentCandidate = ftesCandidateFromComponents(row);
+    if (componentCandidate) return componentCandidate.suspectedDefect;
+    if (/Supplied FTES field/.test(row.timberFtesSource || '') && Math.abs(row.variance || 0) > FTES_RECONCILIATION_TOLERANCE) return 'SOURCE FTES FIELD DIFFERS FROM INSTITUTIONAL CUBE';
+    const method = row.institutionalAccountingMethod || row.accountingMethod || '';
+    if (method === 'W') return 'UNKNOWN WEEKLY CENSUS FORMULA DEFECT';
+    if (method === 'IW') return 'UNKNOWN INDEPENDENT WEEKLY FORMULA DEFECT';
+    if (method === 'E') return 'UNKNOWN EXCLUDING-HOLIDAYS FORMULA DEFECT';
+    if (method === 'P') return 'POSITIVE ATTENDANCE DATA UNAVAILABLE';
+    return 'UNKNOWN FORMULA DEFECT';
+  }
+
+  function buildFtesFormulaDiagnostics(crnRows = [], rootCauseAnalysis = {}) {
+    const rootByCrn = new Map((rootCauseAnalysis.materialRows || []).map(row => [row.crn, row]));
+    const material = materialFtesVarianceRows(crnRows);
+    const diagnosticRows = material.map(row => {
+      const rooted = rootByCrn.get(row.crn) || {};
+      const componentCandidate = ftesCandidateFromComponents(row);
+      const suspectedDefect = inferFtesFormulaDefect(row, rooted.rootCause || row.rootCause || '');
+      const candidateFtes = componentCandidate?.candidateFtes ?? null;
+      const candidateResidual = candidateFtes == null || row.institutionalFtes == null ? null : candidateFtes - row.institutionalFtes;
+      const productionFtesBefore = row.timberFtes;
+      return {
+        crn: row.crn,
+        subject: row.subject,
+        course: row.course,
+        accountingMethod: row.institutionalAccountingMethod || row.accountingMethod || '',
+        institutionalFtes: row.institutionalFtes,
+        timberFtes: row.timberFtes,
+        variance: row.variance ?? ((row.timberFtes ?? 0) - (row.institutionalFtes ?? 0)),
+        enrollment: row.timberEnrollment ?? row.institutionalEnrollment ?? '',
+        units: row.units || 0,
+        weeklyHours: row.weeklyHours || 0,
+        summedWeeklyHours: row.sumWeeklyHours || 0,
+        totalContactHours: row.totalContactHours || 0,
+        summedContactHours: row.sumTotalContactHours || 0,
+        meetingRowCount: row.meetingRowCount || 0,
+        partOfTerm: row.institutionalPartOfTerm || row.partOfTerm || '',
+        currentTimberFormula: currentTimberFtesFormula(row),
+        suspectedDefect,
+        candidateCalculation: componentCandidate?.candidateCalculation || 'No evidence-supported candidate correction from currently loaded components.',
+        candidateFtes,
+        candidateResidual,
+        rootCause: rooted.rootCause || row.rootCause || '',
+        diagnosticNotes: rooted.diagnosticNotes || ftesRootCauseNote(row, rooted.rootCause || row.rootCause || ''),
+        productionFtesUnchanged: productionFtesBefore === row.timberFtes
+      };
+    });
+    const defectSummary = aggregateFtesRows(diagnosticRows, row => row.suspectedDefect).map(row => {
+      const affected = diagnosticRows.filter(item => item.suspectedDefect === row.name);
+      const candidateRows = affected.filter(item => item.candidateFtes != null);
+      const candidateCorrectedFtes = candidateRows.reduce((total, item) => total + item.candidateFtes, 0) +
+        affected.filter(item => item.candidateFtes == null).reduce((total, item) => total + (item.timberFtes ?? 0), 0);
+      const currentTimberFtes = affected.reduce((total, item) => total + (item.timberFtes ?? 0), 0);
+      const institutionalFtes = affected.reduce((total, item) => total + (item.institutionalFtes ?? 0), 0);
+      return {
+        ...row,
+        affectedCrns: affected.length,
+        currentTimberFtes,
+        candidateCorrectedFtes,
+        currentVariance: currentTimberFtes - institutionalFtes,
+        remainingVarianceAfterCandidate: candidateCorrectedFtes - institutionalFtes,
+        candidateRecovery: candidateCorrectedFtes - currentTimberFtes,
+        confidence: candidateRows.length && candidateRows.length === affected.length ? 'MEDIUM' : 'LOW'
+      };
+    });
+    const simulatedRecovery = defectSummary.reduce((total, row) => total + (row.candidateRecovery || 0), 0);
+    const currentTimberFtes = (crnRows || []).reduce((total, row) => total + (row.timberFtes ?? 0), 0);
+    const institutionalFtes = (crnRows || []).reduce((total, row) => total + (row.institutionalFtes ?? 0), 0);
+    return {
+      rows: diagnosticRows.sort((a, b) => Math.abs(b.variance || 0) - Math.abs(a.variance || 0)).slice(0, 50),
+      allRows: diagnosticRows,
+      defectSummary,
+      simulation: {
+        label: 'DIAGNOSTIC SIMULATION - NOT PRODUCTION FTES',
+        currentTimberFtes,
+        simulatedRecovery,
+        simulatedCorrectedFtes: currentTimberFtes + simulatedRecovery,
+        institutionalFtes,
+        residual: currentTimberFtes + simulatedRecovery - institutionalFtes,
+        missingSourceFtesNotReproducible: diagnosticRows
+          .filter(row => row.candidateFtes == null && /UNAVAILABLE|INCOMPLETE/.test(row.suspectedDefect))
+          .reduce((total, row) => total + Math.abs(row.variance || 0), 0)
+      }
+    };
+  }
+
   function buildFtesReconciliation(cubeRows = [], timberRows = [], options = {}) {
     const term = normalizeTermLabel(options.term || 'FALL 2025');
     const institutional = normalizeInstitutionalCubeRows(cubeRows, term, { diagnostics: options.diagnostics || {} });
@@ -11203,6 +11406,7 @@
       row.status = row.status === 'Variance' ? 'Variance' : row.status;
     });
     const rootCauseAnalysis = buildFtesRootCauseAnalysis(crnRows, { tolerance: options.tolerance });
+    const formulaDiagnostics = buildFtesFormulaDiagnostics(crnRows, rootCauseAnalysis);
     return {
       term,
       institutionalFtes,
@@ -11230,6 +11434,7 @@
       positiveAttendance,
       workExperience,
       rootCauseAnalysis,
+      formulaDiagnostics,
       warnings
     };
   }
@@ -11262,7 +11467,12 @@
       timberFtesSource: row.timberFtesSource || '',
       diagnosticCategory: row.diagnosticCategory || '',
       rootCause: row.rootCause || rootCauseByCrn.get(row.crn)?.rootCause || '',
-      diagnosticNotes: row.diagnosticNotes || rootCauseByCrn.get(row.crn)?.diagnosticNotes || ''
+      diagnosticNotes: row.diagnosticNotes || rootCauseByCrn.get(row.crn)?.diagnosticNotes || '',
+      currentTimberFormula: row.currentTimberFormula || '',
+      suspectedDefect: row.suspectedDefect || '',
+      candidateCalculation: row.candidateCalculation || '',
+      candidateFtes: row.candidateFtes ?? '',
+      candidateResidual: row.candidateResidual ?? ''
     });
     const auditRowFor = row => ({
       Section: 'Institutional Row Audit',
@@ -11289,7 +11499,12 @@
       timberFtesSource: '',
       diagnosticCategory: row.reason || '',
       rootCause: '',
-      diagnosticNotes: row.reason || ''
+      diagnosticNotes: row.reason || '',
+      currentTimberFormula: '',
+      suspectedDefect: '',
+      candidateCalculation: '',
+      candidateFtes: '',
+      candidateResidual: ''
     });
     return [
       ...ftesImportDiagnosticRows(summary.parseDiagnostics).map(row => rowFor('Institutional Cube Import', { accountingMethod: row.metric, institutionalFtes: row.value })),
@@ -11301,6 +11516,8 @@
       ...(summary.invalidParse ? [] : summary.byAccountingMethodPart.map(row => rowFor('By Accounting Method + Part of Term', row))),
       ...(summary.invalidParse ? [] : (summary.rootCauseAnalysis?.rootCauseSummary || []).map(row => rowFor('Variance Root Cause Summary', row))),
       ...(summary.invalidParse ? [] : (summary.rootCauseAnalysis?.accountingMethodCrossTab || []).map(row => rowFor('Institutional vs TIMBER Method Cross-Tab', row))),
+      ...(summary.invalidParse ? [] : (summary.formulaDiagnostics?.defectSummary || []).map(row => rowFor('Formula Defect Summary', { ...row, rootCause: row.name, diagnosticNotes: row.confidence }))),
+      ...(summary.invalidParse ? [] : (summary.formulaDiagnostics?.rows || []).map(row => rowFor('Formula Diagnostic', row))),
       ...(summary.invalidParse ? [] : (summary.rootCauseAnalysis?.topVarianceCrns || []).map(row => rowFor('Top Variance CRNs', row))),
       ...(summary.invalidParse ? [] : summary.crnRows.map(row => rowFor('By CRN', row)))
     ];
@@ -11360,7 +11577,7 @@
         dashboardPanel('Institutional Cube Import', miniTable(ftesImportDiagnosticRows(summary.parseDiagnostics), ['metric', 'value'], 'ftesRecon')),
         dashboardPanel('By Accounting Method', miniTable(summary.byAccountingMethod, ['name', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'crns'], 'ftesRecon')),
         dashboardPanel('By Accounting Method + Part of Term', miniTable(summary.byAccountingMethodPart, ['name', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'crns'], 'ftesRecon')),
-        dashboardPanel('Variance Root-Cause Analysis', ftesRootCauseAnalysisHtml(summary.rootCauseAnalysis)),
+        dashboardPanel('Variance Root-Cause Analysis', ftesRootCauseAnalysisHtml(summary.rootCauseAnalysis, summary.formulaDiagnostics)),
         dashboardPanel('Diagnostic Notes', `<p class="analytics-chart-note">Positive Attendance variance: ${round1(summary.positiveAttendance.variance || 0)} FTES. Work Experience variance: ${round1(summary.workExperience.variance || 0)} FTES. Statuses distinguish source-data gaps, calculation variances, mapping issues, and unknown review items.</p>`)
       ].join('');
     }
@@ -11368,7 +11585,7 @@
     refreshGeneratedCollapsibleSections(document.getElementById('ftesReconciliationReport'));
   }
 
-  function ftesRootCauseAnalysisHtml(analysis = {}) {
+  function ftesRootCauseAnalysisHtml(analysis = {}, formulaDiagnostics = {}) {
     if (!analysis?.rootCauseSummary?.length) return '<p class="analytics-empty">No material variance rows to analyze.</p>';
     const summary = [
       `<p class="analytics-chart-note">Root-cause categories are diagnostic only. They do not alter FTES calculations. Remaining unexplained variance: ${escapeAttr(round1(analysis.remainingUnexplainedVariance || 0))} FTES.</p>`,
@@ -11387,9 +11604,31 @@
       '<h4>Positive Attendance Categories</h4>',
       miniTable(analysis.positiveAttendanceVariance || [], ['name', 'crns', 'institutionalFtes', 'timberFtes', 'variance'], 'ftesRecon'),
       '<h4>Top Variance CRNs</h4>',
-      miniTable(analysis.topVarianceCrns || [], ['crn', 'subject', 'course', 'institutionalAccountingMethod', 'timberAccountingMethod', 'partOfTerm', 'institutionalEnrollment', 'timberEnrollment', 'institutionalFtes', 'timberFtes', 'variance', 'rootCause'], 'ftesRecon')
+      miniTable(analysis.topVarianceCrns || [], ['crn', 'subject', 'course', 'institutionalAccountingMethod', 'timberAccountingMethod', 'partOfTerm', 'institutionalEnrollment', 'timberEnrollment', 'institutionalFtes', 'timberFtes', 'variance', 'rootCause'], 'ftesRecon'),
+      '<h4>Formula Diagnostic</h4>',
+      ftesFormulaDiagnosticHtml(formulaDiagnostics)
     ];
     return summary.join('');
+  }
+
+  function ftesFormulaDiagnosticHtml(diagnostics = {}) {
+    if (!diagnostics?.rows?.length) return '<p class="analytics-empty">No formula diagnostics available for material variance rows.</p>';
+    const simulation = diagnostics.simulation || {};
+    return [
+      `<p class="analytics-chart-note"><strong>${escapeAttr(simulation.label || 'DIAGNOSTIC SIMULATION - NOT PRODUCTION FTES')}</strong>. Candidate FTES values below are diagnostic only and do not change production FTES.</p>`,
+      miniTable([
+        { metric: 'Current TIMBER FTES', value: simulation.currentTimberFtes },
+        { metric: 'Candidate Recovery', value: simulation.simulatedRecovery },
+        { metric: 'Simulated Corrected FTES', value: simulation.simulatedCorrectedFtes },
+        { metric: 'Institutional FTES', value: simulation.institutionalFtes },
+        { metric: 'Residual', value: simulation.residual },
+        { metric: 'Missing-source FTES not currently reproducible', value: simulation.missingSourceFtesNotReproducible }
+      ], ['metric', 'value'], 'ftesRecon'),
+      '<h5>Formula Defect Summary</h5>',
+      miniTable(diagnostics.defectSummary || [], ['name', 'affectedCrns', 'currentTimberFtes', 'institutionalFtes', 'currentVariance', 'candidateCorrectedFtes', 'remainingVarianceAfterCandidate', 'confidence'], 'ftesRecon'),
+      '<h5>High-Variance CRN Formula Traces</h5>',
+      miniTable(diagnostics.rows || [], ['crn', 'subject', 'course', 'accountingMethod', 'institutionalFtes', 'timberFtes', 'variance', 'enrollment', 'weeklyHours', 'summedWeeklyHours', 'totalContactHours', 'summedContactHours', 'meetingRowCount', 'currentTimberFormula', 'suspectedDefect', 'candidateCalculation', 'candidateFtes', 'candidateResidual'], 'ftesRecon')
+    ].join('');
   }
 
   function ftesImportDiagnosticRows(diagnostics = {}) {
@@ -18363,6 +18602,18 @@
       timberEnrollment: 'TIMBER Enrollment',
       rootCause: 'Root Cause',
       diagnosticNotes: 'Diagnostic Notes',
+      currentTimberFormula: 'Current TIMBER Formula',
+      suspectedDefect: 'Suspected Defect',
+      candidateCalculation: 'Candidate Calculation',
+      candidateFtes: 'Candidate FTES',
+      candidateResidual: 'Candidate Residual',
+      summedWeeklyHours: 'Summed Weekly Hours',
+      summedContactHours: 'Summed Contact Hours',
+      currentTimberFtes: 'Current TIMBER FTES',
+      candidateCorrectedFtes: 'Candidate Corrected FTES',
+      currentVariance: 'Current Variance',
+      remainingVarianceAfterCandidate: 'Remaining Variance After Candidate',
+      affectedCrns: 'Affected CRNs',
       choiceDiversityIndex: 'Choice Diversity Index',
       subject: 'Discipline',
       decisionTerm: 'Decision Term',
@@ -20049,6 +20300,7 @@
     timberFtesTraceRows,
     reconcileFtesRecords,
     buildFtesRootCauseAnalysis,
+    buildFtesFormulaDiagnostics,
     buildFtesReconciliation,
     ftesReconciliationExportRows,
     buildSnapshotRecords,
