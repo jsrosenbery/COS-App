@@ -10692,18 +10692,36 @@
   function isCubeSubtotalRow(row) {
     const crn = canon(cubeField(row, ['CRN', 'Crn', 'Section CRN']));
     const joined = Object.values(row || {}).map(value => canon(value)).join(' ');
-    if (!crn) return true;
+    if (!crn) return isCubeBoundaryRow(row);
     if (/^(TOTAL|SUBTOTAL|GRAND TOTAL)$/i.test(crn)) return true;
     return /\b(GRAND TOTAL|SUBTOTAL|TOTAL)\b/.test(joined) && !/\b\d{4,6}\b/.test(crn);
+  }
+
+  function isCubeBoundaryRow(row) {
+    const joined = Object.values(row || {}).map(value => canon(value)).filter(Boolean).join(' ');
+    return /\b(TOTAL BY COLUMNS|GRAND TOTAL|SUBTOTAL|TOTAL)\b/.test(joined);
+  }
+
+  function isCubeChildDetailRow(row) {
+    const crn = canon(cubeField(row, ['CRN', 'Crn', 'Section CRN']));
+    if (crn || isCubeBoundaryRow(row)) return false;
+    return cubeNumber(row, ['Individual FTES', 'INDIVIDUAL_FTES', 'FTES', 'Individual Ftes']) != null ||
+      cubeNumber(row, ['Student Contact Hours', 'STUDENT_CONTACT_HOURS', 'Contact Hours', 'SCH']) != null;
   }
 
   function normalizeInstitutionalCubeRows(rows = [], term = 'FALL 2025', options = {}) {
     const fill = { campus: '', division: '', subject: '', course: '', accountingMethod: '', partOfTerm: '' };
     const details = [];
     const omittedRows = [];
+    let activeCrn = null;
     let rowsMissingCrn = 0;
     let rowsIgnoredAsSubtotals = 0;
     let rowsMissingFtes = 0;
+    let explicitCrns = 0;
+    let childDetailRows = 0;
+    let parentFtes = 0;
+    let childDetailFtes = 0;
+    let grandTotalValidation = null;
     (rows || []).forEach((row, index) => {
       const campus = canon(cubeField(row, ['Campus', 'CAMPUS']));
       const division = canon(cubeField(row, ['Division', 'DIVISION']));
@@ -10718,23 +10736,55 @@
       if (accountingMethod) fill.accountingMethod = accountingMethod;
       if (partOfTerm) fill.partOfTerm = partOfTerm;
       const crn = canon(cubeField(row, ['CRN', 'Crn', 'Section CRN']));
+      const institutionalFtes = cubeNumber(row, ['Individual FTES', 'INDIVIDUAL_FTES', 'FTES', 'Individual Ftes']);
+      const studentContactHours = cubeNumber(row, ['Student Contact Hours', 'STUDENT_CONTACT_HOURS', 'Contact Hours', 'SCH']);
+      if (isCubeBoundaryRow(row)) {
+        if (/TOTAL BY COLUMNS|GRAND TOTAL/.test(Object.values(row || {}).map(value => canon(value)).join(' '))) {
+          grandTotalValidation = institutionalFtes ?? grandTotalValidation;
+        }
+        activeCrn = null;
+        rowsIgnoredAsSubtotals += 1;
+        omittedRows.push({ rowIndex: index + 1, reason: 'Subtotal/grand-total boundary' });
+        return;
+      }
       if (!crn) {
+        if (activeCrn && isCubeChildDetailRow(row)) {
+          if (institutionalFtes == null) {
+            rowsMissingFtes += 1;
+            omittedRows.push({ rowIndex: index + 1, reason: 'Child detail row missing Individual FTES' });
+            return;
+          }
+          childDetailRows += 1;
+          childDetailFtes += institutionalFtes;
+          details.push({
+            ...activeCrn,
+            partOfTerm: partOfTerm || activeCrn.partOfTerm,
+            institutionalEnrollment: null,
+            studentContactHours,
+            institutionalFtes,
+            rowType: 'Child Detail'
+          });
+          return;
+        }
         rowsMissingCrn += 1;
         omittedRows.push({ rowIndex: index + 1, reason: 'Missing CRN/group row' });
         return;
       }
       if (isCubeSubtotalRow(row)) {
         rowsIgnoredAsSubtotals += 1;
+        activeCrn = null;
         omittedRows.push({ rowIndex: index + 1, reason: 'Subtotal/group row' });
         return;
       }
-      const institutionalFtes = cubeNumber(row, ['Individual FTES', 'INDIVIDUAL_FTES', 'FTES', 'Individual Ftes']);
       if (institutionalFtes == null) {
+        activeCrn = null;
         rowsMissingFtes += 1;
         omittedRows.push({ rowIndex: index + 1, reason: 'Missing Individual FTES' });
         return;
       }
-      details.push({
+      explicitCrns += 1;
+      parentFtes += institutionalFtes;
+      activeCrn = {
         term: normalizeTermLabel(cubeField(row, ['Term', 'TERM']) || term),
         campus: campus || fill.campus,
         division: division || fill.division,
@@ -10745,15 +10795,24 @@
         accountingMethodLabel: ACCOUNTING_METHOD_KNOWN_LABELS[accountingMethod || fill.accountingMethod] || (accountingMethod || fill.accountingMethod),
         partOfTerm: partOfTerm || fill.partOfTerm,
         institutionalEnrollment: cubeNumber(row, ['Enrollment', 'ENROLLMENT', 'Enroll']),
-        studentContactHours: cubeNumber(row, ['Student Contact Hours', 'STUDENT_CONTACT_HOURS', 'Contact Hours', 'SCH']),
-        institutionalFtes
-      });
+        studentContactHours,
+        institutionalFtes,
+        rowType: 'CRN Parent'
+      };
+      details.push(activeCrn);
     });
     const grouped = new Map();
     details.forEach(record => {
       const key = [record.term, record.crn, record.accountingMethod, record.partOfTerm].join('|');
       if (!grouped.has(key)) {
-        grouped.set(key, { ...record, duplicateCount: 0, sourceGrain: 'CRN + Accounting Method + Part of Term' });
+        grouped.set(key, {
+          ...record,
+          duplicateCount: 0,
+          childDetailRows: record.rowType === 'Child Detail' ? 1 : 0,
+          childDetailFtes: record.rowType === 'Child Detail' ? record.institutionalFtes : 0,
+          parentFtes: record.rowType === 'CRN Parent' ? record.institutionalFtes : 0,
+          sourceGrain: 'CRN + Accounting Method + Part of Term'
+        });
         return;
       }
       const existing = grouped.get(key);
@@ -10761,6 +10820,12 @@
       existing.institutionalEnrollment = sumNullable(existing.institutionalEnrollment, record.institutionalEnrollment);
       existing.studentContactHours = sumNullable(existing.studentContactHours, record.studentContactHours);
       existing.institutionalFtes = sumNullable(existing.institutionalFtes, record.institutionalFtes);
+      if (record.rowType === 'Child Detail') {
+        existing.childDetailRows += 1;
+        existing.childDetailFtes += record.institutionalFtes || 0;
+      } else {
+        existing.parentFtes += record.institutionalFtes || 0;
+      }
     });
     const records = [...grouped.values()];
     const institutionalTotal = records.reduce((total, row) => total + (row.institutionalFtes ?? 0), 0);
@@ -10768,6 +10833,11 @@
     const partOfTermValues = [...new Set(records.map(row => row.partOfTerm || 'blank'))].sort();
     const diagnostics = {
       ...(options.diagnostics || {}),
+      explicitCrns,
+      childDetailRows,
+      parentFtes,
+      childDetailFtes,
+      grandTotalValidation,
       crnDetailRows: records.length,
       institutionalFtesParsed: institutionalTotal,
       accountingMethods,
@@ -11099,8 +11169,13 @@
     return [
       ['Worksheet', diagnostics.worksheet || 'N/A'],
       ['Header Row', diagnostics.headerRow || 'N/A'],
+      ['Explicit CRNs', diagnostics.explicitCrns ?? 0],
+      ['Child Detail Rows', diagnostics.childDetailRows ?? 0],
+      ['Parent FTES', diagnostics.parentFtes ?? 0],
+      ['Child Detail FTES', diagnostics.childDetailFtes ?? 0],
       ['CRN Detail Rows', diagnostics.crnDetailRows ?? 0],
       ['Institutional FTES Parsed', diagnostics.parsedInstitutionalTotal ?? diagnostics.institutionalFtesParsed ?? 0],
+      ['Grand Total Validation', diagnostics.grandTotalValidation ?? 'N/A'],
       ['Expected Validation FTES', diagnostics.expectedInstitutionalTotal ?? FTES_RECONCILIATION_TARGET_TOTAL],
       ['Accounting Methods Detected', (diagnostics.accountingMethods || []).join(', ') || 'N/A'],
       ['Part-of-Term Values Detected', (diagnostics.partOfTermValues || []).join(', ') || 'N/A'],

@@ -4744,7 +4744,7 @@ test('FTES reconciliation detects messy Cube headers and blocks invalid institut
     ['Campus', 'Division', 'Subject', 'Course', 'CRN', 'Accounting\n Method ', 'Enrollment', 'Student Contact\r\nHours', 'Part of Term', ' Individual FTES '],
     ['COS', 'Arts', 'ART', '001', '', 'W', '', '', '1', ''],
     ['', '', '', '', '20001', '', '10', '100', '', '100.25'],
-    ['', '', '', '', '', '', '', '', '', '9999'],
+    ['', '', '', '', '', '', '', '', '', ''],
     ['', '', '', '', 'TOTAL', '', '10', '', '', '100.25']
   ];
   const header = COSEnrollmentAnalytics.detectInstitutionalCubeHeader(table);
@@ -4775,6 +4775,28 @@ test('FTES reconciliation detects messy Cube headers and blocks invalid institut
   ], 'FALL 2025');
   assert.equal(timberTrace.find(row => row.crn === '20002').partOfTerm, 'OE');
   assert.equal(timberTrace.find(row => row.crn === '20003').partOfTerm, 'Unavailable');
+});
+
+test('FTES reconciliation aggregates blank-CRN child detail FTES under the active parent CRN', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const cubeRows = [
+    { Campus: 'COS', Division: 'Public Safety', Subject: 'FIRE', Course: '200', CRN: '14998', 'Accounting Method': 'E', Enrollment: '11', 'Student Contact Hours': '', 'Part of Term': 'OE', 'Individual FTES': '5180.185473238' },
+    { Campus: '', Division: '', Subject: '', Course: '', CRN: '', 'Accounting Method': '', Enrollment: '', 'Student Contact Hours': '.05', 'Part of Term': 'OE', 'Individual FTES': '.045714285' },
+    { Campus: '', Division: '', Subject: '', Course: '', CRN: '', 'Accounting Method': '', Enrollment: '', 'Student Contact Hours': '.08', 'Part of Term': 'OE', 'Individual FTES': '.076190476' },
+    { Campus: '', Division: '', Subject: '', Course: '', CRN: '', 'Accounting Method': '', Enrollment: '', 'Student Contact Hours': '999', 'Part of Term': '', 'Individual FTES': '321.262452113' },
+    { Campus: 'Total by COLUMNS', Division: '', Subject: '', Course: '', CRN: '', 'Accounting Method': '', Enrollment: '', 'Student Contact Hours': '', 'Part of Term': '', 'Individual FTES': '5501.569830112' }
+  ];
+
+  const institutional = COSEnrollmentAnalytics.normalizeInstitutionalCubeRows(cubeRows, 'FALL 2025');
+  assert.equal(institutional.records.length, 1);
+  assert.equal(institutional.diagnostics.explicitCrns, 1);
+  assert.equal(institutional.diagnostics.childDetailRows, 3);
+  assert.equal(Math.round(institutional.diagnostics.parentFtes * 1000000000000) / 1000000000000, 5180.185473238);
+  assert.equal(Math.round(institutional.diagnostics.childDetailFtes * 1000000000000) / 1000000000000, 321.384356874);
+  assert.equal(Math.round(institutional.institutionalTotal * 1000000000000) / 1000000000000, 5501.569830112);
+  assert.equal(institutional.diagnostics.grandTotalValidation, 5501.569830112);
+  assert.equal(institutional.records[0].crn, '14998');
+  assert.equal(Math.round(institutional.records[0].institutionalFtes * 1000000000000) / 1000000000000, 5501.569830112);
 });
 
 test('FTES reconciliation loads SheetJS before enrollment analytics for XLSX validation imports', () => {
