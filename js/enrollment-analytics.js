@@ -10957,6 +10957,8 @@
       const timber = collapseReconGroup(group.timber, 'timber');
       const institutionalFtes = institutional.institutionalFtes;
       const timberFtes = timber.timberFtes;
+      const institutionalAccountingMethod = institutional.accountingMethod || '';
+      const timberAccountingMethod = timber.accountingMethod || '';
       const variance = institutionalFtes == null || timberFtes == null ? null : timberFtes - institutionalFtes;
       const absVariance = variance == null ? null : Math.abs(variance);
       const status = ftesMatchStatus(group, variance, tolerance, institutionalFtes, timberFtes);
@@ -10967,13 +10969,17 @@
         subject: institutional.subject || timber.subject || '',
         course: institutional.course || timber.course || '',
         crn,
-        accountingMethod: institutional.accountingMethod || timber.accountingMethod || '',
-        accountingMethodLabel: ACCOUNTING_METHOD_KNOWN_LABELS[institutional.accountingMethod || timber.accountingMethod] || (institutional.accountingMethod || timber.accountingMethod || ''),
+        accountingMethod: institutionalAccountingMethod || timberAccountingMethod || '',
+        institutionalAccountingMethod,
+        timberAccountingMethod,
+        accountingMethodLabel: ACCOUNTING_METHOD_KNOWN_LABELS[institutionalAccountingMethod || timberAccountingMethod] || (institutionalAccountingMethod || timberAccountingMethod || ''),
         partOfTerm: institutional.partOfTerm || timber.partOfTerm || '',
+        institutionalPartOfTerm: institutional.partOfTerm || '',
+        timberPartOfTerm: timber.partOfTerm || '',
         institutionalEnrollment: institutional.institutionalEnrollment,
+        timberEnrollment: timber.timberEnrollment,
         studentContactHours: institutional.studentContactHours,
         institutionalFtes,
-        timberEnrollment: timber.timberEnrollment,
         timberFtes,
         variance,
         variancePercent: variance == null ? null : safeDiv(variance, institutionalFtes),
@@ -11046,6 +11052,135 @@
     })).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
   }
 
+  function materialFtesVarianceRows(rows = [], tolerance = FTES_RECONCILIATION_TOLERANCE) {
+    return (rows || []).filter(row => {
+      if (['Missing From TIMBER', 'Missing From Institutional Source', 'Duplicate / Ambiguous'].includes(row.status)) return true;
+      return Math.abs(row.variance || 0) > tolerance;
+    });
+  }
+
+  function classifyFtesVarianceRootCause(row = {}, tolerance = FTES_RECONCILIATION_TOLERANCE) {
+    const institutionalMethod = row.institutionalAccountingMethod || '';
+    const timberMethod = row.timberAccountingMethod || '';
+    const enrollmentDiff = (row.timberEnrollment ?? null) != null && (row.institutionalEnrollment ?? null) != null
+      ? (row.timberEnrollment || 0) - (row.institutionalEnrollment || 0)
+      : null;
+    const timberPartKnown = row.timberPartOfTerm && row.timberPartOfTerm !== 'Unavailable';
+    const partDiff = row.institutionalPartOfTerm && timberPartKnown && row.institutionalPartOfTerm !== row.timberPartOfTerm;
+    if (row.status === 'Duplicate / Ambiguous') return 'DUPLICATE';
+    if (row.workExperience && row.status !== 'Exact Match' && row.status !== 'Within Tolerance') return 'WORK EXPERIENCE SOURCE ISSUE';
+    if (row.status === 'Missing From Institutional Source') return 'TIMBER ONLY';
+    if (row.status === 'Missing From TIMBER' && (row.timberEnrollment == null || row.timberFtes == null) && row.timberEnrollment == null) return 'MISSING FROM TIMBER';
+    if (row.status === 'Missing From TIMBER' && (row.timberEnrollment != null || /unavailable/i.test(row.timberFtesSource || ''))) return 'SOURCE DATA INCOMPLETE';
+    if (institutionalMethod && timberMethod && institutionalMethod !== timberMethod) return 'ACCOUNTING METHOD MISMATCH';
+    if (partDiff) return 'PART OF TERM ISSUE';
+    if (enrollmentDiff != null && enrollmentDiff !== 0) return 'ENROLLMENT MISMATCH';
+    if (institutionalMethod === 'P' && (row.timberFtes == null || /unavailable/i.test(row.timberFtesSource || ''))) return 'SOURCE DATA INCOMPLETE';
+    if (row.studentContactHours != null && ['P', 'E'].includes(institutionalMethod) && Math.abs(row.variance || 0) > tolerance) return 'CONTACT HOURS MISMATCH';
+    if (Math.abs(row.variance || 0) > tolerance && institutionalMethod && timberMethod && institutionalMethod === timberMethod) return 'FORMULA MISMATCH';
+    return 'UNKNOWN';
+  }
+
+  function ftesRootCauseNote(row = {}, rootCause = '') {
+    const methodPair = `${row.institutionalAccountingMethod || 'Missing institutional method'} -> ${row.timberAccountingMethod || 'Missing TIMBER method'}`;
+    if (rootCause === 'ACCOUNTING METHOD MISMATCH') return `Institutional/TIMBER method mismatch: ${methodPair}.`;
+    if (rootCause === 'MISSING FROM TIMBER') return 'Institutional CRN has no matching usable TIMBER row.';
+    if (rootCause === 'TIMBER ONLY') return 'TIMBER CRN is absent from the institutional source.';
+    if (rootCause === 'SOURCE DATA INCOMPLETE') return `TIMBER row is present but FTES source is incomplete or unavailable (${row.timberFtesSource || 'source unavailable'}).`;
+    if (rootCause === 'ENROLLMENT MISMATCH') return `Enrollment differs: institutional ${row.institutionalEnrollment ?? 'N/A'} vs TIMBER ${row.timberEnrollment ?? 'N/A'}.`;
+    if (rootCause === 'CONTACT HOURS MISMATCH') return `Institutional contact hours are ${row.studentContactHours ?? 'N/A'}; TIMBER source path is ${row.timberFtesSource || 'N/A'}.`;
+    if (rootCause === 'PART OF TERM ISSUE') return `Part of Term differs: institutional ${row.institutionalPartOfTerm || 'blank'} vs TIMBER ${row.timberPartOfTerm || 'blank'}.`;
+    if (rootCause === 'WORK EXPERIENCE SOURCE ISSUE') return 'Work Experience CRN requires supplemental source review.';
+    if (rootCause === 'DUPLICATE') return 'Multiple institutional or TIMBER records collapsed to the same CRN.';
+    if (rootCause === 'FORMULA MISMATCH') return `Methods and enrollment appear aligned; TIMBER FTES source path is ${row.timberFtesSource || 'N/A'}.`;
+    return 'Insufficient evidence for a primary cause.';
+  }
+
+  function aggregateFtesRows(rows = [], keyGetter) {
+    const buckets = new Map();
+    (rows || []).forEach(row => {
+      const name = keyGetter(row) || 'Unknown';
+      if (!buckets.has(name)) buckets.set(name, { name, crns: 0, institutionalFtes: 0, timberFtes: 0, variance: 0 });
+      const bucket = buckets.get(name);
+      bucket.crns += 1;
+      bucket.institutionalFtes += row.institutionalFtes ?? 0;
+      bucket.timberFtes += row.timberFtes ?? 0;
+      bucket.variance += row.variance ?? ((row.timberFtes ?? 0) - (row.institutionalFtes ?? 0));
+    });
+    return [...buckets.values()].map(row => ({
+      ...row,
+      variancePercent: safeDiv(row.variance, row.institutionalFtes)
+    })).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance) || a.name.localeCompare(b.name));
+  }
+
+  function buildFtesMethodCrossTab(rows = []) {
+    return aggregateFtesRows(rows || [], row => `${row.institutionalAccountingMethod || 'Missing Institutional'} -> ${row.timberAccountingMethod || 'Missing TIMBER'}`)
+      .map(row => {
+        const [institutionalMethod, timberMethod] = row.name.split(' -> ');
+        return { ...row, institutionalMethod, timberMethod };
+      });
+  }
+
+  function ftesMethodVarianceGroup(row = {}, targetMethod = '') {
+    if (['Exact Match', 'Within Tolerance'].includes(row.status)) return 'exact/within tolerance';
+    const rootCause = row.rootCause || classifyFtesVarianceRootCause(row);
+    if (rootCause === 'MISSING FROM TIMBER') return 'missing CRN';
+    if (rootCause === 'ACCOUNTING METHOD MISMATCH') return 'method mismatch';
+    if (rootCause === 'ENROLLMENT MISMATCH') return 'enrollment mismatch';
+    if (rootCause === 'CONTACT HOURS MISMATCH') return 'contact hours mismatch';
+    if (rootCause === 'SOURCE DATA INCOMPLETE' && targetMethod === 'P') return 'source data incomplete';
+    if (rootCause === 'FORMULA MISMATCH') return 'FTES formula mismatch';
+    return 'unknown';
+  }
+
+  function analyzeFtesMethodVariance(rows = [], method = '') {
+    const scoped = (rows || []).filter(row => (row.institutionalAccountingMethod || row.accountingMethod) === method);
+    return aggregateFtesRows(scoped, row => ftesMethodVarianceGroup(row, method));
+  }
+
+  function buildFtesRootCauseAnalysis(crnRows = [], options = {}) {
+    const tolerance = options.tolerance ?? FTES_RECONCILIATION_TOLERANCE;
+    const materialRows = materialFtesVarianceRows(crnRows, tolerance).map(row => {
+      const rootCause = classifyFtesVarianceRootCause(row, tolerance);
+      return { ...row, rootCause, diagnosticNotes: ftesRootCauseNote(row, rootCause) };
+    });
+    const totalVariance = (crnRows || []).reduce((total, row) => total + (row.variance ?? ((row.timberFtes ?? 0) - (row.institutionalFtes ?? 0))), 0);
+    const rootCauseSummary = aggregateFtesRows(materialRows, row => row.rootCause);
+    const explainedVariance = rootCauseSummary.reduce((total, row) => total + row.variance, 0);
+    const missingFromTimberRows = materialRows.filter(row => row.rootCause === 'MISSING FROM TIMBER');
+    const timberOnlyRows = materialRows.filter(row => row.rootCause === 'TIMBER ONLY');
+    const topVarianceCrns = materialRows
+      .slice()
+      .sort((a, b) => (b.absVariance ?? Math.abs(b.variance || 0)) - (a.absVariance ?? Math.abs(a.variance || 0)) || a.crn.localeCompare(b.crn))
+      .slice(0, 50);
+    const analysis = {
+      materialRows,
+      rootCauseSummary,
+      accountingMethodCrossTab: buildFtesMethodCrossTab(crnRows),
+      missingFromTimber: {
+        byAccountingMethod: aggregateFtesRows(missingFromTimberRows, row => row.institutionalAccountingMethod || row.accountingMethod || 'Unknown'),
+        byPartOfTerm: aggregateFtesRows(missingFromTimberRows, row => row.institutionalPartOfTerm || row.partOfTerm || 'blank'),
+        bySubject: aggregateFtesRows(missingFromTimberRows, row => row.subject || 'Unknown'),
+        byCampus: aggregateFtesRows(missingFromTimberRows, row => row.campus || 'Unknown'),
+        topCrns: missingFromTimberRows.slice().sort((a, b) => Math.abs(b.variance || 0) - Math.abs(a.variance || 0)).slice(0, 25)
+      },
+      timberOnly: {
+        byAccountingMethod: aggregateFtesRows(timberOnlyRows, row => row.timberAccountingMethod || row.accountingMethod || 'Unknown'),
+        topCrns: timberOnlyRows.slice().sort((a, b) => Math.abs(b.variance || 0) - Math.abs(a.variance || 0)).slice(0, 25)
+      },
+      wVariance: analyzeFtesMethodVariance(crnRows, 'W'),
+      iwVariance: analyzeFtesMethodVariance(crnRows, 'IW'),
+      eVariance: analyzeFtesMethodVariance(crnRows, 'E'),
+      positiveAttendanceVariance: analyzeFtesMethodVariance(crnRows, 'P'),
+      byAccountingMethodPart: aggregateFtesRows(materialRows, row => `${row.institutionalAccountingMethod || row.accountingMethod || 'Unknown'} / ${row.institutionalPartOfTerm || row.partOfTerm || 'blank'}`),
+      topVarianceCrns,
+      totalVariance,
+      explainedVariance,
+      remainingUnexplainedVariance: totalVariance - explainedVariance
+    };
+    return analysis;
+  }
+
   function buildFtesReconciliation(cubeRows = [], timberRows = [], options = {}) {
     const term = normalizeTermLabel(options.term || 'FALL 2025');
     const institutional = normalizeInstitutionalCubeRows(cubeRows, term, { diagnostics: options.diagnostics || {} });
@@ -11067,6 +11202,7 @@
       row.diagnosticCategory = 'SOURCE DATA PROBLEM';
       row.status = row.status === 'Variance' ? 'Variance' : row.status;
     });
+    const rootCauseAnalysis = buildFtesRootCauseAnalysis(crnRows, { tolerance: options.tolerance });
     return {
       term,
       institutionalFtes,
@@ -11093,12 +11229,14 @@
       byAccountingMethodPart: aggregateFtesReconciliation(crnRows, row => `${row.accountingMethod || 'Unknown'} / ${row.partOfTerm || 'blank'}`),
       positiveAttendance,
       workExperience,
+      rootCauseAnalysis,
       warnings
     };
   }
 
   function ftesReconciliationExportRows(summary = state.ftesReconciliation) {
     if (!summary) return [];
+    const rootCauseByCrn = new Map((summary.rootCauseAnalysis?.materialRows || []).map(row => [row.crn, row]));
     const rowFor = (section, row = {}) => ({
       Section: section,
       term: row.term || summary.term,
@@ -11108,9 +11246,12 @@
       course: row.course || '',
       crn: row.crn || '',
       accountingMethod: row.accountingMethod || row.name || '',
+      institutionalAccountingMethod: row.institutionalAccountingMethod || row.institutionalMethod || row.accountingMethod || '',
+      timberAccountingMethod: row.timberAccountingMethod || row.timberMethod || '',
       accountingMethodLabel: row.accountingMethodLabel || ACCOUNTING_METHOD_KNOWN_LABELS[row.accountingMethod] || row.accountingMethod || row.name || '',
       partOfTerm: row.partOfTerm || '',
       institutionalEnrollment: row.institutionalEnrollment ?? '',
+      timberEnrollment: row.timberEnrollment ?? '',
       studentContactHours: row.studentContactHours ?? '',
       institutionalFtes: row.institutionalFtes ?? '',
       timberFtes: row.timberFtes ?? '',
@@ -11119,7 +11260,9 @@
       status: row.status || '',
       sourceDataset: row.sourceDataset || '',
       timberFtesSource: row.timberFtesSource || '',
-      diagnosticCategory: row.diagnosticCategory || ''
+      diagnosticCategory: row.diagnosticCategory || '',
+      rootCause: row.rootCause || rootCauseByCrn.get(row.crn)?.rootCause || '',
+      diagnosticNotes: row.diagnosticNotes || rootCauseByCrn.get(row.crn)?.diagnosticNotes || ''
     });
     const auditRowFor = row => ({
       Section: 'Institutional Row Audit',
@@ -11130,9 +11273,12 @@
       course: '',
       crn: row.resolvedCrn || '',
       accountingMethod: row.accountingMethod || '',
+      institutionalAccountingMethod: row.accountingMethod || '',
+      timberAccountingMethod: '',
       accountingMethodLabel: ACCOUNTING_METHOD_KNOWN_LABELS[row.accountingMethod] || row.accountingMethod || '',
       partOfTerm: row.partOfTerm || '',
       institutionalEnrollment: '',
+      timberEnrollment: '',
       studentContactHours: '',
       institutionalFtes: row.parsedIndividualFtes ?? '',
       timberFtes: '',
@@ -11141,7 +11287,9 @@
       status: row.rowClassification || '',
       sourceDataset: `Excel row ${row.excelRowNumber || ''}; raw CRN ${row.rawCrn ?? ''}; raw FTES ${row.rawIndividualFtes ?? ''}`,
       timberFtesSource: '',
-      diagnosticCategory: row.reason || ''
+      diagnosticCategory: row.reason || '',
+      rootCause: '',
+      diagnosticNotes: row.reason || ''
     });
     return [
       ...ftesImportDiagnosticRows(summary.parseDiagnostics).map(row => rowFor('Institutional Cube Import', { accountingMethod: row.metric, institutionalFtes: row.value })),
@@ -11151,6 +11299,9 @@
       rowFor('Summary', { accountingMethod: 'Variance', variance: summary.variance, variancePercent: summary.variancePercent }),
       ...(summary.invalidParse ? [] : summary.byAccountingMethod.map(row => rowFor('By Accounting Method', row))),
       ...(summary.invalidParse ? [] : summary.byAccountingMethodPart.map(row => rowFor('By Accounting Method + Part of Term', row))),
+      ...(summary.invalidParse ? [] : (summary.rootCauseAnalysis?.rootCauseSummary || []).map(row => rowFor('Variance Root Cause Summary', row))),
+      ...(summary.invalidParse ? [] : (summary.rootCauseAnalysis?.accountingMethodCrossTab || []).map(row => rowFor('Institutional vs TIMBER Method Cross-Tab', row))),
+      ...(summary.invalidParse ? [] : (summary.rootCauseAnalysis?.topVarianceCrns || []).map(row => rowFor('Top Variance CRNs', row))),
       ...(summary.invalidParse ? [] : summary.crnRows.map(row => rowFor('By CRN', row)))
     ];
   }
@@ -11209,11 +11360,36 @@
         dashboardPanel('Institutional Cube Import', miniTable(ftesImportDiagnosticRows(summary.parseDiagnostics), ['metric', 'value'], 'ftesRecon')),
         dashboardPanel('By Accounting Method', miniTable(summary.byAccountingMethod, ['name', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'crns'], 'ftesRecon')),
         dashboardPanel('By Accounting Method + Part of Term', miniTable(summary.byAccountingMethodPart, ['name', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'crns'], 'ftesRecon')),
+        dashboardPanel('Variance Root-Cause Analysis', ftesRootCauseAnalysisHtml(summary.rootCauseAnalysis)),
         dashboardPanel('Diagnostic Notes', `<p class="analytics-chart-note">Positive Attendance variance: ${round1(summary.positiveAttendance.variance || 0)} FTES. Work Experience variance: ${round1(summary.workExperience.variance || 0)} FTES. Statuses distinguish source-data gaps, calculation variances, mapping issues, and unknown review items.</p>`)
       ].join('');
     }
     table('ftesReconCrnTable', summary.crnRows, ['crn', 'subject', 'course', 'accountingMethod', 'partOfTerm', 'institutionalEnrollment', 'studentContactHours', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'status', 'diagnosticCategory']);
     refreshGeneratedCollapsibleSections(document.getElementById('ftesReconciliationReport'));
+  }
+
+  function ftesRootCauseAnalysisHtml(analysis = {}) {
+    if (!analysis?.rootCauseSummary?.length) return '<p class="analytics-empty">No material variance rows to analyze.</p>';
+    const summary = [
+      `<p class="analytics-chart-note">Root-cause categories are diagnostic only. They do not alter FTES calculations. Remaining unexplained variance: ${escapeAttr(round1(analysis.remainingUnexplainedVariance || 0))} FTES.</p>`,
+      '<h4>Root Cause Summary</h4>',
+      miniTable(analysis.rootCauseSummary || [], ['name', 'crns', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent'], 'ftesRecon'),
+      '<h4>Institutional Method -> TIMBER Method</h4>',
+      miniTable(analysis.accountingMethodCrossTab || [], ['institutionalMethod', 'timberMethod', 'crns', 'institutionalFtes', 'timberFtes', 'variance'], 'ftesRecon'),
+      '<h4>Missing From TIMBER by Method</h4>',
+      miniTable(analysis.missingFromTimber?.byAccountingMethod || [], ['name', 'crns', 'institutionalFtes', 'variance'], 'ftesRecon'),
+      '<h4>W Variance Categories</h4>',
+      miniTable(analysis.wVariance || [], ['name', 'crns', 'institutionalFtes', 'timberFtes', 'variance'], 'ftesRecon'),
+      '<h4>IW Variance Categories</h4>',
+      miniTable(analysis.iwVariance || [], ['name', 'crns', 'institutionalFtes', 'timberFtes', 'variance'], 'ftesRecon'),
+      '<h4>E Variance Categories</h4>',
+      miniTable(analysis.eVariance || [], ['name', 'crns', 'institutionalFtes', 'timberFtes', 'variance'], 'ftesRecon'),
+      '<h4>Positive Attendance Categories</h4>',
+      miniTable(analysis.positiveAttendanceVariance || [], ['name', 'crns', 'institutionalFtes', 'timberFtes', 'variance'], 'ftesRecon'),
+      '<h4>Top Variance CRNs</h4>',
+      miniTable(analysis.topVarianceCrns || [], ['crn', 'subject', 'course', 'institutionalAccountingMethod', 'timberAccountingMethod', 'partOfTerm', 'institutionalEnrollment', 'timberEnrollment', 'institutionalFtes', 'timberFtes', 'variance', 'rootCause'], 'ftesRecon')
+    ];
+    return summary.join('');
   }
 
   function ftesImportDiagnosticRows(diagnostics = {}) {
@@ -18168,6 +18344,7 @@
       normalizedModality: 'Normalized Modality',
       rowCount: 'Rows',
       crnCount: 'Distinct CRNs',
+      crns: 'CRNs',
       classOfferings: 'Class Offerings',
       instructionalMeetingRows: 'Instructional Meeting Rows',
       meetingComponents: 'Meeting Components',
@@ -18177,6 +18354,15 @@
       exampleCrns: 'Example CRNs',
       includedByDefaultInPhysicalTimeAnalysis: 'Included by Default in Physical Time Analysis',
       flags: 'Validation Flags',
+      institutionalMethod: 'Institutional Method',
+      timberMethod: 'TIMBER Method',
+      institutionalAccountingMethod: 'Institutional Method',
+      timberAccountingMethod: 'TIMBER Method',
+      institutionalPartOfTerm: 'Institutional Part of Term',
+      timberPartOfTerm: 'TIMBER Part of Term',
+      timberEnrollment: 'TIMBER Enrollment',
+      rootCause: 'Root Cause',
+      diagnosticNotes: 'Diagnostic Notes',
       choiceDiversityIndex: 'Choice Diversity Index',
       subject: 'Discipline',
       decisionTerm: 'Decision Term',
@@ -19862,6 +20048,7 @@
     institutionalCubeObjectsFromTable,
     timberFtesTraceRows,
     reconcileFtesRecords,
+    buildFtesRootCauseAnalysis,
     buildFtesReconciliation,
     ftesReconciliationExportRows,
     buildSnapshotRecords,
