@@ -10472,15 +10472,18 @@
 
   function accountingMethodCalculationNote(row = {}) {
     const method = canon(row.accountingMethod || row.name || '');
+    if ((row.calculationMethod || row.ftesCalculationMethod) === 'STANDARDIZED_ATTENDANCE' || (['W', 'D', 'IW', 'ID'].includes(method) && standardizedStartApplies(row.term || 'FALL 2026'))) {
+      return 'Fall 2026+ standardized credit calculation: Source/Banner accounting code remains W/D/IW/ID, but FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. FTES maturity is separate and only changes the enrollment basis once census is reached.';
+    }
     const directInfo = accountingMethodInfo(method);
     const labelInfo = Object.values(ACCOUNTING_METHODS).find(item => canon(item.label) === method);
     const info = directInfo.category !== 'unknown' ? directInfo : (labelInfo || directInfo);
     const hasZeroFtes = Number(row.ftes || 0) === 0 && Number(row.enrollment || 0) > 0;
     const formula = {
-      weekly: 'Formula-calculated as enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
-      independentWeekly: 'Formula-calculated as enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
-      daily: 'Formula-calculated as enrollment x total contact hours / 525 when direct FTES is missing.',
-      independentDaily: 'Formula-calculated as enrollment x total contact hours / 525 when direct FTES is missing.',
+      weekly: 'For Fall 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Fall 2025 and earlier remain legacy weekly census: enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
+      independentWeekly: 'For Fall 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Fall 2025 and earlier remain legacy independent weekly census: enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
+      daily: 'For Fall 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Fall 2025 and earlier remain legacy daily census: enrollment x total contact hours / 525 when direct FTES is missing.',
+      independentDaily: 'For Fall 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Fall 2025 and earlier remain legacy independent daily census: enrollment x total contact hours / 525 when direct FTES is missing.',
       positive: 'Formula-calculated as enrollment x total contact hours / 525 when direct FTES is missing. Positive Attendance final FTES is normally confirmed after completed student hours are submitted.',
       omit: 'Marked non-reportable in Section Seating. It contributes 0 FTES unless supplied through the separate Work Experience source.',
       unknown: 'Formula-calculated only when usable hours, contact hours, or units are present; otherwise FTES remains unavailable.'
@@ -17029,6 +17032,235 @@
     };
   }
 
+  function ftesBridgePopulationKey(row = {}) {
+    if (row.isWorkExperience || demandPlanningPopulationType(row) === 'Work Experience') return 'Work Experience';
+    const method = ftesBridgeAccountingMethod(row);
+    if (['P', 'E'].includes(method)) return `Positive Attendance ${method}`;
+    if (currentEnrollmentFtesUnavailable(row) || row.ftesUnavailable) return 'FTES Unavailable';
+    return method || 'UNKNOWN';
+  }
+
+  function ftesBridgeComponentProfile(row = {}) {
+    const lecture = Number(row.standardizedLectureUnits || row.lectureUnits || 0);
+    const activity = Number(row.standardizedActivityUnits || row.activityUnits || 0);
+    const lab = Number(row.standardizedLabUnits || row.labUnits || 0);
+    const active = [
+      lecture > 0 ? 'Lecture' : '',
+      activity > 0 ? 'Activity' : '',
+      lab > 0 ? 'Lab' : ''
+    ].filter(Boolean);
+    if (active.length > 1) return 'Mixed component';
+    if (lab > 0) return 'Lab-heavy';
+    if (activity > 0) return 'Activity-heavy';
+    if (lecture > 0) return 'Lecture-heavy';
+    return 'Component data unavailable';
+  }
+
+  function ftesBridgeMethodEffect(row = {}) {
+    if (!standardizedEligible(row)) return 0;
+    const standardized = Number(row.standardizedFtes ?? row.ftes ?? 0);
+    const legacy = Number(row.legacyFtes ?? estimatedFtes(ftesBridgeEnrollment(row), { ...row, meetingRows: row._meetingRows || [] }) ?? 0);
+    return standardized - legacy;
+  }
+
+  function ftesBridgeGroupYieldEffect(fa25Rows = [], fa26Rows = [], keyer = () => 'UNKNOWN', baselineYield = 0) {
+    const fa25Map = group(dedupeEnrollmentRows(fa25Rows), keyer);
+    const fa26Map = group(dedupeEnrollmentRows(fa26Rows), keyer);
+    return [...fa26Map.entries()].reduce((total, [key, rows26]) => {
+      const g25 = ftesBridgeGroupSummary(fa25Map.get(key) || []);
+      const g26 = ftesBridgeGroupSummary(rows26 || []);
+      const yieldToUse = g25.enrollment > 0 ? g25.ftesPerEnrollment : baselineYield;
+      return total + (g26.enrollment * (yieldToUse - baselineYield));
+    }, 0);
+  }
+
+  function ftesBridgeSpecialPopulationEffect(fa25Rows = [], fa26Rows = [], predicate = () => false, baselineYield = 0) {
+    const g25 = ftesBridgeGroupSummary((fa25Rows || []).filter(predicate));
+    const g26 = ftesBridgeGroupSummary((fa26Rows || []).filter(predicate));
+    return (g26.ftes - g25.ftes) - ((g26.enrollment - g25.enrollment) * baselineYield);
+  }
+
+  function ftesBridgeEffectRows(explanation = {}) {
+    const effectMap = [
+      ['Enrollment Volume Effect', explanation.enrollmentVolumeEffect, 'FTES change from total enrollment growth at Fall 2025 overall FTES/enrollment.'],
+      ['Standardized Method Effect', explanation.standardizedMethodEffect, 'Fall 2026 standardized FTES minus the legacy method result for standardized-eligible W/D/IW/ID rows.'],
+      ['Course / Unit Mix Effect', explanation.courseUnitMixEffect, 'Residual yield effect after volume, standardized method, population, positive attendance, work experience, and unavailable effects.'],
+      ['Attendance-Code / Population Mix Effect', explanation.populationMixEffect, 'Effect of Fall 2026 enrollment distribution across attendance-code/population groups using Fall 2025 group yields.'],
+      ['Positive Attendance Estimate Effect', explanation.positiveAttendanceEstimateEffect, 'P and Attendance Method E change beyond the overall enrollment-volume effect; these rows are not final until actual hours are complete.'],
+      ['Work Experience Effect', explanation.workExperienceEffect, 'Work Experience change beyond the overall enrollment-volume effect.'],
+      ['Missing / Unavailable FTES Effect', explanation.unavailableEffect, 'Observed FTES effect from rows whose FTES is unavailable. Counts are reported separately.'],
+      ['Unexplained Residual', explanation.unexplainedResidual, 'Rounding and any amount not assigned by the sequential diagnostic bridge.']
+    ];
+    return effectMap.map(([effect, ftesChange, diagnosticNotes]) => ({ effect, ftesChange: Number(ftesChange || 0), diagnosticNotes }));
+  }
+
+  function ftesBridgeWarningRows(rows = []) {
+    return dedupeEnrollmentRows(rows)
+      .filter(row => /STANDARDIZED UNIT DATA INCOMPLETE|UNIT COMPONENT MISMATCH/i.test(String(row.standardizedUnitStatus || row.ftesCalculationWarning || row.ftesWarning || '')))
+      .map(row => ({
+        crn: row.crn,
+        subject: row.subject,
+        course: row.course,
+        enrollment: ftesBridgeEnrollment(row),
+        attendanceAccountingCode: ftesBridgeAccountingMethod(row),
+        partOfTerm: ftesBridgePartOfTerm(row),
+        creditStatus: row.creditStatus || '',
+        units: row.units || 0,
+        lectureUnits: row.standardizedLectureUnits ?? row.lectureUnits ?? 0,
+        activityUnits: row.standardizedActivityUnits ?? row.activityUnits ?? 0,
+        labUnits: row.standardizedLabUnits ?? row.labUnits ?? 0,
+        standardizedHours: row.standardizedHours || 0,
+        calculatedFtes: row.ftes || 0,
+        warning: row.standardizedUnitStatus || row.ftesCalculationWarning || row.ftesWarning || '',
+        calculationPath: row.ftesUnavailable ? 'STANDARDIZED FTES UNAVAILABLE' : (row.calculationMethod || row.ftesCalculationMethod || 'UNKNOWN'),
+        reason: row.ftesCalculationWarning || row.ftesWarning || row.standardizedUnitStatus || ''
+      }))
+      .sort((a, b) => a.subject.localeCompare(b.subject) || a.course.localeCompare(b.course) || String(a.crn).localeCompare(String(b.crn)));
+  }
+
+  function ftesBridgeLegacyFallbackRows(rows = []) {
+    const legacyMethods = new Set(['LEGACY_WEEKLY_CENSUS', 'LEGACY_DAILY_CENSUS', 'LEGACY_INDEPENDENT_WEEKLY_CENSUS', 'LEGACY_INDEPENDENT_DAILY_CENSUS']);
+    return dedupeEnrollmentRows(rows)
+      .filter(row => standardizedEligible(row))
+      .filter(row => legacyMethods.has(row.calculationMethod || row.ftesCalculationMethod || '') || (row.ftesUnavailable && Number(row.ftes || 0) > 0))
+      .map(row => ({
+        crn: row.crn,
+        subject: row.subject,
+        course: row.course,
+        attendanceAccountingCode: ftesBridgeAccountingMethod(row),
+        enrollment: ftesBridgeEnrollment(row),
+        ftes: row.ftes || 0,
+        calculationMethod: row.calculationMethod || row.ftesCalculationMethod || '',
+        standardizedUnitStatus: row.standardizedUnitStatus || '',
+        warning: row.ftesCalculationWarning || row.ftesWarning || ''
+      }));
+  }
+
+  function ftesBridgeUnavailableRows(rows = []) {
+    return dedupeEnrollmentRows(rows)
+      .filter(row => row.ftesUnavailable || (!row.hasDirectFtesData && !row.hasFtesData && !row.ftes))
+      .map(row => ({
+        crn: row.crn,
+        course: [row.subject, row.course].filter(Boolean).join(' '),
+        attendanceAccountingCode: ftesBridgeAccountingMethod(row),
+        partOfTerm: ftesBridgePartOfTerm(row),
+        creditStatus: row.creditStatus || '',
+        units: row.units || 0,
+        lectureUnits: row.standardizedLectureUnits ?? row.lectureUnits ?? 0,
+        activityUnits: row.standardizedActivityUnits ?? row.activityUnits ?? 0,
+        labUnits: row.standardizedLabUnits ?? row.labUnits ?? 0,
+        enrollment: ftesBridgeEnrollment(row),
+        reason: row.ftesCalculationWarning || row.ftesWarning || 'FTES inputs are unavailable.',
+        requiredInformation: standardizedEligible(row)
+          ? 'Lecture/activity/lab unit components or standardized hours are required.'
+          : 'Direct FTES or the applicable attendance-accounting hours/units are required.'
+      }));
+  }
+
+  function ftesBridgeActualHoursRows(rows = []) {
+    const bucketFor = row => {
+      if (row.isWorkExperience || demandPlanningPopulationType(row) === 'Work Experience') return 'Work Experience';
+      const method = ftesBridgeAccountingMethod(row);
+      if (method === 'P') return 'P';
+      if (method === 'E') return 'Attendance Method E';
+      return 'Other';
+    };
+    const candidates = dedupeEnrollmentRows(rows)
+      .filter(row => {
+        const method = ftesBridgeAccountingMethod(row);
+        const maturity = canon(row.ftesMaturity || '');
+        return ['P', 'E'].includes(method) || row.isWorkExperience || demandPlanningPopulationType(row) === 'Work Experience' || /ACTUAL HOURS PENDING|WORK EXPERIENCE/.test(maturity);
+      });
+    return [...group(candidates, bucketFor).entries()].map(([population, groupRows]) => ({
+      population,
+      sections: demandDistinctCrnCount(groupRows),
+      enrollment: enrollmentTotal(groupRows),
+      estimatedFtes: sum(groupRows, 'ftes'),
+      estimationMethod: population === 'Work Experience'
+        ? 'Work Experience estimate/direct source when available; not final until completion data are loaded.'
+        : 'Positive Attendance estimate using total contact hours or direct FTES when loaded; not final actual-hours FTES.',
+      finalFtesRows: groupRows.filter(row => /FINAL|CONFIRMED/.test(canon(row.ftesMaturity || '')) && !/PENDING|ESTIMATED/.test(canon(row.ftesMaturity || ''))).length
+    })).sort((a, b) => b.enrollment - a.enrollment || a.population.localeCompare(b.population));
+  }
+
+  function ftesBridgeYieldRows(rows = [], keyer = () => 'UNKNOWN', groupLabel = 'Group') {
+    return [...group(dedupeEnrollmentRows(rows), keyer).entries()]
+      .map(([name, groupRows]) => {
+        const summary = ftesBridgeGroupSummary(groupRows);
+        return {
+          groupType: groupLabel,
+          name,
+          sections: summary.sections,
+          enrollment: summary.enrollment,
+          ftes: summary.ftes,
+          ftesPerEnrollment: summary.ftesPerEnrollment
+        };
+      })
+      .sort((a, b) => Math.abs(b.ftes || 0) - Math.abs(a.ftes || 0));
+  }
+
+  function buildFallToFallFtesExplanation(fa25Rows = [], fa26Rows = []) {
+    const clean25 = dedupeEnrollmentRows(fa25Rows);
+    const clean26 = dedupeEnrollmentRows(fa26Rows);
+    const fa25 = ftesBridgeGroupSummary(clean25);
+    const fa26 = ftesBridgeGroupSummary(clean26);
+    const totalChange = fa26.ftes - fa25.ftes;
+    const enrollmentChange = fa26.enrollment - fa25.enrollment;
+    const fa25Yield = safeDiv(fa25.ftes, fa25.enrollment);
+    const fa26Yield = safeDiv(fa26.ftes, fa26.enrollment);
+    const enrollmentVolumeEffect = enrollmentChange * fa25Yield;
+    const standardizedMethodEffect = clean26.reduce((total, row) => total + ftesBridgeMethodEffect(row), 0);
+    const populationMixEffect = ftesBridgeGroupYieldEffect(clean25, clean26, ftesBridgePopulationKey, fa25Yield);
+    const positiveAttendanceEstimateEffect = ftesBridgeSpecialPopulationEffect(clean25, clean26, row => ['P', 'E'].includes(ftesBridgeAccountingMethod(row)), fa25Yield);
+    const workExperienceEffect = ftesBridgeSpecialPopulationEffect(clean25, clean26, row => row.isWorkExperience || demandPlanningPopulationType(row) === 'Work Experience', fa25Yield);
+    const unavailableEffect = ftesBridgeSpecialPopulationEffect(clean25, clean26, row => row.ftesUnavailable || (!row.hasDirectFtesData && !row.hasFtesData && !row.ftes), fa25Yield);
+    const courseUnitMixEffect = totalChange - enrollmentVolumeEffect - standardizedMethodEffect - populationMixEffect - positiveAttendanceEstimateEffect - workExperienceEffect - unavailableEffect;
+    const unexplainedResidual = totalChange - [
+      enrollmentVolumeEffect,
+      standardizedMethodEffect,
+      courseUnitMixEffect,
+      populationMixEffect,
+      positiveAttendanceEstimateEffect,
+      workExperienceEffect,
+      unavailableEffect
+    ].reduce((total, value) => total + Number(value || 0), 0);
+    const explanation = {
+      order: 'Sequential diagnostic bridge: enrollment volume at Fall 2025 overall yield, Fall 2026 standardized-method delta versus legacy, attendance-code/population mix, positive-attendance estimate effect, Work Experience effect, unavailable effect, then course/unit mix as the reconciling yield residual.',
+      fa25,
+      fa26,
+      enrollmentChange,
+      enrollmentChangePct: safeDiv(enrollmentChange, fa25.enrollment),
+      totalChange,
+      ftesChangePct: safeDiv(totalChange, fa25.ftes),
+      fa25Yield,
+      fa26Yield,
+      yieldChange: fa26Yield - fa25Yield,
+      yieldChangePct: safeDiv(fa26Yield - fa25Yield, fa25Yield),
+      enrollmentVolumeEffect,
+      standardizedMethodEffect,
+      courseUnitMixEffect,
+      populationMixEffect,
+      positiveAttendanceEstimateEffect,
+      workExperienceEffect,
+      unavailableEffect,
+      unexplainedResidual,
+      standardizedWarningRows: ftesBridgeWarningRows(clean26),
+      legacyFallbackRows: ftesBridgeLegacyFallbackRows(clean26),
+      unavailableRows: ftesBridgeUnavailableRows(clean26),
+      actualHoursRows: ftesBridgeActualHoursRows(clean26),
+      yieldRows: [
+        ...ftesBridgeYieldRows(clean26, ftesBridgeComponentProfile, 'Component Profile'),
+        ...ftesBridgeYieldRows(clean26, ftesBridgeAccountingMethod, 'Attendance Code'),
+        ...ftesBridgeYieldRows(clean26, ftesBridgeDeStatus, 'DE Status'),
+        ...ftesBridgeYieldRows(clean26, ftesBridgePartOfTerm, 'Part of Term'),
+        ...ftesBridgeYieldRows(clean26, row => row.subject || 'UNKNOWN', 'Subject')
+      ]
+    };
+    explanation.effectRows = ftesBridgeEffectRows(explanation);
+    explanation.businessConclusion = `Fall 2026 enrollment changed by ${formatWholeNumber(enrollmentChange)} (${pct(explanation.enrollmentChangePct)}), while FTES changed by ${formatDecimal(totalChange, 2)} (${pct(explanation.ftesChangePct)}). The diagnostic bridge attributes the difference to enrollment volume (${formatDecimal(enrollmentVolumeEffect, 1)} FTES), standardized method conversion (${formatDecimal(standardizedMethodEffect, 1)} FTES), attendance-code/population mix (${formatDecimal(populationMixEffect, 1)} FTES), positive-attendance estimates (${formatDecimal(positiveAttendanceEstimateEffect, 1)} FTES), Work Experience (${formatDecimal(workExperienceEffect, 1)} FTES), unavailable FTES (${formatDecimal(unavailableEffect, 1)} FTES), and course/unit yield mix (${formatDecimal(courseUnitMixEffect, 1)} FTES).`;
+    return explanation;
+  }
+
   function ftesBridgeMultiComponentRows(fa25Rows = [], fa26Rows = []) {
     const isMulti = row => (row._meetingRows || []).length > 1 && ['W', 'IW'].includes(ftesBridgeAccountingMethod(row));
     return ftesBridgeComparisonRows(fa25Rows.filter(isMulti), fa26Rows.filter(isMulti), row => ftesBridgeAccountingMethod(row), { comparisonGroup: 'Multi-component W/IW' })
@@ -17123,6 +17355,7 @@
     const newDiscontinued = ftesBridgeNewDiscontinuedRows(fa25Rows, fa26Rows);
     const multiComponent = ftesBridgeMultiComponentRows(fa25Rows, fa26Rows);
     const outliers = ftesBridgeOutlierRows(fa25Rows, fa26Rows, 50);
+    const explanation = buildFallToFallFtesExplanation(fa25Rows, fa26Rows);
     const fa25BenchmarkValue = Number(options.fa25BenchmarkFtes ?? 5501.57);
     const fa25Benchmark = {
       expectedFtes: fa25BenchmarkValue,
@@ -17148,6 +17381,7 @@
       newDiscontinued,
       multiComponent,
       outliers,
+      explanation,
       fa25Benchmark,
       classification
     };
@@ -17191,6 +17425,43 @@
       diagnosticNotes: labelText,
       ftesChange: value,
       classification: labelText === 'Unexplained' && Math.abs(value) > 1 ? 'UNEXPLAINED' : 'EXPLAINED / PLAUSIBLE'
+    }));
+    (bridge.explanation?.effectRows || []).forEach(row => rows.push({
+      comparisonGroup: 'Fall-to-Fall FTES Explanation',
+      diagnosticNotes: row.effect,
+      ftesChange: row.ftesChange,
+      classification: Math.abs(row.ftesChange || 0) < 0.01 ? 'RECONCILED / ZERO' : 'EXPLAINED / DIAGNOSTIC',
+      yieldChange: bridge.explanation?.yieldChange ?? ''
+    }));
+    (bridge.explanation?.standardizedWarningRows || []).forEach(row => rows.push({
+      comparisonGroup: 'Standardized Unit Warning',
+      accountingMethod: row.attendanceAccountingCode || '',
+      partOfTerm: row.partOfTerm || '',
+      subject: row.subject || '',
+      course: row.course || '',
+      FA26Enrollment: row.enrollment ?? '',
+      FA26FTES: row.calculatedFtes ?? '',
+      classification: row.calculationPath || '',
+      diagnosticNotes: row.reason || row.warning || ''
+    }));
+    (bridge.explanation?.legacyFallbackRows || []).forEach(row => rows.push({
+      comparisonGroup: 'Legacy Fallback Audit',
+      accountingMethod: row.attendanceAccountingCode || '',
+      subject: row.subject || '',
+      course: row.course || '',
+      FA26Enrollment: row.enrollment ?? '',
+      FA26FTES: row.ftes ?? '',
+      classification: row.calculationMethod || '',
+      diagnosticNotes: row.warning || row.standardizedUnitStatus || ''
+    }));
+    (bridge.explanation?.unavailableRows || []).forEach(row => rows.push({
+      comparisonGroup: 'Unavailable FTES',
+      accountingMethod: row.attendanceAccountingCode || '',
+      partOfTerm: row.partOfTerm || '',
+      course: row.course || '',
+      FA26Enrollment: row.enrollment ?? '',
+      classification: 'FTES UNAVAILABLE',
+      diagnosticNotes: `${row.reason || ''} ${row.requiredInformation || ''}`.trim()
     }));
     pushRows(bridge.accountingMethod);
     pushRows(bridge.partOfTerm);
@@ -17757,6 +18028,7 @@
   function fallToFallFtesBridgePanel(bridge = null) {
     if (!bridge) return '';
     const d = bridge.decomposition || {};
+    const explanation = bridge.explanation || {};
     const classification = bridge.classification || {};
     const headline = [
       { step: 'Fall 2025 FTES', ftesChange: d.fa25?.ftes || 0, diagnosticNotes: 'Validated institutional baseline check is shown below.' },
@@ -17793,6 +18065,41 @@
         <p class="analytics-chart-note">Sequential bridge order: ${escapeAttr(d.order || '')}</p>
         <p class="analytics-chart-note">Fall 2025 institutional benchmark: ${formatDecimal(benchmark.actualFtes || 0, 2)} actual vs ${formatDecimal(benchmark.expectedFtes || 0, 2)} expected; status ${escapeAttr(benchmark.status || 'N/A')}.</p>
         ${analyticsTableMarkup(summaryRows, ['metric', 'value'])}
+        <section data-collapsible-title="Fall-to-Fall FTES Explanation" data-collapsible-id="demand-ftes-explanation" data-collapsible-default-open="true">
+          <h3>Fall-to-Fall FTES Explanation</h3>
+          <p class="analytics-chart-note">${escapeAttr(explanation.businessConclusion || 'Load Fall 2025 and Fall 2026 rows to calculate the explanation.')}</p>
+          <p class="analytics-chart-note">Calculation method and FTES maturity are intentionally separate. Standardized rows remain Standardized Attendance whether they are pre-census estimates or census-confirmed; only the applicable enrollment basis changes.</p>
+          ${analyticsTableMarkup([
+            { metric: 'Enrollment Change', value: `${formatWholeNumber(explanation.enrollmentChange || 0)} (${pct(explanation.enrollmentChangePct || 0)})` },
+            { metric: 'FTES Change', value: `${formatDecimal(explanation.totalChange || 0, 2)} (${pct(explanation.ftesChangePct || 0)})` },
+            { metric: 'FTES / Enrollment Change', value: `${formatDecimal(explanation.yieldChange || 0, 5)} (${pct(explanation.yieldChangePct || 0)})` },
+            { metric: 'Legacy Fallback CRNs', value: formatWholeNumber((explanation.legacyFallbackRows || []).length) },
+            { metric: 'Unavailable FTES CRNs', value: formatWholeNumber((explanation.unavailableRows || []).length) },
+            { metric: 'Standardized Unit Warning CRNs', value: formatWholeNumber((explanation.standardizedWarningRows || []).length) }
+          ], ['metric', 'value'])}
+          ${analyticsTableMarkup(explanation.effectRows || [], ['effect', 'ftesChange', 'diagnosticNotes'])}
+          <section data-collapsible-title="Standardized Unit Warnings" data-collapsible-id="demand-ftes-explanation-warnings" data-collapsible-default-open="false">
+            <h3>Standardized Unit Warnings</h3>
+            ${analyticsTableMarkup(explanation.standardizedWarningRows || [], ['crn', 'subject', 'course', 'enrollment', 'attendanceAccountingCode', 'partOfTerm', 'creditStatus', 'units', 'lectureUnits', 'activityUnits', 'labUnits', 'standardizedHours', 'calculatedFtes', 'warning', 'calculationPath', 'reason'])}
+          </section>
+          <section data-collapsible-title="No Silent Legacy Fallback Audit" data-collapsible-id="demand-ftes-explanation-fallback" data-collapsible-default-open="false">
+            <h3>No Silent Legacy Fallback Audit</h3>
+            <p class="analytics-chart-note">Rows shown here would indicate a Fall 2026 standardized-eligible CRN using a legacy W/D/IW/ID method or carrying positive FTES while marked standardized-unavailable.</p>
+            ${analyticsTableMarkup(explanation.legacyFallbackRows || [], ['crn', 'subject', 'course', 'attendanceAccountingCode', 'enrollment', 'ftes', 'calculationMethod', 'standardizedUnitStatus', 'warning'])}
+          </section>
+          <section data-collapsible-title="Unavailable FTES Rows" data-collapsible-id="demand-ftes-explanation-unavailable" data-collapsible-default-open="false">
+            <h3>Unavailable FTES Rows</h3>
+            ${analyticsTableMarkup(explanation.unavailableRows || [], ['crn', 'course', 'attendanceAccountingCode', 'partOfTerm', 'creditStatus', 'units', 'lectureUnits', 'activityUnits', 'labUnits', 'enrollment', 'reason', 'requiredInformation'])}
+          </section>
+          <section data-collapsible-title="Estimated Actual-Hours Population" data-collapsible-id="demand-ftes-explanation-actual-hours" data-collapsible-default-open="false">
+            <h3>Estimated Actual-Hours Population</h3>
+            ${analyticsTableMarkup(explanation.actualHoursRows || [], ['population', 'sections', 'enrollment', 'estimatedFtes', 'estimationMethod', 'finalFtesRows'])}
+          </section>
+          <section data-collapsible-title="FTES Yield Analysis" data-collapsible-id="demand-ftes-explanation-yield" data-collapsible-default-open="false">
+            <h3>FTES Yield Analysis</h3>
+            ${analyticsTableMarkup(explanation.yieldRows || [], ['groupType', 'name', 'sections', 'enrollment', 'ftes', 'ftesPerEnrollment'])}
+          </section>
+        </section>
         ${analyticsTableMarkup(headline, ['step', 'ftesChange', 'diagnosticNotes'])}
         <section data-collapsible-title="Accounting Method Comparison" data-collapsible-id="demand-ftes-bridge-accounting" data-collapsible-default-open="false">
           <h3>Accounting Method Comparison</h3>
@@ -22050,6 +22357,12 @@
     ftesBridgeComparisonRows,
     ftesBridgeMethodPotRows,
     ftesBridgeDecomposition,
+    buildFallToFallFtesExplanation,
+    ftesBridgeEffectRows,
+    ftesBridgeWarningRows,
+    ftesBridgeLegacyFallbackRows,
+    ftesBridgeUnavailableRows,
+    ftesBridgeActualHoursRows,
     ftesBridgeMultiComponentRows,
     ftesBridgeOutlierRows,
     buildFallToFallFtesBridge,

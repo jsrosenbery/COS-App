@@ -2503,6 +2503,74 @@ test('fall-to-fall FTES bridge confirms Fall 2025 institutional benchmark', () =
   assert.equal(Number(bridge.decomposition.totalChange.toFixed(1)), 234.2);
 });
 
+test('fall-to-fall FTES explanation reconciles named effects to total change without mutating FTES', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = ftesBridgeFixtureRows();
+  const before = rows.map(row => row.ftes);
+  const bridge = COSEnrollmentAnalytics.buildFallToFallFtesBridge(rows, { fa25BenchmarkFtes: 27 });
+  const explanation = bridge.explanation;
+  const effects = explanation.effectRows.reduce((total, row) => total + (row.ftesChange || 0), 0);
+  const exportRows = COSEnrollmentAnalytics.fallToFallFtesBridgeExportRows(bridge);
+
+  assert.equal(Number(effects.toFixed(6)), Number(explanation.totalChange.toFixed(6)));
+  assert.equal(Number(explanation.totalChange.toFixed(6)), Number(bridge.decomposition.totalChange.toFixed(6)));
+  assert.ok(explanation.effectRows.some(row => row.effect === 'Standardized Method Effect'));
+  assert.ok(explanation.effectRows.some(row => row.effect === 'Course / Unit Mix Effect'));
+  assert.match(explanation.businessConclusion, /standardized method conversion/i);
+  assert.deepEqual(rows.map(row => row.ftes), before);
+  assert.ok(exportRows.some(row => row.comparisonGroup === 'Fall-to-Fall FTES Explanation' && row.diagnosticNotes === 'Enrollment Volume Effect'));
+});
+
+test('fall-to-fall FTES explanation audits incomplete standardized units unavailable rows and fallback paths', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const incomplete = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: 'MUS434', Subject: 'MUS', Course: '434', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 24, SESSION_CREDIT_HOURS: 3 });
+  const valid = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: 'STD1', Subject: 'MATH', Course: '101', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 20, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3 });
+  const bridge = COSEnrollmentAnalytics.buildFallToFallFtesBridge([
+    ...ftesBridgeFixtureRows(),
+    incomplete,
+    valid
+  ], { fa25BenchmarkFtes: 27 });
+  const warning = bridge.explanation.standardizedWarningRows.find(row => row.crn === 'MUS434');
+  const unavailable = bridge.explanation.unavailableRows.find(row => row.crn === 'MUS434');
+
+  assert.equal(warning.attendanceAccountingCode, 'W');
+  assert.equal(warning.enrollment, 24);
+  assert.equal(warning.calculationPath, 'STANDARDIZED FTES UNAVAILABLE');
+  assert.match(warning.reason, /lecture\/activity\/lab units|standardized hours/i);
+  assert.equal(unavailable.requiredInformation, 'Lecture/activity/lab unit components or standardized hours are required.');
+  assert.equal(bridge.explanation.legacyFallbackRows.length, 0);
+  assert.equal(valid.calculationMethod, 'STANDARDIZED_ATTENDANCE');
+});
+
+test('fall-to-fall FTES explanation separates estimated actual-hours populations', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const bridge = COSEnrollmentAnalytics.buildFallToFallFtesBridge([
+    ...ftesBridgeFixtureRows(),
+    COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: 'P100', Subject: 'AUTO', Course: '100', 'ACCOUNTING METHOD': 'P', ACTUAL_ENROLL: 12, TOTAL_CONTACT_HOURS: 60 }),
+    COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: 'E100', Subject: 'OPEN', Course: '200', 'ACCOUNTING METHOD': 'E', ACTUAL_ENROLL: 8, TOTAL_CONTACT_HOURS: 40 }),
+    COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: 'WX100', Subject: 'WKEX', Course: '020', __sourceType: 'WORK_EXPERIENCE', 'ACCOUNTING METHOD': 'D', ACTUAL_ENROLL: 6 })
+  ], { fa25BenchmarkFtes: 27 });
+  const populations = Object.fromEntries(bridge.explanation.actualHoursRows.map(row => [row.population, row]));
+
+  assert.ok(populations.P.sections >= 1);
+  assert.ok(populations['Attendance Method E'].sections >= 1);
+  assert.ok(populations['Work Experience'].sections >= 1);
+  assert.equal(populations.P.finalFtesRows, 0);
+  assert.match(populations.P.estimationMethod, /not final actual-hours FTES/i);
+});
+
+test('current enrollment FTES calculation labels reflect standardized method without renaming Banner code', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: 'STD2', Subject: 'MATH', Course: '101', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 20, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3 });
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary([row], { focusTerm: 'FALL 2026' });
+  const accountingRow = summary.breakdowns.accountingMethod.find(item => /Weekly Census|W/.test(item.name));
+
+  assert.equal(row.attendanceAccountingCode, 'W');
+  assert.equal(row.calculationMethod, 'STANDARDIZED_ATTENDANCE');
+  assert.match(accountingRow.calculationNote, /Standardized Attendance/);
+  assert.match(accountingRow.calculationNote, /lecture units x 18/);
+});
+
 test('attendance formula audit determines Fall 2026 transition method without changing local code', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const transition = section({ term: 'FALL 2026', accountingMethod: 'W', standardizedHours: 63, weeklyHours: 3 });
