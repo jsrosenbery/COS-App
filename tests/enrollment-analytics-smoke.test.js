@@ -6911,6 +6911,9 @@ test('schedule change form defaults to PDF from DOCX and keeps Word export secon
   assert.match(form, /<option value="both">Export both PDF and Word Document<\/option>/);
   assert.match(form, /<button id="exportScheduleChangeBtn" class="btn" type="button">Export PDF<\/button>/);
   assert.match(form, /scfBuildOfficialDocx\(shadow\)/);
+  assert.match(form, /SCF_EXPORT_FONT_SIZE_INCREMENT_HALF_POINTS = 2/);
+  assert.match(form, /function scfBumpOfficialDocxFontSize/);
+  assert.match(form, /scfBumpOfficialDocxFontSize\(doc\.getZip\(\)\)/);
   assert.match(form, /scfConvertDocxBlobToPdf\(blob, baseName, pdfFilename, docxFilename\)/);
   assert.match(form, /docxFilename/);
   assert.match(form, /pdfFilename/);

@@ -9,6 +9,7 @@
     btnBorderRadius: '6px',
     btnBorder: 'none'
   };
+  const SCF_EXPORT_FONT_SIZE_INCREMENT_HALF_POINTS = 2; // DOCX font sizes use half-points; +2 = +1pt.
 
   function cssVars(theme){
     return `
@@ -846,6 +847,28 @@
     return String(filename || '').replace(/\.[^.]+$/, '');
   }
 
+  function scfBumpDocxFontSizeXml(xml, incrementHalfPoints = SCF_EXPORT_FONT_SIZE_INCREMENT_HALF_POINTS) {
+    const increment = Number(incrementHalfPoints);
+    if (!Number.isFinite(increment) || increment === 0) return xml;
+    return String(xml || '').replace(/(<w:sz(?:Cs)?\b[^>]*\bw:val=")(\d+)("[^>]*>)/g, (_match, before, value, after) => {
+      const size = Number(value);
+      if (!Number.isFinite(size) || size <= 0) return `${before}${value}${after}`;
+      return `${before}${Math.max(1, Math.round(size + increment))}${after}`;
+    });
+  }
+
+  function scfBumpOfficialDocxFontSize(zip) {
+    if (!zip?.files) return zip;
+    Object.keys(zip.files)
+      .filter(path => /^word\/(?:document|styles|header\d+|footer\d+)\.xml$/i.test(path))
+      .forEach(path => {
+        const file = zip.file(path);
+        if (!file) return;
+        zip.file(path, scfBumpDocxFontSizeXml(file.asText()));
+      });
+    return zip;
+  }
+
 async function scfBuildOfficialDocx(shadow){
   // 1) Where your template lives (keep relative if deploying under a subpath)
   const TEMPLATE_URL = window.SCF_TEMPLATE_URL || 'templates/Change_of_Schedule_Form_CRN_ONLY_v2.docx';
@@ -901,6 +924,7 @@ async function scfBuildOfficialDocx(shadow){
     // Merge + render
     doc.setData(data);
     doc.render(); // If template has syntax issues, this will still throw
+    scfBumpOfficialDocxFontSize(doc.getZip());
 
     const blob = doc.getZip().generate({ type:'blob' });
     const form = shadow.getElementById('scf');
