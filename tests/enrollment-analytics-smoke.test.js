@@ -5042,11 +5042,36 @@ test('current enrollment and FTES report replaces manual snapshot controls', () 
   assert.match(text, /const selectedTerms = \[\.\.\.new Set\(\[focusTerm, comparisonTerm\]/);
   assert.match(text, /selectedTerms\.map\(term => loadWorkExperienceTermRows\(term\)/);
   assert.match(text, /const matchingWorkRows = includeWorkExperience\('cef'\) \? dedupeEnrollmentRows\(\[\.\.\.workExperienceRowsForTerms\(selectedTerms\), \.\.\.savedWorkRows\]\) : \[\]/);
+  assert.match(text, /currentEnrollmentFtesPendingAnalysisExportRows/);
+  assert.match(text, /summary\.pendingFtesAnalysis/);
+  assert.match(text, /historicalPendingFtesAnalysisPanel\(pendingFtesAnalysis\)/);
   assert.match(text, /Run Selected Term FTES/);
   assert.match(text, /Calculation Context/);
   assert.match(text, /Historical FTES\/enrollment ratios are not used/);
   assert.doesNotMatch(text, /id="snapSeason"/);
   assert.doesNotMatch(text, /id="snapType"/);
+});
+
+test('current enrollment and FTES exposes historical pending FTES diagnostic coverage', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '120', accountingMethod: 'P', census: 20, ftes: 2, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'E25', subject: 'OPEN', course: '100', accountingMethod: 'E', census: 10, ftes: 3, hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'P26', subject: 'AUTO', course: '120', accountingMethod: 'P', census: 30, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
+    section({ term: 'FALL 2026', crn: 'E26', subject: 'OPEN', course: '100', accountingMethod: 'E', census: 12, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
+    section({ term: 'FALL 2026', crn: 'WX26', subject: 'WKEX', course: '020', accountingMethod: 'I', census: 6, ftes: 0, isWorkExperience: true, modality: 'WORK EXPERIENCE', hasDirectFtesData: false, hasFtesData: false, ftesMaturity: 'Work Experience Pending Final' })
+  ];
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', comparisonTerm: 'FALL 2025' });
+  const coverage = Object.fromEntries(summary.pendingFtesAnalysis.populationCoverage.map(row => [row.population, row]));
+
+  assert.equal(summary.pendingFtesAnalysis.summary.actualHoursPendingSections, 3);
+  assert.equal(summary.pendingFtesAnalysis.summary.actualHoursPendingEnrollment, 48);
+  assert.equal(coverage.P.status, 'Historical basis available');
+  assert.equal(coverage.E.status, 'Historical basis available');
+  assert.equal(coverage['Work Experience'].status, 'Insufficient Historical Data');
+  assert.ok(summary.pendingFtesAnalysis.simulationRows.some(row => row.population === 'P' && row.predictedFtes > 0));
+  assert.ok(summary.pendingFtesAnalysis.simulationRows.some(row => row.population === 'E' && row.predictedFtes > 0));
+  assert.ok(summary.pendingFtesAnalysis.simulationRows.some(row => row.population === 'Work Experience' && row.confidence === 'INSUFFICIENT DATA'));
 });
 
 test('current enrollment and FTES comparison defaults to exact prior-year like term only', () => {

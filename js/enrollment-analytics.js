@@ -336,6 +336,7 @@
     supplyDemandBucketRows: [],
     supplyDemandResourceRows: [],
     supplyDemandRan: false,
+    currentEnrollmentFtesPendingAnalysisExportRows: [],
     demandFtesBridgeExportRows: [],
     demandFormulaAuditExportRows: [],
     demandPendingFtesAnalysisExportRows: [],
@@ -10894,6 +10895,7 @@
     const comparison = currentEnrollmentFtesTotals(comparisonRows, comparisonAsOf);
     const focusComponents = aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentFtesComponent, { asOfContext: focusAsOf });
     const comparisonComponents = aggregateCurrentEnrollmentFtes(comparisonRows, currentEnrollmentFtesComponent, { asOfContext: comparisonAsOf });
+    const pendingFtesAnalysis = buildHistoricalPendingFtesAnalysis(scoped, { targetTerm: focusTerm || 'FALL 2026' });
     const maturityByCrn = new Map(focusMaturity.classifiedRows.map(item => [sectionKey(item.row), item.maturity]));
     const summary = {
       focusTerm,
@@ -10913,6 +10915,7 @@
         focus: focusMaturity,
         comparison: comparisonMaturity
       },
+      pendingFtesAnalysis,
       context: {
         selectedTerm: focusTerm,
         comparisonTerm,
@@ -11120,6 +11123,7 @@
   function clearCurrentEnrollmentFtes(message = 'Results cleared. Select focus/comparison terms and click Run Selected Term FTES when ready.') {
     state.currentEnrollmentFtesRows = [];
     state.currentEnrollmentFtesSummary = null;
+    state.currentEnrollmentFtesPendingAnalysisExportRows = [];
     state.workExperienceInput = [];
     state.workExperienceTermCache = {};
     state.workExperienceTermLoading = {};
@@ -11203,7 +11207,10 @@
     }
     const breakdowns = document.getElementById('snapshotBreakdowns');
     if (breakdowns) {
+      const pendingFtesAnalysis = canAccessRole('development') ? (summary.pendingFtesAnalysis || buildHistoricalPendingFtesAnalysis([], { targetTerm: summary.focusTerm || 'FALL 2026' })) : null;
+      state.currentEnrollmentFtesPendingAnalysisExportRows = pendingFtesAnalysis ? historicalPendingFtesAnalysisExportRows(pendingFtesAnalysis) : [];
       breakdowns.innerHTML = [
+        historicalPendingFtesAnalysisPanel(pendingFtesAnalysis),
         dashboardPanel('Focus vs Comparison Totals', miniTable(summary.comparisonRows, ['line', 'term', 'classOfferings', 'enrollment', 'ftes', 'seats'], 'ftes')),
         dashboardPanel('Selected vs Comparison Metrics', miniTable(summary.metricComparisonRows, ['metric', 'selectedTerm', 'comparisonTerm', 'change', 'changePct'], 'ftes')),
         dashboardPanel('FTES Status Breakdown', `<p class="analytics-chart-note">Projected FTES equals confirmed/final plus estimated plus maturity-unknown valid FTES. FTES Unavailable rows are only rows where the FTES amount itself cannot be calculated from the loaded source.</p>${miniTable(summary.breakdowns.ftesMaturityStatus, ['name', 'group', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'reason'], 'ftes')}`),
@@ -11213,6 +11220,7 @@
         dashboardPanel('FTES by Instructional Method', miniTable(summary.breakdowns.instructionalMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
         dashboardPanel('FTES by Attendance Accounting Method', `<p class="analytics-chart-note">Class Offerings are unique CRNs. Direct FTES Rows have an FTES value in the source file. Formula-Calculated FTES Rows do not include direct FTES but have enough attendance-accounting, enrollment, contact-hour, weekly-hour, or unit inputs for TIMBER to calculate FTES. FTES Unavailable Rows lack the inputs needed for a current calculation. Positive Attendance, Open Entry/Open Exit, and Work Experience may need a separate conservative completion estimate because final FTES depends on completed attendance hours or units.</p>${miniTable(summary.breakdowns.accountingMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'confirmedFinalFtes', 'maturityEstimatedFtes', 'maturityUnknownFtes', 'maturityUnknownRows', 'maturityUnavailableRows', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'calculationNote'], 'ftes')}`)
       ].join('');
+      refreshGeneratedCollapsibleSections(breakdowns);
     }
     table('snapshotTable', summary.rows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'partOfTerm', 'startDate', 'endDate', 'censusEnrollmentDate', 'censusEnrollment', 'censusEnrollment2Date', 'censusEnrollment2', 'activityDate', 'effectiveAsOfDate', 'ftesMaturityStatus', 'ftesMaturityReason', 'currentEnrollment', 'seats', 'ftes', 'ftesSource', 'ftesWarning']);
     renderSnapshotLegend();
@@ -17414,10 +17422,29 @@
     const simulationRows = pendingFtesSimulationRows(allRows, { targetTerm });
     const targetRows = allRows.filter(row => normalizeTermLabel(row.term) === targetTerm);
     const isPendingTargetRow = row => pendingFtesPopulation(row) && (!row.hasDirectFtesData || row.ftesUnavailable || /PENDING|ESTIMATED|UNAVAILABLE/.test(canon(row.ftesMaturity || row.ftesWarning || '')));
+    const targetPendingRows = targetRows.filter(isPendingTargetRow);
     const establishedFtes = targetRows.reduce((total, row) => total + (isPendingTargetRow(row) ? 0 : Number(row.ftes || 0)), 0);
     const pendingFtes = sum(simulationRows, 'predictedFtes');
     const lower = establishedFtes + sum(simulationRows.filter(row => row.lowerEstimate != null), 'lowerEstimate');
     const upper = establishedFtes + sum(simulationRows.filter(row => row.upperEstimate != null), 'upperEstimate');
+    const populationCoverage = ['P', 'E', 'Work Experience'].map(population => {
+      const current = targetPendingRows.filter(row => pendingFtesPopulation(row) === population);
+      const historical = history.filter(row => row.population === population);
+      return {
+        population,
+        targetPendingSections: demandDistinctCrnCount(current),
+        targetPendingEnrollment: enrollmentTotal(current),
+        historicalFinalRows: historical.length,
+        historicalTerms: [...new Set(historical.map(row => row.term))].sort((a, b) => termSortValue(b) - termSortValue(a)).join('; '),
+        status: current.length && historical.length
+          ? 'Historical basis available'
+          : current.length
+            ? 'Insufficient Historical Data'
+            : historical.length
+              ? 'History found; no current pending rows'
+              : 'No current pending rows or historical actuals'
+      };
+    });
     const populationRows = [...group(history, row => row.population).entries()].map(([population, groupRows]) => {
       const simple = pendingFtesBacktest(groupRows, 'simple');
       const weighted = pendingFtesBacktest(groupRows, 'weighted');
@@ -17448,8 +17475,11 @@
       outliers: pendingFtesOutlierRows(history),
       simulationRows,
       confidenceCounts,
+      populationCoverage,
       summary: {
         establishedFtes,
+        actualHoursPendingSections: demandDistinctCrnCount(targetPendingRows),
+        actualHoursPendingEnrollment: enrollmentTotal(targetPendingRows),
         simulatedPendingFtes: pendingFtes,
         simulatedProjectedTotalFtes: establishedFtes + pendingFtes,
         lowerEstimate: lower,
@@ -18486,6 +18516,8 @@
     const summaryRows = [
       { metric: 'Target Term', value: analysis.targetTerm || 'FALL 2026' },
       { metric: 'Historical Final Rows', value: formatWholeNumber((analysis.historicalRows || []).length) },
+      { metric: 'Actual-Hours Pending Sections', value: formatWholeNumber(summary.actualHoursPendingSections || 0) },
+      { metric: 'Actual-Hours Pending Enrollment', value: formatWholeNumber(summary.actualHoursPendingEnrollment || 0) },
       { metric: 'Simulated Pending Rows', value: formatWholeNumber((analysis.simulationRows || []).length) },
       { metric: 'Established FTES Already in Production Total', value: formatDecimal(summary.establishedFtes || 0, 2) },
       { metric: 'Diagnostic Pending FTES Simulation', value: formatDecimal(summary.simulatedPendingFtes || 0, 2) },
@@ -18500,7 +18532,12 @@
         <p class="analytics-chart-note">Developer/System Administrator diagnostic only. This estimates whether prior completed terms can defensibly predict final FTES for P, Attendance Method E, Work Experience, and other actual-hours pending populations. It does not change Projected Total FTES or any production attendance formula.</p>
         <p class="analytics-chart-note">Attendance Method E is Open Entry/Open Exit Positive Attendance and remains separate from Part of Term E, which means Excluding Holidays. Current/incomplete target-term rows are excluded from historical actuals.</p>
         <p class="analytics-chart-note">${escapeAttr(summary.note || '')}</p>
+        ${(analysis.simulationRows || []).length ? '' : '<p class="analytics-chart-note">No diagnostic estimate rows were produced. This usually means the selected term has no P, Attendance Method E, or Work Experience rows currently marked actual-hours pending, or the loaded source data does not contain those populations.</p>'}
         ${analyticsTableMarkup(summaryRows, ['metric', 'value'])}
+        <section data-collapsible-title="Population Coverage" data-collapsible-id="pending-ftes-population-coverage" data-collapsible-default-open="true">
+          <h3>Population Coverage</h3>
+          ${analyticsTableMarkup(analysis.populationCoverage || [], ['population', 'targetPendingSections', 'targetPendingEnrollment', 'historicalFinalRows', 'historicalTerms', 'status'])}
+        </section>
         <section data-collapsible-title="Recommended Hierarchy and Confidence" data-collapsible-id="pending-ftes-hierarchy-confidence" data-collapsible-default-open="true">
           <h3>Recommended Hierarchy and Confidence</h3>
           <p class="analytics-chart-note">${escapeAttr(analysis.recommendedHierarchy || '')}</p>
@@ -19236,6 +19273,7 @@
   function clearEmSnapshot(message = 'Results cleared. Load or select the current term, optionally enter a prior comparison term, then run Current Enrollment & FTES.') {
     state.emSnapshotRows = [];
     state.emSnapshotExportRows = [];
+    state.currentEnrollmentFtesPendingAnalysisExportRows = [];
     state.emSnapshotRan = false;
     ['emSnapshotMetrics', 'emSnapshotSummary', 'emSnapshotInsights', 'emSnapshotTable'].forEach(id => {
       const node = document.getElementById(id);
@@ -22530,7 +22568,9 @@
     });
     document.addEventListener('click', event => {
       if (!event.target?.closest?.('#exportHistoricalPendingFtesAnalysis')) return;
-      exportRowsWithoutMethodology(state.demandPendingFtesAnalysisExportRows || [], 'historical-pending-ftes-analysis.csv');
+      const currentRows = state.currentEnrollmentFtesPendingAnalysisExportRows || [];
+      const demandRows = state.demandPendingFtesAnalysisExportRows || [];
+      exportRowsWithoutMethodology(currentRows.length ? currentRows : demandRows, 'historical-pending-ftes-analysis.csv');
     });
     document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
