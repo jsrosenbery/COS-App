@@ -489,17 +489,17 @@
     end: ['End_Time', 'END_TIME', 'End Time', 'END TIME', 'Stop Time', 'STOP TIME', 'Stop_Time', 'STOP_TIME', 'Class End Time', 'Meeting End', 'Mtg End', 'End'],
     room: ['Room', 'ROOM'],
     building: ['Building', 'BUILDING'],
-    cap: ['Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
+    cap: ['cap', 'Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
     units: ['Units', 'UNITS', 'Credit Hours', 'CREDIT_HOURS', 'Credits', 'CREDITS', 'SESSION_CREDIT_HOURS', 'Session Credit Hours'],
     weeklyHours: ['HOURS_PER_WEEK', 'Hours Per Week', 'Weekly Hours', 'WSCH'],
     dailyHours: ['HOURS_PER_DAY', 'Hours Per Day', 'Daily Hours'],
     totalContactHours: ['TOTAL_CONTACT_HOURS', 'Total Contact Hours', 'Contact Hours'],
-    accountingMethod: ['ACCOUNTING METHOD', 'Accounting Method', 'ACCOUNTING_METHOD'],
-    ftes: ['FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
-    actual: ['Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment', 'Current Enrollment / ACTUAL_ENROLL', 'Current_Enrollment'],
-    census: ['Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment', 'Census Enrollment / CENSUS_ENROLL'],
-    censusEnrollmentDate: ['CENSUS_ENRL_DATE', 'Census Enrl Date', 'Census Enrollment Date', 'Census Date', 'CENSUS DATE'],
-    snapshotDate: ['SnapshotDate', 'Snapshot Date', 'AS_OF_DATE', 'As Of Date', 'As-of Date', 'Report Date', 'REPORT_DATE', 'Data As Of', 'DATA_AS_OF', 'Extract Date', 'EXTRACT_DATE', 'Effective Date', 'Snapshot Effective Date'],
+    accountingMethod: ['accountingMethod', 'ACCOUNTING METHOD', 'Accounting Method', 'ACCOUNTING_METHOD'],
+    ftes: ['ftes', 'FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
+    actual: ['actual', 'Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment', 'Current Enrollment / ACTUAL_ENROLL', 'Current_Enrollment'],
+    census: ['census', 'Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment', 'Census Enrollment / CENSUS_ENROLL'],
+    censusEnrollmentDate: ['censusEnrollmentDate', 'censusEnrollmentDateIso', 'CENSUS_ENRL_DATE', 'Census Enrl Date', 'Census Enrollment Date', 'Census Date', 'CENSUS DATE'],
+    snapshotDate: ['snapshotDate', 'snapshotDateIso', 'asOfDate', 'uploadDate', 'SnapshotDate', 'Snapshot Date', 'AS_OF_DATE', 'As Of Date', 'As-of Date', 'Report Date', 'REPORT_DATE', 'Data As Of', 'DATA_AS_OF', 'Extract Date', 'EXTRACT_DATE', 'Effective Date', 'Snapshot Effective Date'],
     firstDay: ['First Day Enrollment', 'First_Day_Enrollment', 'FIRST_DAY_ENROLLMENT', 'First Day'],
     census1: ['Census 1', 'Census_1', 'CENSUS_1'],
     census2: ['Census 2', 'Census_2', 'CENSUS_2', 'CENSUS_ENROLL2', 'Census Enroll 2', 'Census Enrollment 2'],
@@ -736,7 +736,7 @@
       status: canon(val(row, fields.status)),
       isTutoringOpenLab: tutoringOpenLabCourseSet.has([subject, course].filter(Boolean).join(' ')),
       sourceFileName: row.__sourceFileName || '',
-      sourceUploadedAt: row.__uploadedAt || row.uploadedAt || row.UploadedAt || ''
+      sourceUploadedAt: row.sourceUploadedAt || row.__uploadedAt || row.uploadedAt || row.UploadedAt || row.loadedAt || row.importedAt || ''
     };
     normalized.canonicalSection = canonical;
     normalized._meetingRows = [meetingRowForFtes(normalized)];
@@ -10268,6 +10268,8 @@
           unavailableFtesRows: 0,
           confirmedFinalFtes: 0,
           maturityEstimatedFtes: 0,
+          maturityUnknownFtes: 0,
+          maturityUnknownRows: 0,
           maturityUnavailableRows: 0
         });
       }
@@ -10283,7 +10285,10 @@
         const maturity = classifyCurrentEnrollmentFtesMaturity(row, options.asOfContext);
         if (maturity.group === 'CONFIRMED_FINAL') bucket.confirmedFinalFtes += currentEnrollmentFtesValue(row);
         else if (maturity.group === 'ESTIMATED') bucket.maturityEstimatedFtes += currentEnrollmentFtesValue(row);
-        else bucket.maturityUnavailableRows += 1;
+        else if (maturity.group === 'UNKNOWN') {
+          bucket.maturityUnknownFtes += currentEnrollmentFtesValue(row);
+          bucket.maturityUnknownRows += 1;
+        } else bucket.maturityUnavailableRows += 1;
       }
     });
     const totalEnrollment = [...buckets.values()].reduce((total, row) => total + row.enrollment, 0);
@@ -10336,6 +10341,7 @@
     WORK_EXPERIENCE_ESTIMATED: 'WORK_EXPERIENCE_ESTIMATED',
     WORK_EXPERIENCE_PENDING_FINAL: 'WORK_EXPERIENCE_PENDING_FINAL',
     WORK_EXPERIENCE_FINAL: 'WORK_EXPERIENCE_FINAL',
+    MATURITY_UNKNOWN: 'MATURITY_UNKNOWN',
     FTES_UNAVAILABLE: 'FTES_UNAVAILABLE'
   });
   const FTES_MATURITY_LABELS = Object.freeze({
@@ -10349,6 +10355,7 @@
     WORK_EXPERIENCE_ESTIMATED: 'Work Experience Estimated',
     WORK_EXPERIENCE_PENDING_FINAL: 'Work Experience Pending Final',
     WORK_EXPERIENCE_FINAL: 'Work Experience Final',
+    MATURITY_UNKNOWN: 'Maturity Unknown',
     FTES_UNAVAILABLE: 'FTES Unavailable'
   });
 
@@ -10360,17 +10367,18 @@
       FTES_MATURITY_STATUS.WORK_EXPERIENCE_FINAL
     ].includes(status)) return 'CONFIRMED_FINAL';
     if (status === FTES_MATURITY_STATUS.FTES_UNAVAILABLE) return 'UNAVAILABLE';
+    if (status === FTES_MATURITY_STATUS.MATURITY_UNKNOWN) return 'UNKNOWN';
     return 'ESTIMATED';
   }
 
   function resolveFtesAsOfDate(rows = [], options = {}) {
     const explicitOption = options.effectiveAsOfDate || options.snapshotDate || options.asOfDate || '';
     const explicitRows = (rows || [])
-      .map(row => row.snapshotDateIso || row.snapshotDate || row.asOfDate || row.raw?.snapshotDate || row.raw?.SnapshotDate || row.raw?.asOfDate || row.raw?.['As Of Date'] || '')
+      .map(row => row.snapshotDateIso || row.snapshotDate || row.asOfDate || row.uploadDate || row.raw?.snapshotDate || row.raw?.SnapshotDate || row.raw?.asOfDate || row.raw?.['As Of Date'] || row.raw?.uploadDate || row.raw?.UploadDate || '')
       .filter(Boolean)
       .sort();
     const uploadedRows = (rows || [])
-      .map(row => row.sourceUploadedAt || row.raw?.__uploadedAt || row.raw?.uploadedAt || row.raw?.UploadedAt || '')
+      .map(row => row.sourceUploadedAt || row.loadedAt || row.importedAt || row.raw?.__uploadedAt || row.raw?.uploadedAt || row.raw?.UploadedAt || row.raw?.sourceUploadedAt || row.raw?.loadedAt || row.raw?.importedAt || '')
       .filter(Boolean)
       .sort();
     const raw = explicitOption || explicitRows.at(-1) || uploadedRows.at(-1) || '';
@@ -10425,14 +10433,14 @@
       }
     } else if (CENSUS_DEPENDENT_FTES_METHODS.has(method)) {
       if (!asOfDate) {
-        status = FTES_MATURITY_STATUS.FTES_UNAVAILABLE;
-        reason = 'FTES maturity unavailable: no source as-of date or upload timestamp is available.';
+        status = FTES_MATURITY_STATUS.MATURITY_UNKNOWN;
+        reason = 'FTES maturity unknown: no source as-of date or upload timestamp is available. Valid FTES remains included in Projected FTES.';
       } else if (startDate && asOfDate < startDate) {
         status = FTES_MATURITY_STATUS.ESTIMATED_PRE_START;
         reason = `As-of date ${dateIso(asOfDate)} is before the section start date ${dateIso(startDate)}.`;
       } else if (!censusDate) {
-        status = FTES_MATURITY_STATUS.FTES_UNAVAILABLE;
-        reason = 'FTES maturity unavailable: CENSUS_ENRL_DATE is missing and was not inferred.';
+        status = FTES_MATURITY_STATUS.MATURITY_UNKNOWN;
+        reason = 'FTES maturity unknown: CENSUS_ENRL_DATE is missing and was not inferred. Valid FTES remains included in Projected FTES.';
       } else if (asOfDate < censusDate) {
         status = FTES_MATURITY_STATUS.ESTIMATED_CENSUS_PENDING;
         reason = `As-of date ${dateIso(asOfDate)} is before CENSUS_ENRL_DATE ${dateIso(censusDate)}.`;
@@ -10465,12 +10473,17 @@
       const ftes = currentEnrollmentFtesValue(item.row);
       if (item.maturity.group === 'CONFIRMED_FINAL') acc.confirmedFinalFtes += ftes;
       else if (item.maturity.group === 'ESTIMATED') acc.estimatedFtes += ftes;
-      else acc.unavailableRows += 1;
+      else if (item.maturity.group === 'UNKNOWN') {
+        acc.maturityUnknownFtes += ftes;
+        acc.maturityUnknownRows += 1;
+      } else acc.unavailableRows += 1;
       acc.totalRows += 1;
       return acc;
-    }, { confirmedFinalFtes: 0, estimatedFtes: 0, unavailableRows: 0, totalRows: 0 });
-    totals.projectedFtes = totals.confirmedFinalFtes + totals.estimatedFtes;
-    totals.maturityPercent = safeDiv(totals.confirmedFinalFtes, totals.projectedFtes);
+    }, { confirmedFinalFtes: 0, estimatedFtes: 0, maturityUnknownFtes: 0, maturityUnknownRows: 0, unavailableRows: 0, totalRows: 0 });
+    totals.projectedFtes = totals.confirmedFinalFtes + totals.estimatedFtes + totals.maturityUnknownFtes;
+    const knownMaturityFtes = totals.confirmedFinalFtes + totals.estimatedFtes;
+    totals.knownMaturityFtes = knownMaturityFtes;
+    totals.maturityPercent = knownMaturityFtes > 0 ? safeDiv(totals.confirmedFinalFtes, knownMaturityFtes) : null;
     totals.asOf = asOfContext;
 
     const buckets = new Map();
@@ -10565,8 +10578,11 @@
     if (summary.context.includeWorkExperience && summary.comparisonTerm && !summary.comparison.workExperienceRows) {
       warnings.push(`Work Experience FTES unavailable - no Work Experience source data found for ${summary.comparisonTerm}.`);
     }
+    if (summary.maturity?.focus?.maturityUnknownFtes) {
+      warnings.push(`FTES maturity incomplete - ${round1(summary.maturity.focus.maturityUnknownFtes)} FTES could not be classified because census or snapshot metadata is unavailable. These valid FTES remain included in Projected FTES.`);
+    }
     if (summary.maturity?.focus?.unavailableRows) {
-      warnings.push(`${summary.maturity.focus.unavailableRows} selected-term row(s) have unavailable FTES maturity status. These rows are not included in Projected FTES until the missing status inputs are loaded.`);
+      warnings.push(`${summary.maturity.focus.unavailableRows} selected-term row(s) have unavailable FTES amounts because calculation inputs are missing. These rows are excluded from Projected FTES.`);
     }
     return warnings;
   }
@@ -10629,7 +10645,13 @@
       },
       reconciliation: {
         focus: currentEnrollmentFtesReconciliation(focus, focusComponents),
-        comparison: currentEnrollmentFtesReconciliation(comparison, comparisonComponents)
+        comparison: currentEnrollmentFtesReconciliation(comparison, comparisonComponents),
+        projectedFtes: {
+          totalFtes: focus.ftes,
+          projectedFtes: focusMaturity.projectedFtes,
+          difference: focus.ftes - focusMaturity.projectedFtes,
+          matches: Math.abs(focus.ftes - focusMaturity.projectedFtes) < 0.000001
+        }
       },
       breakdowns: {
         ftesMaturityStatus: focusMaturity.rows,
@@ -10848,7 +10870,8 @@
       ['Projected FTES', round1(summary.maturity.focus.projectedFtes), 'ftes'],
       ['Confirmed/Final FTES', round1(summary.maturity.focus.confirmedFinalFtes), 'ftes'],
       ['Estimated FTES', round1(summary.maturity.focus.estimatedFtes), 'ftes'],
-      ['FTES Maturity', formatPercent(summary.maturity.focus.maturityPercent), 'ftes'],
+      ['Maturity Unknown FTES', round1(summary.maturity.focus.maturityUnknownFtes), 'ftes'],
+      ['FTES Maturity', summary.maturity.focus.maturityPercent == null ? 'Unavailable' : formatPercent(summary.maturity.focus.maturityPercent), 'ftes'],
       ['As Of', summary.maturity.focus.asOf.display || 'Unavailable'],
       ['Comparison Term Enrollment', summary.comparisonTerm ? formatWholeNumber(summary.comparison.enrollment) : 'N/A', 'enrollment'],
       ['Enrollment Difference', summary.comparisonTerm ? `${summary.variances.enrollment >= 0 ? '+' : ''}${formatWholeNumber(summary.variances.enrollment)} (${pct(summary.variances.enrollmentPct)})` : 'N/A'],
@@ -10873,7 +10896,8 @@
         { metric: 'Work Experience Included', value: summary.context.includeWorkExperience ? `Yes (${summary.context.selectedWorkExperienceRows} selected / ${summary.context.comparisonWorkExperienceRows} comparison rows)` : 'No' },
         { metric: 'Dual Enrollment Included', value: summary.context.includeDualEnrollment ? `Yes (${summary.context.selectedDualEnrollmentRows} selected / ${summary.context.comparisonDualEnrollmentRows} comparison rows)` : 'No' },
         { metric: 'Rows Loaded', value: `${formatWholeNumber(summary.context.selectedRowsLoaded)} selected / ${formatWholeNumber(summary.context.comparisonRowsLoaded)} comparison` },
-        { metric: 'FTES Reconciliation', value: summary.reconciliation.focus.matches ? 'Selected-term component totals reconcile to total FTES.' : `Selected-term component totals differ by ${round1(summary.reconciliation.focus.difference)} FTES.` }
+        { metric: 'FTES Reconciliation', value: summary.reconciliation.focus.matches ? 'Selected-term component totals reconcile to total FTES.' : `Selected-term component totals differ by ${round1(summary.reconciliation.focus.difference)} FTES.` },
+        { metric: 'Projected FTES Reconciliation', value: summary.reconciliation.projectedFtes.matches ? 'Projected FTES reconciles to valid selected-term FTES.' : `Projected FTES differs from valid selected-term FTES by ${summary.reconciliation.projectedFtes.difference} FTES.` }
       ];
       contextNode.innerHTML = dashboardPanel('Calculation Context', miniTable(contextRows, ['metric', 'value'], 'ftes'));
     }
@@ -10882,12 +10906,12 @@
       breakdowns.innerHTML = [
         dashboardPanel('Focus vs Comparison Totals', miniTable(summary.comparisonRows, ['line', 'term', 'classOfferings', 'enrollment', 'ftes', 'seats'], 'ftes')),
         dashboardPanel('Selected vs Comparison Metrics', miniTable(summary.metricComparisonRows, ['metric', 'selectedTerm', 'comparisonTerm', 'change', 'changePct'], 'ftes')),
-        dashboardPanel('FTES Status Breakdown', `<p class="analytics-chart-note">Projected FTES equals confirmed/final plus estimated FTES. Unavailable rows are not silently counted as zero; they remain flagged until the missing source data is loaded.</p>${miniTable(summary.breakdowns.ftesMaturityStatus, ['name', 'group', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'reason'], 'ftes')}`),
+        dashboardPanel('FTES Status Breakdown', `<p class="analytics-chart-note">Projected FTES equals confirmed/final plus estimated plus maturity-unknown valid FTES. FTES Unavailable rows are only rows where the FTES amount itself cannot be calculated from the loaded source.</p>${miniTable(summary.breakdowns.ftesMaturityStatus, ['name', 'group', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'reason'], 'ftes')}`),
         dashboardPanel('Selected Term FTES Components', miniTable(summary.breakdowns.ftesComponents, ['name', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'calculationNote'], 'ftes')),
         dashboardPanel('Comparison Term FTES Components', miniTable(summary.breakdowns.comparisonFtesComponents, ['name', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'calculationNote'], 'ftes')),
         dashboardPanel('FTES by Population / Campus', `<p class="analytics-chart-note">COS, TCC, HAC, Online Campuses, Dual Enrollment, Work Experience, and All Other Campuses are shown as one planning breakdown to avoid duplicating separate population and campus tables.</p>${miniTable(summary.breakdowns.populationCampus, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')}`),
         dashboardPanel('FTES by Instructional Method', miniTable(summary.breakdowns.instructionalMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'enrollmentShare', 'ftesShare'], 'ftes')),
-        dashboardPanel('FTES by Attendance Accounting Method', `<p class="analytics-chart-note">Class Offerings are unique CRNs. Direct FTES Rows have an FTES value in the source file. Formula-Calculated FTES Rows do not include direct FTES but have enough attendance-accounting, enrollment, contact-hour, weekly-hour, or unit inputs for TIMBER to calculate FTES. FTES Unavailable Rows lack the inputs needed for a current calculation. Positive Attendance, Open Entry/Open Exit, and Work Experience may need a separate conservative completion estimate because final FTES depends on completed attendance hours or units.</p>${miniTable(summary.breakdowns.accountingMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'confirmedFinalFtes', 'maturityEstimatedFtes', 'maturityUnavailableRows', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'calculationNote'], 'ftes')}`)
+        dashboardPanel('FTES by Attendance Accounting Method', `<p class="analytics-chart-note">Class Offerings are unique CRNs. Direct FTES Rows have an FTES value in the source file. Formula-Calculated FTES Rows do not include direct FTES but have enough attendance-accounting, enrollment, contact-hour, weekly-hour, or unit inputs for TIMBER to calculate FTES. FTES Unavailable Rows lack the inputs needed for a current calculation. Positive Attendance, Open Entry/Open Exit, and Work Experience may need a separate conservative completion estimate because final FTES depends on completed attendance hours or units.</p>${miniTable(summary.breakdowns.accountingMethod, ['name', 'classOfferings', 'enrollment', 'ftes', 'confirmedFinalFtes', 'maturityEstimatedFtes', 'maturityUnknownFtes', 'maturityUnknownRows', 'maturityUnavailableRows', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'calculationNote'], 'ftes')}`)
       ].join('');
     }
     table('snapshotTable', summary.rows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'censusEnrollmentDate', 'effectiveAsOfDate', 'ftesMaturityStatus', 'ftesMaturityReason', 'currentEnrollment', 'seats', 'ftes', 'ftesSource', 'ftesWarning']);
@@ -10918,6 +10942,8 @@
       'FTES Unavailable Rows': row.unavailableFtesRows ?? '',
       'Confirmed/Final FTES': row.confirmedFinalFtes ?? '',
       'Maturity Estimated FTES': row.maturityEstimatedFtes ?? '',
+      'Maturity Unknown FTES': row.maturityUnknownFtes ?? '',
+      'Maturity Unknown Rows': row.maturityUnknownRows ?? '',
       'Maturity Unavailable Rows': row.maturityUnavailableRows ?? '',
       'Calculation Note': row.calculationNote || '',
       CRN: row.crn || '',
@@ -10948,9 +10974,12 @@
       ['Projected FTES', summary.maturity.focus.projectedFtes],
       ['Confirmed/Final FTES', summary.maturity.focus.confirmedFinalFtes],
       ['Estimated FTES', summary.maturity.focus.estimatedFtes],
+      ['Maturity Unknown FTES', summary.maturity.focus.maturityUnknownFtes],
+      ['Maturity Unknown Rows', summary.maturity.focus.maturityUnknownRows],
       ['FTES Maturity', summary.maturity.focus.maturityPercent],
       ['Selected Term As Of', summary.maturity.focus.asOf.display],
       ['Selected Term As Of Source', summary.maturity.focus.asOf.source],
+      ['Projected FTES Reconciliation Difference', summary.reconciliation.projectedFtes.difference],
       ['Selected Term FTES per Enrollment', summary.focus.ftesPerEnrollment],
       ['Comparison Term Enrollment', summary.comparison.enrollment],
       ['Comparison Term FTES', summary.comparison.ftes],

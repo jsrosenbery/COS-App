@@ -4699,14 +4699,18 @@ test('current enrollment and FTES classifies CRN-level maturity from census and 
   assert.equal(byCrn['10004'].ftesMaturityStatus, 'Positive Attendance Pending Final');
   assert.equal(byCrn.WX001.ftesMaturityStatus, 'FTES Unavailable');
   assert.match(byCrn.WX001.ftesMaturityReason, /FTES unavailable/i);
-  assert.equal(byCrn['10005'].ftesMaturityStatus, 'FTES Unavailable');
+  assert.equal(byCrn['10005'].ftesMaturityStatus, 'Maturity Unknown');
   assert.match(byCrn['10005'].ftesMaturityReason, /CENSUS_ENRL_DATE is missing/);
   assert.ok(summary.breakdowns.ftesMaturityStatus.some(row => row.name === 'Census Confirmed'));
   assert.ok(summary.breakdowns.ftesMaturityStatus.some(row => row.name === 'Estimated - Census Pending'));
+  assert.ok(summary.breakdowns.ftesMaturityStatus.some(row => row.name === 'Maturity Unknown'));
   assert.equal(summary.maturity.focus.confirmedFinalFtes, 2);
   assert.equal(Math.round(summary.maturity.focus.estimatedFtes * 10) / 10, 6);
-  assert.equal(summary.maturity.focus.unavailableRows, 2);
-  assert.equal(Math.round(summary.maturity.focus.projectedFtes * 10) / 10, 8);
+  assert.equal(summary.maturity.focus.maturityUnknownFtes, 1.2);
+  assert.equal(summary.maturity.focus.maturityUnknownRows, 1);
+  assert.equal(summary.maturity.focus.unavailableRows, 1);
+  assert.equal(Math.round(summary.maturity.focus.projectedFtes * 10) / 10, 9.2);
+  assert.equal(summary.reconciliation.projectedFtes.matches, true);
   assert.equal(summary.maturity.focus.asOf.display, '2026-09-01');
   const noWorkSummary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows.filter(row => row.crn !== 'WX001'), { focusTerm: 'FALL 2026', effectiveAsOfDate: '2026-09-01' });
   assert.ok(noWorkSummary.warnings.some(warning => /Work Experience FTES unavailable/i.test(warning)));
@@ -4714,7 +4718,57 @@ test('current enrollment and FTES classifies CRN-level maturity from census and 
   const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
   assert.ok(exportRows.some(row => row.Section === 'Summary' && row.Metric === 'Projected FTES'));
   assert.ok(exportRows.some(row => row.Section === 'FTES Status Breakdown' && row.Category === 'Estimated - Census Pending'));
+  assert.ok(exportRows.some(row => row.Section === 'FTES Status Breakdown' && row.Category === 'Maturity Unknown'));
   assert.ok(exportRows.some(row => row.Section === 'Detail' && row.CRN === '10001' && row.CENSUS_ENRL_DATE === '9/10/2026' && row['FTES Maturity Status'] === 'Estimated - Census Pending'));
+});
+
+test('current enrollment and FTES preserves census and as-of metadata through repeated normalization', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const firstPass = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    CRN: '20001',
+    Subject: 'BIOL',
+    Course: 'C1000',
+    ACTUAL_ENROLL: '40',
+    FTES: '4.0',
+    ACCOUNTING_METHOD: 'W',
+    CENSUS_ENRL_DATE: '9/12/2026',
+    SnapshotDate: '2026-09-15',
+    __uploadedAt: '2026-07-30T14:00:00.000Z'
+  });
+  const secondPass = COSEnrollmentAnalytics.normalizeRow(firstPass);
+
+  assert.equal(secondPass.censusEnrollmentDate, '9/12/2026');
+  assert.equal(secondPass.censusEnrollmentDateIso, '2026-09-12');
+  assert.equal(secondPass.snapshotDateIso, '2026-09-15');
+  assert.equal(secondPass.sourceUploadedAt, '2026-07-30T14:00:00.000Z');
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary([secondPass], { focusTerm: 'FALL 2026' });
+  assert.equal(summary.rows[0].ftesMaturityStatus, 'Census Confirmed');
+  assert.equal(summary.maturity.focus.projectedFtes, 4);
+});
+
+test('current enrollment and FTES uses upload timestamp as as-of fallback without browser date substitution', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2026',
+      CRN: '30001',
+      Subject: 'ART',
+      Course: '001',
+      ACTUAL_ENROLL: '10',
+      FTES: '1.0',
+      ACCOUNTING_METHOD: 'W',
+      CENSUS_ENRL_DATE: '8/20/2026',
+      __uploadedAt: '2026-08-25T10:30:00.000Z'
+    })
+  ];
+
+  const asOf = COSEnrollmentAnalytics.resolveFtesAsOfDate(rows);
+  assert.equal(asOf.display, '2026-08-25');
+  assert.equal(asOf.source, 'Upload timestamp fallback');
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026' });
+  assert.equal(summary.rows[0].effectiveAsOfDate, '2026-08-25');
+  assert.equal(summary.rows[0].ftesMaturityStatus, 'Census Confirmed');
 });
 
 test('FTES reconciliation parses institutional Cube hierarchy and compares CRNs', () => {
