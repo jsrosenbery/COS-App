@@ -2402,6 +2402,260 @@ test('enrollment management FTES review compares campus and instructional method
   assert.ok(rows.reduce((total, row) => total + row.shareOfTotal, 0) > 0.99);
 });
 
+function ftesBridgeFixtureRows() {
+  return [
+    section({ term: 'FALL 2025', crn: 'A25', subject: 'MATH', course: '101', census: 100, ftes: 10, accountingMethod: 'W', partOfTerm: '1', hasDirectFtesData: true, _meetingRows: [{ weeklyHours: 3 }] }),
+    section({ term: 'FALL 2025', crn: 'B25', subject: 'OPEN', course: '100', census: 50, ftes: 8, accountingMethod: 'E', partOfTerm: 'E', hasDirectFtesData: true, _meetingRows: [{ totalContactHours: 80 }] }),
+    section({ term: 'FALL 2025', crn: 'C25', subject: 'LAB', course: '200', census: 10, ftes: 3, accountingMethod: 'IW', partOfTerm: '1', hasDirectFtesData: true, _meetingRows: [{ weeklyHours: 3 }, { weeklyHours: 2 }] }),
+    section({ term: 'FALL 2025', crn: 'D25', subject: 'OLD', course: '100', census: 20, ftes: 5, accountingMethod: 'D', partOfTerm: '1', hasDirectFtesData: true, _meetingRows: [{ totalContactHours: 60 }] }),
+    section({ term: 'FALL 2025', crn: 'E25', subject: 'CHEM', course: '100', census: 10, ftes: 1, accountingMethod: 'W', partOfTerm: '1', hasDirectFtesData: true, _meetingRows: [{ weeklyHours: 3 }] }),
+    section({ term: 'FALL 2026', crn: 'A26', subject: 'MATH', course: '101', census: 110, ftes: 12, accountingMethod: 'W', partOfTerm: '1', standardizedHours: 57.2727272727, hasDirectFtesData: true, _meetingRows: [{ weeklyHours: 3 }] }),
+    section({ term: 'FALL 2026', crn: 'B26', subject: 'OPEN', course: '100', census: 50, ftes: 10, accountingMethod: 'E', partOfTerm: 'E', hasDirectFtesData: true, _meetingRows: [{ totalContactHours: 95 }] }),
+    section({ term: 'FALL 2026', crn: 'C26', subject: 'LAB', course: '200', census: 20, ftes: 8, accountingMethod: 'IW', partOfTerm: '1', standardizedHours: 210, hasDirectFtesData: true, _meetingRows: [{ weeklyHours: 3 }, { weeklyHours: 3 }] }),
+    section({ term: 'FALL 2026', crn: 'N26', subject: 'NEW', course: '100', census: 10, ftes: 4, accountingMethod: 'D', partOfTerm: '1', standardizedHours: 210, hasDirectFtesData: true, _meetingRows: [{ totalContactHours: 70 }] }),
+    section({ term: 'FALL 2026', crn: 'E26', subject: 'CHEM', course: '100', census: 10, ftes: 8, accountingMethod: 'W', partOfTerm: '1', standardizedHours: 420, hasDirectFtesData: true, _meetingRows: [{ weeklyHours: 8 }] })
+  ];
+}
+
+test('fall-to-fall FTES bridge keeps Attendance Method E distinct from Part of Term E', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = section({ accountingMethod: 'E', partOfTerm: 'E' });
+
+  assert.equal(COSEnrollmentAnalytics.ftesBridgeAccountingMethod(row), 'E');
+  assert.equal(COSEnrollmentAnalytics.ftesBridgePartOfTerm(row), 'E');
+  const bridge = COSEnrollmentAnalytics.buildFallToFallFtesBridge(ftesBridgeFixtureRows(), { fa25BenchmarkFtes: 27 });
+  assert.match(bridge.accountingMethod.find(item => item.accountingMethod === 'E').diagnosticNotes, /Open Entry\/Open Exit Positive Attendance/);
+  assert.match(bridge.partOfTerm.find(item => item.partOfTerm === 'E').diagnosticNotes, /Excluding Holidays/);
+});
+
+test('fall-to-fall FTES bridge compares accounting method Part of Term and cross-tab rows', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = ftesBridgeFixtureRows();
+  const bridge = COSEnrollmentAnalytics.buildFallToFallFtesBridge(rows, { fa25BenchmarkFtes: 27 });
+  const weekly = bridge.accountingMethod.find(row => row.accountingMethod === 'W');
+  const ptrmE = bridge.partOfTerm.find(row => row.partOfTerm === 'E');
+  const methodPtrmE = bridge.methodByPartOfTerm.find(row => row.accountingMethod === 'E' && row.partOfTerm === 'E');
+
+  assert.equal(weekly.FA25Enrollment, 110);
+  assert.equal(weekly.FA26Enrollment, 120);
+  assert.equal(Number(weekly.ftesChange.toFixed(6)), 9);
+  assert.equal(ptrmE.FA25FTES, 8);
+  assert.equal(ptrmE.FA26FTES, 10);
+  assert.equal(methodPtrmE.FA26Enrollment, 50);
+});
+
+test('fall-to-fall FTES bridge calculates enrollment effect mix effect and reconciliation', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const bridge = COSEnrollmentAnalytics.buildFallToFallFtesBridge(ftesBridgeFixtureRows(), { fa25BenchmarkFtes: 27 });
+  const d = bridge.decomposition;
+  const reconciled = d.enrollmentEffect + d.courseContactHourMixEffect + d.newDiscontinuedOfferings + d.positiveAttendanceDifference + d.unexplained;
+
+  assert.equal(Number(d.totalChange.toFixed(6)), 15);
+  assert.ok(d.enrollmentEffect > 3.9);
+  assert.ok(d.courseContactHourMixEffect > 7.9);
+  assert.equal(d.newDiscontinuedOfferings, -1);
+  assert.equal(d.positiveAttendanceDifference, 2);
+  assert.equal(Number(reconciled.toFixed(6)), Number(d.totalChange.toFixed(6)));
+});
+
+test('fall-to-fall FTES bridge reports DE status and multi-component W IW populations', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    ...ftesBridgeFixtureRows(),
+    section({ term: 'FALL 2025', crn: 'DE25', subject: 'DEMO', course: '101', census: 30, ftes: 3, modality: 'DUAL ENROLLMENT', accountingMethod: 'W', partOfTerm: '1', hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'DE26', subject: 'DEMO', course: '101', census: 40, ftes: 4, modality: 'DUAL ENROLLMENT', accountingMethod: 'W', partOfTerm: '1', standardizedHours: 52.5, hasDirectFtesData: true })
+  ];
+  const bridge = COSEnrollmentAnalytics.buildFallToFallFtesBridge(rows, { fa25BenchmarkFtes: 30 });
+  const de = bridge.deStatus.find(row => row.deStatus === 'DE');
+  const iw = bridge.multiComponent.find(row => row.accountingMethod === 'IW');
+
+  assert.equal(de.FA25Enrollment, 30);
+  assert.equal(de.FA26Enrollment, 40);
+  assert.ok(iw.FA26Sections >= 1);
+  assert.ok(iw.FA26FTESPerEnrollment > 0);
+});
+
+test('fall-to-fall FTES bridge detects outliers and preserves production FTES values', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = ftesBridgeFixtureRows();
+  const before = rows.map(row => row.ftes);
+  const bridge = COSEnrollmentAnalytics.buildFallToFallFtesBridge(rows, { fa25BenchmarkFtes: 27 });
+  const chem = bridge.outliers.find(row => row.crn === 'E26');
+  const exportRows = COSEnrollmentAnalytics.fallToFallFtesBridgeExportRows(bridge);
+
+  assert.equal(chem.classification, 'SUSPICIOUS / REQUIRES REVIEW');
+  assert.match(chem.diagnosticNotes, /FTES\/enrollment differs/);
+  assert.equal(bridge.fa25Benchmark.status, 'OK');
+  assert.deepEqual(rows.map(row => row.ftes), before);
+  assert.ok(exportRows.some(row => row.comparisonGroup === 'Headline Bridge' && row.diagnosticNotes === 'Unexplained'));
+});
+
+test('fall-to-fall FTES bridge confirms Fall 2025 institutional benchmark', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2025', crn: 'FA25', census: 42086, ftes: 5501.57, accountingMethod: 'W', partOfTerm: '1', hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'FA26', census: 42554, ftes: 5735.8, accountingMethod: 'W', partOfTerm: '1', standardizedHours: 70.76408798232833, hasDirectFtesData: true })
+  ];
+  const bridge = COSEnrollmentAnalytics.buildFallToFallFtesBridge(rows);
+
+  assert.equal(bridge.fa25Benchmark.status, 'OK');
+  assert.equal(Number(bridge.decomposition.fa25.ftes.toFixed(2)), 5501.57);
+  assert.equal(Number(bridge.decomposition.totalChange.toFixed(1)), 234.2);
+});
+
+test('attendance formula audit determines Fall 2026 transition method without changing local code', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const transition = section({ term: 'FALL 2026', accountingMethod: 'W', standardizedHours: 63, weeklyHours: 3 });
+  const ambiguous = section({ term: 'FALL 2026', accountingMethod: 'IW', weeklyHours: 3 });
+
+  assert.equal(COSEnrollmentAnalytics.ftesBridgeAccountingMethod(transition), 'W');
+  assert.equal(COSEnrollmentAnalytics.attendanceAuditExpectedMethod(transition), 'STANDARDIZED_ATTENDANCE');
+  assert.equal(COSEnrollmentAnalytics.attendanceAuditTimberMethod(transition), 'LEGACY_WEEKLY_CENSUS');
+  assert.equal(COSEnrollmentAnalytics.attendanceAuditExpectedMethod(ambiguous), 'STANDARDIZED_ATTENDANCE');
+});
+
+test('attendance formula audit preserves Attendance Method E and Part of Term E separation', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = section({ term: 'FALL 2026', accountingMethod: 'E', partOfTerm: 'E', totalContactHours: 60, ftes: 3 });
+  const [audit] = COSEnrollmentAnalytics.attendanceFormulaAuditRows([row]);
+
+  assert.equal(audit.attendanceAccountingCode, 'E');
+  assert.equal(audit.partOfTerm, 'E');
+  assert.equal(audit.expectedCalculationMethod, 'SPECIAL METHOD - POSITIVE ATTENDANCE ACTUAL HOURS');
+  assert.match(audit.auditReason, /Open Entry\/Open Exit Positive Attendance/);
+});
+
+test('attendance formula audit recalculates legacy and standardized diagnostic paths', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const legacy = section({ term: 'FALL 2025', crn: 'LEG', accountingMethod: 'W', census: 100, weeklyHours: 3, ftes: 10, hasDirectFtesData: false, hasFtesData: true });
+  const standardized = section({ term: 'FALL 2026', crn: 'STD', accountingMethod: 'W', census: 100, weeklyHours: 3, standardizedHours: 63, ftes: 10, hasDirectFtesData: false, hasFtesData: true });
+  const rows = COSEnrollmentAnalytics.attendanceFormulaAuditRows([legacy, standardized]);
+  const legacyAudit = rows.find(row => row.crn === 'LEG');
+  const standardizedAudit = rows.find(row => row.crn === 'STD');
+
+  assert.equal(Number(COSEnrollmentAnalytics.attendanceAuditLegacyExpectedFtes(legacy).toFixed(1)), 10);
+  assert.equal(Number(COSEnrollmentAnalytics.attendanceAuditStandardizedExpectedFtes(standardized).toFixed(1)), 12);
+  assert.equal(legacyAudit.auditStatus, 'CORRECT METHOD / CORRECT CALCULATION');
+  assert.equal(standardizedAudit.auditStatus, 'CORRECT METHOD / CORRECT CALCULATION');
+});
+
+test('attendance formula audit excludes Positive Attendance and Work Experience from ordinary census audit', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = COSEnrollmentAnalytics.attendanceFormulaAuditRows([
+    section({ term: 'FALL 2026', crn: 'P1', accountingMethod: 'P', census: 10, totalContactHours: 60, ftes: 1.1, hasDirectFtesData: false, hasFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'WEX', accountingMethod: 'I', census: 10, ftes: 0, isWorkExperience: true, modality: 'WORK EXPERIENCE', sourceType: 'WORK EXPERIENCE', hasDirectFtesData: false, hasFtesData: false })
+  ]);
+
+  assert.match(rows.find(row => row.crn === 'P1').auditStatus, /SPECIAL METHOD/);
+  assert.match(rows.find(row => row.crn === 'WEX').auditReason, /Work Experience is separated/);
+});
+
+test('attendance formula audit keeps DE classification explanatory only', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const [audit] = COSEnrollmentAnalytics.attendanceFormulaAuditRows([
+    section({ term: 'FALL 2025', crn: 'DEW', accountingMethod: 'W', modality: 'DUAL ENROLLMENT', census: 30, weeklyHours: 3, ftes: 3, hasDirectFtesData: false, hasFtesData: true })
+  ]);
+
+  assert.equal(audit.deStatus, 'DE');
+  assert.equal(audit.expectedCalculationMethod, 'LEGACY_WEEKLY_CENSUS');
+  assert.equal(audit.timberCalculationMethod, 'LEGACY_WEEKLY_CENSUS');
+});
+
+test('attendance formula audit bridge reconciles and diagnostics do not mutate production FTES', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2025', crn: 'FA25', census: 100, ftes: 10, accountingMethod: 'W', partOfTerm: '1', weeklyHours: 3, hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'FA26', census: 110, ftes: 12, accountingMethod: 'W', partOfTerm: '1', weeklyHours: 3, standardizedHours: 57.2727272727, hasDirectFtesData: true })
+  ];
+  const before = rows.map(row => row.ftes);
+  const audit = COSEnrollmentAnalytics.buildAttendanceFormulaAudit(rows, COSEnrollmentAnalytics.buildFallToFallFtesBridge(rows, { fa25BenchmarkFtes: 10 }));
+  const total = audit.bridgeEffects.find(row => row.effect === 'Total FTES change').ftesChange;
+  const components = audit.bridgeEffects.filter(row => row.effect !== 'Total FTES change').reduce((sum, row) => sum + (row.ftesChange || 0), 0);
+  const exportRows = COSEnrollmentAnalytics.attendanceFormulaAuditExportRows(audit);
+
+  assert.equal(Number(total.toFixed(6)), Number(components.toFixed(6)));
+  assert.deepEqual(rows.map(row => row.ftes), before);
+  assert.ok(exportRows.every(row => Object.prototype.hasOwnProperty.call(row, 'expectedCalculationMethod')));
+});
+
+test('standardized attendance production keeps Fall 2025 W IW D ID legacy', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const cases = [
+    [{ term: 'FALL 2025', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 100, HOURS_PER_WEEK: 3 }, 'LEGACY_WEEKLY_CENSUS', 10],
+    [{ term: 'FALL 2025', 'ACCOUNTING METHOD': 'IW', CENSUS_ENROLL: 100, HOURS_PER_WEEK: 3 }, 'LEGACY_INDEPENDENT_WEEKLY_CENSUS', 10],
+    [{ term: 'FALL 2025', 'ACCOUNTING METHOD': 'D', CENSUS_ENROLL: 100, TOTAL_CONTACT_HOURS: 60 }, 'LEGACY_DAILY_CENSUS', 11.4],
+    [{ term: 'FALL 2025', 'ACCOUNTING METHOD': 'ID', CENSUS_ENROLL: 100, TOTAL_CONTACT_HOURS: 60 }, 'LEGACY_INDEPENDENT_DAILY_CENSUS', 11.4]
+  ];
+
+  cases.forEach(([raw, method, expectedFtes]) => {
+    const row = COSEnrollmentAnalytics.normalizeRow(raw);
+    assert.equal(row.calculationMethod, method);
+    assert.equal(Number(row.ftes.toFixed(1)), expectedFtes);
+  });
+});
+
+test('standardized attendance production converts Fall 2026 W IW D ID ordinary credit', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  ['W', 'IW', 'D', 'ID'].forEach(code => {
+    const row = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': code, CENSUS_ENROLL: 100, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3, HOURS_PER_WEEK: 99, TOTAL_CONTACT_HOURS: 999 });
+    assert.equal(row.attendanceAccountingCode, code);
+    assert.equal(row.calculationMethod, 'STANDARDIZED_ATTENDANCE');
+    assert.equal(row.standardizedHours, 54);
+    assert.equal(Number(row.ftes.toFixed(1)), 10.3);
+    assert.notEqual(row.ftes, row.legacyFtes);
+  });
+});
+
+test('standardized attendance calculates lecture lab activity and mixed units', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const lecture = COSEnrollmentAnalytics.standardizedUnitComponents({ units: 3, lectureUnits: 3 });
+  const lab = COSEnrollmentAnalytics.standardizedUnitComponents({ units: 1, labUnits: 1 });
+  const activity = COSEnrollmentAnalytics.standardizedUnitComponents({ units: 1, activityUnits: 1 });
+  const mixed = COSEnrollmentAnalytics.standardizedUnitComponents({ units: 3, lectureUnits: 2, labUnits: 1 });
+
+  assert.equal(lecture.standardizedHours, 54);
+  assert.equal(lab.standardizedHours, 54);
+  assert.equal(activity.standardizedHours, 36);
+  assert.equal(mixed.standardizedHours, 90);
+  assert.equal(mixed.unitStatus, 'OK');
+});
+
+test('standardized attendance flags component mismatch and incomplete unit data', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const mismatch = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 10, SESSION_CREDIT_HOURS: 2, LECTURE_UNITS: 2, LAB_UNITS: 1 });
+  const incomplete = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 10, SESSION_CREDIT_HOURS: 3 });
+
+  assert.equal(mismatch.standardizedUnitStatus, 'UNIT COMPONENT MISMATCH');
+  assert.equal(mismatch.ftesUnavailable, true);
+  assert.equal(incomplete.standardizedUnitStatus, 'STANDARDIZED UNIT DATA INCOMPLETE');
+  assert.equal(incomplete.ftesUnavailable, true);
+});
+
+test('standardized attendance uses current enrollment before census and census enrollment after census', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const pre = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'W', ACTUAL_ENROLL: 25, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3 });
+  const post = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'W', ACTUAL_ENROLL: 25, CENSUS_ENROLL: 20, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3 });
+
+  assert.equal(pre.ftesMaturity, 'Estimated - Census Pending');
+  assert.equal(Number(pre.ftes.toFixed(3)), Number(((54 * 25) / 525).toFixed(3)));
+  assert.equal(post.ftesMaturity, 'Census Confirmed');
+  assert.equal(Number(post.ftes.toFixed(3)), Number(((54 * 20) / 525).toFixed(3)));
+});
+
+test('standardized attendance keeps positive attendance E Part of Term E work experience and noncredit separate', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const positive = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'P', CENSUS_ENROLL: 10, TOTAL_CONTACT_HOURS: 60, LECTURE_UNITS: 3 });
+  const openEntry = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'E', PTRM: 'E', CENSUS_ENROLL: 10, TOTAL_CONTACT_HOURS: 60, LECTURE_UNITS: 3 });
+  const workExperience = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', __sourceType: 'WORK_EXPERIENCE', 'ACCOUNTING METHOD': 'I', CENSUS_ENROLL: 10, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3 });
+  const noncredit = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'W', CREDIT_STATUS: 'Noncredit', CENSUS_ENROLL: 10, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3, HOURS_PER_WEEK: 3 });
+
+  assert.equal(positive.calculationMethod, 'POSITIVE_ATTENDANCE_ACTUAL_HOURS_SPECIAL');
+  assert.equal(openEntry.calculationMethod, 'POSITIVE_ATTENDANCE_ACTUAL_HOURS_SPECIAL');
+  assert.equal(openEntry.partOfTerm, 'E');
+  assert.equal(workExperience.calculationMethod, 'WORK_EXPERIENCE_SPECIAL');
+  assert.notEqual(noncredit.calculationMethod, 'STANDARDIZED_ATTENDANCE');
+});
+
 test('demand term diagnostics count selected loaded filtered empty and failed terms', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const diagnostics = COSEnrollmentAnalytics.demandTermDiagnostics({

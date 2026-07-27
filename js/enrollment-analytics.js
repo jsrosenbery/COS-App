@@ -336,6 +336,8 @@
     supplyDemandBucketRows: [],
     supplyDemandResourceRows: [],
     supplyDemandRan: false,
+    demandFtesBridgeExportRows: [],
+    demandFormulaAuditExportRows: [],
     demandExportRows: [],
     busyTimeRows: [],
     busyTimeFacultyRows: [],
@@ -491,10 +493,17 @@
     building: ['Building', 'BUILDING'],
     cap: ['cap', 'Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
     units: ['Units', 'UNITS', 'Credit Hours', 'CREDIT_HOURS', 'Credits', 'CREDITS', 'SESSION_CREDIT_HOURS', 'Session Credit Hours'],
+    lectureUnits: ['Lecture Units', 'LECTURE_UNITS', 'Lecture Credit Hours', 'LEC_UNITS'],
+    labUnits: ['Lab Units', 'LAB_UNITS', 'Lab Credit Hours'],
+    activityUnits: ['Activity Units', 'ACTIVITY_UNITS', 'Activity Credit Hours'],
     weeklyHours: ['HOURS_PER_WEEK', 'Hours Per Week', 'Weekly Hours', 'WSCH'],
     dailyHours: ['HOURS_PER_DAY', 'Hours Per Day', 'Daily Hours'],
     totalContactHours: ['TOTAL_CONTACT_HOURS', 'Total Contact Hours', 'Contact Hours'],
+    standardizedHours: ['STANDARDIZED_HOURS', 'Standardized Hours', 'Standard Hours', 'Standardized Contact Hours'],
+    termLengthMultiplier: ['TLM', 'TERM_LENGTH_MULTIPLIER', 'Term Length Multiplier'],
+    censusDate: ['Census Date', 'CENSUS_DATE', 'Census_Date'],
     accountingMethod: ['accountingMethod', 'ACCOUNTING METHOD', 'Accounting Method', 'ACCOUNTING_METHOD'],
+    creditStatus: ['Credit Status', 'CREDIT_STATUS', 'Credit/Noncredit', 'CREDIT_NONCREDIT', 'Course Credit Status', 'COURSE_CREDIT_STATUS'],
     ftes: ['ftes', 'FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
     actual: ['actual', 'Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment', 'Current Enrollment / ACTUAL_ENROLL', 'Current_Enrollment'],
     census: ['census', 'Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment', 'Census Enrollment / CENSUS_ENROLL'],
@@ -667,21 +676,29 @@
     const finalEnrollmentValue = val(row, fields.finalEnrollment);
     const waitlistValue = val(row, fields.waitlist);
     const units = num(val(row, fields.units));
+    const lectureUnits = num(val(row, fields.lectureUnits));
+    const labUnits = num(val(row, fields.labUnits));
+    const activityUnits = num(val(row, fields.activityUnits));
     const weeklyHours = num(val(row, fields.weeklyHours));
     const dailyHours = num(val(row, fields.dailyHours));
     const totalContactHours = num(val(row, fields.totalContactHours));
+    const standardizedHours = num(val(row, fields.standardizedHours));
+    const termLengthMultiplier = num(val(row, fields.termLengthMultiplier));
+    const censusDate = val(row, fields.censusDate);
     const accountingMethod = canon(val(row, fields.accountingMethod));
-    const ftesValue = val(row, fields.ftes);
+    const creditStatus = canon(val(row, fields.creditStatus));
+    const partOfTerm = canon(val(row, fields.partOfTerm));
+    const scheduleType = canon(val(row, fields.scheduleType));
+    const ftesValue = val(row, ['sourceFtes', 'directFtes', 'sourceFtesValue', ...fields.ftes]);
     const censusEnrollmentDate = val(row, fields.censusEnrollmentDate);
     const censusEnrollment2Date = val(row, fields.census2Date);
     const snapshotDate = val(row, fields.snapshotDate);
-    const partOfTerm = canon(val(row, fields.partOfTerm));
     const activityDate = val(row, fields.activityDate);
     const enrollmentForFtes = census == null ? actual : census;
     const enrollmentForPlanning = census == null ? actual : census;
-    const hasFtesEstimationInputs = units > 0 || weeklyHours > 0 || totalContactHours > 0;
-    const estimatedFtesValue = estimatedFtes(enrollmentForFtes, { units, weeklyHours, dailyHours, totalContactHours, accountingMethod, allowOmitted: isWorkExperienceRow });
-    const ftesUnavailable = isWorkExperienceRow && ftesValue === '' && !hasFtesEstimationInputs;
+    const calculation = ftesCalculationDetails(enrollmentForFtes, { term: canonical?.term || val(row, fields.term) || row.__sourceTerm || currentTerm(), units, lectureUnits, labUnits, activityUnits, weeklyHours, dailyHours, totalContactHours, standardizedHours, termLengthMultiplier, accountingMethod, creditStatus, scheduleType, allowOmitted: isWorkExperienceRow, isWorkExperience: isWorkExperienceRow, hasDirectFtesData: ftesValue !== '', directFtes: ftesValue === '' ? null : num(ftesValue), census, actual });
+    const hasFtesEstimationInputs = calculation.hasInputs;
+    const ftesUnavailable = calculation.unavailable;
     const normalized = {
       raw: row,
       term: normalizeTermLabel(canonical?.term || val(row, fields.term) || row.__sourceTerm || currentTerm()),
@@ -720,21 +737,43 @@
       room: canon([building, roomOnly].filter(Boolean).join(' ')),
       cap,
       units,
+      lectureUnits,
+      labUnits,
+      activityUnits,
       weeklyHours,
       dailyHours,
       totalContactHours,
+      standardizedHours: calculation.standardizedHours || standardizedHours,
+      termLengthMultiplier,
+      censusDate,
+      scheduleType,
       accountingMethod,
-      scheduleType: canon(val(row, fields.scheduleType)),
+      attendanceAccountingCode: accountingMethod,
+      creditStatus,
       accountingCategory: accountingMethodInfo(accountingMethod).category,
       accountingMethodLabel: accountingMethodInfo(accountingMethod).label,
       accountingReportable: isWorkExperienceRow ? true : accountingMethodInfo(accountingMethod).reportable,
       sourceType: isWorkExperienceRow ? 'WORK EXPERIENCE' : 'SECTION SEATING',
       isWorkExperience: isWorkExperienceRow,
-      ftes: ftesValue === '' ? estimatedFtesValue : num(ftesValue),
+      ftes: calculation.ftes,
+      sourceFtes: ftesValue === '' ? null : num(ftesValue),
+      legacyFtes: calculation.legacyFtes,
+      standardizedFtes: calculation.standardizedFtes,
+      calculationMethod: calculation.calculationMethod,
+      ftesCalculationMethod: calculation.calculationMethod,
+      ftesMaturity: calculation.maturity,
+      ftesCalculationWarning: calculation.warning,
+      standardizedLectureUnits: calculation.lectureUnits,
+      standardizedLabUnits: calculation.labUnits,
+      standardizedActivityUnits: calculation.activityUnits,
+      standardizedLectureHours: calculation.lectureHours,
+      standardizedLabHours: calculation.labHours,
+      standardizedActivityHours: calculation.activityHours,
+      standardizedUnitStatus: calculation.unitStatus,
       hasFtesData: ftesValue !== '' || hasFtesEstimationInputs,
       hasDirectFtesData: ftesValue !== '',
       ftesUnavailable,
-      ftesWarning: ftesUnavailable ? 'FTES unavailable: direct FTES, contact hours, and units are missing.' : '',
+      ftesWarning: calculation.warning || (ftesUnavailable ? 'FTES unavailable: direct FTES, contact hours, and units are missing.' : ''),
       actual,
       census,
       firstDay: firstDayValue === '' ? null : num(firstDayValue),
@@ -775,6 +814,10 @@
       dailyHours: row.dailyHours || 0,
       totalContactHours: row.totalContactHours || 0,
       sessionCreditHours: row.units || 0,
+      lectureUnits: row.lectureUnits || 0,
+      labUnits: row.labUnits || 0,
+      activityUnits: row.activityUnits || 0,
+      standardizedHours: row.standardizedHours || 0,
       accountingMethod: row.accountingMethod || '',
       scheduleType: row.scheduleType || canon(val(row.raw || {}, fields.scheduleType)),
       days: [...(row.days || [])],
@@ -784,6 +827,167 @@
       startDate: row.startDate || '',
       endDate: row.endDate || '',
       durationHours
+    };
+  }
+
+  function standardizedStartApplies(term) {
+    return termSortValue(term) >= termSortValue('FALL 2026');
+  }
+
+  function scheduleTypeComponent(value) {
+    const code = canon(value).replace(/^0+/, '');
+    if (['2', '02', 'LEC', 'LECTURE'].includes(code)) return 'lecture';
+    if (['4', '04', 'LAB', 'LABORATORY'].includes(code)) return 'lab';
+    if (['XX', 'ACT', 'ACTIVITY'].includes(code)) return 'activity';
+    return '';
+  }
+
+  function isNoncreditRow(details = {}) {
+    const text = canon(details.creditStatus || details.courseCreditStatus || details.creditType || '');
+    return /\bNON.?CREDIT\b|^NC$|NONCREDIT/.test(text);
+  }
+
+  function standardizedEligible(details = {}) {
+    const method = canon(details.accountingMethod);
+    if (!standardizedStartApplies(details.term)) return false;
+    if (details.isWorkExperience || details.allowOmitted) return false;
+    if (isNoncreditRow(details)) return false;
+    if (['P', 'E', 'I', 'O'].includes(method)) return false;
+    return ['W', 'D', 'IW', 'ID'].includes(method);
+  }
+
+  function legacyCalculationMethodName(method) {
+    const info = accountingMethodInfo(method);
+    if (info.category === 'weekly' || info.category === 'unknown') return 'LEGACY_WEEKLY_CENSUS';
+    if (info.category === 'daily') return 'LEGACY_DAILY_CENSUS';
+    if (info.category === 'independentWeekly') return 'LEGACY_INDEPENDENT_WEEKLY_CENSUS';
+    if (info.category === 'independentDaily') return 'LEGACY_INDEPENDENT_DAILY_CENSUS';
+    if (info.category === 'positive') return 'POSITIVE_ATTENDANCE_ACTUAL_HOURS_SPECIAL';
+    if (info.category === 'omit') return 'OMITTED_NON_REPORTABLE';
+    return 'LEGACY_OR_UNKNOWN_FALLBACK';
+  }
+
+  function standardizedUnitComponents(details = {}) {
+    const rows = details.meetingRows || [];
+    const directLecture = Math.max(Number(details.lectureUnits || 0), ...rows.map(row => Number(row.lectureUnits || 0)));
+    const directLab = Math.max(Number(details.labUnits || 0), ...rows.map(row => Number(row.labUnits || 0)));
+    const directActivity = Math.max(Number(details.activityUnits || 0), ...rows.map(row => Number(row.activityUnits || 0)));
+    const directHours = Math.max(Number(details.standardizedHours || 0), ...rows.map(row => Number(row.standardizedHours || 0)));
+    let lectureUnits = directLecture;
+    let labUnits = directLab;
+    let activityUnits = directActivity;
+    let source = lectureUnits || labUnits || activityUnits ? 'explicit component unit fields' : '';
+    const units = Number(details.units || details.sessionCreditHours || 0);
+    if (!source && directHours > 0) {
+      return {
+        lectureUnits: 0,
+        activityUnits: 0,
+        labUnits: 0,
+        lectureHours: 0,
+        activityHours: 0,
+        labHours: 0,
+        standardizedHours: directHours,
+        unitStatus: 'STANDARDIZED HOURS PROVIDED',
+        source: 'standardized hours field',
+        warning: ''
+      };
+    }
+    if (!source && units > 0) {
+      const components = new Set([scheduleTypeComponent(details.scheduleType), ...rows.map(row => scheduleTypeComponent(row.scheduleType))].filter(Boolean));
+      if (components.size === 1) {
+        const component = [...components][0];
+        if (component === 'lecture') lectureUnits = units;
+        if (component === 'lab') labUnits = units;
+        if (component === 'activity') activityUnits = units;
+        source = 'single known schedule type plus total units';
+      }
+    }
+    const componentTotal = lectureUnits + labUnits + activityUnits;
+    const lectureHours = lectureUnits * 18;
+    const activityHours = activityUnits * 36;
+    const labHours = labUnits * 54;
+    const standardizedHours = lectureHours + activityHours + labHours;
+    let unitStatus = 'OK';
+    let warning = '';
+    if (!componentTotal && !standardizedHours) {
+      unitStatus = 'STANDARDIZED UNIT DATA INCOMPLETE';
+      warning = 'STANDARDIZED UNIT DATA INCOMPLETE: lecture/activity/lab units or standardized hours are required for Fall 2026+ standardized FTES.';
+    } else if (units > 0 && componentTotal > units + 0.05) {
+      unitStatus = 'UNIT COMPONENT MISMATCH';
+      warning = 'UNIT COMPONENT MISMATCH: lecture/activity/lab units exceed total course units.';
+    } else if (units > 0 && componentTotal > 0 && Math.abs(componentTotal - units) > 0.05) {
+      unitStatus = 'STANDARDIZED UNIT DATA INCOMPLETE';
+      warning = 'STANDARDIZED UNIT DATA INCOMPLETE: lecture/activity/lab units do not reconcile to total course units.';
+    }
+    return {
+      lectureUnits,
+      activityUnits,
+      labUnits,
+      lectureHours,
+      activityHours,
+      labHours,
+      standardizedHours,
+      unitStatus,
+      source,
+      warning
+    };
+  }
+
+  function standardizedFtes(enrollment, details = {}) {
+    const components = standardizedUnitComponents(details);
+    if (['UNIT COMPONENT MISMATCH', 'STANDARDIZED UNIT DATA INCOMPLETE'].includes(components.unitStatus)) return { ...components, ftes: 0, unavailable: true };
+    return { ...components, ftes: (Number(enrollment || 0) * Number(components.standardizedHours || 0)) / 525, unavailable: false };
+  }
+
+  function ftesCalculationDetails(enrollment, details = {}) {
+    const info = accountingMethodInfo(details.accountingMethod);
+    const legacyFtes = estimatedFtes(enrollment, details);
+    const directFtes = details.directFtes == null ? null : Number(details.directFtes || 0);
+    const useStandardized = standardizedEligible(details);
+    if (useStandardized) {
+      const standardized = standardizedFtes(enrollment, details);
+      return {
+        ftes: standardized.unavailable ? 0 : standardized.ftes,
+        legacyFtes,
+        standardizedFtes: standardized.unavailable ? null : standardized.ftes,
+        calculationMethod: 'STANDARDIZED_ATTENDANCE',
+        maturity: details.census == null ? 'Estimated - Census Pending' : 'Census Confirmed',
+        warning: standardized.warning,
+        unavailable: standardized.unavailable,
+        hasInputs: !standardized.unavailable,
+        lectureUnits: standardized.lectureUnits,
+        labUnits: standardized.labUnits,
+        activityUnits: standardized.activityUnits,
+        lectureHours: standardized.lectureHours,
+        labHours: standardized.labHours,
+        activityHours: standardized.activityHours,
+        standardizedHours: standardized.standardizedHours,
+        unitStatus: standardized.unitStatus,
+        componentSource: standardized.source,
+        info
+      };
+    }
+    const fallbackFtes = directFtes == null ? legacyFtes : directFtes;
+    const hasInputs = directFtes != null || details.units > 0 || details.weeklyHours > 0 || details.totalContactHours > 0;
+    return {
+      ftes: fallbackFtes,
+      legacyFtes,
+      standardizedFtes: null,
+      calculationMethod: details.isWorkExperience ? 'WORK_EXPERIENCE_SPECIAL' : legacyCalculationMethodName(details.accountingMethod),
+      maturity: details.census == null ? 'Estimated - Census Pending' : 'Census Confirmed',
+      warning: '',
+      unavailable: details.isWorkExperience && !hasInputs,
+      hasInputs,
+      lectureUnits: Number(details.lectureUnits || 0),
+      labUnits: Number(details.labUnits || 0),
+      activityUnits: Number(details.activityUnits || 0),
+      lectureHours: 0,
+      labHours: 0,
+      activityHours: 0,
+      standardizedHours: Number(details.standardizedHours || 0),
+      unitStatus: '',
+      componentSource: '',
+      info
     };
   }
 
@@ -970,25 +1174,53 @@
   }
 
   function recalculateEstimatedFtes(row) {
-    if (!row || row.hasDirectFtesData) return row;
+    if (!row) return row;
     const hours = getSectionApplicableContactHours(row, row._meetingRows || [], row.accountingMethod);
     row.weeklyHours = hours.weeklyHours || row.weeklyHours || 0;
     row.dailyHours = hours.dailyHours || row.dailyHours || 0;
     row.totalContactHours = hours.totalContactHours || row.totalContactHours || 0;
     row.units = row.units || hours.sessionCreditHours || 0;
     row.ftesContactHourDiagnostic = hours;
-    row.ftes = estimatedFtes(row.census == null ? row.actual : row.census, {
+    const calculation = ftesCalculationDetails(row.census == null ? row.actual : row.census, {
+      term: row.term,
       units: row.units,
+      lectureUnits: row.lectureUnits,
+      labUnits: row.labUnits,
+      activityUnits: row.activityUnits,
       weeklyHours: row.weeklyHours,
       dailyHours: row.dailyHours,
       totalContactHours: row.totalContactHours,
+      standardizedHours: row.standardizedHours,
+      termLengthMultiplier: row.termLengthMultiplier,
       accountingMethod: row.accountingMethod,
-      _meetingRows: row._meetingRows || [],
-      allowOmitted: row.isWorkExperience
+      creditStatus: row.creditStatus,
+      scheduleType: row.scheduleType,
+      meetingRows: row._meetingRows || [],
+      allowOmitted: row.isWorkExperience,
+      isWorkExperience: row.isWorkExperience,
+      hasDirectFtesData: row.hasDirectFtesData,
+      directFtes: row.hasDirectFtesData ? (row.sourceFtes ?? row.ftes) : null,
+      census: row.census,
+      actual: row.actual
     });
-    row.hasFtesData = row.hasFtesData || row.weeklyHours > 0 || row.totalContactHours > 0 || row.units > 0;
-    row.ftesUnavailable = Boolean(row.isWorkExperience && !row.hasDirectFtesData && !row.hasFtesData);
-    row.ftesWarning = row.ftesUnavailable ? 'FTES unavailable: direct FTES, contact hours, and units are missing.' : row.ftesWarning || '';
+    row.ftes = calculation.ftes;
+    row.legacyFtes = calculation.legacyFtes;
+    row.standardizedFtes = calculation.standardizedFtes;
+    row.calculationMethod = calculation.calculationMethod;
+    row.ftesCalculationMethod = calculation.calculationMethod;
+    row.ftesMaturity = calculation.maturity;
+    row.ftesCalculationWarning = calculation.warning;
+    row.standardizedLectureUnits = calculation.lectureUnits;
+    row.standardizedLabUnits = calculation.labUnits;
+    row.standardizedActivityUnits = calculation.activityUnits;
+    row.standardizedLectureHours = calculation.lectureHours;
+    row.standardizedLabHours = calculation.labHours;
+    row.standardizedActivityHours = calculation.activityHours;
+    row.standardizedHours = calculation.standardizedHours || row.standardizedHours || 0;
+    row.standardizedUnitStatus = calculation.unitStatus;
+    row.hasFtesData = row.hasFtesData || calculation.hasInputs || row.weeklyHours > 0 || row.totalContactHours > 0 || row.units > 0;
+    row.ftesUnavailable = calculation.unavailable || Boolean(row.isWorkExperience && !row.hasDirectFtesData && !row.hasFtesData);
+    row.ftesWarning = calculation.warning || (row.ftesUnavailable ? 'FTES unavailable: direct FTES, contact hours, and units are missing.' : row.ftesWarning || '');
     return row;
   }
 
@@ -10328,8 +10560,9 @@
 
   function currentEnrollmentFtesUnavailable(row) {
     if (!row) return true;
+    if (row.hasDirectFtesData) return false;
+    if (row.hasFtesData || row.weeklyHours > 0 || row.totalContactHours > 0 || row.units > 0) return false;
     if (row.ftesUnavailable) return true;
-    if (row.hasDirectFtesData || row.hasFtesData) return false;
     return currentEnrollmentValue(row) > 0;
   }
 
@@ -10345,10 +10578,10 @@
 
   function currentEnrollmentFtesValue(row, asOfContext = null) {
     if (currentEnrollmentFtesUnavailable(row)) return 0;
-    if (row?.hasDirectFtesData || !row?.hasFtesData) return Number(row?.ftes) || 0;
+    if (row?.hasDirectFtesData) return Number(row?.sourceFtes ?? row?.ftes) || 0;
     const method = canon(row.accountingMethod);
     const basisEnrollment = currentEnrollmentFtesBasisEnrollment(row, asOfContext);
-    if (!CENSUS_DEPENDENT_FTES_METHODS.has(method) || basisEnrollment == null) return Number(row?.ftes) || 0;
+    if (basisEnrollment == null) return Number(row?.ftes) || 0;
     return estimatedFtes(basisEnrollment, {
       units: row.units,
       weeklyHours: row.weeklyHours,
@@ -13628,7 +13861,17 @@
       existing.instructor = existing.instructor || row.instructor;
       existing.waitlist = Math.max(existing.waitlist || 0, row.waitlist || 0);
       existing.cap = Math.max(existing.cap || 0, row.cap || 0);
+      existing.lectureUnits = Math.max(existing.lectureUnits || 0, row.lectureUnits || 0);
+      existing.labUnits = Math.max(existing.labUnits || 0, row.labUnits || 0);
+      existing.activityUnits = Math.max(existing.activityUnits || 0, row.activityUnits || 0);
+      existing.standardizedHours = Math.max(existing.standardizedHours || 0, row.standardizedHours || 0);
+      existing.termLengthMultiplier = existing.termLengthMultiplier || row.termLengthMultiplier;
+      existing.censusDate = existing.censusDate || row.censusDate;
+      existing.scheduleType = existing.scheduleType || row.scheduleType;
+      existing.creditStatus = existing.creditStatus || row.creditStatus;
       existing.accountingMethod = existing.accountingMethod || row.accountingMethod;
+      existing.attendanceAccountingCode = existing.attendanceAccountingCode || row.attendanceAccountingCode || row.accountingMethod;
+      existing.partOfTerm = existing.partOfTerm || row.partOfTerm;
       existing.accountingCategory = accountingMethodInfo(existing.accountingMethod).category;
       existing.accountingMethodLabel = accountingMethodInfo(existing.accountingMethod).label;
       existing.isWorkExperience = existing.isWorkExperience || row.isWorkExperience;
@@ -13653,6 +13896,7 @@
         'activityDateIso',
         'sourceUploadedAt',
         'sourceFileName',
+        'sourceFtes',
         'startDate',
         'endDate'
       ]);
@@ -15868,6 +16112,8 @@
 
   function renderEmptyDemand(message, termDiagnostics = null, context = {}) {
     state.demandExportRows = [];
+    state.demandFtesBridgeExportRows = [];
+    state.demandFormulaAuditExportRows = [];
     renderReportContext(REPORTS.demand, demandReportContextOverrides({
       loadedRows: context.loadedRows || state.demandInput || [],
       rows: context.filteredRows || [],
@@ -16625,6 +16871,655 @@
       .sort((a, b) => termSortValue(a.term) - termSortValue(b.term));
   }
 
+  function ftesBridgeTermRows(rows = [], year) {
+    return dedupeEnrollmentRows(rows || [])
+      .filter(row => {
+        const parts = termParts(row.term);
+        return parts.season === 'FALL' && Number(parts.year) === Number(year);
+      });
+  }
+
+  function ftesBridgeEnrollment(row = {}) {
+    return Number(row.census == null ? row.actual || 0 : row.census || 0);
+  }
+
+  function ftesBridgePartOfTerm(row = {}) {
+    return canon(row.partOfTerm || row.raw?.PTRM || row.raw?.PTRM_CODE || row.raw?.['Part of Term'] || row.raw?.PART_OF_TERM || '') || 'UNKNOWN';
+  }
+
+  function ftesBridgeAccountingMethod(row = {}) {
+    return canon(row.accountingMethod || row.raw?.['ACCOUNTING METHOD'] || row.raw?.ACCOUNTING_METHOD || '') || 'UNKNOWN';
+  }
+
+  function ftesBridgeDeStatus(row = {}) {
+    const code = instructionalMethodRawCode(row);
+    if (demandPlanningPopulationType(row) === 'Dual Enrollment' || code === 'DE' || row.modality === 'DUAL ENROLLMENT') return 'DE';
+    if (row.sourceType === 'SECTION SEATING' || row.sourceType === 'WORK EXPERIENCE' || row.modality || code) return 'Non-DE';
+    return 'Unknown';
+  }
+
+  function ftesBridgeCourseKey(row = {}) {
+    return courseKey(row) || 'UNKNOWN';
+  }
+
+  function ftesBridgeComparisonKey(row = {}) {
+    return [
+      ftesBridgeCourseKey(row),
+      ftesBridgeAccountingMethod(row),
+      ftesBridgePartOfTerm(row),
+      ftesBridgeDeStatus(row)
+    ].join(' | ');
+  }
+
+  function ftesBridgeGroupSummary(rows = []) {
+    const clean = dedupeEnrollmentRows(rows || []);
+    const enrollment = enrollmentTotal(clean);
+    const ftes = sum(clean, 'ftes');
+    return {
+      sections: demandDistinctCrnCount(clean),
+      enrollment,
+      ftes,
+      ftesPerEnrollment: safeDiv(ftes, enrollment),
+      directFtesRows: clean.filter(row => row.hasDirectFtesData).length,
+      estimatedFtesRows: clean.filter(row => !row.hasDirectFtesData && row.hasFtesData).length,
+      unavailableFtesRows: clean.filter(row => row.ftesUnavailable || (!row.hasDirectFtesData && !row.hasFtesData && !row.ftes)).length
+    };
+  }
+
+  function ftesBridgeComparisonRows(fa25Rows = [], fa26Rows = [], keyer = () => 'UNKNOWN', options = {}) {
+    const fa25Map = group(dedupeEnrollmentRows(fa25Rows), keyer);
+    const fa26Map = group(dedupeEnrollmentRows(fa26Rows), keyer);
+    const totalChange = sum(fa26Rows, 'ftes') - sum(fa25Rows, 'ftes');
+    return [...new Set([...fa25Map.keys(), ...fa26Map.keys()])]
+      .map(key => {
+        const fa25 = ftesBridgeGroupSummary(fa25Map.get(key) || []);
+        const fa26 = ftesBridgeGroupSummary(fa26Map.get(key) || []);
+        return {
+          comparisonGroup: options.comparisonGroup || 'Group',
+          group: key || 'UNKNOWN',
+          accountingMethod: options.accountingMethodKey ? key || 'UNKNOWN' : '',
+          partOfTerm: options.partOfTermKey ? key || 'UNKNOWN' : '',
+          deStatus: options.deStatusKey ? key || 'UNKNOWN' : '',
+          subject: options.courseKey ? String(key || '').split(' ')[0] || '' : '',
+          course: options.courseKey ? String(key || '').split(' ').slice(1).join(' ') : '',
+          FA25Sections: fa25.sections,
+          FA26Sections: fa26.sections,
+          sectionChange: fa26.sections - fa25.sections,
+          FA25Enrollment: fa25.enrollment,
+          FA26Enrollment: fa26.enrollment,
+          enrollmentChange: fa26.enrollment - fa25.enrollment,
+          FA25FTES: fa25.ftes,
+          FA26FTES: fa26.ftes,
+          ftesChange: fa26.ftes - fa25.ftes,
+          FA25FTESPerEnrollment: fa25.ftesPerEnrollment,
+          FA26FTESPerEnrollment: fa26.ftesPerEnrollment,
+          yieldChange: fa26.ftesPerEnrollment - fa25.ftesPerEnrollment,
+          contributionToTotalFTESChange: safeDiv(fa26.ftes - fa25.ftes, totalChange),
+          classification: 'EXPLAINED / PLAUSIBLE',
+          diagnosticNotes: ''
+        };
+      })
+      .sort((a, b) => Math.abs(b.ftesChange || 0) - Math.abs(a.ftesChange || 0));
+  }
+
+  function ftesBridgeMethodPotRows(fa25Rows = [], fa26Rows = []) {
+    return ftesBridgeComparisonRows(fa25Rows, fa26Rows, row => `${ftesBridgeAccountingMethod(row)} | ${ftesBridgePartOfTerm(row)}`, { comparisonGroup: 'Accounting Method x Part of Term' })
+      .map(row => {
+        const [accountingMethod, partOfTerm] = String(row.group || '').split(' | ');
+        return { ...row, accountingMethod, partOfTerm };
+      });
+  }
+
+  function ftesBridgeCourseRows(fa25Rows = [], fa26Rows = []) {
+    return ftesBridgeComparisonRows(fa25Rows, fa26Rows, ftesBridgeCourseKey, { comparisonGroup: 'Course', courseKey: true });
+  }
+
+  function ftesBridgeNewDiscontinuedRows(fa25Rows = [], fa26Rows = [], keyer = ftesBridgeComparisonKey) {
+    return ftesBridgeComparisonRows(fa25Rows, fa26Rows, keyer, { comparisonGroup: 'New / Discontinued Offering Population' })
+      .filter(row => !row.FA25Sections || !row.FA26Sections)
+      .map(row => ({
+        ...row,
+        classification: 'EXPLAINED / PLAUSIBLE',
+        diagnosticNotes: row.FA26Sections ? 'Present in Fall 2026 but not Fall 2025; treat as new offering/mix unless source data says otherwise.' : 'Present in Fall 2025 but not Fall 2026; discontinued offering population.'
+      }));
+  }
+
+  function ftesBridgeDecomposition(fa25Rows = [], fa26Rows = [], keyer = ftesBridgeComparisonKey) {
+    const fa25Map = group(dedupeEnrollmentRows(fa25Rows), keyer);
+    const fa26Map = group(dedupeEnrollmentRows(fa26Rows), keyer);
+    const keys = [...new Set([...fa25Map.keys(), ...fa26Map.keys()])];
+    let enrollmentEffect = 0;
+    let positiveAttendanceDifference = 0;
+    let courseContactHourMixEffect = 0;
+    let newDiscontinuedOfferings = 0;
+    keys.forEach(key => {
+      const g25 = ftesBridgeGroupSummary(fa25Map.get(key) || []);
+      const g26 = ftesBridgeGroupSummary(fa26Map.get(key) || []);
+      const method = (fa26Map.get(key)?.[0] || fa25Map.get(key)?.[0] || {});
+      if (g25.sections && g26.sections) {
+        const baselineYield = g25.ftesPerEnrollment || 0;
+        const groupEnrollmentEffect = (g26.enrollment - g25.enrollment) * baselineYield;
+        const intensityEffect = g26.ftes - (g26.enrollment * baselineYield);
+        enrollmentEffect += groupEnrollmentEffect;
+        if (ftesBridgeAccountingMethod(method) === 'E') positiveAttendanceDifference += intensityEffect;
+        else courseContactHourMixEffect += intensityEffect;
+      } else if (g26.sections) {
+        newDiscontinuedOfferings += g26.ftes;
+      } else {
+        newDiscontinuedOfferings -= g25.ftes;
+      }
+    });
+    const fa25 = ftesBridgeGroupSummary(fa25Rows);
+    const fa26 = ftesBridgeGroupSummary(fa26Rows);
+    const totalChange = fa26.ftes - fa25.ftes;
+    const explained = enrollmentEffect + positiveAttendanceDifference + courseContactHourMixEffect + newDiscontinuedOfferings;
+    return {
+      order: 'Sequential decomposition by Subject + Course, Attendance Accounting Method, Part of Term, and DE status. Existing groups: enrollment growth at FA25 FTES/enrollment first, then residual yield/contact-hour intensity. New/discontinued groups are separated.',
+      fa25,
+      fa26,
+      totalChange,
+      enrollmentEffect,
+      accountingMethodMixEffect: 0,
+      partOfTermMixEffect: 0,
+      courseContactHourMixEffect,
+      newDiscontinuedOfferings,
+      positiveAttendanceDifference,
+      otherExplainedEffect: 0,
+      unexplained: totalChange - explained
+    };
+  }
+
+  function ftesBridgeMultiComponentRows(fa25Rows = [], fa26Rows = []) {
+    const isMulti = row => (row._meetingRows || []).length > 1 && ['W', 'IW'].includes(ftesBridgeAccountingMethod(row));
+    return ftesBridgeComparisonRows(fa25Rows.filter(isMulti), fa26Rows.filter(isMulti), row => ftesBridgeAccountingMethod(row), { comparisonGroup: 'Multi-component W/IW' })
+      .map(row => ({ ...row, accountingMethod: row.group, diagnosticNotes: 'Multi-component section identified from more than one deduped meeting row.' }));
+  }
+
+  function ftesBridgeOutlierRows(fa25Rows = [], fa26Rows = [], limit = 50) {
+    const comparison = new Map();
+    group(dedupeEnrollmentRows(fa25Rows), ftesBridgeComparisonKey).forEach((rows, key) => comparison.set(key, ftesBridgeGroupSummary(rows)));
+    return dedupeEnrollmentRows(fa26Rows)
+      .map(row => {
+        const enrollment = ftesBridgeEnrollment(row);
+        const ftes = Number(row.ftes || 0);
+        const ratio = safeDiv(ftes, enrollment);
+        const baseline = comparison.get(ftesBridgeComparisonKey(row)) || comparison.get([ftesBridgeCourseKey(row), ftesBridgeAccountingMethod(row), ftesBridgePartOfTerm(row), 'Non-DE'].join(' |')) || null;
+        const baselineRatio = baseline?.ftesPerEnrollment ?? null;
+        const yieldChange = baselineRatio == null ? null : ratio - baselineRatio;
+        const materialYieldChange = yieldChange != null && Math.abs(yieldChange) >= Math.max(0.02, Math.abs(baselineRatio || 0) * 0.25);
+        const highAbsoluteYield = ratio > 0.25;
+        const reason = [
+          materialYieldChange ? `FTES/enrollment differs from FA25 comparison by ${formatDecimal(yieldChange, 3)}` : '',
+          highAbsoluteYield ? 'High absolute FTES/enrollment for Fall 2026' : '',
+          !baseline ? 'No matching FA25 course/method/PTRM/DE comparison group' : ''
+        ].filter(Boolean).join('; ');
+        return {
+          comparisonGroup: 'Outlier CRN',
+          crn: row.crn,
+          subject: row.subject,
+          course: row.course,
+          accountingMethod: ftesBridgeAccountingMethod(row),
+          partOfTerm: ftesBridgePartOfTerm(row),
+          deStatus: ftesBridgeDeStatus(row),
+          FA26Enrollment: enrollment,
+          FA26FTES: ftes,
+          FA26FTESPerEnrollment: ratio,
+          FA25FTESPerEnrollment: baselineRatio,
+          yieldChange,
+          classification: reason && materialYieldChange ? 'SUSPICIOUS / REQUIRES REVIEW' : (reason ? 'EXPLAINED / PLAUSIBLE' : 'EXPLAINED / PLAUSIBLE'),
+          diagnosticNotes: reason || 'No outlier flag.'
+        };
+      })
+      .filter(row => row.diagnosticNotes !== 'No outlier flag.')
+      .sort((a, b) => Math.abs((b.yieldChange || 0) * (b.FA26Enrollment || 0)) - Math.abs((a.yieldChange || 0) * (a.FA26Enrollment || 0)))
+      .slice(0, limit);
+  }
+
+  function ftesBridgeClassify(decomposition = {}, outliers = [], fa25Benchmark = {}) {
+    const total = decomposition.totalChange || 0;
+    const suspicious = outliers
+      .filter(row => row.classification === 'SUSPICIOUS / REQUIRES REVIEW')
+      .reduce((sumValue, row) => sumValue + Math.max(0, Math.abs(row.yieldChange || 0) * (row.FA26Enrollment || 0)), 0);
+    const unexplained = Math.max(0, Math.abs(decomposition.unexplained || 0));
+    const benchmarkSuspicious = fa25Benchmark.status === 'DRIFTED' ? Math.abs(total) : 0;
+    const suspiciousTotal = Math.min(Math.abs(total), suspicious + benchmarkSuspicious);
+    return {
+      explainedPlausible: Math.max(0, Math.abs(total) - suspiciousTotal - unexplained),
+      suspiciousRequiresReview: suspiciousTotal,
+      unexplained,
+      evidenceOfCalculationDefect: benchmarkSuspicious > 0 || suspiciousTotal > Math.max(25, Math.abs(total) * 0.2),
+      recommendedNextAction: benchmarkSuspicious > 0
+        ? 'Stop and reconcile Fall 2025 against the validated institutional benchmark before interpreting Fall 2026.'
+        : (suspiciousTotal > 0 ? 'Review top outlier CRNs and multi-component W/IW sections against Banner source fields before changing formulas.' : 'Treat the increase as explainable by enrollment and mix, while validating the largest course contributors.')
+    };
+  }
+
+  function buildFallToFallFtesBridge(rows = [], options = {}) {
+    const fa25Rows = ftesBridgeTermRows(rows, options.baseYear || 2025);
+    const fa26Rows = ftesBridgeTermRows(rows, options.comparisonYear || 2026);
+    const decomposition = ftesBridgeDecomposition(fa25Rows, fa26Rows);
+    const accountingMethod = ftesBridgeComparisonRows(fa25Rows, fa26Rows, ftesBridgeAccountingMethod, { comparisonGroup: 'Attendance Accounting Method', accountingMethodKey: true })
+      .map(row => ({
+        ...row,
+        diagnosticNotes: row.accountingMethod === 'E'
+          ? 'Attendance Accounting Method E = Open Entry/Open Exit Positive Attendance. This is not Part of Term E.'
+          : row.diagnosticNotes
+      }));
+    const partOfTerm = ftesBridgeComparisonRows(fa25Rows, fa26Rows, ftesBridgePartOfTerm, { comparisonGroup: 'Part of Term', partOfTermKey: true })
+      .map(row => ({
+        ...row,
+        diagnosticNotes: row.partOfTerm === 'E'
+          ? 'Part of Term E = Excluding Holidays. This is not Attendance Accounting Method E.'
+          : row.diagnosticNotes
+      }));
+    const methodByPartOfTerm = ftesBridgeMethodPotRows(fa25Rows, fa26Rows);
+    const deStatus = ftesBridgeComparisonRows(fa25Rows, fa26Rows, ftesBridgeDeStatus, { comparisonGroup: 'DE Status', deStatusKey: true });
+    const deByAccountingMethod = ftesBridgeComparisonRows(fa25Rows, fa26Rows, row => `${ftesBridgeDeStatus(row)} | ${ftesBridgeAccountingMethod(row)}`, { comparisonGroup: 'DE Status x Accounting Method' })
+      .map(row => {
+        const [deStatusValue, accountingMethodValue] = String(row.group || '').split(' | ');
+        return { ...row, deStatus: deStatusValue, accountingMethod: accountingMethodValue };
+      });
+    const course = ftesBridgeCourseRows(fa25Rows, fa26Rows);
+    const newDiscontinued = ftesBridgeNewDiscontinuedRows(fa25Rows, fa26Rows);
+    const multiComponent = ftesBridgeMultiComponentRows(fa25Rows, fa26Rows);
+    const outliers = ftesBridgeOutlierRows(fa25Rows, fa26Rows, 50);
+    const fa25BenchmarkValue = Number(options.fa25BenchmarkFtes ?? 5501.57);
+    const fa25Benchmark = {
+      expectedFtes: fa25BenchmarkValue,
+      actualFtes: decomposition.fa25.ftes,
+      difference: decomposition.fa25.ftes - fa25BenchmarkValue,
+      status: Math.abs(decomposition.fa25.ftes - fa25BenchmarkValue) <= Math.max(5, fa25BenchmarkValue * 0.005) ? 'OK' : 'DRIFTED'
+    };
+    const classification = ftesBridgeClassify(decomposition, outliers, fa25Benchmark);
+    return {
+      baseTerm: `FALL ${options.baseYear || 2025}`,
+      comparisonTerm: `FALL ${options.comparisonYear || 2026}`,
+      fa25Rows,
+      fa26Rows,
+      decomposition,
+      accountingMethod,
+      partOfTerm,
+      methodByPartOfTerm,
+      deStatus,
+      deByAccountingMethod,
+      course,
+      topCourseIncreases: course.filter(row => row.ftesChange > 0).slice(0, 25),
+      topCourseDecreases: course.filter(row => row.ftesChange < 0).sort((a, b) => a.ftesChange - b.ftesChange).slice(0, 25),
+      newDiscontinued,
+      multiComponent,
+      outliers,
+      fa25Benchmark,
+      classification
+    };
+  }
+
+  function fallToFallFtesBridgeExportRows(bridge = {}) {
+    const rows = [];
+    const pushRows = (sourceRows = []) => sourceRows.forEach(row => rows.push({
+      comparisonGroup: row.comparisonGroup || '',
+      accountingMethod: row.accountingMethod || '',
+      partOfTerm: row.partOfTerm || '',
+      deStatus: row.deStatus || '',
+      subject: row.subject || '',
+      course: row.course || '',
+      FA25Enrollment: row.FA25Enrollment ?? '',
+      FA26Enrollment: row.FA26Enrollment ?? '',
+      enrollmentChange: row.enrollmentChange ?? '',
+      FA25FTES: row.FA25FTES ?? '',
+      FA26FTES: row.FA26FTES ?? '',
+      ftesChange: row.ftesChange ?? '',
+      FA25FTESPerEnrollment: row.FA25FTESPerEnrollment ?? '',
+      FA26FTESPerEnrollment: row.FA26FTESPerEnrollment ?? '',
+      yieldChange: row.yieldChange ?? '',
+      classification: row.classification || '',
+      diagnosticNotes: row.diagnosticNotes || ''
+    }));
+    const d = bridge.decomposition || {};
+    [
+      ['Fall 2025 FTES', d.fa25?.ftes || 0],
+      ['Enrollment Growth Effect', d.enrollmentEffect || 0],
+      ['Accounting Method Mix Effect', d.accountingMethodMixEffect || 0],
+      ['Part-of-Term Mix Effect', d.partOfTermMixEffect || 0],
+      ['Course / Contact-hour Mix Effect', d.courseContactHourMixEffect || 0],
+      ['New / Discontinued Offerings', d.newDiscontinuedOfferings || 0],
+      ['Positive Attendance Difference', d.positiveAttendanceDifference || 0],
+      ['Other Explained Effect', d.otherExplainedEffect || 0],
+      ['Unexplained', d.unexplained || 0],
+      ['Fall 2026 FTES', d.fa26?.ftes || 0]
+    ].forEach(([labelText, value]) => rows.push({
+      comparisonGroup: 'Headline Bridge',
+      diagnosticNotes: labelText,
+      ftesChange: value,
+      classification: labelText === 'Unexplained' && Math.abs(value) > 1 ? 'UNEXPLAINED' : 'EXPLAINED / PLAUSIBLE'
+    }));
+    pushRows(bridge.accountingMethod);
+    pushRows(bridge.partOfTerm);
+    pushRows(bridge.methodByPartOfTerm);
+    pushRows(bridge.deStatus);
+    pushRows(bridge.deByAccountingMethod);
+    pushRows(bridge.course);
+    pushRows(bridge.newDiscontinued);
+    pushRows(bridge.multiComponent);
+    pushRows(bridge.outliers);
+    return rows;
+  }
+
+  function attendanceAuditAcademicYear(row = {}) {
+    const parts = termParts(row.term);
+    if (!parts.year) return '';
+    return parts.season === 'SPRING' ? `AY ${parts.year - 1}-${String(parts.year).slice(-2)}` : `AY ${parts.year}-${String(parts.year + 1).slice(-2)}`;
+  }
+
+  function attendanceAuditTimberMethod(row = {}) {
+    if (row.calculationMethod || row.ftesCalculationMethod) return row.calculationMethod || row.ftesCalculationMethod;
+    const method = ftesBridgeAccountingMethod(row);
+    const info = accountingMethodInfo(method);
+    if (row.isWorkExperience) return 'WORK_EXPERIENCE_SPECIAL';
+    if (['P', 'E'].includes(method)) return 'POSITIVE_ATTENDANCE_ACTUAL_HOURS_SPECIAL';
+    return legacyCalculationMethodName(method);
+  }
+
+  function attendanceAuditExpectedMethod(row = {}) {
+    const method = ftesBridgeAccountingMethod(row);
+    const parts = termParts(row.term);
+    if (row.isWorkExperience) return 'SPECIAL METHOD - WORK EXPERIENCE';
+    if (['P', 'E'].includes(method)) return 'SPECIAL METHOD - POSITIVE ATTENDANCE ACTUAL HOURS';
+    if (isNoncreditRow(row)) return 'SPECIAL METHOD - NONCREDIT';
+    if (['I', 'O'].includes(method)) return 'SPECIAL METHOD - NOT AUDITED HERE';
+    if (parts.year <= 2025) return attendanceAuditTimberMethod(row);
+    if (parts.year >= 2026 && standardizedEligible(row)) return 'STANDARDIZED_ATTENDANCE';
+    return attendanceAuditTimberMethod(row);
+  }
+
+  function attendanceAuditLegacyExpectedFtes(row = {}) {
+    const enrollment = ftesBridgeEnrollment(row);
+    const hours = bestFtesHours(row._meetingRows || [meetingRowForFtes(row)]);
+    return estimatedFtes(enrollment, {
+      units: row.units || hours.sessionCreditHours || 0,
+      weeklyHours: hours.weeklyHours || row.weeklyHours || 0,
+      dailyHours: hours.dailyHours || row.dailyHours || 0,
+      totalContactHours: hours.totalContactHours || row.totalContactHours || 0,
+      accountingMethod: row.accountingMethod,
+      allowOmitted: row.isWorkExperience
+    });
+  }
+
+  function attendanceAuditStandardizedExpectedFtes(row = {}) {
+    const standardized = standardizedFtes(ftesBridgeEnrollment(row), { ...row, meetingRows: row._meetingRows || [] });
+    return standardized.unavailable ? null : standardized.ftes;
+  }
+
+  function attendanceAuditAuditedFtes(row = {}) {
+    const expectedMethod = attendanceAuditExpectedMethod(row);
+    if (/SPECIAL METHOD/.test(expectedMethod)) return null;
+    if (expectedMethod === 'STANDARDIZED_ATTENDANCE') return attendanceAuditStandardizedExpectedFtes(row);
+    return attendanceAuditLegacyExpectedFtes(row);
+  }
+
+  function attendanceAuditStatus(row = {}, auditedFtes = null) {
+    const method = ftesBridgeAccountingMethod(row);
+    const expectedMethod = attendanceAuditExpectedMethod(row);
+    const timberMethod = attendanceAuditTimberMethod(row);
+    if (row.isWorkExperience) {
+      return {
+        auditStatus: row.hasDirectFtesData ? 'SPECIAL METHOD - WORK EXPERIENCE FINAL/UPLOADED' : (row.hasFtesData ? 'SPECIAL METHOD - WORK EXPERIENCE ESTIMATED' : 'SOURCE DATA INCOMPLETE'),
+        auditReason: 'Work Experience is separated from the ordinary census-based audit.'
+      };
+    }
+    if (['P', 'E'].includes(method)) {
+      return {
+        auditStatus: row.hasDirectFtesData ? 'SPECIAL METHOD - FINAL/UPLOADED ACTUAL HOURS' : 'SPECIAL METHOD - ESTIMATED ACTUAL HOURS PENDING',
+        auditReason: method === 'E'
+          ? 'Attendance Accounting Method E is Open Entry/Open Exit Positive Attendance. It is not Part of Term E.'
+          : 'Positive Attendance is an actual-hours population and is not forced into census-based formula audit.'
+      };
+    }
+    if (expectedMethod === 'STANDARDIZED_ATTENDANCE' && auditedFtes == null) {
+      return {
+        auditStatus: 'SOURCE DATA INCOMPLETE',
+        auditReason: row.standardizedUnitStatus || 'STANDARDIZED UNIT DATA INCOMPLETE'
+      };
+    }
+    if (expectedMethod === 'STANDARDIZED_ATTENDANCE' && timberMethod !== expectedMethod) {
+      return {
+        auditStatus: 'WRONG CALCULATION METHOD',
+        auditReason: 'Fall 2026+ ordinary credit sections should use Standardized Attendance Accounting based on unit components.'
+      };
+    }
+    if (auditedFtes == null) {
+      return { auditStatus: 'SOURCE DATA INCOMPLETE', auditReason: 'Required contact-hour, standardized-hour, unit, or FTES source inputs are unavailable.' };
+    }
+    const variance = Number(row.ftes || 0) - Number(auditedFtes || 0);
+    if (Math.abs(variance) <= 0.05) {
+      return { auditStatus: 'CORRECT METHOD / CORRECT CALCULATION', auditReason: 'TIMBER FTES reconciles to the independently recalculated diagnostic value.' };
+    }
+    if (row.hasDirectFtesData) {
+      return { auditStatus: 'CORRECT METHOD / UPLOADED FTES DIFFERS FROM RECALC', auditReason: 'Direct uploaded/institutional FTES is present; variance is not classified as a formula defect without source reconciliation.' };
+    }
+    return { auditStatus: 'CORRECT METHOD / WRONG INPUT', auditReason: 'TIMBER method matches expected legacy path, but recalculated FTES differs from the row value.' };
+  }
+
+  function attendanceFormulaAuditRows(rows = []) {
+    return dedupeEnrollmentRows(rows || [])
+      .filter(row => {
+        const parts = termParts(row.term);
+        return parts.season === 'FALL' && [2025, 2026].includes(Number(parts.year));
+      })
+      .map(row => {
+        const expectedMethod = attendanceAuditExpectedMethod(row);
+        const timberMethod = attendanceAuditTimberMethod(row);
+        const auditedFtes = attendanceAuditAuditedFtes(row);
+        const status = attendanceAuditStatus(row, auditedFtes);
+        const timberFtes = Number(row.ftes || 0);
+        return {
+          term: row.term,
+          academicYear: attendanceAuditAcademicYear(row),
+          crn: row.crn,
+          subject: row.subject,
+          course: row.course,
+          campus: row.campus,
+          deStatus: ftesBridgeDeStatus(row),
+          attendanceAccountingCode: ftesBridgeAccountingMethod(row),
+          partOfTerm: ftesBridgePartOfTerm(row),
+          expectedCalculationMethod: expectedMethod,
+          timberCalculationMethod: timberMethod,
+          oldTimberCalculationMethod: legacyCalculationMethodName(row.accountingMethod),
+          oldTimberFtes: row.legacyFtes == null ? attendanceAuditLegacyExpectedFtes(row) : row.legacyFtes,
+          newStandardizedFtes: row.standardizedFtes,
+          enrollment: ftesBridgeEnrollment(row),
+          enrollmentBasis: row.census == null ? 'Current enrollment estimate' : 'CENSUS_ENROLL',
+          enrollmentCurrent: row.actual || 0,
+          censusEnrollment: row.census == null ? '' : row.census,
+          censusDate: row.censusDate || '',
+          units: row.units || 0,
+          lectureUnits: row.standardizedLectureUnits ?? row.lectureUnits ?? 0,
+          labUnits: row.standardizedLabUnits ?? row.labUnits ?? 0,
+          activityUnits: row.standardizedActivityUnits ?? row.activityUnits ?? 0,
+          standardizedHours: row.standardizedHours || 0,
+          lectureStandardizedHours: row.standardizedLectureHours || 0,
+          activityStandardizedHours: row.standardizedActivityHours || 0,
+          labStandardizedHours: row.standardizedLabHours || 0,
+          weeklyContactHours: row.weeklyHours || bestFtesHours(row._meetingRows || []).weeklyHours || 0,
+          totalContactHours: row.totalContactHours || bestFtesHours(row._meetingRows || []).totalContactHours || 0,
+          tlm: row.termLengthMultiplier || '',
+          maturity: row.ftesMaturity || (row.census == null ? 'Estimated - Census Pending' : 'Census Confirmed'),
+          institutionalHistoricalFtes: row.hasDirectFtesData ? timberFtes : '',
+          timberFtes,
+          auditedFtes,
+          variance: auditedFtes == null ? null : timberFtes - auditedFtes,
+          auditStatus: status.auditStatus,
+          auditReason: status.auditReason,
+          ruleSource: 'TIMBER estimatedFtes() and Enrollment Planning Forecast methodology text in js/enrollment-analytics.js'
+        };
+      });
+  }
+
+  function attendanceAuditSummary(auditRows = []) {
+    const rows = auditRows || [];
+    const statusRows = ftesBridgeComparisonRows([], [], () => 'unused');
+    const statusCounts = [...group(rows, row => row.auditStatus || 'UNKNOWN').entries()]
+      .map(([auditStatus, groupRows]) => ({
+        auditStatus,
+        crns: groupRows.length,
+        enrollment: sum(groupRows, 'enrollment'),
+        timberFtes: sum(groupRows, 'timberFtes'),
+        auditedFtes: sum(groupRows.filter(row => row.auditedFtes != null), 'auditedFtes'),
+        variance: sum(groupRows.filter(row => row.variance != null), 'variance')
+      }))
+      .sort((a, b) => b.crns - a.crns);
+    const methodRows = [...group(rows, row => row.attendanceAccountingCode || 'UNKNOWN').entries()]
+      .map(([attendanceAccountingCode, groupRows]) => {
+        const fa25 = groupRows.filter(row => termParts(row.term).year === 2025);
+        const fa26 = groupRows.filter(row => termParts(row.term).year === 2026);
+        return {
+          attendanceAccountingCode,
+          FA25Enrollment: sum(fa25, 'enrollment'),
+          FA26Enrollment: sum(fa26, 'enrollment'),
+          FA25FTES: sum(fa25, 'timberFtes'),
+          FA26FTES: sum(fa26, 'timberFtes'),
+          ftesChange: sum(fa26, 'timberFtes') - sum(fa25, 'timberFtes'),
+          FA25FTESPerEnrollment: safeDiv(sum(fa25, 'timberFtes'), sum(fa25, 'enrollment')),
+          FA26FTESPerEnrollment: safeDiv(sum(fa26, 'timberFtes'), sum(fa26, 'enrollment')),
+          expectedCalculationMethodFA25: [...new Set(fa25.map(row => row.expectedCalculationMethod))].join('; '),
+          expectedCalculationMethodFA26: [...new Set(fa26.map(row => row.expectedCalculationMethod))].join('; '),
+          auditPassRate: safeDiv(groupRows.filter(row => /^CORRECT METHOD \/ CORRECT CALCULATION/.test(row.auditStatus)).length, groupRows.length)
+        };
+      })
+      .sort((a, b) => Math.abs(b.ftesChange || 0) - Math.abs(a.ftesChange || 0));
+    const mismatchRows = [...group(rows.filter(row => row.expectedCalculationMethod !== row.timberCalculationMethod && !/^SPECIAL METHOD/.test(row.expectedCalculationMethod)), row => `${row.expectedCalculationMethod} | ${row.timberCalculationMethod}`).entries()]
+      .map(([groupName, groupRows]) => {
+        const [expectedCalculationMethod, timberCalculationMethod] = groupName.split(' | ');
+        return {
+          expectedCalculationMethod,
+          timberCalculationMethod,
+          crns: groupRows.length,
+          enrollment: sum(groupRows, 'enrollment'),
+          timberFtes: sum(groupRows, 'timberFtes'),
+          auditedFtes: sum(groupRows.filter(row => row.auditedFtes != null), 'auditedFtes'),
+          variance: sum(groupRows.filter(row => row.variance != null), 'variance')
+        };
+      })
+      .sort((a, b) => Math.abs(b.variance || 0) - Math.abs(a.variance || 0));
+    const ftesSummary = [
+      { category: 'Legacy FTES', ftes: rows.filter(row => /^LEGACY_/.test(row.timberCalculationMethod)).reduce((total, row) => total + (row.timberFtes || 0), 0) },
+      { category: 'Standardized FTES', ftes: rows.filter(row => row.timberCalculationMethod === 'STANDARDIZED_ATTENDANCE').reduce((total, row) => total + (row.timberFtes || 0), 0) },
+      { category: 'Special / Actual-Hours FTES', ftes: rows.filter(row => /^SPECIAL METHOD|POSITIVE_ATTENDANCE|WORK_EXPERIENCE/.test(row.expectedCalculationMethod) || /SPECIAL/.test(row.timberCalculationMethod)).reduce((total, row) => total + (row.timberFtes || 0), 0) },
+      { category: 'Estimated FTES', ftes: rows.filter(row => /Estimated/.test(row.maturity || '') || /ESTIMATED/.test(row.auditStatus || '')).reduce((total, row) => total + (row.timberFtes || 0), 0) },
+      { category: 'Unavailable FTES', ftes: rows.filter(row => row.auditStatus === 'SOURCE DATA INCOMPLETE').reduce((total, row) => total + (row.timberFtes || 0), 0) }
+    ];
+    return { statusCounts, methodRows, mismatchRows, ftesSummary, statusRows };
+  }
+
+  function attendanceAuditOutlierRows(auditRows = [], bridgeOutliers = []) {
+    const varianceOutliers = (auditRows || [])
+      .filter(row => row.variance != null && Math.abs(row.variance) > 0.05)
+      .map(row => ({
+        ...row,
+        reason: `TIMBER FTES differs from audited FTES by ${formatDecimal(row.variance, 2)}`
+      }));
+    const bridgeMapped = (bridgeOutliers || []).map(row => ({
+      term: 'FALL 2026',
+      academicYear: 'AY 2026-27',
+      crn: row.crn,
+      subject: row.subject,
+      course: row.course,
+      attendanceAccountingCode: row.accountingMethod,
+      partOfTerm: row.partOfTerm,
+      deStatus: row.deStatus,
+      expectedCalculationMethod: '',
+      timberCalculationMethod: '',
+      enrollment: row.FA26Enrollment,
+      timberFtes: row.FA26FTES,
+      auditedFtes: '',
+      variance: row.yieldChange,
+      auditStatus: row.classification,
+      auditReason: row.diagnosticNotes,
+      reason: row.diagnosticNotes
+    }));
+    return [...varianceOutliers, ...bridgeMapped]
+      .sort((a, b) => Math.abs(b.variance || 0) - Math.abs(a.variance || 0))
+      .slice(0, 50);
+  }
+
+  function attendanceAuditBridgeEffects(bridge = {}, auditRows = []) {
+    const d = bridge.decomposition || {};
+    const errorEffect = (auditRows || [])
+      .filter(row => ['WRONG CALCULATION METHOD', 'CORRECT METHOD / WRONG INPUT'].includes(row.auditStatus))
+      .reduce((total, row) => total + (row.variance || 0), 0);
+    const workExperienceEffect = (auditRows || [])
+      .filter(row => /WORK EXPERIENCE/.test(row.auditStatus) && termParts(row.term).year === 2026)
+      .reduce((total, row) => total + (row.timberFtes || 0), 0) -
+      (auditRows || [])
+        .filter(row => /WORK EXPERIENCE/.test(row.auditStatus) && termParts(row.term).year === 2025)
+        .reduce((total, row) => total + (row.timberFtes || 0), 0);
+    const positiveAttendanceEffect = d.positiveAttendanceDifference || 0;
+    const known = (d.enrollmentEffect || 0) + (d.courseContactHourMixEffect || 0) + (d.newDiscontinuedOfferings || 0) + positiveAttendanceEffect + workExperienceEffect + errorEffect;
+    return [
+      { effect: 'Enrollment growth effect', ftesChange: d.enrollmentEffect || 0 },
+      { effect: 'Regulatory calculation-method change', ftesChange: 0, note: 'No repository-documented AY 2026-27 production method change found; ambiguous rows are classified separately.' },
+      { effect: 'Accounting-method mix', ftesChange: d.accountingMethodMixEffect || 0 },
+      { effect: 'Course/contact-hour mix', ftesChange: d.courseContactHourMixEffect || 0 },
+      { effect: 'Positive Attendance estimate', ftesChange: positiveAttendanceEffect },
+      { effect: 'Work Experience estimate', ftesChange: workExperienceEffect },
+      { effect: 'Proven calculation defects', ftesChange: errorEffect },
+      { effect: 'Unexplained', ftesChange: (d.totalChange || 0) - known },
+      { effect: 'Total FTES change', ftesChange: d.totalChange || 0 }
+    ];
+  }
+
+  function buildAttendanceFormulaAudit(rows = [], bridge = null) {
+    const auditRows = attendanceFormulaAuditRows(rows);
+    const linkedBridge = bridge || buildFallToFallFtesBridge(rows);
+    const summary = attendanceAuditSummary(auditRows);
+    const outliers = attendanceAuditOutlierRows(auditRows, linkedBridge.outliers || []);
+    const bridgeEffects = attendanceAuditBridgeEffects(linkedBridge, auditRows);
+    return {
+      auditRows,
+      summary,
+      outliers,
+      bridgeEffects,
+      fa25Benchmark: linkedBridge.fa25Benchmark,
+      bridge: linkedBridge
+    };
+  }
+
+  function attendanceFormulaAuditExportRows(audit = {}) {
+    return (audit.auditRows || []).map(row => ({
+      term: row.term,
+      academicYear: row.academicYear,
+      crn: row.crn,
+      subject: row.subject,
+      course: row.course,
+      attendanceAccountingCode: row.attendanceAccountingCode,
+      partOfTerm: row.partOfTerm,
+      deStatus: row.deStatus,
+      expectedCalculationMethod: row.expectedCalculationMethod,
+      timberCalculationMethod: row.timberCalculationMethod,
+      oldTimberCalculationMethod: row.oldTimberCalculationMethod,
+      oldTimberFtes: row.oldTimberFtes,
+      newStandardizedFtes: row.newStandardizedFtes,
+      enrollment: row.enrollment,
+      enrollmentBasis: row.enrollmentBasis,
+      censusEnrollment: row.censusEnrollment,
+      units: row.units,
+      lectureUnits: row.lectureUnits,
+      activityUnits: row.activityUnits,
+      labUnits: row.labUnits,
+      standardizedHours: row.standardizedHours,
+      lectureStandardizedHours: row.lectureStandardizedHours,
+      activityStandardizedHours: row.activityStandardizedHours,
+      labStandardizedHours: row.labStandardizedHours,
+      weeklyContactHours: row.weeklyContactHours,
+      tlm: row.tlm,
+      maturity: row.maturity,
+      timberFtes: row.timberFtes,
+      auditedFtes: row.auditedFtes,
+      variance: row.variance,
+      auditStatus: row.auditStatus,
+      auditReason: row.auditReason
+    }));
+  }
+
   function demandYearSeasonForecast(target, rows, annualForecastFtes) {
     if (target.scope !== 'year') return null;
     const seasons = ['SUMMER', 'FALL', 'SPRING'];
@@ -16677,6 +17572,10 @@
     const fillWaitlistData = buildFillWaitlistPressureChartData(trends);
     const distributionData = buildCourseDemandDistributionChartData(rows);
     const backtestData = buildForecastBacktestChartData(trends);
+    const ftesBridge = canAccessRole('development') ? buildFallToFallFtesBridge(sourceRows) : null;
+    state.demandFtesBridgeExportRows = ftesBridge ? fallToFallFtesBridgeExportRows(ftesBridge) : [];
+    const formulaAudit = canAccessRole('development') ? buildAttendanceFormulaAudit(sourceRows, ftesBridge) : null;
+    state.demandFormulaAuditExportRows = formulaAudit ? attendanceFormulaAuditExportRows(formulaAudit) : [];
     state.demandExportRows = demandPlanningExportRows({
       recommendation: executiveRecommendation,
       planningRows: simplifiedPlanningRows,
@@ -16756,6 +17655,8 @@
         ${demandConfidencePanel(forecastContext.confidenceDetails || summary.confidence || {})}
         ${demandProjectionCalculationPanel(forecastContext, rows, trends, summary, collegeRow)}
         ${demandForecastMethodCard(forecastContext, summary, backtestData)}
+        ${fallToFallFtesBridgePanel(ftesBridge)}
+        ${attendanceFormulaAuditPanel(formulaAudit)}
         ${insightPanel('Semester FTES Totals', trends.map(row => `${row.term}: ${round1(row.ftes)} FTES; ${row.census} census enrollment`))}
         ${yearSeasonForecast ? insightPanel('Forecast Term FTES Split', yearSeasonForecast.seasons.map(row => `${row.termLabel}: ${round1(row.forecastFtes)} FTES (${pct(row.share)} of annual forecast, based on ${yearSeasonForecast.basis})`)) : ''}
         <section data-collapsible-title="Forecast Accuracy / Back-test" data-collapsible-id="demand-forecast-backtest" data-collapsible-default-open="false">
@@ -16851,6 +17752,121 @@
       confidence: row.forecastConfidence || 'N/A',
       direction: Number(row.adjustedForecastGrowth) >= 0 ? 'Expanding' : 'Softening'
     }));
+  }
+
+  function fallToFallFtesBridgePanel(bridge = null) {
+    if (!bridge) return '';
+    const d = bridge.decomposition || {};
+    const classification = bridge.classification || {};
+    const headline = [
+      { step: 'Fall 2025 FTES', ftesChange: d.fa25?.ftes || 0, diagnosticNotes: 'Validated institutional baseline check is shown below.' },
+      { step: 'Enrollment growth effect', ftesChange: d.enrollmentEffect || 0, diagnosticNotes: 'Existing comparison groups at Fall 2025 FTES/enrollment.' },
+      { step: 'Accounting-method mix effect', ftesChange: d.accountingMethodMixEffect || 0, diagnosticNotes: 'Held at zero in the sequential bridge to avoid double counting with granular course/method/PTRM groups.' },
+      { step: 'Part-of-Term mix effect', ftesChange: d.partOfTermMixEffect || 0, diagnosticNotes: 'Held at zero in the sequential bridge to avoid double counting with granular course/method/PTRM groups.' },
+      { step: 'Course/contact-hour mix effect', ftesChange: d.courseContactHourMixEffect || 0, diagnosticNotes: 'Residual yield/contact-hour intensity in existing non-positive-attendance groups.' },
+      { step: 'New/discontinued offerings', ftesChange: d.newDiscontinuedOfferings || 0, diagnosticNotes: 'Course/method/PTRM/DE populations present in only one Fall term.' },
+      { step: 'Positive Attendance difference', ftesChange: d.positiveAttendanceDifference || 0, diagnosticNotes: 'Attendance Accounting Method E only. Part of Term E remains separate.' },
+      { step: 'Other explained effect', ftesChange: d.otherExplainedEffect || 0, diagnosticNotes: 'Reserved for future non-overlapping bridge categories.' },
+      { step: 'Unexplained', ftesChange: d.unexplained || 0, diagnosticNotes: 'Rounding/reconciliation residual from the sequential decomposition.' },
+      { step: 'Fall 2026 FTES', ftesChange: d.fa26?.ftes || 0, diagnosticNotes: 'Calculated/projected current Fall 2026 value in selected source rows.' }
+    ];
+    const benchmark = bridge.fa25Benchmark || {};
+    const summaryRows = [
+      { metric: 'FA25 Enrollment', value: formatWholeNumber(d.fa25?.enrollment || 0) },
+      { metric: 'FA25 FTES', value: formatDecimal(d.fa25?.ftes || 0, 1) },
+      { metric: 'FA26 Enrollment', value: formatWholeNumber(d.fa26?.enrollment || 0) },
+      { metric: 'FA26 FTES', value: formatDecimal(d.fa26?.ftes || 0, 1) },
+      { metric: 'Enrollment Change', value: `${formatWholeNumber((d.fa26?.enrollment || 0) - (d.fa25?.enrollment || 0))} (${pct(safeDiv((d.fa26?.enrollment || 0) - (d.fa25?.enrollment || 0), d.fa25?.enrollment || 0))})` },
+      { metric: 'FTES Change', value: `${formatDecimal(d.totalChange || 0, 1)} (${pct(safeDiv(d.totalChange || 0, d.fa25?.ftes || 0))})` },
+      { metric: 'Explained / Plausible', value: formatDecimal(classification.explainedPlausible || 0, 1) },
+      { metric: 'Suspicious / Requires Review', value: formatDecimal(classification.suspiciousRequiresReview || 0, 1) },
+      { metric: 'Unexplained', value: formatDecimal(classification.unexplained || 0, 1) },
+      { metric: 'Calculation Defect Evidence', value: classification.evidenceOfCalculationDefect ? 'Review required' : 'No direct evidence from bridge alone' },
+      { metric: 'Recommended Next Action', value: classification.recommendedNextAction || '' }
+    ];
+    const topOutliers = (bridge.outliers || []).slice(0, 50);
+    return `
+      <section class="demand-report-section demand-ftes-bridge" data-collapsible-title="Fall-to-Fall FTES Bridge" data-collapsible-id="demand-fall-ftes-bridge" data-collapsible-default-open="false">
+        <h3>Fall-to-Fall FTES Bridge</h3>
+        <button id="exportFallFtesBridge" type="button">Export Bridge CSV</button>
+        <p class="analytics-chart-note">Developer/System Administrator diagnostic only. It summarizes existing normalized FTES values and does not change production FTES formulas. Attendance Accounting Method E means Open Entry/Open Exit Positive Attendance. Part of Term E means Excluding Holidays.</p>
+        <p class="analytics-chart-note">Sequential bridge order: ${escapeAttr(d.order || '')}</p>
+        <p class="analytics-chart-note">Fall 2025 institutional benchmark: ${formatDecimal(benchmark.actualFtes || 0, 2)} actual vs ${formatDecimal(benchmark.expectedFtes || 0, 2)} expected; status ${escapeAttr(benchmark.status || 'N/A')}.</p>
+        ${analyticsTableMarkup(summaryRows, ['metric', 'value'])}
+        ${analyticsTableMarkup(headline, ['step', 'ftesChange', 'diagnosticNotes'])}
+        <section data-collapsible-title="Accounting Method Comparison" data-collapsible-id="demand-ftes-bridge-accounting" data-collapsible-default-open="false">
+          <h3>Accounting Method Comparison</h3>
+          ${analyticsTableMarkup(bridge.accountingMethod || [], ['accountingMethod', 'FA25Sections', 'FA26Sections', 'sectionChange', 'FA25Enrollment', 'FA26Enrollment', 'enrollmentChange', 'FA25FTES', 'FA26FTES', 'ftesChange', 'FA25FTESPerEnrollment', 'FA26FTESPerEnrollment', 'yieldChange', 'contributionToTotalFTESChange', 'diagnosticNotes'])}
+        </section>
+        <section data-collapsible-title="Part of Term Comparison" data-collapsible-id="demand-ftes-bridge-ptrm" data-collapsible-default-open="false">
+          <h3>Part of Term Comparison</h3>
+          ${analyticsTableMarkup(bridge.partOfTerm || [], ['partOfTerm', 'FA25Sections', 'FA26Sections', 'sectionChange', 'FA25Enrollment', 'FA26Enrollment', 'enrollmentChange', 'FA25FTES', 'FA26FTES', 'ftesChange', 'FA25FTESPerEnrollment', 'FA26FTESPerEnrollment', 'yieldChange', 'diagnosticNotes'])}
+        </section>
+        <section data-collapsible-title="Accounting Method x Part of Term" data-collapsible-id="demand-ftes-bridge-method-ptrm" data-collapsible-default-open="false">
+          <h3>Accounting Method x Part of Term</h3>
+          ${analyticsTableMarkup(bridge.methodByPartOfTerm || [], ['accountingMethod', 'partOfTerm', 'FA25Enrollment', 'FA26Enrollment', 'enrollmentChange', 'FA25FTES', 'FA26FTES', 'ftesChange', 'FA25FTESPerEnrollment', 'FA26FTESPerEnrollment', 'yieldChange'])}
+        </section>
+        <section data-collapsible-title="DE / Non-DE Comparison" data-collapsible-id="demand-ftes-bridge-de" data-collapsible-default-open="false">
+          <h3>DE / Non-DE Comparison</h3>
+          ${analyticsTableMarkup(bridge.deStatus || [], ['deStatus', 'FA25Sections', 'FA26Sections', 'sectionChange', 'FA25Enrollment', 'FA26Enrollment', 'enrollmentChange', 'FA25FTES', 'FA26FTES', 'ftesChange', 'FA25FTESPerEnrollment', 'FA26FTESPerEnrollment', 'yieldChange'])}
+          ${analyticsTableMarkup(bridge.deByAccountingMethod || [], ['deStatus', 'accountingMethod', 'FA25Enrollment', 'FA26Enrollment', 'enrollmentChange', 'FA25FTES', 'FA26FTES', 'ftesChange', 'FA25FTESPerEnrollment', 'FA26FTESPerEnrollment', 'yieldChange'])}
+        </section>
+        <section data-collapsible-title="Top Course Contributors" data-collapsible-id="demand-ftes-bridge-courses" data-collapsible-default-open="false">
+          <h3>Top Course Contributors</h3>
+          <h4>Top FTES Increases</h4>
+          ${analyticsTableMarkup((bridge.topCourseIncreases || []).slice(0, 25), ['group', 'FA25Sections', 'FA26Sections', 'FA25Enrollment', 'FA26Enrollment', 'enrollmentChange', 'FA25FTES', 'FA26FTES', 'ftesChange', 'FA25FTESPerEnrollment', 'FA26FTESPerEnrollment', 'yieldChange'])}
+          <h4>Top FTES Decreases</h4>
+          ${analyticsTableMarkup((bridge.topCourseDecreases || []).slice(0, 25), ['group', 'FA25Sections', 'FA26Sections', 'FA25Enrollment', 'FA26Enrollment', 'enrollmentChange', 'FA25FTES', 'FA26FTES', 'ftesChange', 'FA25FTESPerEnrollment', 'FA26FTESPerEnrollment', 'yieldChange'])}
+        </section>
+        <section data-collapsible-title="New / Discontinued Offerings" data-collapsible-id="demand-ftes-bridge-new-discontinued" data-collapsible-default-open="false">
+          <h3>New / Discontinued Offerings</h3>
+          ${analyticsTableMarkup(bridge.newDiscontinued || [], ['group', 'FA25Enrollment', 'FA26Enrollment', 'enrollmentChange', 'FA25FTES', 'FA26FTES', 'ftesChange', 'diagnosticNotes'])}
+        </section>
+        <section data-collapsible-title="Multi-component W/IW Audit" data-collapsible-id="demand-ftes-bridge-multicomponent" data-collapsible-default-open="false">
+          <h3>Multi-component W/IW Audit</h3>
+          ${analyticsTableMarkup(bridge.multiComponent || [], ['accountingMethod', 'FA25Sections', 'FA26Sections', 'FA25Enrollment', 'FA26Enrollment', 'enrollmentChange', 'FA25FTES', 'FA26FTES', 'ftesChange', 'FA25FTESPerEnrollment', 'FA26FTESPerEnrollment', 'yieldChange', 'diagnosticNotes'])}
+        </section>
+        <section data-collapsible-title="Outlier CRNs" data-collapsible-id="demand-ftes-bridge-outliers" data-collapsible-default-open="false">
+          <h3>Outlier CRNs</h3>
+          ${analyticsTableMarkup(topOutliers, ['crn', 'subject', 'course', 'accountingMethod', 'partOfTerm', 'deStatus', 'FA26Enrollment', 'FA26FTES', 'FA26FTESPerEnrollment', 'FA25FTESPerEnrollment', 'yieldChange', 'classification', 'diagnosticNotes'])}
+        </section>
+      </section>`;
+  }
+
+  function attendanceFormulaAuditPanel(audit = null) {
+    if (!audit) return '';
+    const summary = audit.summary || {};
+    const benchmark = audit.fa25Benchmark || {};
+    return `
+      <section class="demand-report-section demand-formula-audit" data-collapsible-title="Attendance Accounting Formula Audit" data-collapsible-id="demand-attendance-formula-audit" data-collapsible-default-open="false">
+        <h3>Attendance Accounting Formula Audit</h3>
+        <button id="exportAttendanceFormulaAudit" type="button">Export Formula Audit CSV</button>
+        <p class="analytics-chart-note">Developer/System Administrator diagnostic only. This audits current TIMBER FTES outputs against documented implementation logic and available transition inputs. It does not change production FTES formulas or apply calibration multipliers.</p>
+        <p class="analytics-chart-note">Rule source used by this audit: TIMBER <code>estimatedFtes()</code> and the Enrollment Planning Forecast methodology text in this file. No separate AY 2026-27 standardized-attendance production rule module was found in the repository.</p>
+        <p class="analytics-chart-note">Fall 2025 benchmark: ${formatDecimal(benchmark.actualFtes || 0, 5)} actual vs ${formatDecimal(benchmark.expectedFtes || 0, 5)} expected; status ${escapeAttr(benchmark.status || 'N/A')}.</p>
+        ${analyticsTableMarkup(summary.ftesSummary || [], ['category', 'ftes'])}
+        ${analyticsTableMarkup(audit.bridgeEffects || [], ['effect', 'ftesChange', 'note'])}
+        <section data-collapsible-title="Method-by-Year Matrix" data-collapsible-id="formula-audit-method-matrix" data-collapsible-default-open="false">
+          <h3>Method-by-Year Matrix</h3>
+          ${analyticsTableMarkup(summary.methodRows || [], ['attendanceAccountingCode', 'FA25Enrollment', 'FA26Enrollment', 'FA25FTES', 'FA26FTES', 'ftesChange', 'FA25FTESPerEnrollment', 'FA26FTESPerEnrollment', 'expectedCalculationMethodFA25', 'expectedCalculationMethodFA26', 'auditPassRate'])}
+        </section>
+        <section data-collapsible-title="Audit Pass / Fail Counts" data-collapsible-id="formula-audit-status-counts" data-collapsible-default-open="false">
+          <h3>Audit Pass / Fail Counts</h3>
+          ${analyticsTableMarkup(summary.statusCounts || [], ['auditStatus', 'crns', 'enrollment', 'timberFtes', 'auditedFtes', 'variance'])}
+        </section>
+        <section data-collapsible-title="Calculation Method Mismatch Summary" data-collapsible-id="formula-audit-method-mismatch" data-collapsible-default-open="false">
+          <h3>Calculation Method Mismatch Summary</h3>
+          ${analyticsTableMarkup(summary.mismatchRows || [], ['expectedCalculationMethod', 'timberCalculationMethod', 'crns', 'enrollment', 'timberFtes', 'auditedFtes', 'variance'])}
+        </section>
+        <section data-collapsible-title="Top Outlier CRNs" data-collapsible-id="formula-audit-outliers" data-collapsible-default-open="false">
+          <h3>Top Outlier CRNs</h3>
+          ${analyticsTableMarkup(audit.outliers || [], ['crn', 'subject', 'course', 'attendanceAccountingCode', 'partOfTerm', 'deStatus', 'expectedCalculationMethod', 'timberCalculationMethod', 'enrollment', 'enrollmentBasis', 'lectureUnits', 'activityUnits', 'labUnits', 'standardizedHours', 'maturity', 'timberFtes', 'auditedFtes', 'variance', 'auditStatus', 'reason'])}
+        </section>
+        <section data-collapsible-title="Standardized Calculation Trace" data-collapsible-id="formula-audit-standardized-trace" data-collapsible-default-open="false">
+          <h3>Standardized Calculation Trace</h3>
+          ${analyticsTableMarkup((audit.auditRows || []).filter(row => row.timberCalculationMethod === 'STANDARDIZED_ATTENDANCE'), ['term', 'academicYear', 'crn', 'subject', 'course', 'attendanceAccountingCode', 'partOfTerm', 'deStatus', 'censusDate', 'enrollmentBasis', 'enrollment', 'lectureUnits', 'lectureStandardizedHours', 'activityUnits', 'activityStandardizedHours', 'labUnits', 'labStandardizedHours', 'standardizedHours', 'timberFtes', 'maturity', 'auditStatus'])}
+        </section>
+      </section>`;
   }
 
   function demandDistinctCrnCount(rows = []) {
@@ -19193,6 +20209,50 @@
   function label(text) {
     const labels = {
       group: 'Group',
+      step: 'Bridge Step',
+      metric: 'Metric',
+      value: 'Value',
+      accountingMethod: 'Attendance Accounting Method',
+      partOfTerm: 'Part of Term',
+      deStatus: 'DE Status',
+      sectionChange: 'Section Change',
+      FA25Sections: 'FA25 Sections',
+      FA26Sections: 'FA26 Sections',
+      FA25Enrollment: 'FA25 Enrollment',
+      FA26Enrollment: 'FA26 Enrollment',
+      FA25FTES: 'FA25 FTES',
+      FA26FTES: 'FA26 FTES',
+      FA25FTESPerEnrollment: 'FA25 FTES / Enrollment',
+      FA26FTESPerEnrollment: 'FA26 FTES / Enrollment',
+      yieldChange: 'Yield Change',
+      contributionToTotalFTESChange: 'Contribution to Total FTES Change',
+      diagnosticNotes: 'Diagnostic Notes',
+      effect: 'Effect',
+      note: 'Note',
+      attendanceAccountingCode: 'Attendance Accounting Code',
+      expectedCalculationMethod: 'Expected Calculation Method',
+      timberCalculationMethod: 'TIMBER Calculation Method',
+      expectedCalculationMethodFA25: 'Expected Method FA25',
+      expectedCalculationMethodFA26: 'Expected Method FA26',
+      auditPassRate: 'Audit Pass Rate',
+      auditStatus: 'Audit Status',
+      auditReason: 'Audit Reason',
+      category: 'Category',
+      crns: 'CRNs',
+      timberFtes: 'TIMBER FTES',
+      auditedFtes: 'Audited FTES',
+      oldTimberFtes: 'Old TIMBER FTES',
+      newStandardizedFtes: 'New Standardized FTES',
+      enrollmentBasis: 'Enrollment Basis',
+      lectureUnits: 'Lecture Units',
+      activityUnits: 'Activity Units',
+      labUnits: 'Lab Units',
+      standardizedHours: 'Standardized Hours',
+      lectureStandardizedHours: 'Lecture Standardized Hours',
+      activityStandardizedHours: 'Activity Standardized Hours',
+      labStandardizedHours: 'Lab Standardized Hours',
+      maturity: 'Maturity',
+      variance: 'Variance',
       scope: 'Scope',
       calculation: 'Calculation',
       startMilestone: 'Start Milestone',
@@ -19527,6 +20587,8 @@
   function format(value, column = '') {
     if (value == null && /attrition/i.test(column)) return 'N/A';
     if (typeof value === 'number' && /attrition/i.test(column)) return pct(value);
+    if (typeof value === 'number' && /contributionToTotalFTESChange/i.test(column)) return pct(value);
+    if (typeof value === 'number' && /(FTESPerEnrollment|yieldChange)/i.test(column)) return formatDecimal(value, 3);
     if (typeof value === 'number' && /(rate|fill|growth|pct|percent|share)/i.test(column)) return pct(value);
     if (typeof value === 'number' && /ftes/i.test(column)) return round1(value);
     return value ?? '';
@@ -20801,6 +21863,14 @@
     document.getElementById('exportConsolidation')?.addEventListener('click', () => exportRows(state.consolidationRows.map(flattenOpportunity), `section-consolidation-${consolidationDecisionTerm() || currentTerm() || 'term'}.csv`));
     attachBusyClick('exportDemand', 'Exporting Enrollment Planning Forecast CSV...', () => exportRows(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, `enrollment-planning-forecast-${demandTargetSlug()}.csv`), { key: 'exportDemand', runningLabel: 'Exporting...' });
     attachBusyClick('exportDemandExcel', 'Exporting Enrollment Planning Forecast Excel...', () => exportRowsExcel(state.demandExportRows?.length ? state.demandExportRows : state.demandRows, demandExportColumns(), `enrollment-planning-forecast-${demandTargetSlug()}.xls`), { key: 'exportDemandExcel', runningLabel: 'Exporting...' });
+    document.addEventListener('click', event => {
+      if (!event.target?.closest?.('#exportFallFtesBridge')) return;
+      exportRowsWithoutMethodology(state.demandFtesBridgeExportRows || [], 'fall-to-fall-ftes-bridge.csv');
+    });
+    document.addEventListener('click', event => {
+      if (!event.target?.closest?.('#exportAttendanceFormulaAudit')) return;
+      exportRowsWithoutMethodology(state.demandFormulaAuditExportRows || [], 'attendance-accounting-formula-audit.csv');
+    });
     document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
       const modalityQuickButton = event.target.closest('[data-modality-quick]');
@@ -20974,6 +22044,27 @@
     buildFillWaitlistPressureChartData,
     buildCourseDemandDistributionChartData,
     buildForecastBacktestChartData,
+    ftesBridgeAccountingMethod,
+    ftesBridgePartOfTerm,
+    ftesBridgeDeStatus,
+    ftesBridgeComparisonRows,
+    ftesBridgeMethodPotRows,
+    ftesBridgeDecomposition,
+    ftesBridgeMultiComponentRows,
+    ftesBridgeOutlierRows,
+    buildFallToFallFtesBridge,
+    fallToFallFtesBridgeExportRows,
+    standardizedEligible,
+    standardizedUnitComponents,
+    standardizedFtes,
+    ftesCalculationDetails,
+    attendanceAuditExpectedMethod,
+    attendanceAuditTimberMethod,
+    attendanceAuditLegacyExpectedFtes,
+    attendanceAuditStandardizedExpectedFtes,
+    attendanceFormulaAuditRows,
+    buildAttendanceFormulaAudit,
+    attendanceFormulaAuditExportRows,
     conflictRows,
     conflictClassification,
     fixedMeetingRecords,
