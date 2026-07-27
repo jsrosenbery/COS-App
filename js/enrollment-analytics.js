@@ -338,6 +338,7 @@
     supplyDemandRan: false,
     demandFtesBridgeExportRows: [],
     demandFormulaAuditExportRows: [],
+    demandPendingFtesAnalysisExportRows: [],
     demandExportRows: [],
     busyTimeRows: [],
     busyTimeFacultyRows: [],
@@ -16117,6 +16118,7 @@
     state.demandExportRows = [];
     state.demandFtesBridgeExportRows = [];
     state.demandFormulaAuditExportRows = [];
+    state.demandPendingFtesAnalysisExportRows = [];
     renderReportContext(REPORTS.demand, demandReportContextOverrides({
       loadedRows: context.loadedRows || state.demandInput || [],
       rows: context.filteredRows || [],
@@ -17183,6 +17185,305 @@
     })).sort((a, b) => b.enrollment - a.enrollment || a.population.localeCompare(b.population));
   }
 
+  function pendingFtesPopulation(row = {}) {
+    if (row.isWorkExperience || demandPlanningPopulationType(row) === 'Work Experience') return 'Work Experience';
+    const method = ftesBridgeAccountingMethod(row);
+    if (method === 'P') return 'P';
+    if (method === 'E') return 'E';
+    return '';
+  }
+
+  function pendingFtesTermType(row = {}) {
+    return termParts(row.term).season || 'UNKNOWN';
+  }
+
+  function pendingFtesCourseKey(row = {}) {
+    return [row.subject, row.course].filter(Boolean).join(' ') || 'UNKNOWN';
+  }
+
+  function pendingFtesIsHistoricalFinal(row = {}, options = {}) {
+    const population = pendingFtesPopulation(row);
+    if (!population) return false;
+    const parts = termParts(row.term);
+    const target = termParts(options.targetTerm || 'FALL 2026');
+    if (!parts.year || !parts.season) return false;
+    if (termSortValue(row.term) >= termSortValue(options.targetTerm || 'FALL 2026')) return false;
+    if (target.season && parts.season !== target.season && options.sameSeasonOnly !== false) return false;
+    if (row.ftesUnavailable || currentEnrollmentFtesUnavailable(row)) return false;
+    return Number(row.ftes || 0) > 0 && ftesBridgeEnrollment(row) > 0;
+  }
+
+  function pendingFtesHistoricalRows(rows = [], options = {}) {
+    return dedupeEnrollmentRows(rows || [])
+      .filter(row => pendingFtesIsHistoricalFinal(row, options))
+      .map(row => ({
+        term: row.term,
+        termSort: termSortValue(row.term),
+        population: pendingFtesPopulation(row),
+        crn: row.crn,
+        subject: row.subject,
+        course: row.course,
+        section: row.section,
+        courseKey: pendingFtesCourseKey(row),
+        accountingMethod: ftesBridgeAccountingMethod(row),
+        partOfTerm: ftesBridgePartOfTerm(row),
+        enrollment: ftesBridgeEnrollment(row),
+        units: row.units || 0,
+        enrolledUnits: ftesBridgeEnrollment(row) * Number(row.units || 0),
+        finalFtes: Number(row.ftes || 0),
+        actualHours: row.totalContactHours || row.standardizedHours || '',
+        workExperienceData: row.isWorkExperience ? (row.sourceFileName || row.sourceType || 'Work Experience source') : '',
+        ftesPerEnrollment: safeDiv(Number(row.ftes || 0), ftesBridgeEnrollment(row)),
+        ftesPerEnrolledUnit: safeDiv(Number(row.ftes || 0), ftesBridgeEnrollment(row) * Number(row.units || 0)),
+        ftesPerSection: Number(row.ftes || 0)
+      }));
+  }
+
+  function pendingFtesAvailableTerms(rows = [], options = {}) {
+    return [...group(pendingFtesHistoricalRows(rows, options), row => `${row.population}|${row.term}`).entries()]
+      .map(([key, groupRows]) => {
+        const [population, term] = key.split('|');
+        return {
+          population,
+          term,
+          sections: groupRows.length,
+          enrollment: sum(groupRows, 'enrollment'),
+          finalFtes: sum(groupRows, 'finalFtes'),
+          ftesPerEnrollment: safeDiv(sum(groupRows, 'finalFtes'), sum(groupRows, 'enrollment')),
+          ftesPerEnrolledUnit: safeDiv(sum(groupRows, 'finalFtes'), sum(groupRows, 'enrolledUnits'))
+        };
+      })
+      .sort((a, b) => a.population.localeCompare(b.population) || termSortValue(b.term) - termSortValue(a.term));
+  }
+
+  function pendingFtesYieldStats(rows = []) {
+    const clean = rows.filter(row => row.enrollment > 0 && row.finalFtes > 0);
+    const terms = [...new Set(clean.map(row => row.term))].sort((a, b) => termSortValue(b) - termSortValue(a));
+    const enrollment = sum(clean, 'enrollment');
+    const finalFtes = sum(clean, 'finalFtes');
+    const yields = clean.map(row => row.ftesPerEnrollment).filter(value => Number.isFinite(value));
+    const mean = safeDiv(finalFtes, enrollment);
+    const min = yields.length ? Math.min(...yields) : 0;
+    const max = yields.length ? Math.max(...yields) : 0;
+    const variance = yields.length ? average(yields.map(value => Math.pow(value - average(yields), 2))) : 0;
+    return {
+      observations: clean.length,
+      terms,
+      historicalTermsUsed: terms.length,
+      enrollment,
+      finalFtes,
+      yield: mean,
+      ftesPerEnrollment: mean,
+      ftesPerEnrolledUnit: safeDiv(finalFtes, sum(clean, 'enrolledUnits')),
+      ftesPerSection: safeDiv(finalFtes, clean.length),
+      minYield: min,
+      maxYield: max,
+      coefficientOfVariation: mean ? Math.sqrt(variance) / mean : 0,
+      historicalEnrollments: clean.map(row => row.enrollment).join('; '),
+      historicalFtes: clean.map(row => round1(row.finalFtes)).join('; ')
+    };
+  }
+
+  function pendingFtesWeightedYield(rows = []) {
+    const byTerm = [...group(rows, row => row.term).entries()]
+      .map(([term, termRows]) => ({ term, termSort: termSortValue(term), ...pendingFtesYieldStats(termRows) }))
+      .sort((a, b) => b.termSort - a.termSort)
+      .slice(0, 3);
+    const weights = [0.5, 0.3, 0.2];
+    const usedWeight = byTerm.reduce((total, _row, index) => total + weights[index], 0);
+    return usedWeight ? byTerm.reduce((total, row, index) => total + row.yield * weights[index], 0) / usedWeight : 0;
+  }
+
+  function pendingFtesBacktest(rows = [], method = 'simple') {
+    const byTerm = [...group(rows, row => row.term).entries()]
+      .map(([term, termRows]) => ({ term, termSort: termSortValue(term), rows: termRows }))
+      .sort((a, b) => a.termSort - b.termSort);
+    return byTerm.map((target, index) => {
+      const history = byTerm.slice(0, index).flatMap(item => item.rows);
+      if (history.length < 2) return null;
+      const actual = sum(target.rows, 'finalFtes');
+      const enrollment = sum(target.rows, 'enrollment');
+      const yieldValue = method === 'weighted' ? pendingFtesWeightedYield(history) : pendingFtesYieldStats(history).yield;
+      const predicted = enrollment * yieldValue;
+      return {
+        term: target.term,
+        method,
+        predictedFtes: predicted,
+        actualFtes: actual,
+        absoluteError: Math.abs(predicted - actual),
+        percentageError: actual ? Math.abs(predicted - actual) / actual : null
+      };
+    }).filter(Boolean);
+  }
+
+  function pendingFtesConfidence(stats = {}, backtests = [], fallbackLevel = 'INSUFFICIENT') {
+    if (!stats.observations || fallbackLevel === 'INSUFFICIENT') return 'INSUFFICIENT DATA';
+    const avgError = average(backtests.map(row => row.percentageError).filter(value => value != null));
+    const stable = (stats.coefficientOfVariation || 0) <= 0.15;
+    if (fallbackLevel === 'COURSE' && stats.historicalTermsUsed >= 3 && stable && avgError <= 0.05) return 'HIGH';
+    if (stats.historicalTermsUsed >= 2 && avgError <= 0.1 && (stats.coefficientOfVariation || 0) <= 0.3) return 'MEDIUM';
+    return 'LOW';
+  }
+
+  function pendingFtesOutlierRows(history = []) {
+    return history.filter(row => {
+      const siblings = history.filter(other => other.population === row.population && other.courseKey === row.courseKey && other.term !== row.term);
+      if (!siblings.length) return false;
+      const baseline = pendingFtesYieldStats(siblings).yield;
+      return baseline > 0 && Math.abs(row.ftesPerEnrollment - baseline) / baseline >= 0.5;
+    }).map(row => ({
+      term: row.term,
+      population: row.population,
+      crn: row.crn,
+      subject: row.subject,
+      course: row.course,
+      enrollment: row.enrollment,
+      finalFtes: row.finalFtes,
+      historicalYield: row.ftesPerEnrollment,
+      diagnosticNotes: 'FTES/enrollment differs from comparable course history by at least 50%; prefer median/trimmed mean review before production use.'
+    }));
+  }
+
+  function pendingFtesFindBasis(row = {}, history = []) {
+    const population = pendingFtesPopulation(row);
+    const termType = pendingFtesTermType(row);
+    const course = pendingFtesCourseKey(row);
+    const samePopulation = history.filter(item => item.population === population);
+    const sameTermPopulation = samePopulation.filter(item => pendingFtesTermType(item) === termType);
+    const levels = [
+      { fallbackLevel: 'COURSE', rows: sameTermPopulation.filter(item => item.courseKey === course) },
+      { fallbackLevel: 'SUBJECT', rows: sameTermPopulation.filter(item => item.subject === row.subject) },
+      { fallbackLevel: 'POPULATION', rows: sameTermPopulation }
+    ];
+    const basis = levels.find(level => pendingFtesYieldStats(level.rows).observations >= (level.fallbackLevel === 'POPULATION' ? 2 : 1));
+    if (!basis) return { fallbackLevel: 'INSUFFICIENT', stats: pendingFtesYieldStats([]), yield: 0, backtests: [], confidence: 'INSUFFICIENT DATA' };
+    const stats = pendingFtesYieldStats(basis.rows);
+    const simpleBacktests = pendingFtesBacktest(basis.rows, 'simple');
+    const weightedBacktests = pendingFtesBacktest(basis.rows, 'weighted');
+    const simpleError = average(simpleBacktests.map(item => item.percentageError).filter(value => value != null));
+    const weightedError = average(weightedBacktests.map(item => item.percentageError).filter(value => value != null));
+    const method = weightedBacktests.length && weightedError < simpleError ? 'recency-weighted average' : 'simple average';
+    const yieldValue = method === 'recency-weighted average' ? pendingFtesWeightedYield(basis.rows) : stats.yield;
+    const backtests = method === 'recency-weighted average' ? weightedBacktests : simpleBacktests;
+    return { ...basis, stats, yield: yieldValue, predictionMethod: method, backtests, confidence: pendingFtesConfidence(stats, backtests, basis.fallbackLevel) };
+  }
+
+  function pendingFtesSimulationRows(rows = [], options = {}) {
+    const targetTerm = normalizeTermLabel(options.targetTerm || 'FALL 2026');
+    const allRows = dedupeEnrollmentRows(rows || []);
+    const history = pendingFtesHistoricalRows(allRows, { targetTerm });
+    return allRows
+      .filter(row => normalizeTermLabel(row.term) === targetTerm)
+      .filter(row => pendingFtesPopulation(row))
+      .filter(row => !row.hasDirectFtesData || row.ftesUnavailable || /PENDING|ESTIMATED|UNAVAILABLE/.test(canon(row.ftesMaturity || row.ftesWarning || '')))
+      .map(row => {
+        const basis = pendingFtesFindBasis(row, history);
+        const enrollment = ftesBridgeEnrollment(row);
+        const predicted = enrollment * Number(basis.yield || 0);
+        const errors = basis.backtests.map(item => item.percentageError).filter(value => value != null);
+        const rangePct = Math.max(0.1, average(errors), basis.stats.coefficientOfVariation || 0);
+        return {
+          term: row.term,
+          population: pendingFtesPopulation(row),
+          crn: row.crn,
+          subject: row.subject,
+          course: row.course,
+          currentEnrollment: enrollment,
+          historicalTermsUsed: basis.stats.terms?.join('; ') || '',
+          historicalEnrollments: basis.stats.historicalEnrollments || '',
+          historicalFtes: basis.stats.historicalFtes || '',
+          historicalYield: basis.yield || 0,
+          predictionMethod: basis.predictionMethod || 'insufficient historical basis',
+          predictedFtes: predicted,
+          lowerEstimate: basis.confidence === 'INSUFFICIENT DATA' ? null : Math.max(0, predicted * (1 - rangePct)),
+          upperEstimate: basis.confidence === 'INSUFFICIENT DATA' ? null : predicted * (1 + rangePct),
+          confidence: basis.confidence,
+          backtestError: average(errors),
+          fallbackLevel: basis.fallbackLevel,
+          diagnosticNotes: basis.confidence === 'INSUFFICIENT DATA'
+            ? 'INSUFFICIENT HISTORICAL BASIS. Diagnostic estimate is not defensible for production use.'
+            : 'DIAGNOSTIC SIMULATION - NOT PRODUCTION FTES.'
+        };
+      });
+  }
+
+  function buildHistoricalPendingFtesAnalysis(rows = [], options = {}) {
+    const targetTerm = normalizeTermLabel(options.targetTerm || 'FALL 2026');
+    const allRows = dedupeEnrollmentRows(rows || []);
+    const history = pendingFtesHistoricalRows(allRows, { targetTerm });
+    const simulationRows = pendingFtesSimulationRows(allRows, { targetTerm });
+    const targetRows = allRows.filter(row => normalizeTermLabel(row.term) === targetTerm);
+    const isPendingTargetRow = row => pendingFtesPopulation(row) && (!row.hasDirectFtesData || row.ftesUnavailable || /PENDING|ESTIMATED|UNAVAILABLE/.test(canon(row.ftesMaturity || row.ftesWarning || '')));
+    const establishedFtes = targetRows.reduce((total, row) => total + (isPendingTargetRow(row) ? 0 : Number(row.ftes || 0)), 0);
+    const pendingFtes = sum(simulationRows, 'predictedFtes');
+    const lower = establishedFtes + sum(simulationRows.filter(row => row.lowerEstimate != null), 'lowerEstimate');
+    const upper = establishedFtes + sum(simulationRows.filter(row => row.upperEstimate != null), 'upperEstimate');
+    const populationRows = [...group(history, row => row.population).entries()].map(([population, groupRows]) => {
+      const simple = pendingFtesBacktest(groupRows, 'simple');
+      const weighted = pendingFtesBacktest(groupRows, 'weighted');
+      return {
+        population,
+        historicalTerms: [...new Set(groupRows.map(row => row.term))].sort((a, b) => termSortValue(b) - termSortValue(a)).join('; '),
+        observations: groupRows.length,
+        enrollment: sum(groupRows, 'enrollment'),
+        finalFtes: sum(groupRows, 'finalFtes'),
+        ftesPerEnrollment: pendingFtesYieldStats(groupRows).yield,
+        ftesPerEnrolledUnit: pendingFtesYieldStats(groupRows).ftesPerEnrolledUnit,
+        ftesPerSection: pendingFtesYieldStats(groupRows).ftesPerSection,
+        simpleAverageBacktestError: average(simple.map(row => row.percentageError).filter(value => value != null)),
+        weightedAverageBacktestError: average(weighted.map(row => row.percentageError).filter(value => value != null))
+      };
+    });
+    const confidenceCounts = [...group(simulationRows, row => row.confidence).entries()].map(([confidence, groupRows]) => ({
+      confidence,
+      rows: groupRows.length,
+      currentEnrollment: sum(groupRows, 'currentEnrollment'),
+      predictedFtes: sum(groupRows, 'predictedFtes')
+    }));
+    return {
+      targetTerm,
+      historicalRows: history,
+      availableTerms: pendingFtesAvailableTerms(allRows, { targetTerm }),
+      populationRows,
+      outliers: pendingFtesOutlierRows(history),
+      simulationRows,
+      confidenceCounts,
+      summary: {
+        establishedFtes,
+        simulatedPendingFtes: pendingFtes,
+        simulatedProjectedTotalFtes: establishedFtes + pendingFtes,
+        lowerEstimate: lower,
+        upperEstimate: upper,
+        overallConfidence: confidenceCounts.some(row => row.confidence === 'INSUFFICIENT DATA') ? 'LOW' : (confidenceCounts.some(row => row.confidence === 'LOW') ? 'LOW' : 'MEDIUM'),
+        note: 'DIAGNOSTIC SIMULATION - NOT PRODUCTION FTES. Production Projected Total FTES is not modified.'
+      },
+      recommendedHierarchy: '1 same course/same population/same term type; 2 subject and population; 3 institutional population and term type; 4 insufficient historical basis.',
+      recommendedConfidence: 'HIGH requires 3+ comparable course-level terms, low variance, and <=5% backtest error. MEDIUM requires 2+ observations or subject-level evidence and <=10% error. LOW covers population fallback or high variance. Otherwise insufficient data.'
+    };
+  }
+
+  function historicalPendingFtesAnalysisExportRows(analysis = {}) {
+    return (analysis.simulationRows || []).map(row => ({
+      term: row.term,
+      population: row.population,
+      subject: row.subject,
+      course: row.course,
+      currentEnrollment: row.currentEnrollment,
+      historicalTermsUsed: row.historicalTermsUsed,
+      historicalEnrollments: row.historicalEnrollments,
+      historicalFtes: row.historicalFtes,
+      historicalYield: row.historicalYield,
+      predictionMethod: row.predictionMethod,
+      predictedFtes: row.predictedFtes,
+      lowerEstimate: row.lowerEstimate,
+      upperEstimate: row.upperEstimate,
+      confidence: row.confidence,
+      backtestError: row.backtestError,
+      fallbackLevel: row.fallbackLevel,
+      diagnosticNotes: row.diagnosticNotes
+    }));
+  }
+
   function ftesBridgeYieldRows(rows = [], keyer = () => 'UNKNOWN', groupLabel = 'Group') {
     return [...group(dedupeEnrollmentRows(rows), keyer).entries()]
       .map(([name, groupRows]) => {
@@ -17847,6 +18148,8 @@
     state.demandFtesBridgeExportRows = ftesBridge ? fallToFallFtesBridgeExportRows(ftesBridge) : [];
     const formulaAudit = canAccessRole('development') ? buildAttendanceFormulaAudit(sourceRows, ftesBridge) : null;
     state.demandFormulaAuditExportRows = formulaAudit ? attendanceFormulaAuditExportRows(formulaAudit) : [];
+    const pendingFtesAnalysis = canAccessRole('development') ? buildHistoricalPendingFtesAnalysis(sourceRows, { targetTerm: 'FALL 2026' }) : null;
+    state.demandPendingFtesAnalysisExportRows = pendingFtesAnalysis ? historicalPendingFtesAnalysisExportRows(pendingFtesAnalysis) : [];
     state.demandExportRows = demandPlanningExportRows({
       recommendation: executiveRecommendation,
       planningRows: simplifiedPlanningRows,
@@ -17928,6 +18231,7 @@
         ${demandForecastMethodCard(forecastContext, summary, backtestData)}
         ${fallToFallFtesBridgePanel(ftesBridge)}
         ${attendanceFormulaAuditPanel(formulaAudit)}
+        ${historicalPendingFtesAnalysisPanel(pendingFtesAnalysis)}
         ${insightPanel('Semester FTES Totals', trends.map(row => `${row.term}: ${round1(row.ftes)} FTES; ${row.census} census enrollment`))}
         ${yearSeasonForecast ? insightPanel('Forecast Term FTES Split', yearSeasonForecast.seasons.map(row => `${row.termLabel}: ${round1(row.forecastFtes)} FTES (${pct(row.share)} of annual forecast, based on ${yearSeasonForecast.basis})`)) : ''}
         <section data-collapsible-title="Forecast Accuracy / Back-test" data-collapsible-id="demand-forecast-backtest" data-collapsible-default-open="false">
@@ -18172,6 +18476,52 @@
         <section data-collapsible-title="Standardized Calculation Trace" data-collapsible-id="formula-audit-standardized-trace" data-collapsible-default-open="false">
           <h3>Standardized Calculation Trace</h3>
           ${analyticsTableMarkup((audit.auditRows || []).filter(row => row.timberCalculationMethod === 'STANDARDIZED_ATTENDANCE'), ['term', 'academicYear', 'crn', 'subject', 'course', 'attendanceAccountingCode', 'partOfTerm', 'deStatus', 'censusDate', 'enrollmentBasis', 'enrollment', 'lectureUnits', 'lectureStandardizedHours', 'activityUnits', 'activityStandardizedHours', 'labUnits', 'labStandardizedHours', 'standardizedHours', 'timberFtes', 'maturity', 'auditStatus'])}
+        </section>
+      </section>`;
+  }
+
+  function historicalPendingFtesAnalysisPanel(analysis = null) {
+    if (!analysis) return '';
+    const summary = analysis.summary || {};
+    const summaryRows = [
+      { metric: 'Target Term', value: analysis.targetTerm || 'FALL 2026' },
+      { metric: 'Historical Final Rows', value: formatWholeNumber((analysis.historicalRows || []).length) },
+      { metric: 'Simulated Pending Rows', value: formatWholeNumber((analysis.simulationRows || []).length) },
+      { metric: 'Established FTES Already in Production Total', value: formatDecimal(summary.establishedFtes || 0, 2) },
+      { metric: 'Diagnostic Pending FTES Simulation', value: formatDecimal(summary.simulatedPendingFtes || 0, 2) },
+      { metric: 'Diagnostic Total if Added Separately', value: formatDecimal(summary.simulatedProjectedTotalFtes || 0, 2) },
+      { metric: 'Diagnostic Range', value: `${formatDecimal(summary.lowerEstimate || 0, 2)} to ${formatDecimal(summary.upperEstimate || 0, 2)}` },
+      { metric: 'Overall Diagnostic Confidence', value: summary.overallConfidence || 'N/A' }
+    ];
+    return `
+      <section class="demand-report-section demand-pending-ftes-analysis" data-collapsible-title="Historical Pending FTES Analysis" data-collapsible-id="demand-historical-pending-ftes-analysis" data-collapsible-default-open="false">
+        <h3>Historical Pending FTES Analysis</h3>
+        <button id="exportHistoricalPendingFtesAnalysis" type="button">Export Historical Pending FTES Analysis CSV</button>
+        <p class="analytics-chart-note">Developer/System Administrator diagnostic only. This estimates whether prior completed terms can defensibly predict final FTES for P, Attendance Method E, Work Experience, and other actual-hours pending populations. It does not change Projected Total FTES or any production attendance formula.</p>
+        <p class="analytics-chart-note">Attendance Method E is Open Entry/Open Exit Positive Attendance and remains separate from Part of Term E, which means Excluding Holidays. Current/incomplete target-term rows are excluded from historical actuals.</p>
+        <p class="analytics-chart-note">${escapeAttr(summary.note || '')}</p>
+        ${analyticsTableMarkup(summaryRows, ['metric', 'value'])}
+        <section data-collapsible-title="Recommended Hierarchy and Confidence" data-collapsible-id="pending-ftes-hierarchy-confidence" data-collapsible-default-open="true">
+          <h3>Recommended Hierarchy and Confidence</h3>
+          <p class="analytics-chart-note">${escapeAttr(analysis.recommendedHierarchy || '')}</p>
+          <p class="analytics-chart-note">${escapeAttr(analysis.recommendedConfidence || '')}</p>
+          ${analyticsTableMarkup(analysis.confidenceCounts || [], ['confidence', 'rows', 'currentEnrollment', 'predictedFtes'])}
+        </section>
+        <section data-collapsible-title="Available Historical Terms" data-collapsible-id="pending-ftes-available-terms" data-collapsible-default-open="false">
+          <h3>Available Historical Terms</h3>
+          ${analyticsTableMarkup(analysis.availableTerms || [], ['population', 'term', 'sections', 'enrollment', 'finalFtes', 'ftesPerEnrollment', 'ftesPerEnrolledUnit'])}
+        </section>
+        <section data-collapsible-title="Population Yield Backtest" data-collapsible-id="pending-ftes-population-yield" data-collapsible-default-open="false">
+          <h3>Population Yield Backtest</h3>
+          ${analyticsTableMarkup(analysis.populationRows || [], ['population', 'historicalTerms', 'observations', 'enrollment', 'finalFtes', 'ftesPerEnrollment', 'ftesPerEnrolledUnit', 'ftesPerSection', 'simpleAverageBacktestError', 'weightedAverageBacktestError'])}
+        </section>
+        <section data-collapsible-title="Diagnostic Simulation Rows" data-collapsible-id="pending-ftes-simulation-rows" data-collapsible-default-open="false">
+          <h3>Diagnostic Simulation Rows</h3>
+          ${analyticsTableMarkup(analysis.simulationRows || [], ['term', 'population', 'crn', 'subject', 'course', 'currentEnrollment', 'historicalTermsUsed', 'historicalEnrollments', 'historicalFtes', 'historicalYield', 'predictionMethod', 'predictedFtes', 'lowerEstimate', 'upperEstimate', 'confidence', 'backtestError', 'fallbackLevel', 'diagnosticNotes'])}
+        </section>
+        <section data-collapsible-title="Historical Outliers" data-collapsible-id="pending-ftes-outliers" data-collapsible-default-open="false">
+          <h3>Historical Outliers</h3>
+          ${analyticsTableMarkup(analysis.outliers || [], ['term', 'population', 'crn', 'subject', 'course', 'enrollment', 'finalFtes', 'historicalYield', 'diagnosticNotes'])}
         </section>
       </section>`;
   }
@@ -22178,6 +22528,10 @@
       if (!event.target?.closest?.('#exportAttendanceFormulaAudit')) return;
       exportRowsWithoutMethodology(state.demandFormulaAuditExportRows || [], 'attendance-accounting-formula-audit.csv');
     });
+    document.addEventListener('click', event => {
+      if (!event.target?.closest?.('#exportHistoricalPendingFtesAnalysis')) return;
+      exportRowsWithoutMethodology(state.demandPendingFtesAnalysisExportRows || [], 'historical-pending-ftes-analysis.csv');
+    });
     document.getElementById('exportRotation')?.addEventListener('click', () => exportRows(state.rotationRows, `course-rotation-analysis-${currentTerm() || 'term'}.csv`));
     document.getElementById('analyticsReports')?.addEventListener('click', (event) => {
       const modalityQuickButton = event.target.closest('[data-modality-quick]');
@@ -22378,6 +22732,14 @@
     attendanceFormulaAuditRows,
     buildAttendanceFormulaAudit,
     attendanceFormulaAuditExportRows,
+    pendingFtesPopulation,
+    pendingFtesHistoricalRows,
+    pendingFtesAvailableTerms,
+    pendingFtesBacktest,
+    pendingFtesFindBasis,
+    pendingFtesSimulationRows,
+    buildHistoricalPendingFtesAnalysis,
+    historicalPendingFtesAnalysisExportRows,
     conflictRows,
     conflictClassification,
     fixedMeetingRecords,

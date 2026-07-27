@@ -2559,6 +2559,98 @@ test('fall-to-fall FTES explanation separates estimated actual-hours populations
   assert.match(populations.P.estimationMethod, /not final actual-hours FTES/i);
 });
 
+test('historical pending FTES analysis separates P E POT E work experience and excludes standardized credit', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', partOfTerm: '1', census: 20, ftes: 2, hasDirectFtesData: true }),
+    section({ term: 'FALL 2024', crn: 'E24', subject: 'OPEN', course: '100', accountingMethod: 'E', partOfTerm: '1', census: 10, ftes: 3, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'POTE25', subject: 'HIST', course: '100', accountingMethod: 'W', partOfTerm: 'E', census: 15, ftes: 1.5, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'WX25', subject: 'WKEX', course: '020', accountingMethod: 'I', partOfTerm: '1', census: 6, ftes: 1.2, isWorkExperience: true, modality: 'WORK EXPERIENCE', hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'STD25', subject: 'MATH', course: '101', accountingMethod: 'W', partOfTerm: '1', census: 30, ftes: 3, hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'P26', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 22, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' })
+  ];
+  const history = COSEnrollmentAnalytics.pendingFtesHistoricalRows(rows, { targetTerm: 'FALL 2026' });
+  const populations = history.map(row => row.population).sort();
+
+  assert.equal(JSON.stringify(populations), JSON.stringify(['E', 'P', 'Work Experience']));
+  assert.equal(history.some(row => row.crn === 'POTE25'), false);
+  assert.equal(history.some(row => row.crn === 'STD25'), false);
+});
+
+test('historical pending FTES analysis excludes current term as historical actual data', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 20, ftes: 2, hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'P26A', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 30, ftes: 3, hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'P26B', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 24, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' })
+  ];
+  const history = COSEnrollmentAnalytics.pendingFtesHistoricalRows(rows, { targetTerm: 'FALL 2026' });
+  const simulation = COSEnrollmentAnalytics.pendingFtesSimulationRows(rows, { targetTerm: 'FALL 2026' });
+
+  assert.equal(JSON.stringify(history.map(row => row.term)), JSON.stringify(['FALL 2025']));
+  assert.equal(simulation.length, 1);
+  assert.equal(simulation[0].crn, 'P26B');
+  assert.equal(Number(simulation[0].predictedFtes.toFixed(1)), 2.4);
+});
+
+test('historical pending FTES analysis applies course subject population and insufficient fallback hierarchy', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2023', crn: 'M10123', subject: 'MATH', course: '101', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true }),
+    section({ term: 'FALL 2024', crn: 'M10124', subject: 'MATH', course: '101', accountingMethod: 'P', census: 20, ftes: 2, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'M10225', subject: 'MATH', course: '102', accountingMethod: 'P', census: 30, ftes: 6, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'ART25', subject: 'ART', course: '010', accountingMethod: 'P', census: 40, ftes: 4, hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'C', subject: 'MATH', course: '101', accountingMethod: 'P', census: 12, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
+    section({ term: 'FALL 2026', crn: 'S', subject: 'MATH', course: '999', accountingMethod: 'P', census: 12, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
+    section({ term: 'FALL 2026', crn: 'I', subject: 'BIOL', course: '999', accountingMethod: 'E', census: 12, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' })
+  ];
+  const simulation = COSEnrollmentAnalytics.pendingFtesSimulationRows(rows, { targetTerm: 'FALL 2026' });
+  const byCrn = Object.fromEntries(simulation.map(row => [row.crn, row]));
+
+  assert.equal(byCrn.C.fallbackLevel, 'COURSE');
+  assert.equal(byCrn.S.fallbackLevel, 'SUBJECT');
+  assert.equal(simulation.find(row => row.population === 'E').fallbackLevel, 'INSUFFICIENT');
+});
+
+test('historical pending FTES analysis backtests simple and weighted averages', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = COSEnrollmentAnalytics.pendingFtesHistoricalRows([
+    section({ term: 'FALL 2022', crn: 'P22', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true }),
+    section({ term: 'FALL 2023', crn: 'P23', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.2, hasDirectFtesData: true }),
+    section({ term: 'FALL 2024', crn: 'P24', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.4, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.6, hasDirectFtesData: true })
+  ], { targetTerm: 'FALL 2026' });
+  const simple = COSEnrollmentAnalytics.pendingFtesBacktest(rows, 'simple');
+  const weighted = COSEnrollmentAnalytics.pendingFtesBacktest(rows, 'weighted');
+
+  assert.ok(simple.length >= 2);
+  assert.ok(weighted.length >= 2);
+  assert.ok(simple.every(row => Number.isFinite(row.absoluteError)));
+  assert.ok(weighted.every(row => row.method === 'weighted'));
+});
+
+test('historical pending FTES analysis reports confidence outliers ranges and does not mutate production FTES', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2023', crn: 'P23', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true }),
+    section({ term: 'FALL 2024', crn: 'P24', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.1, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 5, hasDirectFtesData: true }),
+    section({ term: 'FALL 2026', crn: 'P26', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 20, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
+    section({ term: 'FALL 2026', crn: 'STD26', subject: 'MATH', course: '101', accountingMethod: 'W', census: 20, ftes: 2, standardizedHours: 54, hasDirectFtesData: true })
+  ];
+  const before = rows.map(row => row.ftes);
+  const analysis = COSEnrollmentAnalytics.buildHistoricalPendingFtesAnalysis(rows, { targetTerm: 'FALL 2026' });
+  const [simulation] = analysis.simulationRows;
+  const exportRows = COSEnrollmentAnalytics.historicalPendingFtesAnalysisExportRows(analysis);
+
+  assert.ok(analysis.outliers.some(row => row.crn === 'P25'));
+  assert.ok(simulation.upperEstimate > simulation.lowerEstimate);
+  assert.notEqual(simulation.confidence, 'INSUFFICIENT DATA');
+  assert.deepEqual(rows.map(row => row.ftes), before);
+  assert.ok(exportRows.every(row => /DIAGNOSTIC|INSUFFICIENT/.test(row.diagnosticNotes)));
+  assert.equal(Number(analysis.summary.establishedFtes.toFixed(6)), Number(((54 * 20) / 525).toFixed(6)));
+});
+
 test('current enrollment FTES calculation labels reflect standardized method without renaming Banner code', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const row = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: 'STD2', Subject: 'MATH', Course: '101', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 20, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3 });
