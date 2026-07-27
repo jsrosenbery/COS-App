@@ -4675,6 +4675,48 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   assert.ok(exportRows.some(row => row.Section === 'Calculation Context' && row.Metric === 'Ftes Source' && /Historical FTES\/enrollment ratios are not used/.test(row.Value)));
 });
 
+test('current enrollment and FTES classifies CRN-level maturity from census and source as-of dates', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', ACCOUNTING_METHOD: 'W', CENSUS_ENRL_DATE: '9/10/2026', SnapshotDate: '2026-09-01' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10002', Subject: 'HIST', Course: '001', ACTUAL_ENROLL: '20', MAX_ENROLL: '30', FTES: '2.0', ACCOUNTING_METHOD: 'W', CENSUS_ENRL_DATE: '8/20/2026', SnapshotDate: '2026-09-01' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10003', Subject: 'MATH', Course: '001', ACTUAL_ENROLL: '10', MAX_ENROLL: '30', FTES: '1.0', ACCOUNTING_METHOD: 'IW', CENSUS_ENRL_DATE: '9/15/2026', 'Start Date': '9/5/2026', SnapshotDate: '2026-08-25' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10004', Subject: 'AUTO', Course: '120', ACTUAL_ENROLL: '10', ACCOUNTING_METHOD: 'P', TOTAL_CONTACT_HOURS: '105', 'End Date': '8/15/2026', SnapshotDate: '2026-10-15' }),
+    COSEnrollmentAnalytics.normalizeRow({ __sourceType: 'WORK_EXPERIENCE', Term: 'FALL 2026', CRN: 'WX001', Subject: 'WKEX', Course: '020', ACTUAL_ENROLL: '6', ACCOUNTING_METHOD: 'D', SnapshotDate: '2026-09-01' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10005', Subject: 'ART', Course: '001', ACTUAL_ENROLL: '12', MAX_ENROLL: '20', FTES: '1.2', ACCOUNTING_METHOD: 'D', SnapshotDate: '2026-09-01' })
+  ];
+
+  assert.equal(rows[0].censusEnrollmentDate, '9/10/2026');
+  assert.equal(rows[0].censusEnrollmentDateIso, '2026-09-10');
+  assert.equal(rows[0].snapshotDateIso, '2026-09-01');
+
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', effectiveAsOfDate: '2026-09-01' });
+  const byCrn = Object.fromEntries(summary.rows.map(row => [row.crn, row]));
+
+  assert.equal(byCrn['10001'].ftesMaturityStatus, 'Estimated - Census Pending');
+  assert.equal(byCrn['10002'].ftesMaturityStatus, 'Census Confirmed');
+  assert.equal(byCrn['10003'].ftesMaturityStatus, 'Estimated - Pre-Start');
+  assert.equal(byCrn['10004'].ftesMaturityStatus, 'Positive Attendance Pending Final');
+  assert.equal(byCrn.WX001.ftesMaturityStatus, 'FTES Unavailable');
+  assert.match(byCrn.WX001.ftesMaturityReason, /FTES unavailable/i);
+  assert.equal(byCrn['10005'].ftesMaturityStatus, 'FTES Unavailable');
+  assert.match(byCrn['10005'].ftesMaturityReason, /CENSUS_ENRL_DATE is missing/);
+  assert.ok(summary.breakdowns.ftesMaturityStatus.some(row => row.name === 'Census Confirmed'));
+  assert.ok(summary.breakdowns.ftesMaturityStatus.some(row => row.name === 'Estimated - Census Pending'));
+  assert.equal(summary.maturity.focus.confirmedFinalFtes, 2);
+  assert.equal(Math.round(summary.maturity.focus.estimatedFtes * 10) / 10, 6);
+  assert.equal(summary.maturity.focus.unavailableRows, 2);
+  assert.equal(Math.round(summary.maturity.focus.projectedFtes * 10) / 10, 8);
+  assert.equal(summary.maturity.focus.asOf.display, '2026-09-01');
+  const noWorkSummary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows.filter(row => row.crn !== 'WX001'), { focusTerm: 'FALL 2026', effectiveAsOfDate: '2026-09-01' });
+  assert.ok(noWorkSummary.warnings.some(warning => /Work Experience FTES unavailable/i.test(warning)));
+
+  const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
+  assert.ok(exportRows.some(row => row.Section === 'Summary' && row.Metric === 'Projected FTES'));
+  assert.ok(exportRows.some(row => row.Section === 'FTES Status Breakdown' && row.Category === 'Estimated - Census Pending'));
+  assert.ok(exportRows.some(row => row.Section === 'Detail' && row.CRN === '10001' && row.CENSUS_ENRL_DATE === '9/10/2026' && row['FTES Maturity Status'] === 'Estimated - Census Pending'));
+});
+
 test('FTES reconciliation parses institutional Cube hierarchy and compares CRNs', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const cubeRows = [
