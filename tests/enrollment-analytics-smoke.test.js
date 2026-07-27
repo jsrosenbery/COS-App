@@ -461,6 +461,8 @@ test('shared CSV normalizer builds canonical section fields from all-columns sea
     'End Time': '10:25 AM',
     CENSUS_ENROLL: '27',
     CENSUS_ENROLL2: '-3',
+    CENSUS_ENRL_DATE: '09/12/2026',
+    SnapshotDate: '2026-09-15',
     ACTUAL_ENROLL: '29',
     CAPACITY: '35',
     BUILDING: 'TCC',
@@ -474,11 +476,52 @@ test('shared CSV normalizer builds canonical section fields from all-columns sea
   assert.equal(normalized.courseCode, 'ENGL C1000');
   assert.equal(normalized.invalidNegativeCensus2, true);
   assert.equal(normalized.census2, null);
+  assert.equal(normalized.censusEnrollmentDate, '09/12/2026');
+  assert.equal(normalized.snapshotDate, '2026-09-15');
+  assert.equal(sectionRow.censusEnrollmentDate, '09/12/2026');
+  assert.equal(sectionRow.snapshotDate, '2026-09-15');
   assert.deepEqual(sectionRow.days, ['MO', 'WE']);
   assert.equal(sectionRow.start, '09:10');
   assert.equal(sectionRow.end, '10:25');
   assert.equal(sectionRow.modality, 'IN PERSON');
   assert.equal(sectionRow.timeBlock, '09:00-09:59');
+});
+
+test('shared CSV normalizer retains authoritative census maturity source fields', () => {
+  const { csv, sectionModel } = loadCoreModules();
+  const row = {
+    TERM: 'Fall 2026',
+    CRN: '45678',
+    SUBJECT: 'MATH',
+    COURSE: 'C1000',
+    ACTUAL_ENROLL: '31',
+    CENSUS_ENROLL: '29',
+    CENSUS_ENRL_DATE: '09/10/2026',
+    CENSUS_ENROLL2: '27',
+    CENSUS_ENRL2_DATE: '10/20/2026',
+    PTRM: 'F1',
+    'START DATE': '08/17/2026',
+    'END DATE': '12/11/2026',
+    ACTIVITY_DATE: '07/31/2026'
+  };
+
+  const normalized = csv.normalizeCsvRow(row);
+  const sectionRow = sectionModel.normalizeSection(row);
+
+  assert.equal(normalized.census, 29);
+  assert.equal(normalized.censusEnrollment, 29);
+  assert.equal(normalized.censusEnrollmentDate, '09/10/2026');
+  assert.equal(normalized.census2, 27);
+  assert.equal(normalized.censusEnrollment2, 27);
+  assert.equal(normalized.censusEnrollment2Date, '10/20/2026');
+  assert.equal(normalized.partOfTerm, 'F1');
+  assert.equal(normalized.startDate, '08/17/2026');
+  assert.equal(normalized.endDate, '12/11/2026');
+  assert.equal(normalized.activityDate, '07/31/2026');
+  assert.equal(sectionRow.censusEnrollmentDate, '09/10/2026');
+  assert.equal(sectionRow.censusEnrollment2Date, '10/20/2026');
+  assert.equal(sectionRow.partOfTerm, 'F1');
+  assert.equal(sectionRow.activityDate, '07/31/2026');
 });
 
 test('room event parser normalizes term room day time and validation fields', () => {
@@ -4678,9 +4721,9 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
 test('current enrollment and FTES classifies CRN-level maturity from census and source as-of dates', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', ACCOUNTING_METHOD: 'W', CENSUS_ENRL_DATE: '9/10/2026', SnapshotDate: '2026-09-01' }),
-    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10002', Subject: 'HIST', Course: '001', ACTUAL_ENROLL: '20', MAX_ENROLL: '30', FTES: '2.0', ACCOUNTING_METHOD: 'W', CENSUS_ENRL_DATE: '8/20/2026', SnapshotDate: '2026-09-01' }),
-    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10003', Subject: 'MATH', Course: '001', ACTUAL_ENROLL: '10', MAX_ENROLL: '30', FTES: '1.0', ACCOUNTING_METHOD: 'IW', CENSUS_ENRL_DATE: '9/15/2026', 'Start Date': '9/5/2026', SnapshotDate: '2026-08-25' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '30', CENSUS_ENROLL: '30', MAX_ENROLL: '35', FTES: '3.0', ACCOUNTING_METHOD: 'W', CENSUS_ENRL_DATE: '9/10/2026', SnapshotDate: '2026-09-01' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10002', Subject: 'HIST', Course: '001', ACTUAL_ENROLL: '20', CENSUS_ENROLL: '20', MAX_ENROLL: '30', FTES: '2.0', ACCOUNTING_METHOD: 'W', CENSUS_ENRL_DATE: '8/20/2026', SnapshotDate: '2026-09-01' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10003', Subject: 'MATH', Course: '001', ACTUAL_ENROLL: '10', CENSUS_ENROLL: '10', MAX_ENROLL: '30', FTES: '1.0', ACCOUNTING_METHOD: 'IW', CENSUS_ENRL_DATE: '9/15/2026', 'Start Date': '9/5/2026', SnapshotDate: '2026-08-25' }),
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10004', Subject: 'AUTO', Course: '120', ACTUAL_ENROLL: '10', ACCOUNTING_METHOD: 'P', TOTAL_CONTACT_HOURS: '105', 'End Date': '8/15/2026', SnapshotDate: '2026-10-15' }),
     COSEnrollmentAnalytics.normalizeRow({ __sourceType: 'WORK_EXPERIENCE', Term: 'FALL 2026', CRN: 'WX001', Subject: 'WKEX', Course: '020', ACTUAL_ENROLL: '6', ACCOUNTING_METHOD: 'D', SnapshotDate: '2026-09-01' }),
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10005', Subject: 'ART', Course: '001', ACTUAL_ENROLL: '12', MAX_ENROLL: '20', FTES: '1.2', ACCOUNTING_METHOD: 'D', SnapshotDate: '2026-09-01' })
@@ -4716,7 +4759,7 @@ test('current enrollment and FTES classifies CRN-level maturity from census and 
   assert.ok(noWorkSummary.warnings.some(warning => /Work Experience FTES unavailable/i.test(warning)));
 
   const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
-  assert.ok(exportRows.some(row => row.Section === 'Summary' && row.Metric === 'Projected FTES'));
+  assert.ok(exportRows.some(row => row.Section === 'Summary' && row.Metric === 'Projected Total FTES'));
   assert.ok(exportRows.some(row => row.Section === 'FTES Status Breakdown' && row.Category === 'Estimated - Census Pending'));
   assert.ok(exportRows.some(row => row.Section === 'FTES Status Breakdown' && row.Category === 'Maturity Unknown'));
   assert.ok(exportRows.some(row => row.Section === 'Detail' && row.CRN === '10001' && row.CENSUS_ENRL_DATE === '9/10/2026' && row['FTES Maturity Status'] === 'Estimated - Census Pending'));
@@ -4732,6 +4775,7 @@ test('current enrollment and FTES preserves census and as-of metadata through re
     ACTUAL_ENROLL: '40',
     FTES: '4.0',
     ACCOUNTING_METHOD: 'W',
+    CENSUS_ENROLL: '40',
     CENSUS_ENRL_DATE: '9/12/2026',
     SnapshotDate: '2026-09-15',
     __uploadedAt: '2026-07-30T14:00:00.000Z'
@@ -4758,6 +4802,7 @@ test('current enrollment and FTES uses upload timestamp as as-of fallback withou
       ACTUAL_ENROLL: '10',
       FTES: '1.0',
       ACCOUNTING_METHOD: 'W',
+      CENSUS_ENROLL: '10',
       CENSUS_ENRL_DATE: '8/20/2026',
       __uploadedAt: '2026-08-25T10:30:00.000Z'
     })
@@ -4769,6 +4814,111 @@ test('current enrollment and FTES uses upload timestamp as as-of fallback withou
   const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026' });
   assert.equal(summary.rows[0].effectiveAsOfDate, '2026-08-25');
   assert.equal(summary.rows[0].ftesMaturityStatus, 'Census Confirmed');
+});
+
+test('current enrollment and FTES preserves metadata when backend row dedupes after loaded workspace row', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const strippedWorkspaceRow = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    CRN: '31001',
+    Subject: 'MATH',
+    Course: 'C1000',
+    Section: '001',
+    ACTUAL_ENROLL: '32',
+    MAX_ENROLL: '40',
+    FTES: '3.2',
+    ACCOUNTING_METHOD: 'W'
+  });
+  const backendReloadedRow = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    CRN: '31001',
+    Subject: 'MATH',
+    Course: 'C1000',
+    Section: '001',
+    ACTUAL_ENROLL: '32',
+    MAX_ENROLL: '40',
+    FTES: '3.2',
+    ACCOUNTING_METHOD: 'W',
+    CENSUS_ENRL_DATE: '09/10/2026',
+    CENSUS_ENROLL: '32',
+    __uploadedAt: '2026-09-15T12:00:00.000Z'
+  });
+
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary([strippedWorkspaceRow, backendReloadedRow], { focusTerm: 'FALL 2026' });
+  const detail = summary.rows.find(row => row.crn === '31001');
+  const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
+
+  assert.equal(summary.focus.classOfferings, 1);
+  assert.equal(detail.censusEnrollmentDate, '09/10/2026');
+  assert.equal(detail.effectiveAsOfDate, '2026-09-15');
+  assert.equal(detail.ftesMaturityStatus, 'Census Confirmed');
+  assert.equal(summary.maturity.focus.maturityUnknownRows, 0);
+  assert.ok(exportRows.some(row => row.Section === 'Detail' && row.CRN === '31001' && row.CENSUS_ENRL_DATE === '09/10/2026' && row['Effective As Of Date'] === '2026-09-15'));
+});
+
+test('current enrollment and FTES applies CRN-level authoritative census maturity rules', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '40001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '50', CENSUS_ENROLL: '40', MAX_ENROLL: '55', HOURS_PER_WEEK: '3', ACCOUNTING_METHOD: 'W', CENSUS_ENRL_DATE: '09/10/2026', PTRM: 'F1', 'START DATE': '08/17/2026', 'END DATE': '12/11/2026', ACTIVITY_DATE: '09/01/2026' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '40002', Subject: 'HIST', Course: 'C1000', ACTUAL_ENROLL: '30', CENSUS_ENROLL: '25', MAX_ENROLL: '35', HOURS_PER_WEEK: '3', ACCOUNTING_METHOD: 'W', CENSUS_ENRL_DATE: '10/15/2026', PTRM: 'L1', 'START DATE': '10/01/2026', 'END DATE': '12/11/2026', ACTIVITY_DATE: '09/01/2026' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '40003', Subject: 'MATH', Course: 'C1000', ACTUAL_ENROLL: '20', CENSUS_ENROLL: '18', MAX_ENROLL: '25', HOURS_PER_WEEK: '3', ACCOUNTING_METHOD: 'IW', CENSUS_ENRL_DATE: '09/10/2026' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '40004', Subject: 'BIOL', Course: 'C1000', ACTUAL_ENROLL: '16', CENSUS_ENROLL: '14', MAX_ENROLL: '20', TOTAL_CONTACT_HOURS: '54', ACCOUNTING_METHOD: 'D', CENSUS_ENRL_DATE: '09/10/2026' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '40005', Subject: 'CHEM', Course: 'C1000', ACTUAL_ENROLL: '12', CENSUS_ENROLL: '10', MAX_ENROLL: '15', TOTAL_CONTACT_HOURS: '54', ACCOUNTING_METHOD: 'ID', CENSUS_ENRL_DATE: '10/15/2026' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '40006', Subject: 'AUTO', Course: 'C1000', ACTUAL_ENROLL: '11', MAX_ENROLL: '15', HOURS_PER_WEEK: '3', ACCOUNTING_METHOD: 'W', CENSUS_ENRL_DATE: '09/10/2026' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '40007', Subject: 'ART', Course: 'C1000', ACTUAL_ENROLL: '10', MAX_ENROLL: '15', TOTAL_CONTACT_HOURS: '54', ACCOUNTING_METHOD: 'P', CENSUS_ENRL_DATE: '09/10/2026' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '40008', Subject: 'WKEX', Course: '020', ACTUAL_ENROLL: '9', MAX_ENROLL: '15', HOURS_PER_WEEK: '3', ACCOUNTING_METHOD: 'W', INSTRUCTIONAL_METHOD_CODE: '20', CENSUS_ENRL_DATE: '09/10/2026' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '40009', Subject: 'OLD', Course: '001', ACTUAL_ENROLL: '8', MAX_ENROLL: '10', HOURS_PER_WEEK: '3', ACCOUNTING_METHOD: 'W' })
+  ];
+
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', effectiveAsOfDate: '2026-09-15' });
+  const byCrn = Object.fromEntries(summary.rows.map(row => [row.crn, row]));
+
+  assert.equal(byCrn['40001'].ftesMaturityStatus, 'Census Confirmed');
+  assert.equal(byCrn['40001'].currentEnrollment, 50);
+  assert.equal(byCrn['40001'].censusEnrollment, 40);
+  assert.equal(byCrn['40001'].ftes, 4);
+  assert.equal(byCrn['40002'].ftesMaturityStatus, 'Estimated - Pre-Start');
+  assert.equal(byCrn['40002'].ftes, 3);
+  assert.equal(byCrn['40003'].ftesMaturityStatus, 'Census Confirmed');
+  assert.equal(byCrn['40004'].ftesMaturityStatus, 'Census Confirmed');
+  assert.equal(byCrn['40005'].ftesMaturityStatus, 'Estimated - Census Pending');
+  assert.equal(byCrn['40006'].ftesMaturityStatus, 'Census Data Incomplete');
+  assert.equal(byCrn['40006'].censusEnrollment, null);
+  assert.equal(byCrn['40007'].ftesMaturityStatus, 'Estimated - Actual Hours Pending');
+  assert.equal(byCrn['40008'].ftesMaturityStatus, 'Work Experience Estimated');
+  assert.match(byCrn['40008'].ftesMaturityReason, /Work Experience FTES is estimated/i);
+  assert.equal(byCrn['40009'].ftesMaturityStatus, 'Maturity Unknown');
+  assert.equal(byCrn['40001'].censusEnrollmentDate, '09/10/2026');
+  assert.equal(byCrn['40001'].partOfTerm, 'F1');
+  assert.equal(byCrn['40001'].startDate, '08/17/2026');
+  assert.equal(byCrn['40001'].endDate, '12/11/2026');
+  assert.equal(byCrn['40001'].activityDate, '09/01/2026');
+  assert.ok(summary.breakdowns.ftesMaturityStatus.some(row => row.name === 'Census Data Incomplete'));
+  assert.match(summary.context.censusDateSource, /CENSUS_ENRL_DATE/);
+  assert.match(summary.context.censusEnrollmentSource, /CENSUS_ENROLL/);
+  assert.equal(summary.maturity.focus.asOf.display, '2026-09-15');
+  const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
+  assert.ok(exportRows.some(row => row.Section === 'Detail' && row.CRN === '40001' && row['CENSUS_ENROLL'] === 40 && row['Part of Term'] === 'F1' && row.ACTIVITY_DATE === '09/01/2026'));
+});
+
+test('current enrollment and FTES date parsing keeps source census dates as date-only values', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    CRN: '41001',
+    Subject: 'GEOG',
+    Course: 'C1000',
+    ACTUAL_ENROLL: '12',
+    CENSUS_ENROLL: '12',
+    HOURS_PER_WEEK: '3',
+    ACCOUNTING_METHOD: 'W',
+    CENSUS_ENRL_DATE: '2026-09-01'
+  });
+
+  assert.equal(row.censusEnrollmentDateIso, '2026-09-01');
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary([row], { focusTerm: 'FALL 2026', effectiveAsOfDate: '2026-09-01' });
+  assert.equal(summary.rows[0].ftesMaturityStatus, 'Census Confirmed');
+  assert.equal(summary.rows[0].censusEnrollmentDate, '2026-09-01');
 });
 
 test('FTES reconciliation parses institutional Cube hierarchy and compares CRNs', () => {

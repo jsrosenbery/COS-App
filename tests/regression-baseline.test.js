@@ -97,7 +97,7 @@ test('regression baseline: backend schedule load and room availability rendering
 
   assert.match(app, /async function loadScheduleFromBackend\(term/);
   assert.match(app, /\/api\/schedule\/\$\{encodeURIComponent\(term\)\}/);
-  assert.match(app, /currentData = \(data \|\| \[\]\)\.map\(normalizeRow\)/);
+  assert.match(app, /currentData = \(data \|\| \[\]\)\.map\(row => normalizeRow\(\{ \.\.\.row, __uploadedAt: lastUpdated/);
   assert.match(app, /renderSchedule\(\)/);
   assert.match(app, /function handleAvailability\(/);
   assert.match(app, /document\.getElementById\('avail-check-btn'\)/);

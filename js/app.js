@@ -734,6 +734,12 @@ function getUniqueRooms(data) {
 
 function normalizeRow(r) {
   const canonicalSection = window.COSSectionModel?.normalizeSection?.(r);
+  const censusEnrollmentDate = extractField(r, ['censusEnrollmentDate', 'censusEnrollmentDateIso', 'CENSUS_ENRL_DATE', 'Census Enrl Date', 'Census Enrollment Date', 'Census Date', 'CENSUS DATE']);
+  const censusEnrollment2Date = extractField(r, ['censusEnrollment2Date', 'censusEnrollment2DateIso', 'CENSUS_ENRL2_DATE', 'Census Enrl 2 Date', 'Census Enrollment 2 Date', 'Census 2 Date', 'CENSUS 2 DATE']);
+  const snapshotDate = extractField(r, ['snapshotDate', 'snapshotDateIso', 'asOfDate', 'uploadDate', 'SnapshotDate', 'Snapshot Date', 'AS_OF_DATE', 'As Of Date', 'As-of Date', 'Report Date', 'REPORT_DATE', 'Data As Of', 'DATA_AS_OF', 'Extract Date', 'EXTRACT_DATE', 'Effective Date', 'Snapshot Effective Date']);
+  const partOfTerm = extractField(r, ['partOfTerm', 'Part of Term', 'PART OF TERM', 'PART_OF_TERM', 'POT', 'PTRM', 'PTRM CODE', 'PTRM_CODE']);
+  const activityDate = extractField(r, ['activityDate', 'Activity Date', 'ACTIVITY_DATE', 'ACTIVITY DATE']);
+  const sourceUploadedAt = r.sourceUploadedAt || r.__uploadedAt || r.uploadedAt || r.UploadedAt || r.loadedAt || r.importedAt || '';
   const dayColumnMap = [
     ['MONDAY', 'Monday'],
     ['TUESDAY', 'Tuesday'],
@@ -798,9 +804,21 @@ function normalizeRow(r) {
     Days: daysArr,
     Start_Time: start24,
     End_Time: end24,
-    Start_Date: extractField(r, ['Start_Date', 'Start Date', 'Start', 'Section Start Date']),
-    End_Date: extractField(r, ['End_Date', 'End Date', 'End', 'Section End Date']),
+    Start_Date: extractField(r, ['Start_Date', 'START_DATE', 'START DATE', 'Start Date', 'Start', 'Section Start Date']),
+    End_Date: extractField(r, ['End_Date', 'END_DATE', 'END DATE', 'End Date', 'End', 'Section End Date']),
     Meeting_Date: extractField(r, ['Meeting_Date', 'Meeting Date', 'Class Date', 'Meeting Day Date', 'Session Date', 'Date']),
+    censusEnrollmentDate,
+    censusEnrollmentDateIso: canonicalSection?.censusEnrollmentDateIso || censusEnrollmentDate,
+    censusEnrollment: canonicalSection?.censusEnrollment ?? canonicalSection?.census ?? extractField(r, ['censusEnrollment', 'census', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment']),
+    censusEnrollment2Date,
+    censusEnrollment2DateIso: canonicalSection?.censusEnrollment2DateIso || censusEnrollment2Date,
+    censusEnrollment2: canonicalSection?.censusEnrollment2 ?? canonicalSection?.census2 ?? extractField(r, ['censusEnrollment2', 'census2', 'CENSUS_ENROLL2', 'Census Enroll 2', 'Census Enrollment 2']),
+    snapshotDate,
+    snapshotDateIso: canonicalSection?.snapshotDateIso || snapshotDate,
+    partOfTerm: canonicalSection?.partOfTerm || partOfTerm,
+    activityDate: canonicalSection?.activityDate || activityDate,
+    sourceUploadedAt,
+    __uploadedAt: sourceUploadedAt,
     Instructor: extractField(r, ['Instructor', 'Faculty', 'Primary Instructor']),
     Campus: extractField(r, ['CAMPUS', 'Campus', 'campus', 'Campus Code']),
     canonicalSection
@@ -2468,9 +2486,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
           });
       const { data, lastUpdated } = payload || {};
       // PATCH: Normalize backend data fields to frontend expectations
-      currentData = (data || []).map(normalizeRow);
       if (lastUpdated) scheduleLastUpdatedByTerm[term] = lastUpdated;
       else delete scheduleLastUpdatedByTerm[term];
+      currentData = (data || []).map(row => normalizeRow({ ...row, __uploadedAt: lastUpdated || row.__uploadedAt || row.uploadedAt || row.UploadedAt || '' }));
       tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
       updateRoomAvailabilityFreshnessPanel();
       buildRoomDropdowns();
