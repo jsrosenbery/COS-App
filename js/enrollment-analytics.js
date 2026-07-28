@@ -40,6 +40,7 @@
     snapshotManager: 'enrollment-snapshot-manager',
     ftesReconciliation: 'ftes-reconciliation',
     archiveInspection: 'archive-inspection',
+    historicalInstitutionalModel: 'historical-institutional-model',
     dataHub: 'source-data-hub'
   };
   const ROLE_LEVEL = reportConfig.ROLE_LEVEL || {
@@ -64,6 +65,7 @@
     [REPORTS.snapshotManager]: 'admin',
     [REPORTS.ftesReconciliation]: 'admin',
     [REPORTS.workExperience]: 'admin',
+    [REPORTS.historicalInstitutionalModel]: 'admin',
     [REPORTS.dashboard]: 'dean',
     [REPORTS.duration]: 'divchair',
     [REPORTS.heatmap]: 'divchair',
@@ -127,6 +129,7 @@
     [REPORTS.emSnapshot]: 'Current Enrollment & FTES',
     [REPORTS.snapshotManager]: 'Current Enrollment & FTES',
     [REPORTS.ftesReconciliation]: 'FTES Reconciliation',
+    [REPORTS.historicalInstitutionalModel]: 'Historical Institutional Model',
     [REPORTS.heatmap]: 'Course Start-Time Heatmap',
     [REPORTS.instructorAvailability]: 'Instructor Availability',
     [REPORTS.modality]: 'Modality Balance',
@@ -173,6 +176,7 @@
     REPORTS.dataHub,
     REPORTS.snapshotManager,
     REPORTS.ftesReconciliation,
+    REPORTS.historicalInstitutionalModel,
     REPORTS.archiveInspection,
     REPORTS.workExperience
   ];
@@ -225,6 +229,7 @@
         REPORTS.dataHub,
         REPORTS.snapshotManager,
         REPORTS.ftesReconciliation,
+        REPORTS.historicalInstitutionalModel,
         REPORTS.archiveInspection,
         REPORTS.workExperience
       ]
@@ -252,6 +257,7 @@
     [REPORTS.emSnapshot]: 'Review current enrollment and FTES by campus, modality, population, and attendance method with optional prior-term comparison.',
     [REPORTS.snapshotManager]: 'Report current enrollment and FTES from loaded Section Seating data with like-term comparison.',
     [REPORTS.ftesReconciliation]: 'Compare TIMBER calculated FTES to an institutional Cube validation source by CRN, accounting method, and part of term.',
+    [REPORTS.historicalInstitutionalModel]: 'Import completed institutional FTES Cube results, audit historical yield models, and explain pending FTES estimates.',
     [REPORTS.heatmap]: 'Show when classes begin by day and scheduled start time, with enrollment and capacity views.',
     [REPORTS.instructorAvailability]: 'Check instructor teaching conflicts and shared availability windows.',
     [REPORTS.modality]: 'Compare class offerings and enrollment by in-person, hybrid, online, and Dual Enrollment.',
@@ -337,6 +343,7 @@
     supplyDemandResourceRows: [],
     supplyDemandRan: false,
     currentEnrollmentFtesPendingAnalysisExportRows: [],
+    currentEnrollmentHistoricalEstimateRows: [],
     demandFtesBridgeExportRows: [],
     demandFormulaAuditExportRows: [],
     demandPendingFtesAnalysisExportRows: [],
@@ -393,6 +400,12 @@
     ftesReconciliation: null,
     ftesReconciliationExportRows: [],
     ftesReconciliationRan: false,
+    historicalInstitutionalPreview: null,
+    historicalInstitutionalPayload: null,
+    historicalInstitutionalModel: null,
+    historicalInstitutionalEstimates: [],
+    historicalInstitutionalExplorerRows: [],
+    historicalInstitutionalRan: false,
     archiveInspectionRows: [],
     archiveInspectionTerm: '',
     attritionRows: [],
@@ -416,7 +429,8 @@
   const consolidation = window.COSConsolidationAnalytics;
   const dashboard = window.COSEnrollmentDashboard;
   const sectionModel = window.COSSectionModel;
-  if (!metrics || !filterUtils || !consolidation || !dashboard) {
+  const historicalInstitutional = window.COSHistoricalInstitutional;
+  if (!metrics || !filterUtils || !consolidation || !dashboard || !historicalInstitutional) {
     throw new Error('Enrollment analytics modules must load before js/enrollment-analytics.js');
   }
   const {
@@ -2237,6 +2251,7 @@
             </label>
             <label><input id="cefIncludeWorkExperience" type="checkbox" checked> Include Work Experience</label>
             <label><input id="cefIncludeDualEnrollment" type="checkbox" checked> Include Dual Enrollment</label>
+            <label><input id="cefShowHistoricalPendingEstimates" type="checkbox"> Show Historical Institutional projected totals</label>
             <button id="loadCurrentEnrollmentFtesTerms" type="button">Load Terms</button>
             <button id="runCurrentEnrollmentFtes" type="button">Run Selected Term FTES</button>
             <button id="clearCurrentEnrollmentFtes" type="button">Clear Selected Term FTES</button>
@@ -2368,6 +2383,42 @@
           <div id="ftesReconSummary" class="dashboard-grid"></div>
           <div id="ftesReconCrnTable" class="analytics-table"></div>
         </div>
+        <div id="historicalInstitutionalModelReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Historical Institutional Model</h2>
+            <p>Admin and Developer model explorer for completed institutional Cube results, historical FTES yield, backtesting, data coverage, and pending FTES estimate explanations. Historical estimates remain separate from production FTES calculations.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>Model Scope</h3>
+                <ul>
+                  <li>Training data must be Historical Institutional Results records marked FINAL_INSTITUTIONAL_ACTUAL.</li>
+                  <li>Default yield is enrollment-weighted: total final institutional FTES divided by total census enrollment.</li>
+                  <li>Same-season and attendance-method comparable history is preferred before broader fallback levels.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Auditability</h3>
+                <ul>
+                  <li>Each estimate includes selected basis, rejected fallback levels, comparable terms, yield, range, confidence, and backtesting error.</li>
+                  <li>Projected totals are only displayed when explicitly enabled in Current Enrollment & FTES.</li>
+                  <li>The source workbook is parsed during import preview/commit only; report rendering uses normalized stored records.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <button id="refreshHistoricalInstitutionalModel" type="button">Refresh Model</button>
+            <button id="exportHistoricalInstitutionalRecords" type="button">Export Historical Records</button>
+            <button id="exportHistoricalInstitutionalYieldModel" type="button">Export Yield Model</button>
+            <button id="exportHistoricalInstitutionalBacktests" type="button">Export Backtesting</button>
+            <button id="exportHistoricalInstitutionalEstimates" type="button">Export Pending Estimates</button>
+          </div>
+          <div id="historicalInstitutionalMetrics" class="analytics-metrics"></div>
+          <div id="historicalInstitutionalHealth" class="dashboard-grid"></div>
+          <div id="historicalInstitutionalExplorer" class="analytics-table"></div>
+          <div id="historicalInstitutionalBacktests" class="analytics-table"></div>
+          <div id="historicalInstitutionalEstimates" class="analytics-table"></div>
+        </div>
         <div id="sourceDataHubReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Source Data Hub</h2>
@@ -2424,6 +2475,17 @@
                 <button id="dataHubRefreshWorkExperienceArchives" type="button">Refresh Work Experience Archives</button>
               </div>
               <p id="dataHubWorkExperienceStatus" class="analytics-note">Saved Work Experience archives not refreshed yet.</p>
+            </section>
+            <section class="source-data-card" data-source-type="historical-institutional-results">
+              <h3>Historical Institutional Results</h3>
+              <p>Import completed institutional Cube results used to build TIMBER's historical FTES forecasting model.</p>
+              <div class="analytics-toolbar">
+                <label>Institutional Cube Workbook <input id="dataHubHistoricalInstitutionalFile" type="file" accept=".csv,.xlsx,.xls"></label>
+                <button id="dataHubPreviewHistoricalInstitutional" type="button">Preview Historical Results</button>
+                <button id="dataHubCommitHistoricalInstitutional" type="button">Commit Historical Results</button>
+              </div>
+              <p id="dataHubHistoricalInstitutionalStatus" class="analytics-note">No Historical Institutional Results import has been previewed.</p>
+              <div id="dataHubHistoricalInstitutionalPreview" class="analytics-table"></div>
             </section>
             <section class="source-data-card" data-source-type="snapshots">
               <h3>Enrollment Snapshots</h3>
@@ -9268,6 +9330,9 @@
     const savedWorkTerms = workExperienceArchiveTermLabels();
     const workRows = workExperienceRows();
     const snapshotRows = state.enrollmentSnapshots || [];
+    const historicalPayload = historicalInstitutionalPayload();
+    const historicalRecords = historicalPayload.records || [];
+    const historicalTerms = [...new Set(historicalRecords.map(row => row.termCode).filter(Boolean))].sort();
     const sectionStatus = document.getElementById('dataHubSectionStatus');
     if (sectionStatus) sectionStatus.textContent = window.BACKEND_BASE_URL
       ? `${archiveTerms.length} Section Seating / Schedule archive term(s) listed${archiveTerms.length ? `: ${archiveTerms.map(item => item.term || item).filter(Boolean).slice(0, 8).join(', ')}${archiveTerms.length > 8 ? ', ...' : ''}` : '.'}`
@@ -9289,6 +9354,12 @@
     }
     const snapshotStatus = document.getElementById('dataHubSnapshotStatus');
     if (snapshotStatus) snapshotStatus.textContent = `${snapshotRows.length} stored enrollment snapshot record(s) loaded in this browser session.`;
+    const historicalStatus = document.getElementById('dataHubHistoricalInstitutionalStatus');
+    if (historicalStatus && !state.historicalInstitutionalPreview) {
+      historicalStatus.textContent = historicalRecords.length
+        ? `${formatWholeNumber(historicalRecords.length)} Historical Institutional Results record(s) stored; terms: ${historicalTerms.slice(0, 8).join(', ')}${historicalTerms.length > 8 ? ', ...' : ''}.`
+        : 'No Historical Institutional Results records stored yet.';
+    }
     const summary = document.getElementById('sourceDataHubStatus');
     if (summary) {
       summary.innerHTML = `
@@ -9296,6 +9367,7 @@
           <span><strong>Section Seating / Schedule Data</strong>${archiveTerms.length} backend term(s)</span>
           <span><strong>Faculty Schedule Data</strong>${facultyTerms.length} backend term(s)</span>
           <span><strong>Work Experience</strong>${savedWorkTerms.length} backend term(s), ${workRows.length} session row(s)</span>
+          <span><strong>Historical Institutional Results</strong>${historicalTerms.length} term(s), ${formatWholeNumber(historicalRecords.length)} record(s)</span>
           <span><strong>Enrollment Snapshots</strong>${snapshotRows.length} stored record(s)</span>
         </div>
         ${message ? `<p class="analytics-note">${escapeAttr(message)}</p>` : '<p class="analytics-note">Data source storage remains separated by dataset type. Reports consume these sources through their existing selectors and filters.</p>'}
@@ -11161,6 +11233,12 @@
       includeDualEnrollment: document.getElementById('cefIncludeDualEnrollment')?.checked !== false,
       pendingFtesDiagnosticArchiveLoad: diagnosticHistory
     });
+    if (document.getElementById('cefShowHistoricalPendingEstimates')?.checked) {
+      const focusRows = rows.filter(row => normalizeTermLabel(row.term) === focusTerm && pendingFtesPopulation(row));
+      state.currentEnrollmentHistoricalEstimateRows = historicalInstitutionalEstimateRows(focusRows);
+    } else {
+      state.currentEnrollmentHistoricalEstimateRows = [];
+    }
     renderCurrentEnrollmentFtesSummary();
   }
 
@@ -11168,6 +11246,7 @@
     state.currentEnrollmentFtesRows = [];
     state.currentEnrollmentFtesSummary = null;
     state.currentEnrollmentFtesPendingAnalysisExportRows = [];
+    state.currentEnrollmentHistoricalEstimateRows = [];
     state.workExperienceInput = [];
     state.workExperienceTermCache = {};
     state.workExperienceTermLoading = {};
@@ -11208,7 +11287,10 @@
 
   function renderCurrentEnrollmentFtesSummary() {
     const summary = state.currentEnrollmentFtesSummary || buildCurrentEnrollmentFtesSummary([], {});
-    metric('snapshotMetrics', [
+    const historicalEstimates = state.currentEnrollmentHistoricalEstimateRows || [];
+    const historicalEstimatedPendingFtes = historicalEstimates.reduce((sum, row) => sum + Number(row.estimatedFtes || 0), 0);
+    const historicalProjectionEnabled = Boolean(document.getElementById('cefShowHistoricalPendingEstimates')?.checked);
+    const metricRows = [
       ['Focus Term', summary.focusTerm || 'Select term'],
       ['Comparison Term', summary.comparisonTerm || 'None'],
       ['Selected Term Class Offerings', formatWholeNumber(summary.focus.classOfferings), 'scheduled-class-offerings'],
@@ -11216,6 +11298,10 @@
       ['Calculated / Confirmed FTES', round1(summary.maturity.focus.confirmedFinalFtes), 'ftes'],
       ['Estimated FTES', round1(summary.maturity.focus.estimatedFtes), 'ftes'],
       ['Projected Total FTES', round1(summary.maturity.focus.projectedFtes), 'ftes'],
+      ...(historicalProjectionEnabled ? [
+        ['Estimated Pending FTES (Historical Institutional)', round1(historicalEstimatedPendingFtes), 'ftes'],
+        ['Projected Total FTES (Opt-In Historical)', round1(summary.maturity.focus.confirmedFinalFtes + historicalEstimatedPendingFtes), 'ftes']
+      ] : []),
       ['Maturity Unknown FTES', round1(summary.maturity.focus.maturityUnknownFtes), 'ftes'],
       ['FTES Maturity', summary.maturity.focus.maturityPercent == null ? 'Unavailable' : formatPercent(summary.maturity.focus.maturityPercent), 'ftes'],
       ['As Of', summary.maturity.focus.asOf.display || 'Unavailable'],
@@ -11224,7 +11310,8 @@
       ['Comparison Term FTES', summary.comparisonTerm ? (summary.comparison.unavailableFtesRows ? `${round1(summary.comparison.ftes)}*` : round1(summary.comparison.ftes)) : 'N/A', 'ftes'],
       ['FTES Difference', summary.comparisonTerm ? `${summary.variances.ftes >= 0 ? '+' : ''}${round1(summary.variances.ftes)} (${pct(summary.variances.ftesPct)})` : 'N/A'],
       ['FTES Unavailable Rows', formatWholeNumber(summary.focus.unavailableFtesRows)]
-    ]);
+    ];
+    metric('snapshotMetrics', metricRows);
     const warningNode = document.getElementById('snapshotWarnings');
     if (warningNode) {
       warningNode.innerHTML = (summary.warnings || []).map(warning => `<p>${escapeAttr(warning)}</p>`).join('');
@@ -11243,6 +11330,7 @@
         { metric: 'FTES Maturity Definition', value: summary.context.ftesMaturityDefinition },
         { metric: 'Work Experience Included', value: summary.context.includeWorkExperience ? `Yes (${summary.context.selectedWorkExperienceRows} selected / ${summary.context.comparisonWorkExperienceRows} comparison rows)` : 'No' },
         { metric: 'Dual Enrollment Included', value: summary.context.includeDualEnrollment ? `Yes (${summary.context.selectedDualEnrollmentRows} selected / ${summary.context.comparisonDualEnrollmentRows} comparison rows)` : 'No' },
+        { metric: 'Historical Institutional Estimates', value: historicalProjectionEnabled ? `Displayed separately (${historicalEstimates.length} pending row(s)); production FTES totals unchanged.` : 'Off. Existing production totals preserved.' },
         { metric: 'Rows Loaded', value: `${formatWholeNumber(summary.context.selectedRowsLoaded)} selected / ${formatWholeNumber(summary.context.comparisonRowsLoaded)} comparison` },
         { metric: 'FTES Reconciliation', value: summary.reconciliation.focus.matches ? 'Selected-term component totals reconcile to total FTES.' : `Selected-term component totals differ by ${round1(summary.reconciliation.focus.difference)} FTES.` },
         { metric: 'Projected FTES Reconciliation', value: summary.reconciliation.projectedFtes.matches ? 'Projected FTES reconciles to valid selected-term FTES.' : `Projected FTES differs from valid selected-term FTES by ${summary.reconciliation.projectedFtes.difference} FTES.` }
@@ -11253,7 +11341,11 @@
     if (breakdowns) {
       const pendingFtesAnalysis = canSeeHistoricalPendingFtesAnalysis() ? (summary.pendingFtesAnalysis || buildHistoricalPendingFtesAnalysis([], { targetTerm: summary.focusTerm || 'FALL 2026' })) : null;
       state.currentEnrollmentFtesPendingAnalysisExportRows = pendingFtesAnalysis ? historicalPendingFtesAnalysisExportRows(pendingFtesAnalysis) : [];
+      const historicalEstimatePanel = historicalProjectionEnabled
+        ? dashboardPanel('Historical Institutional Pending FTES Estimates', `<p class="analytics-chart-note">Opt-in diagnostic projection only. Calculated / Established FTES is unchanged; this table estimates pending FTES from completed institutional Cube outcomes.</p>${miniTable(historicalEstimates, ['termCode', 'crn', 'subject', 'courseNumber', 'attendanceMethod', 'currentEnrollment', 'historicalBasisLevel', 'historicalTermsUsed', 'estimatedFtes', 'lowerEstimate', 'upperEstimate', 'confidence', 'explanation', 'reason'], 'ftes')}`)
+        : '';
       breakdowns.innerHTML = [
+        historicalEstimatePanel,
         historicalPendingFtesAnalysisPanel(pendingFtesAnalysis),
         dashboardPanel('Focus vs Comparison Totals', miniTable(summary.comparisonRows, ['line', 'term', 'classOfferings', 'enrollment', 'ftes', 'seats'], 'ftes')),
         dashboardPanel('Selected vs Comparison Metrics', miniTable(summary.metricComparisonRows, ['metric', 'selectedTerm', 'comparisonTerm', 'change', 'changePct'], 'ftes')),
@@ -11510,6 +11602,209 @@
     const parsed = institutionalCubeObjectsFromTable(table, { sheetName: 'CSV', filename: file.name });
     parsed.diagnostics = { ...parsed.diagnostics, sourceFileName: file.name, sourceType: 'CSV' };
     return parsed;
+  }
+
+  function historicalInstitutionalRepository() {
+    return historicalInstitutional.createRepository(window.localStorage);
+  }
+
+  function historicalInstitutionalPayload() {
+    if (!state.historicalInstitutionalPayload) {
+      state.historicalInstitutionalPayload = historicalInstitutionalRepository().load();
+    }
+    return state.historicalInstitutionalPayload;
+  }
+
+  function historicalInstitutionalRecords() {
+    return historicalInstitutionalPayload().records || [];
+  }
+
+  function historicalInstitutionalModel() {
+    const records = historicalInstitutionalRecords();
+    if (!state.historicalInstitutionalModel || state.historicalInstitutionalModel.records !== records.length) {
+      state.historicalInstitutionalModel = historicalInstitutional.buildYieldModel(records);
+    }
+    return state.historicalInstitutionalModel;
+  }
+
+  async function parseHistoricalInstitutionalResultsInput(input) {
+    const file = input?.files?.[0];
+    if (!file) return { valid: false, records: [], diagnostics: { errors: ['No Historical Institutional Results workbook selected.'] } };
+    const extension = String(file.name || '').split('.').pop().toLowerCase();
+    if (['xlsx', 'xls'].includes(extension)) {
+      if (!window.XLSX?.read) throw new Error('Excel parsing library is unavailable. Confirm xlsx.full.min.js is loaded.');
+      const workbook = window.XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+      let best = null;
+      (workbook.SheetNames || []).forEach(sheetName => {
+        const worksheet = workbook.Sheets[sheetName];
+        const table = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: true });
+        const preview = historicalInstitutional.inspectWorkbookTable(table, { filename: file.name, worksheet: sheetName });
+        const score = (preview.valid ? 100000 : 0) + (preview.records?.length || 0) + (preview.diagnostics?.detectedTerms?.length || 0) * 100;
+        if (!best || score > best.score) best = { ...preview, score };
+      });
+      return best || { valid: false, records: [], diagnostics: { errors: ['Workbook contained no worksheets.'] } };
+    }
+    const table = await parseCsvTable(await readTextFile(file));
+    return historicalInstitutional.inspectWorkbookTable(table, { filename: file.name, worksheet: 'CSV' });
+  }
+
+  function renderHistoricalInstitutionalImportPreview(preview = state.historicalInstitutionalPreview) {
+    const node = document.getElementById('dataHubHistoricalInstitutionalPreview');
+    const status = document.getElementById('dataHubHistoricalInstitutionalStatus');
+    if (!preview) {
+      if (status) status.textContent = 'No Historical Institutional Results import has been previewed.';
+      if (node) node.innerHTML = '';
+      return;
+    }
+    const diagnostics = preview.diagnostics || {};
+    const errors = diagnostics.errors || [];
+    if (status) status.textContent = preview.valid
+      ? `Preview ready: ${formatWholeNumber(preview.records?.length || 0)} normalized historical record(s), terms ${diagnostics.detectedTerms?.join(', ') || 'none'}.`
+      : `Preview blocked: ${errors.join(' ') || 'Historical Institutional Results import has validation errors.'}`;
+    if (node) {
+      const summaryRows = [
+        { metric: 'Filename', value: diagnostics.filename || '' },
+        { metric: 'Worksheet', value: diagnostics.worksheet || '' },
+        { metric: 'Terms Detected', value: (diagnostics.detectedTerms || []).join(', ') || 'None' },
+        { metric: 'Raw Rows', value: formatWholeNumber(diagnostics.rawRows || 0) },
+        { metric: 'Normalized Records', value: formatWholeNumber(diagnostics.normalizedRecords || 0) },
+        { metric: 'Unique CRNs', value: formatWholeNumber(diagnostics.uniqueCrns?.length || 0) },
+        { metric: 'Subjects', value: formatWholeNumber(diagnostics.subjects?.length || 0) },
+        { metric: 'Courses', value: formatWholeNumber(diagnostics.courses?.length || 0) },
+        { metric: 'Attendance Methods', value: (diagnostics.attendanceMethods || []).join(', ') || 'None' },
+        { metric: 'Excluded Rows', value: formatWholeNumber(diagnostics.excludedRows || 0) },
+        { metric: 'Ambiguous Rows', value: formatWholeNumber(diagnostics.ambiguousRows || 0) },
+        { metric: 'Zero-FTES Rows', value: formatWholeNumber(diagnostics.zeroFtesRows || 0) },
+        { metric: 'Missing Enrollment Rows', value: formatWholeNumber(diagnostics.missingEnrollmentRows || 0) },
+        { metric: 'Missing CRN Rows', value: formatWholeNumber(diagnostics.missingCrnRows || 0) },
+        { metric: 'Import Errors', value: errors.join('; ') || 'None' }
+      ];
+      node.innerHTML = `
+        ${analyticsTableMarkup(summaryRows, ['metric', 'value'])}
+        <h3>Institutional Totals by Term</h3>
+        ${analyticsTableMarkup(diagnostics.totalsByTerm || [], ['termCode', 'records', 'censusEnrollment', 'finalInstitutionalFtes'])}
+      `;
+    }
+  }
+
+  async function previewHistoricalInstitutionalImport() {
+    state.historicalInstitutionalPreview = await parseHistoricalInstitutionalResultsInput(document.getElementById('dataHubHistoricalInstitutionalFile'));
+    renderHistoricalInstitutionalImportPreview();
+    renderSourceDataHubStatus(state.historicalInstitutionalPreview.valid
+      ? 'Historical Institutional Results preview is ready. Review totals before committing.'
+      : 'Historical Institutional Results preview has blocking validation errors.');
+  }
+
+  function commitHistoricalInstitutionalImport() {
+    const preview = state.historicalInstitutionalPreview;
+    if (!preview) throw new Error('Preview Historical Institutional Results before committing.');
+    if (!preview.valid) throw new Error('Historical Institutional Results import has blocking validation errors.');
+    const repo = historicalInstitutionalRepository();
+    const differences = repo.previewDifferences(preview.records || []);
+    const payload = repo.commitImport(preview, { mode: 'replace-selected-terms' });
+    state.historicalInstitutionalPayload = payload;
+    state.historicalInstitutionalModel = null;
+    renderHistoricalInstitutionalImportPreview(preview);
+    renderSourceDataHubStatus(`Committed Historical Institutional Results: ${formatWholeNumber(preview.records.length)} record(s). Added ${differences.addedRecords}; replaced ${differences.removedRecords}.`);
+    renderHistoricalInstitutionalModel();
+  }
+
+  function historicalInstitutionalCurrentPendingRows() {
+    const focusTerm = normalizeTermLabel(document.getElementById('cefFocusTerm')?.value || currentTerm());
+    return (state.currentEnrollmentFtesRows || currentRows() || [])
+      .filter(row => !focusTerm || normalizeTermLabel(row.term) === focusTerm)
+      .filter(row => pendingFtesPopulation(row));
+  }
+
+  function historicalInstitutionalEstimateRows(rows = historicalInstitutionalCurrentPendingRows()) {
+    const model = historicalInstitutionalModel();
+    state.historicalInstitutionalEstimates = historicalInstitutional.estimatePendingRows(rows, historicalInstitutionalRecords())
+      .map(row => ({
+        ...row,
+        projectedLabel: row.estimated ? 'DIAGNOSTIC HISTORICAL ESTIMATE - NOT ESTABLISHED FTES' : 'INSUFFICIENT DATA'
+      }));
+    return state.historicalInstitutionalEstimates;
+  }
+
+  function historicalInstitutionalSummaryRows(records = historicalInstitutionalRecords(), model = historicalInstitutionalModel()) {
+    const terms = [...new Set(records.map(row => row.termCode).filter(Boolean))].sort();
+    const subjects = new Set(records.map(row => row.subject).filter(Boolean));
+    const courses = new Set(records.map(row => row.courseKey).filter(Boolean));
+    const divisions = new Set(records.map(row => row.division).filter(Boolean));
+    const attendance = new Set(records.map(row => row.attendanceMethod).filter(Boolean));
+    const batches = historicalInstitutionalPayload().batches || [];
+    return [
+      ['Imported Workbooks', formatWholeNumber(batches.length)],
+      ['Import Batches', formatWholeNumber(batches.length)],
+      ['Historical Terms', formatWholeNumber(terms.length)],
+      ['Years Represented', formatWholeNumber(new Set(terms.map(term => String(term).slice(0, 4))).size)],
+      ['Historical Records', formatWholeNumber(records.length)],
+      ['Unique CRNs', formatWholeNumber(new Set(records.map(row => row.crn).filter(Boolean)).size)],
+      ['Census Enrollment', formatWholeNumber(records.reduce((sum, row) => sum + Number(row.censusEnrollment || 0), 0))],
+      ['Final Institutional FTES', round1(records.reduce((sum, row) => sum + Number(row.finalInstitutionalFtes || 0), 0))],
+      ['Subjects', formatWholeNumber(subjects.size)],
+      ['Courses', formatWholeNumber(courses.size)],
+      ['Divisions', formatWholeNumber(divisions.size)],
+      ['Attendance Methods', [...attendance].join(', ') || 'None'],
+      ['Earliest Term', terms[0] || 'None'],
+      ['Latest Term', terms[terms.length - 1] || 'None'],
+      ['Last Import Date', batches[batches.length - 1]?.importedAt || 'None'],
+      ['Model Coverage', `${formatWholeNumber(model.groups?.length || 0)} yield group(s)`],
+      ['Model Health', records.length ? 'Historical model available' : 'No imported historical results']
+    ];
+  }
+
+  function historicalInstitutionalModelHealthCards(health = {}) {
+    const basis = Object.entries(health.byBasis || {}).map(([key, value]) => `${key}: ${value}`).join('; ') || 'No current pending estimates';
+    const confidence = Object.entries(health.byConfidence || {}).map(([key, value]) => `${key}: ${value}`).join('; ') || 'No current pending estimates';
+    return [
+      { metric: 'Estimate Basis Mix', value: basis },
+      { metric: 'Confidence Mix', value: confidence },
+      { metric: 'Weighted Backtesting Error', value: health.weightedBacktestingError == null ? 'Unavailable' : pct(health.weightedBacktestingError) },
+      { metric: 'Model Bias', value: health.modelBias == null ? 'Unavailable' : pct(health.modelBias) },
+      { metric: 'Historical Data Freshness', value: health.historicalDataFreshness || 'No historical data' },
+      { metric: 'Weak Coverage', value: health.weakCoverage?.join('; ') || 'None detected' }
+    ];
+  }
+
+  function renderHistoricalInstitutionalModel() {
+    const records = historicalInstitutionalRecords();
+    const model = historicalInstitutionalModel();
+    const estimates = historicalInstitutionalEstimateRows();
+    const health = historicalInstitutional.modelHealth(estimates, model);
+    state.historicalInstitutionalExplorerRows = historicalInstitutional.exportYieldModel(model);
+    state.historicalInstitutionalRan = true;
+    metric('historicalInstitutionalMetrics', historicalInstitutionalSummaryRows(records, model));
+    const healthNode = document.getElementById('historicalInstitutionalHealth');
+    if (healthNode) {
+      healthNode.innerHTML = `
+        <section class="dashboard-panel">
+          <h3>Model Health</h3>
+          ${analyticsTableMarkup(historicalInstitutionalModelHealthCards(health), ['metric', 'value'])}
+        </section>
+      `;
+    }
+    const explorer = document.getElementById('historicalInstitutionalExplorer');
+    if (explorer) {
+      explorer.innerHTML = `
+        <h3>Historical Yield Explorer</h3>
+        ${analyticsTableMarkup(state.historicalInstitutionalExplorerRows, ['modelLevel', 'groupKey', 'terms', 'observations', 'enrollment', 'ftes', 'weightedYield', 'variation', 'backtestingPerformance', 'confidence'])}
+      `;
+    }
+    const backtests = document.getElementById('historicalInstitutionalBacktests');
+    if (backtests) {
+      backtests.innerHTML = `
+        <h3>Backtesting Explorer</h3>
+        ${analyticsTableMarkup(model.backtests || [], ['testTerm', 'modelLevel', 'groupKey', 'predictedFtes', 'actualFtes', 'absoluteError', 'percentError', 'bias', 'supportingTerms'])}
+      `;
+    }
+    const estimateNode = document.getElementById('historicalInstitutionalEstimates');
+    if (estimateNode) {
+      estimateNode.innerHTML = `
+        <h3>Forecast Basis Explorer</h3>
+        ${analyticsTableMarkup(estimates, ['termCode', 'crn', 'subject', 'courseNumber', 'attendanceMethod', 'currentEnrollment', 'historicalBasisLevel', 'historicalTermsUsed', 'weightedHistoricalYield', 'estimatedFtes', 'lowerEstimate', 'upperEstimate', 'confidence', 'backtestingError', 'selectedReason', 'reason'])}
+      `;
+    }
   }
 
   function isCubeSubtotalRow(row) {
@@ -21812,6 +22107,7 @@
     setReportDisplay(REPORTS.roomFit, 'roomFitReport');
     setReportDisplay(REPORTS.snapshotManager, 'snapshotManagerReport');
     setReportDisplay(REPORTS.ftesReconciliation, 'ftesReconciliationReport');
+    setReportDisplay(REPORTS.historicalInstitutionalModel, 'historicalInstitutionalModelReport');
     setReportDisplay(REPORTS.studentPresence, 'studentPresenceReport');
     setReportDisplay(REPORTS.instructorAvailability, 'instructorAvailabilityReport');
     setReportDisplay(REPORTS.facultyModality, 'facultyModalityReport');
@@ -21885,6 +22181,9 @@
       document.getElementById('ftesReconWarnings').innerHTML = '<p>Upload an Institutional FTES Validation Source CSV, then run the reconciliation. This validation source is not operational enrollment data.</p>';
       document.getElementById('ftesReconSummary').innerHTML = '<p class="analytics-empty">No FTES reconciliation has been run.</p>';
       document.getElementById('ftesReconCrnTable').innerHTML = '<p class="analytics-empty">No CRN-level reconciliation rows yet.</p>';
+    }
+    if (selected === REPORTS.historicalInstitutionalModel && !state.historicalInstitutionalRan) {
+      renderHistoricalInstitutionalModel();
     }
     if (selected === REPORTS.dataHub) {
       Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), refreshWorkExperienceArchives(), loadEnrollmentSnapshots()])
@@ -22372,6 +22671,8 @@
     });
     attachBusyClick('dataHubSaveWorkExperience', 'Saving Work Experience archive...', () => saveWorkExperienceArchive('dataHubWorkExperienceCsv'), { key: 'dataHubSaveWorkExperience', runningLabel: 'Saving...' });
     attachBusyClick('dataHubRefreshWorkExperienceArchives', 'Refreshing Work Experience archives...', () => refreshWorkExperienceArchives(), { key: 'dataHubRefreshWorkExperienceArchives', runningLabel: 'Refreshing...' });
+    attachBusyClick('dataHubPreviewHistoricalInstitutional', 'Previewing Historical Institutional Results...', () => previewHistoricalInstitutionalImport(), { key: 'dataHubPreviewHistoricalInstitutional', runningLabel: 'Previewing...' });
+    attachBusyClick('dataHubCommitHistoricalInstitutional', 'Committing Historical Institutional Results...', () => commitHistoricalInstitutionalImport(), { key: 'dataHubCommitHistoricalInstitutional', runningLabel: 'Committing...' });
     attachBusyClick('dataHubSaveSnapshotBatch', 'Saving enrollment snapshot...', () => saveDataHubSnapshotBatch(), { key: 'dataHubSaveSnapshotBatch', runningLabel: 'Saving...' });
     document.getElementById('dashFocusTerm')?.addEventListener('change', () => {
       const value = document.getElementById('dashFocusTerm')?.value || '';
@@ -22502,13 +22803,18 @@
     document.getElementById('exportCurrentEnrollmentFtes')?.addEventListener('click', exportCurrentEnrollmentFtes);
     attachBusyClick('runFtesReconciliation', 'Reconciling TIMBER FTES to institutional validation source...', () => runFtesReconciliation(), { key: 'runFtesReconciliation', runningLabel: 'Reconciling...' });
     document.getElementById('exportFtesReconciliation')?.addEventListener('click', exportFtesReconciliation);
+    document.getElementById('refreshHistoricalInstitutionalModel')?.addEventListener('click', renderHistoricalInstitutionalModel);
+    document.getElementById('exportHistoricalInstitutionalRecords')?.addEventListener('click', () => exportRowsWithoutMethodology(historicalInstitutional.exportHistoricalRecords(historicalInstitutionalRecords()), 'historical-institutional-records.csv'));
+    document.getElementById('exportHistoricalInstitutionalYieldModel')?.addEventListener('click', () => exportRowsWithoutMethodology(historicalInstitutional.exportYieldModel(historicalInstitutionalModel()), 'historical-institutional-yield-model.csv'));
+    document.getElementById('exportHistoricalInstitutionalBacktests')?.addEventListener('click', () => exportRowsWithoutMethodology(historicalInstitutionalModel().backtests || [], 'historical-institutional-backtests.csv'));
+    document.getElementById('exportHistoricalInstitutionalEstimates')?.addEventListener('click', () => exportRowsWithoutMethodology(state.historicalInstitutionalEstimates || [], 'historical-institutional-pending-estimates.csv'));
     document.getElementById('cefArchiveTerms')?.addEventListener('change', () => loadCurrentEnrollmentFtesRows().then(() => renderCurrentEnrollmentFtesSummary()).catch(err => console.warn(err)));
     document.getElementById('cefFocusTerm')?.addEventListener('change', () => {
       syncCurrentEnrollmentFtesComparisonToPriorYear();
       state.currentEnrollmentFtesSummary = null;
       runCurrentEnrollmentFtes().catch(err => console.warn(err));
     });
-    ['cefCompareTerm', 'cefIncludeWorkExperience', 'cefIncludeDualEnrollment'].forEach(id => {
+    ['cefCompareTerm', 'cefIncludeWorkExperience', 'cefIncludeDualEnrollment', 'cefShowHistoricalPendingEstimates'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {
         state.currentEnrollmentFtesSummary = null;
         runCurrentEnrollmentFtes().catch(err => console.warn(err));
@@ -22923,6 +23229,11 @@
     buildFtesFormulaDiagnostics,
     buildFtesReconciliation,
     ftesReconciliationExportRows,
+    parseHistoricalInstitutionalResultsInput,
+    historicalInstitutionalRecords,
+    historicalInstitutionalModel,
+    historicalInstitutionalEstimateRows,
+    renderHistoricalInstitutionalModel,
     buildSnapshotRecords,
     upsertSnapshotRecords,
     mergeSnapshotsIntoRows,

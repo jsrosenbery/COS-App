@@ -60,7 +60,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.document = context.document;
   context.window.sessionStorage = sessionStorage;
   vm.createContext(context);
-  [...CONFIG_SCRIPTS, ...UTILITY_SCRIPTS, 'js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
+  [...CONFIG_SCRIPTS, ...UTILITY_SCRIPTS, 'js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment/historical-institutional.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -2584,6 +2584,112 @@ test('historical pending FTES analysis separates P E POT E work experience and e
   assert.equal(JSON.stringify(populations), JSON.stringify(['E', 'P', 'Work Experience']));
   assert.equal(history.some(row => row.crn === 'POTE25'), false);
   assert.equal(history.some(row => row.crn === 'STD25'), false);
+});
+
+test('historical institutional results import detects dynamic term columns and normalizes wide cube rows', () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const table = [
+    ['Report title'],
+    ['Campus', 'Division', 'Subject', 'Course Number', 'CRN', 'Attendance Accounting Method', 'Part of Term', 'Census Enrollment', 'Student Contact Hrs', '202410', '202510', '202610'],
+    ['COS', 'Public Safety', 'FIRE', '100', '12345', 'Positive Attendance', '1', '20', '400', '3.5', '3.75', '4.00'],
+    ['COS', 'Public Safety', 'FIRE', '101', '12346', 'Open Entry/Open Exit Positive Attendance', '1', '10', '180', '1.5', '1.75', '2.00'],
+    ['', '', '', '', '', '', '', '', '', '', '', ''],
+    ['COS', 'Business', 'WKEX', '020', '22345', 'Work Experience', '1', '5', '90', '0', '0.5', '0.6']
+  ];
+
+  const preview = historical.inspectWorkbookTable(table, { filename: 'cube.xlsx', importedAt: '2026-07-28T00:00:00.000Z', importBatchId: 'TEST' });
+
+  assert.equal(preview.valid, true);
+  assert.deepEqual(preview.diagnostics.detectedTerms, ['202410', '202510', '202610']);
+  assert.equal(preview.records.length, 9);
+  assert.equal(preview.records.every(row => row.sourceQuality === 'FINAL_INSTITUTIONAL_ACTUAL'), true);
+  assert.equal(preview.records.some(row => row.validationStatus === 'REVIEW_ZERO_FTES'), true);
+  assert.equal(preview.diagnostics.totalsByTerm.find(row => row.termCode === '202610').finalInstitutionalFtes, 6.6);
+});
+
+test('historical institutional results handles child inheritance and avoids parent child double counting', () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const table = [
+    ['Campus', 'Division', 'Subject', 'Course', 'CRN', 'Accounting Method', 'Part of Term', 'Enrollment', 'Student Contact Hours', '202510'],
+    ['COS', 'Public Safety', 'FIRE', '100', '12345', 'P', '1', '20', '400', '10'],
+    ['', '', '', '', '', '', '', '12', '240', '3'],
+    ['', '', '', '', '', '', '', '8', '160', '2']
+  ];
+
+  const preview = historical.inspectWorkbookTable(table, { filename: 'cube.xlsx', importedAt: '2026-07-28T00:00:00.000Z', importBatchId: 'TEST' });
+
+  assert.equal(preview.valid, true);
+  assert.equal(preview.records.length, 2);
+  assert.equal(preview.records.reduce((sum, row) => sum + row.finalInstitutionalFtes, 0), 5);
+  assert.equal(preview.diagnostics.parentRows, 1);
+  assert.equal(preview.diagnostics.inheritedCrnRows, 2);
+  assert.equal(preview.records.every(row => row.crn === '12345'), true);
+});
+
+test('historical institutional yield model uses weighted final institutional actuals and subject fallback', () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const table = [
+    ['Campus', 'Division', 'Subject', 'Course', 'CRN', 'Accounting Method', 'Part of Term', 'Enrollment', 'Student Contact Hrs', '202310', '202410', '202510'],
+    ['COS', 'Public Safety', 'FIRE', '100', '10001', 'P', '1', '20', '400', '2', '2.2', '2.4'],
+    ['COS', 'Public Safety', 'FIRE', '101', '10002', 'P', '1', '30', '600', '3', '3.3', '3.6'],
+    ['COS', 'Public Safety', 'FIRE', '102', '10003', 'P', '1', '40', '800', '4', '4.4', '4.8']
+  ];
+  const preview = historical.inspectWorkbookTable(table, { filename: 'cube.xlsx', importedAt: '2026-07-28T00:00:00.000Z', importBatchId: 'TEST' });
+  const model = historical.buildYieldModel(preview.records);
+  const estimate = historical.estimatePendingSection({
+    term: 'FALL 2026',
+    crn: '99999',
+    subject: 'FIRE',
+    course: '999',
+    accountingMethod: 'P',
+    census: 23
+  }, model);
+
+  assert.equal(estimate.estimated, true);
+  assert.equal(estimate.historicalBasisLevel, 'subject');
+  assert.match(estimate.historicalTermsUsed, /202310/);
+  assert.equal(estimate.weightedHistoricalYield > 0, true);
+  assert.equal(estimate.lowerEstimate >= 0, true);
+  assert.notEqual(estimate.confidence, 'INSUFFICIENT_DATA');
+  assert.match(estimate.explanation, /Weighted historical yield/);
+});
+
+test('historical institutional repository supports replacement preview and persistent payload', () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const store = new Map();
+  const storage = {
+    getItem(key) { return store.has(key) ? store.get(key) : null; },
+    setItem(key, value) { store.set(key, String(value)); },
+    removeItem(key) { store.delete(key); }
+  };
+  const repo = historical.createRepository(storage);
+  const preview = historical.inspectWorkbookTable([
+    ['Campus', 'Division', 'Subject', 'Course', 'CRN', 'Accounting Method', 'Part of Term', 'Enrollment', 'Student Contact Hrs', '202510'],
+    ['COS', 'Public Safety', 'FIRE', '100', '12345', 'P', '1', '20', '400', '2']
+  ], { filename: 'cube.xlsx', importedAt: '2026-07-28T00:00:00.000Z', importBatchId: 'TEST' });
+
+  repo.commitImport(preview, { mode: 'replace-selected-terms' });
+  const diff = repo.previewDifferences(preview.records.map(row => ({ ...row, finalInstitutionalFtes: row.finalInstitutionalFtes + 1 })));
+
+  assert.equal(repo.load().records.length, 1);
+  assert.equal(diff.changedFtes, 1);
+  assert.equal(repo.load().batches[0].validationStatus, 'VALID');
+});
+
+test('historical institutional model is wired as admin source hub workflow and explorer report', () => {
+  const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(reports, /historicalInstitutionalModel: 'historical-institutional-model'/);
+  assert.match(reports, /\[REPORTS\.historicalInstitutionalModel\]: 'admin'/);
+  assert.match(index, /js\/enrollment\/historical-institutional\.js/);
+  assert.ok(index.indexOf('js/enrollment/historical-institutional.js') < index.indexOf('js/enrollment-analytics.js'));
+  assert.match(app, /id="dataHubHistoricalInstitutionalFile"/);
+  assert.match(app, /Historical Institutional Results/);
+  assert.match(app, /id="historicalInstitutionalModelReport"/);
+  assert.match(app, /cefShowHistoricalPendingEstimates/);
+  assert.match(app, /Projected Total FTES \(Opt-In Historical\)/);
 });
 
 test('historical pending FTES visibility uses actual Developer and System Administrator role resolution', () => {
