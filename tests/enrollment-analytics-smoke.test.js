@@ -2607,6 +2607,7 @@ test('historical institutional results import detects dynamic term columns and n
   assert.equal(preview.records.some(row => row.termCode === '202410' && row.crn === '22345'), false);
   assert.equal(preview.diagnostics.totalsByTerm.find(row => row.termCode === '202610').finalInstitutionalFtes, 6.6);
   assert.equal(preview.diagnostics.ftesReconciliation.every(row => row.variance === 0), true);
+  assert.equal(preview.diagnostics.reconciliationTolerance, 0.01);
 });
 
 test('historical institutional results import merges Argos multi-row term and measure headers', () => {
@@ -2634,6 +2635,34 @@ test('historical institutional results import merges Argos multi-row term and me
   assert.equal(preview.diagnostics.totalsByTerm.find(row => row.termCode === '202510').censusEnrollment, 30);
   assert.equal(preview.diagnostics.totalsByTerm.find(row => row.termCode === '202610').censusEnrollment, 10);
   assert.equal(preview.diagnostics.ftesReconciliation.every(row => row.variance === 0), true);
+});
+
+test('historical institutional reconciliation tolerance is configurable and enforced on commit', () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const table = [
+    ['Campus', 'Division', 'Subject', 'Course', 'CRN', 'Accounting Method', 'Part of Term', 'Enrollment', 'Student Contact Hrs', '202510'],
+    ['COS', 'Public Safety', 'FIRE', '100', '12345', 'P', '1', '20', '400', '2']
+  ];
+  const preview = historical.inspectWorkbookTable(table, { filename: 'cube.xlsx', importedAt: '2026-07-28T00:00:00.000Z', importBatchId: 'TEST', reconciliationTolerance: 0.25 });
+  const store = new Map();
+  const repo = historical.createRepository({
+    getItem(key) { return store.has(key) ? store.get(key) : null; },
+    setItem(key, value) { store.set(key, String(value)); },
+    removeItem(key) { store.delete(key); }
+  });
+
+  assert.equal(preview.valid, true);
+  assert.equal(preview.diagnostics.reconciliationTolerance, 0.25);
+  assert.equal(preview.diagnostics.ftesReconciliation[0].tolerance, 0.25);
+  assert.equal(preview.diagnostics.ftesReconciliation[0].status, 'Within Tolerance');
+  assert.throws(() => repo.commitImport({
+    ...preview,
+    valid: true,
+    diagnostics: {
+      ...preview.diagnostics,
+      ftesReconciliation: [{ termCode: '202510', sourceFtes: 2, normalizedFtes: 2.5, variance: 0.5, tolerance: 0.25, status: 'Blocking Variance' }]
+    }
+  }), /variance beyond tolerance/);
 });
 
 test('historical institutional results import blocks suspicious all-term enrollment replication', () => {
@@ -2730,7 +2759,10 @@ test('historical institutional model is wired as admin source hub workflow and e
   assert.match(index, /js\/enrollment\/historical-institutional\.js/);
   assert.ok(index.indexOf('js/enrollment/historical-institutional.js') < index.indexOf('js/enrollment-analytics.js'));
   assert.match(app, /id="dataHubHistoricalInstitutionalFile"/);
+  assert.match(app, /id="dataHubHistoricalInstitutionalTolerance"/);
   assert.match(app, /Historical Institutional Results/);
+  assert.match(app, /FTES Source-to-Normalized Reconciliation/);
+  assert.match(app, /historicalInstitutionalImportTolerance/);
   assert.match(app, /id="historicalInstitutionalModelReport"/);
   assert.match(app, /cefShowHistoricalPendingEstimates/);
   assert.match(app, /Projected Total FTES \(Opt-In Historical\)/);

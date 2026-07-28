@@ -2481,6 +2481,7 @@
               <p>Import completed institutional Cube results used to build TIMBER's historical FTES forecasting model.</p>
               <div class="analytics-toolbar">
                 <label>Institutional Cube Workbook <input id="dataHubHistoricalInstitutionalFile" type="file" accept=".csv,.xlsx,.xls"></label>
+                <label>FTES tolerance <input id="dataHubHistoricalInstitutionalTolerance" type="number" min="0" step="0.01" value="0.01"></label>
                 <button id="dataHubPreviewHistoricalInstitutional" type="button">Preview Historical Results</button>
                 <button id="dataHubCommitHistoricalInstitutional" type="button">Commit Historical Results</button>
               </div>
@@ -11638,14 +11639,20 @@
       (workbook.SheetNames || []).forEach(sheetName => {
         const worksheet = workbook.Sheets[sheetName];
         const table = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: true });
-        const preview = historicalInstitutional.inspectWorkbookTable(table, { filename: file.name, worksheet: sheetName });
+        const preview = historicalInstitutional.inspectWorkbookTable(table, { filename: file.name, worksheet: sheetName, reconciliationTolerance: historicalInstitutionalImportTolerance() });
         const score = (preview.valid ? 100000 : 0) + (preview.records?.length || 0) + (preview.diagnostics?.detectedTerms?.length || 0) * 100;
         if (!best || score > best.score) best = { ...preview, score };
       });
       return best || { valid: false, records: [], diagnostics: { errors: ['Workbook contained no worksheets.'] } };
     }
     const table = await parseCsvTable(await readTextFile(file));
-    return historicalInstitutional.inspectWorkbookTable(table, { filename: file.name, worksheet: 'CSV' });
+    return historicalInstitutional.inspectWorkbookTable(table, { filename: file.name, worksheet: 'CSV', reconciliationTolerance: historicalInstitutionalImportTolerance() });
+  }
+
+  function historicalInstitutionalImportTolerance() {
+    const input = document.getElementById('dataHubHistoricalInstitutionalTolerance');
+    const parsed = Number(input?.value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : (historicalInstitutional.DEFAULT_RECONCILIATION_TOLERANCE || 0.01);
   }
 
   function renderHistoricalInstitutionalImportPreview(preview = state.historicalInstitutionalPreview) {
@@ -11666,8 +11673,12 @@
         { metric: 'Filename', value: diagnostics.filename || '' },
         { metric: 'Worksheet', value: diagnostics.worksheet || '' },
         { metric: 'Terms Detected', value: (diagnostics.detectedTerms || []).join(', ') || 'None' },
+        { metric: 'FTES Reconciliation Tolerance', value: formatDecimal(diagnostics.reconciliationTolerance ?? 0.01, 2) },
         { metric: 'Raw Rows', value: formatWholeNumber(diagnostics.rawRows || 0) },
         { metric: 'Normalized Records', value: formatWholeNumber(diagnostics.normalizedRecords || 0) },
+        { metric: 'Parent Rows', value: formatWholeNumber(diagnostics.parentRows || 0) },
+        { metric: 'Child Rows', value: formatWholeNumber(diagnostics.childDetailRows || 0) },
+        { metric: 'Inherited Rows', value: formatWholeNumber(diagnostics.inheritedCrnRows || 0) },
         { metric: 'Unique CRNs', value: formatWholeNumber(diagnostics.uniqueCrns?.length || 0) },
         { metric: 'Subjects', value: formatWholeNumber(diagnostics.subjects?.length || 0) },
         { metric: 'Courses', value: formatWholeNumber(diagnostics.courses?.length || 0) },
@@ -11681,6 +11692,8 @@
       ];
       node.innerHTML = `
         ${analyticsTableMarkup(summaryRows, ['metric', 'value'])}
+        <h3>FTES Source-to-Normalized Reconciliation</h3>
+        ${analyticsTableMarkup(diagnostics.ftesReconciliation || [], ['termCode', 'sourceFtes', 'normalizedFtes', 'variance', 'tolerance', 'status'])}
         <h3>Institutional Totals by Term</h3>
         ${analyticsTableMarkup(diagnostics.totalsByTerm || [], ['termCode', 'records', 'censusEnrollment', 'finalInstitutionalFtes'])}
       `;

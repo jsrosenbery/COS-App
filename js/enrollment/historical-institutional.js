@@ -11,6 +11,7 @@
   const SOURCE = 'INSTITUTIONAL_CUBE';
   const SOURCE_QUALITY = 'FINAL_INSTITUTIONAL_ACTUAL';
   const TERM_COLUMN_PATTERN = /^(19|20)\d{2}(10|20|30)$/;
+  const DEFAULT_RECONCILIATION_TOLERANCE = 0.01;
   const ELIGIBLE_PENDING_ATTENDANCE = new Set(['P', 'E', 'I', 'WE', 'WORK EXPERIENCE']);
   const MODEL_THRESHOLDS = Object.freeze({
     high: { minTerms: 4, minEnrollment: 100, maxCv: 0.12, maxWape: 0.08, maxBias: 0.05 },
@@ -227,6 +228,11 @@
     return values.every(value => Math.abs(Number(value || 0) - Number(values[0] || 0)) <= tolerance);
   }
 
+  function reconciliationTolerance(options = {}) {
+    const parsed = numberValue(options.reconciliationTolerance);
+    return parsed != null && parsed >= 0 ? parsed : DEFAULT_RECONCILIATION_TOLERANCE;
+  }
+
   function inheritRow(parent = {}, child = {}) {
     const inherited = { ...child };
     ['campus', 'division', 'subject', 'courseNumber', 'crn', 'attendanceMethod', 'partOfTerm'].forEach(field => {
@@ -341,9 +347,11 @@
 
   function inspectWorkbookTable(table = [], options = {}) {
     const header = detectHeaderRow(table);
+    const ftesTolerance = reconciliationTolerance(options);
     const diagnostics = {
       filename: options.filename || '',
       worksheet: options.worksheet || '',
+      reconciliationTolerance: ftesTolerance,
       headerRow: header.rowIndex >= 0 ? header.rowIndex + 1 : null,
       termHeaderRow: header.termHeaderRowIndex >= 0 && header.termColumns.length ? header.termHeaderRowIndex + 1 : null,
       detectedHeaders: header.headers.filter(Boolean),
@@ -421,11 +429,12 @@
     diagnostics.rawTermFtesTotals = Object.entries(diagnostics.rawTermFtesTotalsMap)
       .map(([termCode, finalInstitutionalFtes]) => ({ termCode, finalInstitutionalFtes: round(finalInstitutionalFtes) }))
       .sort((a, b) => a.termCode.localeCompare(b.termCode));
-    validatePreviewDiagnostics(diagnostics, header);
+    validatePreviewDiagnostics(diagnostics, header, { reconciliationTolerance: ftesTolerance });
     return finalizePreview(diagnostics, diagnostics.records);
   }
 
-  function validatePreviewDiagnostics(diagnostics, header) {
+  function validatePreviewDiagnostics(diagnostics, header, options = {}) {
+    const ftesTolerance = reconciliationTolerance(options);
     const detectedTerms = header.termColumns.map(term => term.header);
     const byTerm = recordTotalsByTerm(diagnostics.records, detectedTerms);
     const termTotals = detectedTerms.map(termCode => byTerm[termCode] || { termCode, censusEnrollment: 0, finalInstitutionalFtes: 0, records: 0 });
@@ -450,12 +459,14 @@
         termCode: term.termCode,
         sourceFtes: round(sourceFtes),
         normalizedFtes: round(normalizedFtes),
-        variance: round(normalizedFtes - sourceFtes)
+        variance: round(normalizedFtes - sourceFtes),
+        tolerance: ftesTolerance,
+        status: Math.abs(normalizedFtes - sourceFtes) <= ftesTolerance ? 'Within Tolerance' : 'Blocking Variance'
       };
     });
     diagnostics.ftesReconciliation.forEach(item => {
-      if (Math.abs(item.variance) > 0.000001) {
-        diagnostics.errors.push(`Blocking validation: normalized FTES for ${item.termCode} differs from the raw workbook term-column total by ${item.variance}.`);
+      if (Math.abs(item.variance) > ftesTolerance) {
+        diagnostics.errors.push(`Blocking validation: normalized FTES for ${item.termCode} differs from the raw workbook term-column total by ${item.variance}, exceeding tolerance ${ftesTolerance}.`);
       }
     });
   }
@@ -531,6 +542,11 @@
     }
     function commitImport(preview, options = {}) {
       if (!preview?.valid) throw new Error('Historical Institutional Results import contains blocking validation errors.');
+      const ftesTolerance = reconciliationTolerance({ reconciliationTolerance: preview.diagnostics?.reconciliationTolerance });
+      const blockingReconciliation = (preview.diagnostics?.ftesReconciliation || []).filter(item => Math.abs(Number(item.variance || 0)) > ftesTolerance);
+      if (blockingReconciliation.length) {
+        throw new Error(`Historical Institutional Results import has FTES reconciliation variance beyond tolerance: ${blockingReconciliation.map(item => `${item.termCode} ${item.variance}`).join(', ')}.`);
+      }
       const mode = options.mode || 'replace-selected-terms';
       const payload = load();
       const records = (preview.records || []).map(record => ({ ...record, recordIdentity: record.recordIdentity || stableRecordIdentity(record) }));
@@ -864,6 +880,7 @@
     SOURCE,
     SOURCE_QUALITY,
     HEADER_ALIASES,
+    DEFAULT_RECONCILIATION_TOLERANCE,
     MODEL_THRESHOLDS,
     detectHeaderRow,
     inspectWorkbookTable,
