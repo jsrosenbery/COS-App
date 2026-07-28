@@ -344,6 +344,12 @@
     supplyDemandRan: false,
     currentEnrollmentFtesPendingAnalysisExportRows: [],
     currentEnrollmentHistoricalEstimateRows: [],
+    currentEnrollmentFtesDetailFilters: {
+      classification: 'all',
+      confidence: 'all',
+      censusStatus: 'all',
+      subject: ''
+    },
     demandFtesBridgeExportRows: [],
     demandFormulaAuditExportRows: [],
     demandPendingFtesAnalysisExportRows: [],
@@ -2267,6 +2273,37 @@
             <button id="runCurrentEnrollmentFtes" type="button">Run Selected Term FTES</button>
             <button id="clearCurrentEnrollmentFtes" type="button">Clear Selected Term FTES</button>
             <button id="exportCurrentEnrollmentFtes" type="button">Export Selected Term FTES CSV</button>
+          </div>
+          <div class="analytics-toolbar">
+            <label>FTES classification
+              <select id="cefFtesClassificationFilter">
+                <option value="all">All classifications</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="estimated">Estimated</option>
+                <option value="predicted">Predicted</option>
+                <option value="unavailable">Unavailable</option>
+              </select>
+            </label>
+            <label>Confidence
+              <select id="cefFtesConfidenceFilter">
+                <option value="all">All confidence</option>
+                <option value="Very High">Very High</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+                <option value="Insufficient Data">Insufficient Data</option>
+              </select>
+            </label>
+            <label>Census status
+              <select id="cefCensusStatusFilter">
+                <option value="all">All census statuses</option>
+                <option value="after-census">After census</option>
+                <option value="before-census">Before census</option>
+                <option value="not-applicable">Not applicable</option>
+                <option value="unknown">Unknown</option>
+              </select>
+            </label>
+            <label>Subject <input id="cefSubjectFilter" type="search" placeholder="All subjects"></label>
           </div>
           <div id="snapshotWarnings" class="analytics-warning-list"></div>
           <div id="snapshotContext" class="dashboard-scope-panel"></div>
@@ -10703,6 +10740,20 @@
   }
 
   const CENSUS_DEPENDENT_FTES_METHODS = new Set(['W', 'IW', 'D', 'ID']);
+  const DETERMINISTIC_FTES_METHODS = new Set(['W', 'IW', 'D', 'ID', 'S']);
+  const FTES_CLASSIFICATION_LABELS = Object.freeze({
+    confirmed: 'Confirmed',
+    estimated: 'Estimated',
+    predicted: 'Predicted',
+    unavailable: 'Unavailable'
+  });
+  const FTES_CONFIDENCE_LABELS = Object.freeze({
+    'very-high': 'Very High',
+    high: 'High',
+    medium: 'Medium',
+    low: 'Low',
+    'insufficient-data': 'Insufficient Data'
+  });
   const FTES_MATURITY_STATUS = Object.freeze({
     CONFIRMED_FINAL: 'CONFIRMED_FINAL',
     ESTIMATED_PRE_START: 'ESTIMATED_PRE_START',
@@ -10849,6 +10900,200 @@
     };
   }
 
+  function determineCensusStatus(section = {}, reportAsOfDate = {}, termMetadata = {}) {
+    const method = canon(section.accountingMethod || section.attendanceAccountingCode || section.attendanceMethod || '');
+    if (!DETERMINISTIC_FTES_METHODS.has(method)) return 'not-applicable';
+    const rawAsOf = typeof reportAsOfDate === 'object'
+      ? reportAsOfDate.iso || reportAsOfDate.raw || reportAsOfDate.asOfDate || ''
+      : reportAsOfDate;
+    const asOfDate = dateValue(rawAsOf || section.effectiveAsOfDate || section.snapshotDateIso || section.snapshotDate || section.sourceUploadedAt || termMetadata.asOfDate);
+    const censusDate = dateValue(section.censusEnrollmentDateIso || section.censusEnrollmentDate || termMetadata.censusDate || termMetadata.globalCensusDate);
+    if (!asOfDate || !censusDate) return 'unknown';
+    return asOfDate >= censusDate ? 'after-census' : 'before-census';
+  }
+
+  function isHistoricallyPredictedSection(section = {}) {
+    const method = canon(section.accountingMethod || section.attendanceAccountingCode || section.attendanceMethod || '');
+    const subject = canon(section.subject || '');
+    const course = canon(section.course || section.courseNumber || '');
+    const modality = canon(section.modality || section.instructionalMethod || '');
+    if (section.isWorkExperience || currentEnrollmentPopulation(section) === 'Work Experience') return true;
+    if (['P', 'E'].includes(method)) return true;
+    if (/^WK?EXP|^WKEX|WORK\s*EXP/.test(subject) || /WORK\s*EXP/.test(course) || /WORK\s*EXPERIENCE/.test(modality)) return true;
+    return false;
+  }
+
+  function ftesConfidenceFromHistorical(confidence = '') {
+    const normalized = canon(confidence).replace(/_/g, '-').toLowerCase();
+    if (normalized === 'high') return 'high';
+    if (normalized === 'medium') return 'medium';
+    if (normalized === 'low' || normalized === 'high-variance') return 'low';
+    if (normalized === 'insufficient-data') return 'insufficient-data';
+    return confidence ? 'low' : 'insufficient-data';
+  }
+
+  function ftesDerivationFromHistorical(level = '') {
+    return {
+      course: 'historical-course-model',
+      subject: 'historical-subject-model',
+      division: 'historical-division-model',
+      attendanceMethod: 'historical-attendance-method-model',
+      institution: 'historical-institution-model'
+    }[level] || 'unavailable';
+  }
+
+  function classifySectionFtes(section = {}, context = {}) {
+    const asOfContext = context.asOfContext || context.reportAsOfDate || {};
+    const method = canon(section.accountingMethod || section.attendanceAccountingCode || section.attendanceMethod || '');
+    const attendanceMethod = method || null;
+    const censusStatus = determineCensusStatus(section, asOfContext, context.termMetadata || {});
+    const currentEnrollment = currentEnrollmentValue(section);
+    const currentUnavailable = currentEnrollmentFtesUnavailable(section);
+    const currentCalculatedFtes = currentUnavailable ? null : currentEnrollmentFtesValue(section, asOfContext);
+    const eligiblePrediction = isHistoricallyPredictedSection(section);
+    const directOrDeterministic = section.hasDirectFtesData || DETERMINISTIC_FTES_METHODS.has(method);
+    const common = {
+      attendanceMethod,
+      censusStatus,
+      currentCalculatedFtes,
+      confirmedFtes: null,
+      estimatedFtes: null,
+      predictedFtes: null,
+      projectedFinalFtes: null,
+      displayValue: null,
+      confidence: null,
+      derivation: 'unavailable',
+      reason: '',
+      historicalBasis: null,
+      predictionDetail: null
+    };
+
+    if (!attendanceMethod && !section.isWorkExperience) {
+      return { ...common, classification: 'unavailable', confidence: 'insufficient-data', reason: 'Attendance accounting method is missing, so FTES cannot be classified reliably.' };
+    }
+    if (currentEnrollment == null || !Number.isFinite(Number(currentEnrollment))) {
+      return { ...common, classification: 'unavailable', confidence: 'insufficient-data', reason: 'Current enrollment is missing or invalid.' };
+    }
+
+    if (eligiblePrediction && !section.hasDirectFtesData) {
+      const model = context.historicalModel || {};
+      const prediction = historicalInstitutional?.estimatePendingSection
+        ? historicalInstitutional.estimatePendingSection(section, model)
+        : { estimated: false, confidence: 'INSUFFICIENT_DATA', reason: 'Historical Institutional Model is unavailable.' };
+      if (prediction.estimated) {
+        const predictedFtes = Number(prediction.estimatedFtes);
+        return {
+          ...common,
+          classification: 'predicted',
+          displayValue: predictedFtes,
+          predictedFtes,
+          projectedFinalFtes: predictedFtes,
+          confidence: ftesConfidenceFromHistorical(prediction.confidence),
+          derivation: ftesDerivationFromHistorical(prediction.historicalBasisLevel),
+          reason: prediction.explanation || prediction.selectedReason || 'Predicted from comparable Historical Institutional Results.',
+          historicalBasis: {
+            modelLevel: prediction.historicalBasisLevel || '',
+            groupKey: prediction.historicalGroupKey || '',
+            termsUsed: String(prediction.historicalTermsUsed || '').split(';').map(item => item.trim()).filter(Boolean),
+            observationCount: prediction.historicalRecordsUsed || 0,
+            weightedYield: prediction.weightedHistoricalYield ?? null,
+            lowerBound: prediction.lowerEstimate ?? null,
+            upperBound: prediction.upperEstimate ?? null,
+            backtestingError: prediction.backtestingError ?? null
+          },
+          predictionDetail: prediction
+        };
+      }
+      if (currentUnavailable) {
+        return {
+          ...common,
+          classification: 'unavailable',
+          confidence: 'insufficient-data',
+          reason: prediction.reason || 'Historical institutional results are missing or insufficient for this positive-attendance-like section.',
+          predictionDetail: prediction
+        };
+      }
+    }
+
+    if (currentUnavailable) {
+      return { ...common, classification: 'unavailable', confidence: 'insufficient-data', reason: section.ftesWarning || 'Required row-level FTES inputs are missing; unavailable values are not displayed as zero.' };
+    }
+
+    if (directOrDeterministic) {
+      if (section.hasDirectFtesData || censusStatus === 'after-census') {
+        return {
+          ...common,
+          classification: 'confirmed',
+          displayValue: currentCalculatedFtes,
+          confirmedFtes: currentCalculatedFtes,
+          projectedFinalFtes: currentCalculatedFtes,
+          confidence: 'very-high',
+          derivation: 'official-post-census-calculation',
+          reason: section.hasDirectFtesData ? 'Direct FTES is present in the loaded current source.' : 'Applicable census milestone has passed and TIMBER used the existing deterministic production calculation.'
+        };
+      }
+      if (censusStatus === 'before-census') {
+        return {
+          ...common,
+          classification: 'estimated',
+          displayValue: currentCalculatedFtes,
+          estimatedFtes: currentCalculatedFtes,
+          projectedFinalFtes: currentCalculatedFtes,
+          confidence: 'high',
+          derivation: 'current-enrollment-calculation',
+          reason: 'Calculated from current enrollment before the applicable census milestone using the existing production FTES calculation.'
+        };
+      }
+      return {
+        ...common,
+        classification: 'unavailable',
+        confidence: 'insufficient-data',
+        reason: 'Census status is unknown because the report as-of date or section census date is unavailable.'
+      };
+    }
+
+    return {
+      ...common,
+      classification: 'unavailable',
+      confidence: 'insufficient-data',
+      reason: 'This attendance method is not supported by deterministic FTES classification and no historical prediction was available.'
+    };
+  }
+
+  function ftesClassificationSummary(classifiedRows = []) {
+    const totals = classifiedRows.reduce((acc, item) => {
+      const classification = item.classification || 'unavailable';
+      acc[`${classification}Sections`] = (acc[`${classification}Sections`] || 0) + 1;
+      const value = Number(item.projectedFinalFtes);
+      if (classification === 'confirmed' && Number.isFinite(Number(item.confirmedFtes))) acc.confirmedFtesTotal += Number(item.confirmedFtes);
+      if (classification === 'estimated' && Number.isFinite(Number(item.estimatedFtes))) acc.estimatedFtesTotal += Number(item.estimatedFtes);
+      if (classification === 'predicted' && Number.isFinite(Number(item.predictedFtes))) acc.predictedFtesTotal += Number(item.predictedFtes);
+      if (classification === 'unavailable') acc.unavailableSectionCount += 1;
+      if (Number.isFinite(value)) acc.projectedFinalFtesTotal += value;
+      if (classification === 'predicted') acc.predictionConfidence[item.confidence || 'insufficient-data'] = (acc.predictionConfidence[item.confidence || 'insufficient-data'] || 0) + 1;
+      return acc;
+    }, {
+      confirmedFtesTotal: 0,
+      estimatedFtesTotal: 0,
+      predictedFtesTotal: 0,
+      projectedFinalFtesTotal: 0,
+      unavailableSectionCount: 0,
+      confirmedSections: 0,
+      estimatedSections: 0,
+      predictedSections: 0,
+      unavailableSections: 0,
+      predictionConfidence: {}
+    });
+    totals.confirmedShare = safeDiv(totals.confirmedFtesTotal, totals.projectedFinalFtesTotal);
+    totals.estimatedShare = safeDiv(totals.estimatedFtesTotal, totals.projectedFinalFtesTotal);
+    totals.predictedShare = safeDiv(totals.predictedFtesTotal, totals.projectedFinalFtesTotal);
+    return totals;
+  }
+
+  function ftesClassificationRows(rows = [], context = {}) {
+    return (rows || []).map(row => ({ row, ...classifySectionFtes(row, context) }));
+  }
+
   function currentEnrollmentFtesMaturitySummary(rows = [], asOfContext = {}) {
     const classifiedRows = (rows || []).map(row => {
       const maturity = classifyCurrentEnrollmentFtesMaturity(row, asOfContext);
@@ -10990,12 +11235,18 @@
     });
     const focusMaturity = currentEnrollmentFtesMaturitySummary(focusRows, focusAsOf);
     const comparisonMaturity = currentEnrollmentFtesMaturitySummary(comparisonRows, comparisonAsOf);
+    const historicalModel = options.historicalModel || state.historicalInstitutionalModel || null;
+    const focusClassifiedRows = ftesClassificationRows(focusRows, { asOfContext: focusAsOf, historicalModel });
+    const comparisonClassifiedRows = ftesClassificationRows(comparisonRows, { asOfContext: comparisonAsOf, historicalModel });
+    const focusClassification = ftesClassificationSummary(focusClassifiedRows);
+    const comparisonClassification = ftesClassificationSummary(comparisonClassifiedRows);
     const focus = currentEnrollmentFtesTotals(focusRows, focusAsOf);
     const comparison = currentEnrollmentFtesTotals(comparisonRows, comparisonAsOf);
     const focusComponents = aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentFtesComponent, { asOfContext: focusAsOf });
     const comparisonComponents = aggregateCurrentEnrollmentFtes(comparisonRows, currentEnrollmentFtesComponent, { asOfContext: comparisonAsOf });
     const pendingFtesAnalysis = buildHistoricalPendingFtesAnalysis(scoped, { targetTerm: focusTerm || 'FALL 2026' });
     const maturityByCrn = new Map(focusMaturity.classifiedRows.map(item => [sectionKey(item.row), item.maturity]));
+    const classificationByCrn = new Map(focusClassifiedRows.map(item => [sectionKey(item.row), item]));
     const summary = {
       focusTerm,
       comparisonTerm,
@@ -11014,12 +11265,17 @@
         focus: focusMaturity,
         comparison: comparisonMaturity
       },
+      ftesClassification: {
+        focus: focusClassification,
+        comparison: comparisonClassification,
+        rows: focusClassifiedRows
+      },
       pendingFtesAnalysis,
       context: {
         selectedTerm: focusTerm,
         comparisonTerm,
         enrollmentSource: 'ACTUAL_ENROLL/current enrollment first; census/final fields only when current enrollment is unavailable.',
-        ftesSource: 'Section-level direct FTES when loaded; otherwise attendance-accounting formula only when row-level inputs are present. Historical FTES/enrollment ratios are not used.',
+        ftesSource: 'Confirmed and Estimated FTES wrap existing production calculations. Historical FTES/enrollment ratios are not used for deterministic confirmed/estimated FTES. Predicted FTES is separate Historical Institutional Model output for P/E/Work Experience planning and is not official/reportable FTES.',
         censusDateSource: 'Authoritative schedule CSV CENSUS_ENRL_DATE when present; not calculated from Part of Term.',
         censusEnrollmentSource: 'CENSUS_ENROLL from the source schedule CSV when present; current enrollment remains separately available.',
         includeWorkExperience: options.includeWorkExperience !== false,
@@ -11036,19 +11292,26 @@
         selectedEffectiveAsOfDateSource: focusAsOf.source,
         comparisonEffectiveAsOfDate: comparisonAsOf.display,
         comparisonEffectiveAsOfDateSource: comparisonAsOf.source,
-        ftesMaturityDefinition: 'FTES Maturity shows how much projected FTES is confirmed/final versus estimated based on source as-of date, section census date, and final-source availability.'
+        ftesMaturityDefinition: 'FTES Maturity shows how much existing calculated FTES is confirmed/final versus estimated based on source as-of date, section census date, and final-source availability.',
+        ftesClassificationDefinition: 'Confirmed FTES reflects sections whose applicable census milestone has passed. Estimated FTES is calculated from current enrollment before census. Predicted FTES is forecast from comparable historical institutional results for P/E/Work Experience sections and does not alter official FTES reporting.'
       },
       reconciliation: {
         focus: currentEnrollmentFtesReconciliation(focus, focusComponents),
         comparison: currentEnrollmentFtesReconciliation(comparison, comparisonComponents),
         projectedFtes: {
           totalFtes: focus.ftes,
-          projectedFtes: focusMaturity.projectedFtes,
-          difference: focus.ftes - focusMaturity.projectedFtes,
-          matches: Math.abs(focus.ftes - focusMaturity.projectedFtes) < 0.000001
+          projectedFtes: focusClassification.projectedFinalFtesTotal,
+          difference: focusClassification.projectedFinalFtesTotal - (focusClassification.confirmedFtesTotal + focusClassification.estimatedFtesTotal + focusClassification.predictedFtesTotal),
+          matches: Math.abs(focusClassification.projectedFinalFtesTotal - (focusClassification.confirmedFtesTotal + focusClassification.estimatedFtesTotal + focusClassification.predictedFtesTotal)) < 0.000001
         }
       },
       breakdowns: {
+        ftesClassification: [
+          { name: 'Confirmed FTES', classification: 'Confirmed', classOfferings: focusClassification.confirmedSections, ftes: focusClassification.confirmedFtesTotal, share: focusClassification.confirmedShare, note: 'Applicable census milestone has passed.' },
+          { name: 'Estimated FTES', classification: 'Estimated', classOfferings: focusClassification.estimatedSections, ftes: focusClassification.estimatedFtesTotal, share: focusClassification.estimatedShare, note: 'Calculated from current enrollment before census.' },
+          { name: 'Predicted FTES', classification: 'Predicted', classOfferings: focusClassification.predictedSections, ftes: focusClassification.predictedFtesTotal, share: focusClassification.predictedShare, note: 'Forecast from comparable historical institutional results.' },
+          { name: 'Unavailable FTES', classification: 'Unavailable', classOfferings: focusClassification.unavailableSectionCount, ftes: '', share: '', note: 'No reliable FTES value can be produced from current or historical evidence.' }
+        ],
         ftesMaturityStatus: focusMaturity.rows,
         population: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulation, { asOfContext: focusAsOf }),
         populationDetail: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulationDetail, { asOfContext: focusAsOf }),
@@ -11061,6 +11324,8 @@
       },
       rows: focusRows.map(row => {
         const maturity = maturityByCrn.get(sectionKey(row)) || classifyCurrentEnrollmentFtesMaturity(row, focusAsOf);
+        const classified = classificationByCrn.get(sectionKey(row)) || classifySectionFtes(row, { asOfContext: focusAsOf, historicalModel });
+        const basis = classified.historicalBasis || {};
         return {
           term: row.term,
           crn: row.crn,
@@ -11082,6 +11347,24 @@
           ftesMaturityStatus: maturity.label,
           ftesMaturityGroup: maturity.group,
           ftesMaturityReason: maturity.reason,
+          censusStatus: classified.censusStatus,
+          ftesClassification: FTES_CLASSIFICATION_LABELS[classified.classification] || classified.classification,
+          ftesClassificationKey: classified.classification,
+          currentCalculatedFtes: classified.currentCalculatedFtes == null ? '' : classified.currentCalculatedFtes,
+          confirmedFtes: classified.confirmedFtes == null ? '' : classified.confirmedFtes,
+          estimatedFtes: classified.estimatedFtes == null ? '' : classified.estimatedFtes,
+          predictedFtes: classified.predictedFtes == null ? '' : classified.predictedFtes,
+          projectedFinalFtes: classified.projectedFinalFtes == null ? '' : classified.projectedFinalFtes,
+          confidence: classified.confidence ? (FTES_CONFIDENCE_LABELS[classified.confidence] || classified.confidence) : '',
+          derivation: classified.derivation,
+          reason: classified.reason,
+          predictionLowerBound: basis.lowerBound ?? '',
+          predictionUpperBound: basis.upperBound ?? '',
+          historicalObservationCount: basis.observationCount ?? '',
+          historicalTermsUsed: (basis.termsUsed || []).join('; '),
+          historicalModelLevel: basis.modelLevel || '',
+          weightedHistoricalYield: basis.weightedYield ?? '',
+          backtestingError: basis.backtestingError ?? '',
           classOfferings: 1,
           currentEnrollment: currentEnrollmentValue(row),
           seats: row.cap || 0,
@@ -11253,12 +11536,20 @@
       limit: 3
     }).catch(err => ({ terms: [], rows: [], results: [{ term: focusTerm, rows: [], failed: true, error: err?.message || String(err) }] }));
     const diagnosticRows = dedupeEnrollmentRows([...rows, ...(diagnosticHistory.rows || [])]);
+    let historicalModel = state.historicalInstitutionalModel || null;
+    try {
+      historicalModel = await hydrateHistoricalInstitutionalModel();
+    } catch (err) {
+      state.historicalInstitutionalModelStatus = 'error';
+      state.historicalInstitutionalStorageError = err?.message || String(err);
+    }
     state.currentEnrollmentFtesSummary = buildCurrentEnrollmentFtesSummary(diagnosticRows, {
       focusTerm,
       comparisonTerm,
       includeWorkExperience: includeWorkExperience('cef'),
       includeDualEnrollment: document.getElementById('cefIncludeDualEnrollment')?.checked !== false,
-      pendingFtesDiagnosticArchiveLoad: diagnosticHistory
+      pendingFtesDiagnosticArchiveLoad: diagnosticHistory,
+      historicalModel
     });
     if (document.getElementById('cefShowHistoricalPendingEstimates')?.checked) {
       await ensureHistoricalInstitutionalReady();
@@ -11275,6 +11566,7 @@
     state.currentEnrollmentFtesSummary = null;
     state.currentEnrollmentFtesPendingAnalysisExportRows = [];
     state.currentEnrollmentHistoricalEstimateRows = [];
+    state.currentEnrollmentFtesDetailFilters = { classification: 'all', confidence: 'all', censusStatus: 'all', subject: '' };
     state.workExperienceInput = [];
     state.workExperienceTermCache = {};
     state.workExperienceTermLoading = {};
@@ -11313,6 +11605,17 @@
     renderCurrentEnrollmentFtesSummary();
   }
 
+  function filteredCurrentEnrollmentFtesDetailRows(summary = buildCurrentEnrollmentFtesSummary([], {})) {
+    const filters = state.currentEnrollmentFtesDetailFilters || {};
+    return (summary.rows || []).filter(row => {
+      if (filters.classification && filters.classification !== 'all' && row.ftesClassificationKey !== filters.classification) return false;
+      if (filters.confidence && filters.confidence !== 'all' && row.confidence !== filters.confidence) return false;
+      if (filters.censusStatus && filters.censusStatus !== 'all' && row.censusStatus !== filters.censusStatus) return false;
+      if (filters.subject && !canon(row.course || '').includes(canon(filters.subject))) return false;
+      return true;
+    });
+  }
+
   function renderCurrentEnrollmentFtesSummary() {
     const summary = state.currentEnrollmentFtesSummary || buildCurrentEnrollmentFtesSummary([], {});
     const historicalEstimates = state.currentEnrollmentHistoricalEstimateRows || [];
@@ -11323,9 +11626,15 @@
       ['Comparison Term', summary.comparisonTerm || 'None'],
       ['Selected Term Class Offerings', formatWholeNumber(summary.focus.classOfferings), 'scheduled-class-offerings'],
       ['Selected Term Enrollment', formatWholeNumber(summary.focus.enrollment), 'enrollment'],
+      ['Projected Final FTES (Confirmed + Estimated + Predicted)', round1(summary.ftesClassification.focus.projectedFinalFtesTotal), 'ftes'],
+      ['Confirmed FTES', `${round1(summary.ftesClassification.focus.confirmedFtesTotal)} (${pct(summary.ftesClassification.focus.confirmedShare)})`, 'ftes'],
+      ['Estimated FTES', `${round1(summary.ftesClassification.focus.estimatedFtesTotal)} (${pct(summary.ftesClassification.focus.estimatedShare)})`, 'ftes'],
+      ['Predicted FTES', `${round1(summary.ftesClassification.focus.predictedFtesTotal)} (${pct(summary.ftesClassification.focus.predictedShare)})`, 'ftes'],
+      ['Unavailable FTES Sections', formatWholeNumber(summary.ftesClassification.focus.unavailableSectionCount)],
+      ['Current Calculated FTES (Official Formula Output)', round1(summary.focus.ftes), 'ftes'],
       ['Calculated / Confirmed FTES', round1(summary.maturity.focus.confirmedFinalFtes), 'ftes'],
-      ['Estimated FTES', round1(summary.maturity.focus.estimatedFtes), 'ftes'],
-      ['Projected Total FTES', round1(summary.maturity.focus.projectedFtes), 'ftes'],
+      ['Maturity Estimated FTES', round1(summary.maturity.focus.estimatedFtes), 'ftes'],
+      ['Maturity Projected Calculated FTES', round1(summary.maturity.focus.projectedFtes), 'ftes'],
       ...(historicalProjectionEnabled ? [
         ['Estimated Pending FTES (Historical Institutional)', round1(historicalEstimatedPendingFtes), 'ftes'],
         ['Projected Total FTES (Opt-In Historical)', round1(summary.maturity.focus.confirmedFinalFtes + historicalEstimatedPendingFtes), 'ftes']
@@ -11356,12 +11665,13 @@
         { metric: 'Selected Term As Of', value: `${summary.context.selectedEffectiveAsOfDate} (${summary.context.selectedEffectiveAsOfDateSource})` },
         { metric: 'Comparison Term As Of', value: summary.context.comparisonTerm ? `${summary.context.comparisonEffectiveAsOfDate} (${summary.context.comparisonEffectiveAsOfDateSource})` : 'No comparison selected' },
         { metric: 'FTES Maturity Definition', value: summary.context.ftesMaturityDefinition },
+        { metric: 'FTES Classification Definition', value: summary.context.ftesClassificationDefinition },
         { metric: 'Work Experience Included', value: summary.context.includeWorkExperience ? `Yes (${summary.context.selectedWorkExperienceRows} selected / ${summary.context.comparisonWorkExperienceRows} comparison rows)` : 'No' },
         { metric: 'Dual Enrollment Included', value: summary.context.includeDualEnrollment ? `Yes (${summary.context.selectedDualEnrollmentRows} selected / ${summary.context.comparisonDualEnrollmentRows} comparison rows)` : 'No' },
         { metric: 'Historical Institutional Estimates', value: historicalProjectionEnabled ? `Displayed separately (${historicalEstimates.length} pending row(s)); production FTES totals unchanged.` : 'Off. Existing production totals preserved.' },
         { metric: 'Rows Loaded', value: `${formatWholeNumber(summary.context.selectedRowsLoaded)} selected / ${formatWholeNumber(summary.context.comparisonRowsLoaded)} comparison` },
         { metric: 'FTES Reconciliation', value: summary.reconciliation.focus.matches ? 'Selected-term component totals reconcile to total FTES.' : `Selected-term component totals differ by ${round1(summary.reconciliation.focus.difference)} FTES.` },
-        { metric: 'Projected FTES Reconciliation', value: summary.reconciliation.projectedFtes.matches ? 'Projected FTES reconciles to valid selected-term FTES.' : `Projected FTES differs from valid selected-term FTES by ${summary.reconciliation.projectedFtes.difference} FTES.` }
+        { metric: 'Projected Final FTES Reconciliation', value: summary.reconciliation.projectedFtes.matches ? 'Projected Final FTES reconciles to Confirmed + Estimated + Predicted classification totals.' : `Projected Final FTES differs from classification components by ${summary.reconciliation.projectedFtes.difference} FTES.` }
       ];
       contextNode.innerHTML = dashboardPanel('Calculation Context', miniTable(contextRows, ['metric', 'value'], 'ftes'));
     }
@@ -11372,9 +11682,12 @@
       const historicalEstimatePanel = historicalProjectionEnabled
         ? dashboardPanel('Historical Institutional Pending FTES Estimates', `<p class="analytics-chart-note">Opt-in diagnostic projection only. Calculated / Established FTES is unchanged; this table estimates pending FTES from completed institutional Cube outcomes.</p>${miniTable(historicalEstimates, ['termCode', 'crn', 'subject', 'courseNumber', 'attendanceMethod', 'currentEnrollment', 'historicalBasisLevel', 'historicalTermsUsed', 'estimatedFtes', 'lowerEstimate', 'upperEstimate', 'confidence', 'explanation', 'reason'], 'ftes')}`)
         : '';
+      const predictedRows = (summary.rows || []).filter(row => row.ftesClassificationKey === 'predicted');
       breakdowns.innerHTML = [
         historicalEstimatePanel,
         historicalPendingFtesAnalysisPanel(pendingFtesAnalysis),
+        dashboardPanel('FTES Classification Summary', `<p class="analytics-chart-note">Projected Final FTES equals Confirmed FTES plus Estimated FTES plus Predicted FTES. Predicted FTES is a planning value from Historical Institutional Results and does not alter official/reportable FTES.</p>${miniTable(summary.breakdowns.ftesClassification, ['classification', 'classOfferings', 'ftes', 'share', 'note'], 'ftes')}`),
+        dashboardPanel('Predicted FTES Explainability', `<p class="analytics-chart-note">Predicted rows show the historical basis selected by the model. Comparable terms, observation counts, weighted yield, range, confidence, and backtesting error are shown for audit review.</p>${miniTable(predictedRows, ['crn', 'course', 'attendanceMethod', 'currentEnrollment', 'historicalModelLevel', 'historicalTermsUsed', 'historicalObservationCount', 'weightedHistoricalYield', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'confidence', 'backtestingError', 'reason'], 'ftes')}`),
         dashboardPanel('Focus vs Comparison Totals', miniTable(summary.comparisonRows, ['line', 'term', 'classOfferings', 'enrollment', 'ftes', 'seats'], 'ftes')),
         dashboardPanel('Selected vs Comparison Metrics', miniTable(summary.metricComparisonRows, ['metric', 'selectedTerm', 'comparisonTerm', 'change', 'changePct'], 'ftes')),
         dashboardPanel('FTES Status Breakdown', `<p class="analytics-chart-note">Projected FTES equals confirmed/final plus estimated plus maturity-unknown valid FTES. FTES Unavailable rows are only rows where the FTES amount itself cannot be calculated from the loaded source.</p>${miniTable(summary.breakdowns.ftesMaturityStatus, ['name', 'group', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'reason'], 'ftes')}`),
@@ -11386,7 +11699,10 @@
       ].join('');
       refreshGeneratedCollapsibleSections(breakdowns);
     }
-    table('snapshotTable', summary.rows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'partOfTerm', 'startDate', 'endDate', 'censusEnrollmentDate', 'censusEnrollment', 'censusEnrollment2Date', 'censusEnrollment2', 'activityDate', 'effectiveAsOfDate', 'ftesMaturityStatus', 'ftesMaturityReason', 'currentEnrollment', 'seats', 'ftes', 'ftesSource', 'ftesWarning']);
+    const filteredRows = filteredCurrentEnrollmentFtesDetailRows(summary);
+    table('snapshotTable', filteredRows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'censusStatus', 'ftesClassification', 'currentCalculatedFtes', 'projectedFinalFtes', 'confidence', 'derivation', 'reason', 'currentEnrollment', 'seats', 'confirmedFtes', 'estimatedFtes', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'historicalObservationCount', 'historicalTermsUsed', 'ftesSource', 'ftesWarning']);
+    const tableNode = document.getElementById('snapshotTable');
+    if (tableNode) tableNode.insertAdjacentHTML('afterbegin', `<p class="analytics-chart-note">Showing ${formatWholeNumber(filteredRows.length)} of ${formatWholeNumber(summary.rows.length)} section row(s). Unavailable FTES values are blank, not zero.</p>`);
     renderSnapshotLegend();
   }
 
@@ -11437,6 +11753,24 @@
       'FTES Maturity Status': row.ftesMaturityStatus || row.name || '',
       'FTES Maturity Group': row.ftesMaturityGroup || row.group || '',
       'FTES Maturity Reason': row.ftesMaturityReason || row.reason || '',
+      'FTES Classification': row.ftesClassification || row.classification || '',
+      'Census Status': row.censusStatus || '',
+      'Confirmed FTES': row.confirmedFtes ?? '',
+      'Estimated FTES': row.estimatedFtes ?? '',
+      'Predicted FTES': row.predictedFtes ?? '',
+      'Current Calculated FTES': row.currentCalculatedFtes ?? '',
+      'Projected Final FTES': row.projectedFinalFtes ?? '',
+      Confidence: row.confidence || '',
+      Derivation: row.derivation || '',
+      'Prediction Lower Bound': row.predictionLowerBound ?? '',
+      'Prediction Upper Bound': row.predictionUpperBound ?? '',
+      'Historical Observation Count': row.historicalObservationCount ?? '',
+      'Historical Terms Used': row.historicalTermsUsed || '',
+      'Historical Model Level': row.historicalModelLevel || '',
+      'Weighted Historical Yield': row.weightedHistoricalYield ?? '',
+      'Backtesting Error': row.backtestingError ?? '',
+      'Unavailable Reason': row.ftesClassificationKey === 'unavailable' ? (row.reason || row.ftesWarning || '') : '',
+      'Reason / Basis': row.reason || row.note || '',
       'FTES Source': row.ftesSource || '',
       'FTES Warning': row.ftesWarning || '',
       'Selected Term': extra['Selected Term'] || '',
@@ -11449,9 +11783,18 @@
       ['Comparison Term', summary.comparisonTerm || ''],
       ['Selected Term Class Offerings', summary.focus.classOfferings],
       ['Selected Term Enrollment', summary.focus.enrollment],
-      ['Selected Term FTES', summary.focus.ftes],
+      ['Selected Term Current Calculated FTES', summary.focus.ftes],
+      ['Projected Final FTES', summary.ftesClassification.focus.projectedFinalFtesTotal],
+      ['Confirmed FTES', summary.ftesClassification.focus.confirmedFtesTotal],
+      ['Confirmed FTES Share', summary.ftesClassification.focus.confirmedShare],
+      ['Estimated FTES', summary.ftesClassification.focus.estimatedFtesTotal],
+      ['Estimated FTES Share', summary.ftesClassification.focus.estimatedShare],
+      ['Predicted FTES', summary.ftesClassification.focus.predictedFtesTotal],
+      ['Predicted FTES Share', summary.ftesClassification.focus.predictedShare],
+      ['Unavailable FTES Sections', summary.ftesClassification.focus.unavailableSectionCount],
       ['Calculated / Confirmed FTES', summary.maturity.focus.confirmedFinalFtes],
-      ['Estimated FTES', summary.maturity.focus.estimatedFtes],
+      ['Maturity Estimated FTES', summary.maturity.focus.estimatedFtes],
+      ['Maturity Projected Calculated FTES', summary.maturity.focus.projectedFtes],
       ['Projected Total FTES', summary.maturity.focus.projectedFtes],
       ['Maturity Unknown FTES', summary.maturity.focus.maturityUnknownFtes],
       ['Maturity Unknown Rows', summary.maturity.focus.maturityUnknownRows],
@@ -11479,6 +11822,7 @@
       ...warningRows,
       ...summary.comparisonRows.map(row => exportRow('Focus vs Comparison', row)),
       ...summary.metricComparisonRows.map(row => exportRow('Selected vs Comparison Metrics', row)),
+      ...summary.breakdowns.ftesClassification.map(row => exportRow('FTES Classification Summary', row)),
       ...summary.breakdowns.ftesMaturityStatus.map(row => exportRow('FTES Status Breakdown', row)),
       ...summary.breakdowns.ftesComponents.map(row => exportRow('Selected Term FTES Components', row)),
       ...summary.breakdowns.comparisonFtesComponents.map(row => exportRow('Comparison Term FTES Components', row)),
@@ -23140,6 +23484,20 @@
         runCurrentEnrollmentFtes().catch(err => console.warn(err));
       });
     });
+    [
+      ['cefFtesClassificationFilter', 'classification'],
+      ['cefFtesConfidenceFilter', 'confidence'],
+      ['cefCensusStatusFilter', 'censusStatus']
+    ].forEach(([id, key]) => {
+      document.getElementById(id)?.addEventListener('change', event => {
+        state.currentEnrollmentFtesDetailFilters[key] = event.target.value || 'all';
+        renderCurrentEnrollmentFtesSummary();
+      });
+    });
+    document.getElementById('cefSubjectFilter')?.addEventListener('input', event => {
+      state.currentEnrollmentFtesDetailFilters.subject = event.target.value || '';
+      renderCurrentEnrollmentFtesSummary();
+    });
     document.getElementById('iaFacultyType')?.addEventListener('change', () => {
       populateInstructorAvailabilityFilters(currentRows());
       runInstructorAvailability();
@@ -23534,6 +23892,10 @@
     dashboardScopeWarnings,
     summaryLifecycleAvailability,
     buildCurrentEnrollmentFtesSummary,
+    determineCensusStatus,
+    isHistoricallyPredictedSection,
+    classifySectionFtes,
+    ftesClassificationSummary,
     classifyCurrentEnrollmentFtesMaturity,
     currentEnrollmentFtesMaturitySummary,
     resolveFtesAsOfDate,
