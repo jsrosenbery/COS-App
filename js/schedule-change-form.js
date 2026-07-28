@@ -829,7 +829,15 @@
 
   function scfSelectedFilenameAction(form, data) {
     const checkedActions = getCheckedValues(form, 'action');
-    return scfNormalizeFilenameAction(checkedActions[0], data);
+    const selected = scfNormalizeFilenameAction(checkedActions[0], data);
+    if (selected) return selected;
+    const hasChangeDetail = CHANGE_FIELD_EXPORT_KEYS.some(key => {
+      const current = String(data[key] || '').trim();
+      const changed = String(data[`${key}_changed`] || '').trim();
+      const done = data[`${key}_done`] === scfMark(true);
+      return changed || (done && current);
+    });
+    return hasChangeDetail ? 'Modification' : '';
   }
 
   function scfGenerateFilenameFromData(data, form, extension) {
@@ -839,8 +847,12 @@
     if (typeof deriveBannerTermCode !== 'function') throw new Error('Schedule Change Banner term generator is unavailable.');
     const selectedTerm = getCheckedValues(form, 'term')[0];
     const rawTermCode = data.term_code || data.banner_term_code || data.banner_term || data.termCode;
-    const termCode = rawTermCode || deriveBannerTermCode(selectedTerm, data.year);
+    const termCode = rawTermCode || getBannerTermCode(data.term || data.academic_term || data.term_label) || deriveBannerTermCode(selectedTerm, data.year);
     return generator(termCode, data.crn, scfSelectedFilenameAction(form, data), extension);
+  }
+
+  function isScheduleChangeExportValidationError(error) {
+    return /Schedule Change export (term code|CRN|action|extension) is required/i.test(error?.message || '');
   }
 
   function scfFilenameStem(filename) {
@@ -993,6 +1005,10 @@ async function scfExportPdf(shadow) {
   } catch (e) {
     console.error('[SCF] PDF export failed:', e);
     setExportStatus(shadow, e.message || 'PDF conversion failed.', 'err');
+    if (isScheduleChangeExportValidationError(e)) {
+      alert(e.message);
+      return;
+    }
     alert(
       'PDF export failed while converting the official DOCX form.\n\n' +
       `${e.message || e}\n\n` +
@@ -1047,6 +1063,10 @@ async function scfExportSelected(shadow) {
     console.error('[SCF] Export failed:', e);
     const message = e.message || 'Schedule Change Form export failed.';
     setExportStatus(shadow, message, 'err');
+    if (isScheduleChangeExportValidationError(e)) {
+      alert(message);
+      return;
+    }
     if (mode !== 'docx') {
       alert(
         'PDF export failed while converting the official DOCX form.\n\n' +
@@ -1186,7 +1206,44 @@ async function sendScheduleChangeEmail(shadow) {
   }
 
   function getTermSeason(term) {
-    return ['Spring', 'Summer', 'Fall'].find(season => String(term || '').includes(season)) || '';
+    const value = String(term || '').trim();
+    const labelSeason = ['Spring', 'Summer', 'Fall'].find(season => new RegExp(season, 'i').test(value));
+    if (labelSeason) return labelSeason;
+    const banner = value.match(/\b(\d{4})(10|20|30)\b/);
+    if (!banner) return '';
+    if (banner[2] === '10') return 'Fall';
+    if (banner[2] === '20') return 'Spring';
+    if (banner[2] === '30') return 'Summer';
+    return '';
+  }
+
+  function getTermYear(term) {
+    const value = String(term || '').trim();
+    const banner = value.match(/\b(\d{4})(10|20|30)\b/);
+    if (banner) {
+      const year = Number(banner[1]);
+      if (banner[2] === '10') return String(year - 1);
+      return String(year);
+    }
+    const year = value.match(/\b(20\d{2}|19\d{2})\b/);
+    return year ? year[1] : '';
+  }
+
+  function getBannerTermCode(term) {
+    const value = String(term || '').trim();
+    const banner = value.match(/\b(\d{4}(?:10|20|30))\b/);
+    return banner ? banner[1] : '';
+  }
+
+  function seedScheduleChangeTermDefaults(shadow, getCurrentTerm) {
+    const form = shadow.getElementById('scf');
+    if (!form) return;
+    const term = getCurrentTerm?.() || '';
+    const season = getTermSeason(term);
+    const year = getTermYear(term);
+    if (season && !getCheckedValues(form, 'term').length) setChecked(form, 'term', season);
+    const yearInput = form.elements.year;
+    if (yearInput && !yearInput.value) yearInput.value = year;
   }
 
   function getCampusValue(row) {
@@ -1255,7 +1312,9 @@ async function sendScheduleChangeEmail(shadow) {
     setFieldValue(form, 'Instructor Full Name', instructor);
     setFieldValue(form, 'Banner ID', extractField(row, ['Banner ID', 'Banner_ID', 'Instructor ID']));
 
-    setChecked(form, 'term', getTermSeason(getCurrentTerm?.()));
+    const sourceTerm = extractField(row, ['Term', 'TERM', 'Academic Term']) || getCurrentTerm?.() || '';
+    setChecked(form, 'term', getTermSeason(sourceTerm));
+    if (form.elements.year && !form.elements.year.value) form.elements.year.value = getTermYear(sourceTerm);
     setChecked(form, 'campus', getCampusValue(row));
 
     status.textContent = `Autofilled ${getCourseValue(row) || 'section'} from CRN ${extractField(row, ['CRN'])}.`;
@@ -1333,6 +1392,7 @@ function buildRows(tbody){
 
     function open(){
       resetFormState();
+      seedScheduleChangeTermDefaults(shadow, getCurrentTerm);
       modal.classList.add('open');
       openBtn.setAttribute('aria-expanded','true');
       populateCrnOptions(crnOptions, getScheduleData);

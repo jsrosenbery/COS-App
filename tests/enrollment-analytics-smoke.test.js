@@ -7183,6 +7183,20 @@ test('schedule change filenames derive Banner term code from selected season and
   );
 });
 
+test('schedule change form seeds export filename metadata from current term and change details', () => {
+  const form = fs.readFileSync(path.join(__dirname, '..', 'js/schedule-change-form.js'), 'utf8');
+
+  assert.match(form, /function getTermYear\(term\)/);
+  assert.match(form, /function getBannerTermCode\(term\)/);
+  assert.match(form, /function seedScheduleChangeTermDefaults\(shadow, getCurrentTerm\)/);
+  assert.match(form, /seedScheduleChangeTermDefaults\(shadow, getCurrentTerm\)/);
+  assert.match(form, /form\.elements\.year\.value = getTermYear\(sourceTerm\)/);
+  assert.match(form, /const hasChangeDetail = CHANGE_FIELD_EXPORT_KEYS\.some/);
+  assert.match(form, /return hasChangeDetail \? 'Modification' : ''/);
+  assert.match(form, /function isScheduleChangeExportValidationError\(error\)/);
+  assert.match(form, /if \(isScheduleChangeExportValidationError\(e\)\) \{\s*alert\(message\);\s*return;\s*\}/);
+});
+
 test('schedule change form shows draft-first email UI with mailto fallback', () => {
   const form = fs.readFileSync(path.join(__dirname, '..', 'js/schedule-change-form.js'), 'utf8');
 
