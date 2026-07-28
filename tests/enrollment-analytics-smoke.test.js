@@ -2607,6 +2607,27 @@ test('historical institutional results import detects dynamic term columns and n
   assert.equal(preview.diagnostics.totalsByTerm.find(row => row.termCode === '202610').finalInstitutionalFtes, 6.6);
 });
 
+test('historical institutional results import merges Argos multi-row term and measure headers', () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const table = [
+    ['', '', '', '', '', '', '', '', '', '202410', '202510', '202610'],
+    ['Campus', 'Division', 'Subject', 'Course #', 'CRN', 'Accounting Method', 'Part of Term', 'Enrollment', 'Student Contact Hrs', 'Individual FTES', 'Individual FTES', 'Individual FTES'],
+    ['COS', 'Public Safety', 'FIRE', '100', '12345', 'P', '1', '20', '400', '2', '2.2', '2.4'],
+    ['COS', 'Public Safety', 'FIRE', '101', '12346', 'E', '1', '10', '180', '1', '1.1', '1.2']
+  ];
+
+  const preview = historical.inspectWorkbookTable(table, { filename: 'argos-cube.xlsx', importedAt: '2026-07-28T00:00:00.000Z', importBatchId: 'TEST' });
+
+  assert.equal(preview.valid, true);
+  assert.equal(preview.diagnostics.headerRow, 2);
+  assert.equal(preview.diagnostics.termHeaderRow, 1);
+  assert.deepEqual(preview.diagnostics.detectedTerms, ['202410', '202510', '202610']);
+  assert.deepEqual(preview.diagnostics.detectedFtesColumns.map(column => column.measureHeader), ['Individual FTES', 'Individual FTES', 'Individual FTES']);
+  assert.equal(preview.records.length, 6);
+  const termTotal = preview.records.filter(row => row.termCode === '202510').reduce((sum, row) => sum + row.finalInstitutionalFtes, 0);
+  assert.equal(Math.round(termTotal * 10) / 10, 3.3);
+});
+
 test('historical institutional results handles child inheritance and avoids parent child double counting', () => {
   const historical = require('../js/enrollment/historical-institutional.js');
   const table = [

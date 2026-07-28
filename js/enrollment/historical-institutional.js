@@ -23,13 +23,14 @@
     campus: ['Campus', 'Campus Code', 'Location'],
     division: ['Division', 'Division Name', 'Division ID'],
     subject: ['Subject', 'Subj', 'Subject Code'],
-    courseNumber: ['Course', 'Course Number', 'Course No', 'Catalog Number'],
+    courseNumber: ['Course', 'Course #', 'Course Number', 'Course No', 'Catalog Number'],
     crn: ['CRN', 'Course Reference Number', 'Section CRN'],
     attendanceMethod: ['Accounting Method', 'Attendance Method', 'Attendance Accounting Method', 'Acct Method', 'Accounting'],
     partOfTerm: ['Part of Term', 'Part-Of-Term', 'Part_Of_Term', 'POT', 'PTRM', 'PTRM Code'],
     censusEnrollment: ['Enrollment', 'Census Enrollment', 'Census Enroll', 'Headcount'],
     studentContactHours: ['Student Contact Hrs', 'Student Contact Hours', 'Contact Hours', 'Total Student Contact Hours', 'SCH']
   });
+  const FTES_MEASURE_HEADERS = Object.freeze(['Individual FTES', 'FTES', 'Section FTES']);
   const REQUIRED_FIELDS = ['subject', 'courseNumber', 'attendanceMethod', 'censusEnrollment'];
 
   function clean(value) {
@@ -120,8 +121,21 @@
     return [normalizeSubject(subject), normalizeCourse(courseNumber)].filter(Boolean).join(' ');
   }
 
-  function resolveAliasColumns(headers = []) {
+  function termCodeNear(termHeaders = [], index) {
+    const direct = normalizeTermCode(termHeaders[index]);
+    if (TERM_COLUMN_PATTERN.test(direct)) return direct;
+    for (let offset = 1; offset <= 3; offset += 1) {
+      const left = normalizeTermCode(termHeaders[index - offset]);
+      if (TERM_COLUMN_PATTERN.test(left)) return left;
+      const right = normalizeTermCode(termHeaders[index + offset]);
+      if (TERM_COLUMN_PATTERN.test(right)) return right;
+    }
+    return '';
+  }
+
+  function resolveAliasColumns(headers = [], termHeaders = []) {
     const keys = headers.map(headerKey);
+    const ftesMeasureKeys = FTES_MEASURE_HEADERS.map(headerKey);
     const columnMap = {};
     const ambiguities = [];
     Object.entries(HEADER_ALIASES).forEach(([field, aliases]) => {
@@ -132,20 +146,27 @@
       if (matches.length === 1) columnMap[field] = matches[0];
       if (matches.length > 1) ambiguities.push({ field, columns: matches.map(index => headers[index]) });
     });
-    const termColumns = headers
+    const directTermColumns = headers
       .map((header, index) => ({ header: normalizeTermCode(header), index }))
       .filter(item => TERM_COLUMN_PATTERN.test(item.header));
+    const pairedMeasureColumns = keys
+      .map((key, index) => ftesMeasureKeys.includes(key) ? { header: termCodeNear(termHeaders, index), index, measureHeader: headers[index] } : null)
+      .filter(item => item && TERM_COLUMN_PATTERN.test(item.header));
+    const termColumns = pairedMeasureColumns.length ? pairedMeasureColumns : directTermColumns;
     return { columnMap, ambiguities, termColumns };
   }
 
   function detectHeaderRow(table = []) {
-    let best = { rowIndex: -1, score: -1, headers: [], columnMap: {}, termColumns: [], ambiguities: [] };
+    let best = { rowIndex: -1, termHeaderRowIndex: -1, score: -1, headers: [], termHeaders: [], columnMap: {}, termColumns: [], ambiguities: [] };
     (table || []).forEach((row, rowIndex) => {
       const headers = (row || []).map(clean);
-      const resolved = resolveAliasColumns(headers);
+      const termHeaders = rowIndex > 0 ? (table[rowIndex - 1] || []).map(clean) : [];
+      const resolved = resolveAliasColumns(headers, termHeaders);
       const requiredCount = REQUIRED_FIELDS.filter(field => resolved.columnMap[field] != null).length;
-      const score = requiredCount * 5 + resolved.termColumns.length * 4 + Object.keys(resolved.columnMap).length - resolved.ambiguities.length * 10;
-      if (score > best.score) best = { rowIndex, score, headers, ...resolved };
+      const ftesMeasureKeys = FTES_MEASURE_HEADERS.map(headerKey);
+      const measureCount = headers.filter(header => ftesMeasureKeys.includes(headerKey(header))).length;
+      const score = requiredCount * 5 + resolved.termColumns.length * 4 + measureCount * 2 + Object.keys(resolved.columnMap).length - resolved.ambiguities.length * 10;
+      if (score > best.score) best = { rowIndex, termHeaderRowIndex: termHeaders.length ? rowIndex - 1 : -1, score, headers, termHeaders, ...resolved };
     });
     return best;
   }
@@ -280,8 +301,14 @@
       filename: options.filename || '',
       worksheet: options.worksheet || '',
       headerRow: header.rowIndex >= 0 ? header.rowIndex + 1 : null,
+      termHeaderRow: header.termHeaderRowIndex >= 0 && header.termColumns.length ? header.termHeaderRowIndex + 1 : null,
       detectedHeaders: header.headers.filter(Boolean),
       detectedTerms: header.termColumns.map(term => term.header),
+      detectedFtesColumns: header.termColumns.map(term => ({
+        termCode: term.header,
+        column: term.index + 1,
+        measureHeader: term.measureHeader || term.header
+      })),
       requiredFields: REQUIRED_FIELDS,
       missingRequiredFields: REQUIRED_FIELDS.filter(field => header.columnMap[field] == null),
       ambiguousColumns: header.ambiguities,
