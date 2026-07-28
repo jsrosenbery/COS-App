@@ -37,6 +37,13 @@ function loadEnrollmentModules() {
 }
 
 function loadEnrollmentAnalyticsRuntime() {
+  const storage = new Map();
+  const sessionStorage = {
+    getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+    setItem(key, value) { storage.set(key, String(value)); },
+    removeItem(key) { storage.delete(key); },
+    clear() { storage.clear(); }
+  };
   const context = {
     window: {},
     location: { hostname: 'localhost' },
@@ -46,10 +53,12 @@ function loadEnrollmentAnalyticsRuntime() {
       getElementById() { return null; },
       querySelectorAll() { return []; }
     },
+    sessionStorage,
     console
   };
   context.window.window = context.window;
   context.window.document = context.document;
+  context.window.sessionStorage = sessionStorage;
   vm.createContext(context);
   [...CONFIG_SCRIPTS, ...UTILITY_SCRIPTS, 'js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
@@ -2562,10 +2571,10 @@ test('fall-to-fall FTES explanation separates estimated actual-hours populations
 test('historical pending FTES analysis separates P E POT E work experience and excludes standardized credit', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', partOfTerm: '1', census: 20, ftes: 2, hasDirectFtesData: true }),
-    section({ term: 'FALL 2024', crn: 'E24', subject: 'OPEN', course: '100', accountingMethod: 'E', partOfTerm: '1', census: 10, ftes: 3, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', partOfTerm: '1', census: 20, ftes: 2, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2024', crn: 'E24', subject: 'OPEN', course: '100', accountingMethod: 'E', partOfTerm: '1', census: 10, ftes: 3, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
     section({ term: 'FALL 2025', crn: 'POTE25', subject: 'HIST', course: '100', accountingMethod: 'W', partOfTerm: 'E', census: 15, ftes: 1.5, hasDirectFtesData: true }),
-    section({ term: 'FALL 2025', crn: 'WX25', subject: 'WKEX', course: '020', accountingMethod: 'I', partOfTerm: '1', census: 6, ftes: 1.2, isWorkExperience: true, modality: 'WORK EXPERIENCE', hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'WX25', subject: 'WKEX', course: '020', accountingMethod: 'I', partOfTerm: '1', census: 6, ftes: 1.2, isWorkExperience: true, modality: 'WORK EXPERIENCE', hasDirectFtesData: true, sourceQuality: 'FINAL_WORK_EXPERIENCE' }),
     section({ term: 'FALL 2025', crn: 'STD25', subject: 'MATH', course: '101', accountingMethod: 'W', partOfTerm: '1', census: 30, ftes: 3, hasDirectFtesData: true }),
     section({ term: 'FALL 2026', crn: 'P26', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 22, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' })
   ];
@@ -2577,10 +2586,68 @@ test('historical pending FTES analysis separates P E POT E work experience and e
   assert.equal(history.some(row => row.crn === 'STD25'), false);
 });
 
+test('historical pending FTES visibility uses actual Developer and System Administrator role resolution', () => {
+  const runtime = loadEnrollmentAnalyticsRuntime();
+  const { COSEnrollmentAnalytics } = runtime;
+
+  runtime.sessionStorage.setItem('cos-access-role', 'developer');
+  assert.equal(COSEnrollmentAnalytics.canAccessRole('development'), true);
+  assert.equal(COSEnrollmentAnalytics.canSeeHistoricalPendingFtesAnalysis(), true);
+
+  runtime.sessionStorage.setItem('cos-access-role', 'System Administrator');
+  assert.equal(COSEnrollmentAnalytics.canAccessRole('development'), true);
+  assert.equal(COSEnrollmentAnalytics.canSeeHistoricalPendingFtesAnalysis(), true);
+
+  runtime.sessionStorage.setItem('cos-access-role', 'Dean / Enrollment Management');
+  assert.equal(COSEnrollmentAnalytics.canAccessRole('development'), false);
+  assert.equal(COSEnrollmentAnalytics.canSeeHistoricalPendingFtesAnalysis(), false);
+});
+
+test('historical pending FTES comparable terms use prior same-season archives only', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const terms = ['FALL 2025', 'FALL 2024', 'FALL 2023', 'SPRING 2025', 'FALL 2026', 'FALL 2027', 'SUMMER 2025'];
+
+  assert.equal(JSON.stringify(COSEnrollmentAnalytics.historicalPendingComparableTerms('FALL 2026', terms)), JSON.stringify(['FALL 2025', 'FALL 2024', 'FALL 2023']));
+  assert.equal(JSON.stringify(COSEnrollmentAnalytics.historicalPendingComparableTerms('SPRING 2026', terms)), JSON.stringify(['SPRING 2025']));
+});
+
+test('historical pending FTES source quality blocks estimated projected and formula-calculated training rows', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2025', crn: 'CUBE', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'FINAL_INSTITUTIONAL_ACTUAL' }),
+    section({ term: 'FALL 2025', crn: 'HOURS', subject: 'AUTO', course: '101', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2025', crn: 'FORM', subject: 'AUTO', course: '102', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: false, hasFtesData: true, totalContactHours: 60 }),
+    section({ term: 'FALL 2025', crn: 'EST', subject: 'AUTO', course: '103', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'ESTIMATED' }),
+    section({ term: 'FALL 2025', crn: 'PROJ', subject: 'AUTO', course: '104', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'PROJECTED' }),
+    section({ term: 'FALL 2025', crn: 'EOK', subject: 'OPEN', course: '100', accountingMethod: 'E', partOfTerm: '1', census: 10, ftes: 2, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2025', crn: 'POTE', subject: 'HIST', course: '100', accountingMethod: 'W', partOfTerm: 'E', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'FINAL_DIRECT_SOURCE' }),
+    section({ term: 'FALL 2026', crn: 'CUR', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2027', crn: 'FUT', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2025', crn: 'WXBAD', subject: 'WKEX', course: '020', accountingMethod: 'I', census: 6, ftes: 0.6, isWorkExperience: true, modality: 'WORK EXPERIENCE', hasDirectFtesData: false, hasFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'WXOK', subject: 'WKEX', course: '021', accountingMethod: 'I', census: 6, ftes: 0.7, isWorkExperience: true, modality: 'WORK EXPERIENCE', hasDirectFtesData: true, sourceQuality: 'FINAL_WORK_EXPERIENCE' })
+  ];
+  const inventory = COSEnrollmentAnalytics.pendingFtesHistoricalInventoryRows(rows, { targetTerm: 'FALL 2026' });
+  const eligible = COSEnrollmentAnalytics.pendingFtesHistoricalRows(rows, { targetTerm: 'FALL 2026' });
+  const byCrn = Object.fromEntries(inventory.map(row => [row.crn, row]));
+
+  assert.equal(byCrn.CUBE.historicalSourceQuality, 'FINAL_INSTITUTIONAL_ACTUAL');
+  assert.equal(byCrn.HOURS.historicalSourceQuality, 'FINAL_ACTUAL_HOURS');
+  assert.equal(byCrn.FORM.eligible, false);
+  assert.equal(byCrn.FORM.historicalSourceQuality, 'FORMULA_CALCULATED');
+  assert.equal(byCrn.EST.eligible, false);
+  assert.equal(byCrn.PROJ.eligible, false);
+  assert.equal(byCrn.WXBAD.eligible, false);
+  assert.equal(byCrn.WXOK.historicalSourceQuality, 'FINAL_WORK_EXPERIENCE');
+  assert.equal(inventory.some(row => row.crn === 'POTE'), false);
+  assert.equal(inventory.some(row => row.crn === 'CUR'), false);
+  assert.equal(inventory.some(row => row.crn === 'FUT'), false);
+  assert.equal(JSON.stringify(eligible.map(row => row.crn).sort()), JSON.stringify(['CUBE', 'EOK', 'HOURS', 'WXOK'].sort()));
+});
+
 test('historical pending FTES analysis excludes current term as historical actual data', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 20, ftes: 2, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 20, ftes: 2, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
     section({ term: 'FALL 2026', crn: 'P26A', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 30, ftes: 3, hasDirectFtesData: true }),
     section({ term: 'FALL 2026', crn: 'P26B', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 24, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' })
   ];
@@ -2596,10 +2663,10 @@ test('historical pending FTES analysis excludes current term as historical actua
 test('historical pending FTES analysis applies course subject population and insufficient fallback hierarchy', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    section({ term: 'FALL 2023', crn: 'M10123', subject: 'MATH', course: '101', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true }),
-    section({ term: 'FALL 2024', crn: 'M10124', subject: 'MATH', course: '101', accountingMethod: 'P', census: 20, ftes: 2, hasDirectFtesData: true }),
-    section({ term: 'FALL 2025', crn: 'M10225', subject: 'MATH', course: '102', accountingMethod: 'P', census: 30, ftes: 6, hasDirectFtesData: true }),
-    section({ term: 'FALL 2025', crn: 'ART25', subject: 'ART', course: '010', accountingMethod: 'P', census: 40, ftes: 4, hasDirectFtesData: true }),
+    section({ term: 'FALL 2023', crn: 'M10123', subject: 'MATH', course: '101', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2024', crn: 'M10124', subject: 'MATH', course: '101', accountingMethod: 'P', census: 20, ftes: 2, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2025', crn: 'M10225', subject: 'MATH', course: '102', accountingMethod: 'P', census: 30, ftes: 6, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2025', crn: 'ART25', subject: 'ART', course: '010', accountingMethod: 'P', census: 40, ftes: 4, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
     section({ term: 'FALL 2026', crn: 'C', subject: 'MATH', course: '101', accountingMethod: 'P', census: 12, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
     section({ term: 'FALL 2026', crn: 'S', subject: 'MATH', course: '999', accountingMethod: 'P', census: 12, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
     section({ term: 'FALL 2026', crn: 'I', subject: 'BIOL', course: '999', accountingMethod: 'E', census: 12, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' })
@@ -2615,10 +2682,10 @@ test('historical pending FTES analysis applies course subject population and ins
 test('historical pending FTES analysis backtests simple and weighted averages', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = COSEnrollmentAnalytics.pendingFtesHistoricalRows([
-    section({ term: 'FALL 2022', crn: 'P22', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true }),
-    section({ term: 'FALL 2023', crn: 'P23', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.2, hasDirectFtesData: true }),
-    section({ term: 'FALL 2024', crn: 'P24', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.4, hasDirectFtesData: true }),
-    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.6, hasDirectFtesData: true })
+    section({ term: 'FALL 2022', crn: 'P22', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2023', crn: 'P23', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.2, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2024', crn: 'P24', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.4, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.6, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' })
   ], { targetTerm: 'FALL 2026' });
   const simple = COSEnrollmentAnalytics.pendingFtesBacktest(rows, 'simple');
   const weighted = COSEnrollmentAnalytics.pendingFtesBacktest(rows, 'weighted');
@@ -2632,9 +2699,9 @@ test('historical pending FTES analysis backtests simple and weighted averages', 
 test('historical pending FTES analysis reports confidence outliers ranges and does not mutate production FTES', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    section({ term: 'FALL 2023', crn: 'P23', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true }),
-    section({ term: 'FALL 2024', crn: 'P24', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.1, hasDirectFtesData: true }),
-    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 5, hasDirectFtesData: true }),
+    section({ term: 'FALL 2023', crn: 'P23', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2024', crn: 'P24', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 1.1, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 10, ftes: 5, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
     section({ term: 'FALL 2026', crn: 'P26', subject: 'AUTO', course: '100', accountingMethod: 'P', census: 20, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
     section({ term: 'FALL 2026', crn: 'STD26', subject: 'MATH', course: '101', accountingMethod: 'W', census: 20, ftes: 2, standardizedHours: 54, hasDirectFtesData: true })
   ];
@@ -2647,7 +2714,8 @@ test('historical pending FTES analysis reports confidence outliers ranges and do
   assert.ok(simulation.upperEstimate > simulation.lowerEstimate);
   assert.notEqual(simulation.confidence, 'INSUFFICIENT DATA');
   assert.deepEqual(rows.map(row => row.ftes), before);
-  assert.ok(exportRows.every(row => /DIAGNOSTIC|INSUFFICIENT/.test(row.diagnosticNotes)));
+  assert.ok(exportRows.some(row => row.rowType === 'Diagnostic Simulation' && row.historicalSourceQuality === 'FINAL_ACTUAL_HOURS'));
+  assert.ok(exportRows.some(row => row.rowType === 'Diagnostic Total Projection'));
   assert.equal(Number(analysis.summary.establishedFtes.toFixed(6)), Number(((54 * 20) / 525).toFixed(6)));
 });
 
@@ -5055,8 +5123,8 @@ test('current enrollment and FTES report replaces manual snapshot controls', () 
 test('current enrollment and FTES exposes historical pending FTES diagnostic coverage', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '120', accountingMethod: 'P', census: 20, ftes: 2, hasDirectFtesData: true }),
-    section({ term: 'FALL 2025', crn: 'E25', subject: 'OPEN', course: '100', accountingMethod: 'E', census: 10, ftes: 3, hasDirectFtesData: true }),
+    section({ term: 'FALL 2025', crn: 'P25', subject: 'AUTO', course: '120', accountingMethod: 'P', census: 20, ftes: 2, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
+    section({ term: 'FALL 2025', crn: 'E25', subject: 'OPEN', course: '100', accountingMethod: 'E', census: 10, ftes: 3, hasDirectFtesData: true, sourceQuality: 'FINAL_ACTUAL_HOURS' }),
     section({ term: 'FALL 2026', crn: 'P26', subject: 'AUTO', course: '120', accountingMethod: 'P', census: 30, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
     section({ term: 'FALL 2026', crn: 'E26', subject: 'OPEN', course: '100', accountingMethod: 'E', census: 12, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
     section({ term: 'FALL 2026', crn: 'WX26', subject: 'WKEX', course: '020', accountingMethod: 'I', census: 6, ftes: 0, isWorkExperience: true, modality: 'WORK EXPERIENCE', hasDirectFtesData: false, hasFtesData: false, ftesMaturity: 'Work Experience Pending Final' })
@@ -5066,12 +5134,32 @@ test('current enrollment and FTES exposes historical pending FTES diagnostic cov
 
   assert.equal(summary.pendingFtesAnalysis.summary.actualHoursPendingSections, 3);
   assert.equal(summary.pendingFtesAnalysis.summary.actualHoursPendingEnrollment, 48);
-  assert.equal(coverage.P.status, 'Historical basis available');
-  assert.equal(coverage.E.status, 'Historical basis available');
-  assert.equal(coverage['Work Experience'].status, 'Insufficient Historical Data');
+  assert.equal(coverage.P.status, 'LOW CONFIDENCE - SINGLE TERM BASIS');
+  assert.equal(coverage.E.status, 'LOW CONFIDENCE - SINGLE TERM BASIS');
+  assert.equal(coverage['Work Experience'].status, 'INSUFFICIENT FINAL HISTORICAL DATA');
   assert.ok(summary.pendingFtesAnalysis.simulationRows.some(row => row.population === 'P' && row.predictedFtes > 0));
   assert.ok(summary.pendingFtesAnalysis.simulationRows.some(row => row.population === 'E' && row.predictedFtes > 0));
   assert.ok(summary.pendingFtesAnalysis.simulationRows.some(row => row.population === 'Work Experience' && row.confidence === 'INSUFFICIENT DATA'));
+});
+
+test('current enrollment pending FTES diagnostic still reports insufficient state with zero history', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2026', crn: 'P26', subject: 'AUTO', course: '120', accountingMethod: 'P', census: 30, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' }),
+    section({ term: 'FALL 2026', crn: 'E26', subject: 'OPEN', course: '100', accountingMethod: 'E', census: 12, ftes: 0, hasDirectFtesData: false, ftesMaturity: 'Actual Hours Pending' })
+  ];
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026' });
+  const coverage = Object.fromEntries(summary.pendingFtesAnalysis.populationCoverage.map(row => [row.population, row]));
+  const exportRows = COSEnrollmentAnalytics.historicalPendingFtesAnalysisExportRows(summary.pendingFtesAnalysis);
+
+  assert.equal(summary.pendingFtesAnalysis.summary.actualHoursPendingSections, 2);
+  assert.equal(summary.pendingFtesAnalysis.summary.actualHoursPendingEnrollment, 42);
+  assert.equal(coverage.P.status, 'INSUFFICIENT FINAL HISTORICAL DATA');
+  assert.equal(coverage.E.status, 'INSUFFICIENT FINAL HISTORICAL DATA');
+  assert.equal(coverage['Work Experience'].status, 'NO CURRENT PENDING POPULATION');
+  assert.ok(summary.pendingFtesAnalysis.simulationRows.every(row => row.confidence === 'INSUFFICIENT DATA'));
+  assert.ok(exportRows.some(row => row.rowType === 'Population Summary' && row.predictionMethod === 'INSUFFICIENT FINAL HISTORICAL DATA'));
+  assert.ok(exportRows.some(row => row.rowType === 'Diagnostic Total Projection'));
 });
 
 test('current enrollment and FTES comparison defaults to exact prior-year like term only', () => {

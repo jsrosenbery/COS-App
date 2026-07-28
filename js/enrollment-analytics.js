@@ -10931,6 +10931,8 @@
         comparisonWorkExperienceRows: comparison.workExperienceRows,
         selectedDualEnrollmentRows: focus.dualEnrollmentRows,
         comparisonDualEnrollmentRows: comparison.dualEnrollmentRows,
+        pendingFtesDiagnosticArchiveTerms: (options.pendingFtesDiagnosticArchiveLoad?.terms || []).join('; '),
+        pendingFtesDiagnosticArchiveFailures: (options.pendingFtesDiagnosticArchiveLoad?.results || []).filter(result => result.failed).map(result => `${result.term}: ${result.error}`).join('; '),
         selectedEffectiveAsOfDate: focusAsOf.display,
         selectedEffectiveAsOfDateSource: focusAsOf.source,
         comparisonEffectiveAsOfDate: comparisonAsOf.display,
@@ -11075,6 +11077,42 @@
       .sort((a, b) => termSortValue(b) - termSortValue(a))[0] || '';
   }
 
+  function historicalPendingComparableTerms(targetTerm, terms = [], limit = 3) {
+    const target = termParts(targetTerm);
+    if (!target.season || !target.year) return [];
+    return [...new Set((terms || []).map(normalizeTermLabel).filter(Boolean))]
+      .filter(term => {
+        const parts = termParts(term);
+        return parts.season === target.season && parts.year && parts.year < target.year;
+      })
+      .sort((a, b) => termSortValue(b) - termSortValue(a))
+      .slice(0, limit);
+  }
+
+  async function loadHistoricalPendingFtesDiagnosticRows(targetTerm, options = {}) {
+    const comparableTerms = historicalPendingComparableTerms(targetTerm, state.archivedAnalyticsTerms || [], options.limit || 3);
+    if (!comparableTerms.length || !window.BACKEND_BASE_URL) return { terms: comparableTerms, rows: [], results: [] };
+    const results = await Promise.all(comparableTerms.map(async term => {
+      try {
+        const sectionRows = await fetchArchivedTermRows(term, 'Historical Pending FTES Analysis');
+        const workRows = options.includeWorkExperience === false ? [] : await loadWorkExperienceTermRows(term).catch(() => []);
+        return {
+          term,
+          rows: dedupeEnrollmentRows([...sectionRows.map(normalize), ...workRows]),
+          failed: false,
+          error: ''
+        };
+      } catch (err) {
+        return { term, rows: [], failed: true, error: err?.message || String(err) };
+      }
+    }));
+    return {
+      terms: comparableTerms,
+      results,
+      rows: dedupeEnrollmentRows(results.flatMap(result => result.rows || []))
+    };
+  }
+
   function syncCurrentEnrollmentFtesComparisonToPriorYear() {
     const focus = document.getElementById('cefFocusTerm');
     const compare = document.getElementById('cefCompareTerm');
@@ -11111,11 +11149,17 @@
       ...termRows,
       ...matchingWorkRows
     ]);
-    state.currentEnrollmentFtesSummary = buildCurrentEnrollmentFtesSummary(rows, {
+    const diagnosticHistory = await loadHistoricalPendingFtesDiagnosticRows(focusTerm, {
+      includeWorkExperience: includeWorkExperience('cef'),
+      limit: 3
+    }).catch(err => ({ terms: [], rows: [], results: [{ term: focusTerm, rows: [], failed: true, error: err?.message || String(err) }] }));
+    const diagnosticRows = dedupeEnrollmentRows([...rows, ...(diagnosticHistory.rows || [])]);
+    state.currentEnrollmentFtesSummary = buildCurrentEnrollmentFtesSummary(diagnosticRows, {
       focusTerm,
       comparisonTerm,
       includeWorkExperience: includeWorkExperience('cef'),
-      includeDualEnrollment: document.getElementById('cefIncludeDualEnrollment')?.checked !== false
+      includeDualEnrollment: document.getElementById('cefIncludeDualEnrollment')?.checked !== false,
+      pendingFtesDiagnosticArchiveLoad: diagnosticHistory
     });
     renderCurrentEnrollmentFtesSummary();
   }
@@ -11207,7 +11251,7 @@
     }
     const breakdowns = document.getElementById('snapshotBreakdowns');
     if (breakdowns) {
-      const pendingFtesAnalysis = canAccessRole('development') ? (summary.pendingFtesAnalysis || buildHistoricalPendingFtesAnalysis([], { targetTerm: summary.focusTerm || 'FALL 2026' })) : null;
+      const pendingFtesAnalysis = canSeeHistoricalPendingFtesAnalysis() ? (summary.pendingFtesAnalysis || buildHistoricalPendingFtesAnalysis([], { targetTerm: summary.focusTerm || 'FALL 2026' })) : null;
       state.currentEnrollmentFtesPendingAnalysisExportRows = pendingFtesAnalysis ? historicalPendingFtesAnalysisExportRows(pendingFtesAnalysis) : [];
       breakdowns.innerHTML = [
         historicalPendingFtesAnalysisPanel(pendingFtesAnalysis),
@@ -17209,42 +17253,125 @@
     return [row.subject, row.course].filter(Boolean).join(' ') || 'UNKNOWN';
   }
 
-  function pendingFtesIsHistoricalFinal(row = {}, options = {}) {
-    const population = pendingFtesPopulation(row);
-    if (!population) return false;
+  const PENDING_FTES_ELIGIBLE_SOURCE_QUALITIES = new Set([
+    'FINAL_INSTITUTIONAL_ACTUAL',
+    'FINAL_DIRECT_SOURCE',
+    'FINAL_ACTUAL_HOURS',
+    'FINAL_WORK_EXPERIENCE'
+  ]);
+
+  const PENDING_FTES_BLOCKED_SOURCE_QUALITIES = new Set([
+    'ESTIMATED',
+    'PROJECTED',
+    'FORMULA_CALCULATED'
+  ]);
+
+  function pendingFtesRawProvenance(row = {}) {
+    const raw = row.raw || {};
+    return canon([
+      row.ftesSourceQuality,
+      row.sourceQuality,
+      row.ftesSource,
+      row.sourceType,
+      raw.FTES_SOURCE_QUALITY,
+      raw['FTES Source Quality'],
+      raw.SOURCE_QUALITY,
+      raw['Source Quality'],
+      raw.FTES_SOURCE,
+      raw['FTES Source'],
+      raw.SOURCE_TYPE,
+      raw['Source Type'],
+      raw.__sourceType,
+      raw.__sourceFileName,
+      row.sourceFileName
+    ].filter(Boolean).join(' '));
+  }
+
+  function pendingFtesHistoricalTermEligible(row = {}, options = {}) {
     const parts = termParts(row.term);
     const target = termParts(options.targetTerm || 'FALL 2026');
     if (!parts.year || !parts.season) return false;
     if (termSortValue(row.term) >= termSortValue(options.targetTerm || 'FALL 2026')) return false;
     if (target.season && parts.season !== target.season && options.sameSeasonOnly !== false) return false;
-    if (row.ftesUnavailable || currentEnrollmentFtesUnavailable(row)) return false;
-    return Number(row.ftes || 0) > 0 && ftesBridgeEnrollment(row) > 0;
+    return true;
+  }
+
+  function pendingFtesHistoricalSourceQuality(row = {}, options = {}) {
+    const population = pendingFtesPopulation(row);
+    if (!population) return 'UNAVAILABLE';
+    if (row.ftesUnavailable || currentEnrollmentFtesUnavailable(row)) return 'UNAVAILABLE';
+    const provenance = pendingFtesRawProvenance(row);
+    if (/PROJECT|PROJECTION|FORECAST/.test(provenance)) return 'PROJECTED';
+    if (/ESTIMAT|PENDING|PROVISIONAL|CURRENT|PRE.?CENSUS|SNAPSHOT/.test(provenance) && !/FINAL/.test(provenance)) return 'ESTIMATED';
+    if (/INSTITUTIONAL|CUBE|EQB|320|APPORTIONMENT|AUTHORITATIVE/.test(provenance)) return 'FINAL_INSTITUTIONAL_ACTUAL';
+    if (/FINAL.*ACTUAL.*HOUR|ACTUAL.*HOUR.*FINAL|COMPLETED.*HOUR|FINAL.*ATTENDANCE/.test(provenance)) return 'FINAL_ACTUAL_HOURS';
+    if (population === 'Work Experience') {
+      if (/WORK.*EXPERIENCE.*FINAL|FINAL.*WORK.*EXPERIENCE|COMPLETED.*WORK/.test(provenance)) return 'FINAL_WORK_EXPERIENCE';
+      if (row.hasDirectFtesData && /WORK EXPERIENCE/.test(provenance)) return 'FINAL_WORK_EXPERIENCE';
+      if (row.hasFtesData) return row.hasDirectFtesData ? 'FINAL_DIRECT_SOURCE' : 'FORMULA_CALCULATED';
+      return 'UNAVAILABLE';
+    }
+    if (['P', 'E'].includes(population)) {
+      if (row.hasDirectFtesData && /FINAL|ACTUAL|INSTITUTIONAL|CUBE|EQB|320|APPORTIONMENT|AUTHORITATIVE/.test(provenance)) return 'FINAL_DIRECT_SOURCE';
+      if (row.hasDirectFtesData && options.assumeHistoricalDirectFtesIsFinal === true) return 'FINAL_DIRECT_SOURCE';
+      if (row.hasFtesData) return 'FORMULA_CALCULATED';
+      return 'UNAVAILABLE';
+    }
+    if (row.hasDirectFtesData) return 'FINAL_DIRECT_SOURCE';
+    if (row.hasFtesData) return 'FORMULA_CALCULATED';
+    return 'UNAVAILABLE';
+  }
+
+  function pendingFtesHistoricalExclusionReason(row = {}, sourceQuality = '') {
+    const population = pendingFtesPopulation(row);
+    if (!population) return 'Not a pending actual-hours population.';
+    if (sourceQuality === 'UNAVAILABLE') return 'Historical FTES is unavailable or lacks required source data.';
+    if (sourceQuality === 'FORMULA_CALCULATED' && ['P', 'E'].includes(population)) return `Historical ${population} FTES exists but final actual-hours provenance cannot be verified.`;
+    if (sourceQuality === 'FORMULA_CALCULATED' && population === 'Work Experience') return 'Historical Work Experience FTES exists but final Work Experience source provenance cannot be verified.';
+    if (sourceQuality === 'FORMULA_CALCULATED') return 'Formula-calculated historical FTES is not allowed as pending FTES training data.';
+    if (sourceQuality === 'ESTIMATED') return 'Estimated historical FTES is not allowed as pending FTES training data.';
+    if (sourceQuality === 'PROJECTED') return 'Projected historical FTES is not allowed as pending FTES training data.';
+    return 'Historical source quality is not eligible as final actual training data.';
+  }
+
+  function pendingFtesHistoricalInventoryRows(rows = [], options = {}) {
+    return dedupeEnrollmentRows(rows || [])
+      .filter(row => pendingFtesPopulation(row))
+      .filter(row => pendingFtesHistoricalTermEligible(row, options))
+      .map(row => {
+        const sourceQuality = pendingFtesHistoricalSourceQuality(row, options);
+        const enrollment = ftesBridgeEnrollment(row);
+        const finalFtes = Number(row.sourceFtes ?? row.ftes ?? 0);
+        const eligible = PENDING_FTES_ELIGIBLE_SOURCE_QUALITIES.has(sourceQuality) && finalFtes > 0 && enrollment > 0;
+        return {
+          term: row.term,
+          termSort: termSortValue(row.term),
+          population: pendingFtesPopulation(row),
+          crn: row.crn,
+          subject: row.subject,
+          course: row.course,
+          section: row.section,
+          courseKey: pendingFtesCourseKey(row),
+          accountingMethod: ftesBridgeAccountingMethod(row),
+          partOfTerm: ftesBridgePartOfTerm(row),
+          enrollment,
+          units: row.units || 0,
+          enrolledUnits: enrollment * Number(row.units || 0),
+          finalFtes,
+          actualHours: row.totalContactHours || row.standardizedHours || '',
+          workExperienceData: row.isWorkExperience ? (row.sourceFileName || row.sourceType || 'Work Experience source') : '',
+          ftesPerEnrollment: safeDiv(finalFtes, enrollment),
+          ftesPerEnrolledUnit: safeDiv(finalFtes, enrollment * Number(row.units || 0)),
+          ftesPerSection: finalFtes,
+          historicalSourceQuality: sourceQuality,
+          eligible,
+          excludedReason: eligible ? '' : pendingFtesHistoricalExclusionReason(row, sourceQuality)
+        };
+      });
   }
 
   function pendingFtesHistoricalRows(rows = [], options = {}) {
-    return dedupeEnrollmentRows(rows || [])
-      .filter(row => pendingFtesIsHistoricalFinal(row, options))
-      .map(row => ({
-        term: row.term,
-        termSort: termSortValue(row.term),
-        population: pendingFtesPopulation(row),
-        crn: row.crn,
-        subject: row.subject,
-        course: row.course,
-        section: row.section,
-        courseKey: pendingFtesCourseKey(row),
-        accountingMethod: ftesBridgeAccountingMethod(row),
-        partOfTerm: ftesBridgePartOfTerm(row),
-        enrollment: ftesBridgeEnrollment(row),
-        units: row.units || 0,
-        enrolledUnits: ftesBridgeEnrollment(row) * Number(row.units || 0),
-        finalFtes: Number(row.ftes || 0),
-        actualHours: row.totalContactHours || row.standardizedHours || '',
-        workExperienceData: row.isWorkExperience ? (row.sourceFileName || row.sourceType || 'Work Experience source') : '',
-        ftesPerEnrollment: safeDiv(Number(row.ftes || 0), ftesBridgeEnrollment(row)),
-        ftesPerEnrolledUnit: safeDiv(Number(row.ftes || 0), ftesBridgeEnrollment(row) * Number(row.units || 0)),
-        ftesPerSection: Number(row.ftes || 0)
-      }));
+    return pendingFtesHistoricalInventoryRows(rows, options).filter(row => row.eligible);
   }
 
   function pendingFtesAvailableTerms(rows = [], options = {}) {
@@ -17328,7 +17455,8 @@
     if (!stats.observations || fallbackLevel === 'INSUFFICIENT') return 'INSUFFICIENT DATA';
     const avgError = average(backtests.map(row => row.percentageError).filter(value => value != null));
     const stable = (stats.coefficientOfVariation || 0) <= 0.15;
-    if (fallbackLevel === 'COURSE' && stats.historicalTermsUsed >= 3 && stable && avgError <= 0.05) return 'HIGH';
+    if (stats.historicalTermsUsed === 1) return 'LOW CONFIDENCE - SINGLE TERM BASIS';
+    if (fallbackLevel === 'COURSE' && stats.historicalTermsUsed >= 3 && stable && avgError <= 0.05 && backtests.length >= 2) return 'HIGH';
     if (stats.historicalTermsUsed >= 2 && avgError <= 0.1 && (stats.coefficientOfVariation || 0) <= 0.3) return 'MEDIUM';
     return 'LOW';
   }
@@ -17363,7 +17491,12 @@
       { fallbackLevel: 'SUBJECT', rows: sameTermPopulation.filter(item => item.subject === row.subject) },
       { fallbackLevel: 'POPULATION', rows: sameTermPopulation }
     ];
-    const basis = levels.find(level => pendingFtesYieldStats(level.rows).observations >= (level.fallbackLevel === 'POPULATION' ? 2 : 1));
+    const basis = levels.find(level => {
+      const stats = pendingFtesYieldStats(level.rows);
+      if (!stats.observations) return false;
+      if (stats.historicalTermsUsed === 1) return true;
+      return stats.historicalTermsUsed >= 2;
+    });
     if (!basis) return { fallbackLevel: 'INSUFFICIENT', stats: pendingFtesYieldStats([]), yield: 0, backtests: [], confidence: 'INSUFFICIENT DATA' };
     const stats = pendingFtesYieldStats(basis.rows);
     const simpleBacktests = pendingFtesBacktest(basis.rows, 'simple');
@@ -17398,6 +17531,9 @@
           course: row.course,
           currentEnrollment: enrollment,
           historicalTermsUsed: basis.stats.terms?.join('; ') || '',
+          historicalSourceQuality: [...new Set((basis.rows || []).map(item => item.historicalSourceQuality).filter(Boolean))].join('; '),
+          eligibleHistoricalRows: basis.stats.observations || 0,
+          excludedHistoricalRows: '',
           historicalEnrollments: basis.stats.historicalEnrollments || '',
           historicalFtes: basis.stats.historicalFtes || '',
           historicalYield: basis.yield || 0,
@@ -17418,7 +17554,8 @@
   function buildHistoricalPendingFtesAnalysis(rows = [], options = {}) {
     const targetTerm = normalizeTermLabel(options.targetTerm || 'FALL 2026');
     const allRows = dedupeEnrollmentRows(rows || []);
-    const history = pendingFtesHistoricalRows(allRows, { targetTerm });
+    const inventory = pendingFtesHistoricalInventoryRows(allRows, { targetTerm });
+    const history = inventory.filter(row => row.eligible);
     const simulationRows = pendingFtesSimulationRows(allRows, { targetTerm });
     const targetRows = allRows.filter(row => normalizeTermLabel(row.term) === targetTerm);
     const isPendingTargetRow = row => pendingFtesPopulation(row) && (!row.hasDirectFtesData || row.ftesUnavailable || /PENDING|ESTIMATED|UNAVAILABLE/.test(canon(row.ftesMaturity || row.ftesWarning || '')));
@@ -17429,21 +17566,37 @@
     const upper = establishedFtes + sum(simulationRows.filter(row => row.upperEstimate != null), 'upperEstimate');
     const populationCoverage = ['P', 'E', 'Work Experience'].map(population => {
       const current = targetPendingRows.filter(row => pendingFtesPopulation(row) === population);
-      const historical = history.filter(row => row.population === population);
+      const found = inventory.filter(row => row.population === population);
+      const historical = found.filter(row => row.eligible);
+      const excluded = found.filter(row => !row.eligible);
+      const comparableTerms = [...new Set(historical.map(row => row.term))].sort((a, b) => termSortValue(b) - termSortValue(a));
       return {
         population,
         targetPendingSections: demandDistinctCrnCount(current),
         targetPendingEnrollment: enrollmentTotal(current),
+        historicalRowsFound: found.length,
+        eligibleFinalRows: historical.length,
+        excludedRows: excluded.length,
+        comparableTerms: comparableTerms.join('; '),
+        historicalTermsFound: [...new Set(found.map(row => row.term))].sort((a, b) => termSortValue(b) - termSortValue(a)).join('; '),
         historicalFinalRows: historical.length,
-        historicalTerms: [...new Set(historical.map(row => row.term))].sort((a, b) => termSortValue(b) - termSortValue(a)).join('; '),
-        status: current.length && historical.length
-          ? 'Historical basis available'
-          : current.length
-            ? 'Insufficient Historical Data'
+        historicalTerms: comparableTerms.join('; '),
+        reasonExcluded: [...new Set(excluded.map(row => row.excludedReason).filter(Boolean))].join('; '),
+        status: !current.length
+          ? 'NO CURRENT PENDING POPULATION'
+          : historical.length && comparableTerms.length === 1
+            ? 'LOW CONFIDENCE - SINGLE TERM BASIS'
             : historical.length
-              ? 'History found; no current pending rows'
-              : 'No current pending rows or historical actuals'
+              ? 'HISTORICAL BASIS AVAILABLE'
+              : 'INSUFFICIENT FINAL HISTORICAL DATA'
       };
+    });
+    simulationRows.forEach(row => {
+      const excluded = inventory.filter(item => item.population === row.population && !item.eligible);
+      row.excludedHistoricalRows = excluded.length;
+      if (excluded.length && row.diagnosticNotes) {
+        row.diagnosticNotes = `${row.diagnosticNotes} Excluded historical rows: ${[...new Set(excluded.map(item => item.excludedReason).filter(Boolean))].join('; ')}`;
+      }
     });
     const populationRows = [...group(history, row => row.population).entries()].map(([population, groupRows]) => {
       const simple = pendingFtesBacktest(groupRows, 'simple');
@@ -17470,6 +17623,7 @@
     return {
       targetTerm,
       historicalRows: history,
+      historicalInventoryRows: inventory,
       availableTerms: pendingFtesAvailableTerms(allRows, { targetTerm }),
       populationRows,
       outliers: pendingFtesOutlierRows(history),
@@ -17493,13 +17647,41 @@
   }
 
   function historicalPendingFtesAnalysisExportRows(analysis = {}) {
-    return (analysis.simulationRows || []).map(row => ({
+    const rows = [];
+    (analysis.populationCoverage || []).forEach(row => rows.push({
+      rowType: 'Population Summary',
+      population: row.population,
+      term: analysis.targetTerm || '',
+      subject: '',
+      course: '',
+      crn: '',
+      currentEnrollment: row.targetPendingEnrollment,
+      historicalTermsUsed: row.comparableTerms || row.historicalTerms || '',
+      historicalSourceQuality: '',
+      eligibleHistoricalRows: row.eligibleFinalRows,
+      excludedHistoricalRows: row.excludedRows,
+      historicalYield: '',
+      predictionMethod: row.status,
+      predictedFtes: '',
+      lowerEstimate: '',
+      upperEstimate: '',
+      confidence: row.status,
+      backtestError: '',
+      fallbackLevel: '',
+      diagnosticNotes: row.reasonExcluded || ''
+    }));
+    (analysis.simulationRows || []).forEach(row => rows.push({
+      rowType: 'Diagnostic Simulation',
       term: row.term,
       population: row.population,
       subject: row.subject,
       course: row.course,
+      crn: row.crn,
       currentEnrollment: row.currentEnrollment,
       historicalTermsUsed: row.historicalTermsUsed,
+      historicalSourceQuality: row.historicalSourceQuality,
+      eligibleHistoricalRows: row.eligibleHistoricalRows,
+      excludedHistoricalRows: row.excludedHistoricalRows,
       historicalEnrollments: row.historicalEnrollments,
       historicalFtes: row.historicalFtes,
       historicalYield: row.historicalYield,
@@ -17512,6 +17694,30 @@
       fallbackLevel: row.fallbackLevel,
       diagnosticNotes: row.diagnosticNotes
     }));
+    const summary = analysis.summary || {};
+    rows.push({
+      rowType: 'Diagnostic Total Projection',
+      population: 'All Pending Populations',
+      term: analysis.targetTerm || '',
+      subject: '',
+      course: '',
+      crn: '',
+      currentEnrollment: summary.actualHoursPendingEnrollment || 0,
+      historicalTermsUsed: '',
+      historicalSourceQuality: '',
+      eligibleHistoricalRows: (analysis.historicalRows || []).length,
+      excludedHistoricalRows: (analysis.historicalInventoryRows || []).filter(row => !row.eligible).length,
+      historicalYield: '',
+      predictionMethod: 'DIAGNOSTIC SIMULATION - NOT PRODUCTION FTES',
+      predictedFtes: summary.simulatedProjectedTotalFtes || 0,
+      lowerEstimate: summary.lowerEstimate,
+      upperEstimate: summary.upperEstimate,
+      confidence: summary.overallConfidence || '',
+      backtestError: '',
+      fallbackLevel: '',
+      diagnosticNotes: summary.note || ''
+    });
+    return rows;
   }
 
   function ftesBridgeYieldRows(rows = [], keyer = () => 'UNKNOWN', groupLabel = 'Group') {
@@ -18536,7 +18742,7 @@
         ${analyticsTableMarkup(summaryRows, ['metric', 'value'])}
         <section data-collapsible-title="Population Coverage" data-collapsible-id="pending-ftes-population-coverage" data-collapsible-default-open="true">
           <h3>Population Coverage</h3>
-          ${analyticsTableMarkup(analysis.populationCoverage || [], ['population', 'targetPendingSections', 'targetPendingEnrollment', 'historicalFinalRows', 'historicalTerms', 'status'])}
+          ${analyticsTableMarkup(analysis.populationCoverage || [], ['population', 'targetPendingSections', 'targetPendingEnrollment', 'historicalRowsFound', 'eligibleFinalRows', 'excludedRows', 'comparableTerms', 'status', 'reasonExcluded'])}
         </section>
         <section data-collapsible-title="Recommended Hierarchy and Confidence" data-collapsible-id="pending-ftes-hierarchy-confidence" data-collapsible-default-open="true">
           <h3>Recommended Hierarchy and Confidence</h3>
@@ -18554,7 +18760,7 @@
         </section>
         <section data-collapsible-title="Diagnostic Simulation Rows" data-collapsible-id="pending-ftes-simulation-rows" data-collapsible-default-open="false">
           <h3>Diagnostic Simulation Rows</h3>
-          ${analyticsTableMarkup(analysis.simulationRows || [], ['term', 'population', 'crn', 'subject', 'course', 'currentEnrollment', 'historicalTermsUsed', 'historicalEnrollments', 'historicalFtes', 'historicalYield', 'predictionMethod', 'predictedFtes', 'lowerEstimate', 'upperEstimate', 'confidence', 'backtestError', 'fallbackLevel', 'diagnosticNotes'])}
+          ${analyticsTableMarkup(analysis.simulationRows || [], ['term', 'population', 'crn', 'subject', 'course', 'currentEnrollment', 'historicalTermsUsed', 'historicalSourceQuality', 'eligibleHistoricalRows', 'excludedHistoricalRows', 'historicalYield', 'predictionMethod', 'predictedFtes', 'lowerEstimate', 'upperEstimate', 'confidence', 'backtestError', 'fallbackLevel', 'diagnosticNotes'])}
         </section>
         <section data-collapsible-title="Historical Outliers" data-collapsible-id="pending-ftes-outliers" data-collapsible-default-open="false">
           <h3>Historical Outliers</h3>
@@ -21382,6 +21588,7 @@
     if (key === 'divisionchair' || key === 'divchair' || key === 'administrativeassistant') return 'divchair';
     if (key === 'deanenrollmentmanagement' || key === 'enrollmentmanagement') return 'dean';
     if (key === 'developer') return 'development';
+    if (key === 'systemadministrator' || key === 'systemadmin' || key === 'sysadmin') return 'admin';
     return ROLE_LEVEL[key] ? key : 'general';
   }
 
@@ -21420,6 +21627,11 @@
 
   function canAccessRole(requiredRole) {
     return ROLE_LEVEL[currentAccessRole()] >= ROLE_LEVEL[normalizeRole(requiredRole)];
+  }
+
+  function canSeeHistoricalPendingFtesAnalysis(role = currentAccessRole()) {
+    const normalized = normalizeRole(role);
+    return normalized === 'development' || normalized === 'admin';
   }
 
   function canAccess(reportName) {
@@ -22627,6 +22839,7 @@
     showCensus2: SHOW_CENSUS2,
     normalizeRole,
     canAccessRole,
+    canSeeHistoricalPendingFtesAnalysis,
     canAccess,
     normalizeRow: normalize,
     getSectionApplicableContactHours,
@@ -22699,6 +22912,8 @@
     currentEnrollmentFtesMaturitySummary,
     resolveFtesAsOfDate,
     previousLikeTerm,
+    historicalPendingComparableTerms,
+    loadHistoricalPendingFtesDiagnosticRows,
     normalizeInstitutionalCubeRows,
     detectInstitutionalCubeHeader,
     institutionalCubeObjectsFromTable,
@@ -22773,6 +22988,8 @@
     buildAttendanceFormulaAudit,
     attendanceFormulaAuditExportRows,
     pendingFtesPopulation,
+    pendingFtesHistoricalSourceQuality,
+    pendingFtesHistoricalInventoryRows,
     pendingFtesHistoricalRows,
     pendingFtesAvailableTerms,
     pendingFtesBacktest,
