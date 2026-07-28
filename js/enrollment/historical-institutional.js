@@ -191,11 +191,40 @@
   }
 
   function termFtesValues(row = {}, termColumns = []) {
-    return termColumns.map(term => ({ termCode: term.header, ftes: numberValue(row[term.header]) }));
+    return termColumns.map(term => {
+      const rawValue = clean(row[term.header]);
+      const ftes = numberValue(rawValue);
+      return {
+        termCode: term.header,
+        rawValue,
+        ftes,
+        hasNumericFtes: ftes != null,
+        hasMeaningfulFtes: ftes != null && ftes !== 0
+      };
+    });
   }
 
   function rowHasAnyFtes(row = {}, termColumns = []) {
     return termFtesValues(row, termColumns).some(item => item.ftes != null);
+  }
+
+  function recordTotalsByTerm(records = [], detectedTerms = []) {
+    const byTerm = {};
+    detectedTerms.forEach(termCode => {
+      byTerm[termCode] = { termCode, censusEnrollment: 0, finalInstitutionalFtes: 0, records: 0 };
+    });
+    records.forEach(record => {
+      byTerm[record.termCode] ||= { termCode: record.termCode, censusEnrollment: 0, finalInstitutionalFtes: 0, records: 0 };
+      byTerm[record.termCode].censusEnrollment += Number(record.censusEnrollment || 0);
+      byTerm[record.termCode].finalInstitutionalFtes += Number(record.finalInstitutionalFtes || 0);
+      byTerm[record.termCode].records += 1;
+    });
+    return byTerm;
+  }
+
+  function equalNumericSeries(values = [], tolerance = 0.000001) {
+    if (values.length < 2) return false;
+    return values.every(value => Math.abs(Number(value || 0) - Number(values[0] || 0)) <= tolerance);
   }
 
   function inheritRow(parent = {}, child = {}) {
@@ -265,19 +294,34 @@
       }
       if (!clean(row.crn)) diagnostics.missingCrnRows += 1;
       if (numberValue(row.censusEnrollment) == null) diagnostics.missingEnrollmentRows += 1;
-      termFtesValues(row, header.termColumns).forEach(termValue => {
+      const termValues = termFtesValues(row, header.termColumns);
+      termValues.forEach(termValue => {
+        if (termValue.hasNumericFtes) {
+          diagnostics.rawTermFtesTotalsMap[termValue.termCode] ||= 0;
+          diagnostics.rawTermFtesTotalsMap[termValue.termCode] += termValue.ftes;
+        }
+      });
+      const populatedTermValues = termValues.filter(termValue => termValue.hasMeaningfulFtes);
+      diagnostics.sourceRowsWithPopulatedFtes += populatedTermValues.length ? 1 : 0;
+      diagnostics.zeroOrBlankFtesCells += termValues.length - populatedTermValues.length;
+      if (numberValue(row.censusEnrollment) != null && populatedTermValues.length === header.termColumns.length && header.termColumns.length > 1) {
+        diagnostics.rowsWithEnrollmentAllDetectedTerms += 1;
+      }
+      termValues.forEach(termValue => {
+        if (!termValue.hasMeaningfulFtes) {
+          if (termValue.hasNumericFtes && termValue.ftes === 0) diagnostics.zeroFtesRows += 1;
+          return;
+        }
         const hasUsefulIdentity = hasIdentity(row) || numberValue(row.censusEnrollment) != null;
-        if (termValue.ftes == null && !hasUsefulIdentity) return;
-        if (termValue.ftes == null) return;
+        if (!hasUsefulIdentity) return;
         const record = makeRecord(row, termValue.termCode, termValue.ftes, {
           ...context,
           sourceRowNumber: item.sourceRowNumber,
           hierarchyRole: childRows.length ? 'child' : 'explicit',
           detailClassification: item.detail,
-          validationStatus: termValue.ftes === 0 ? 'REVIEW_ZERO_FTES' : 'VALID'
+          validationStatus: 'VALID'
         });
         record.recordIdentity = stableRecordIdentity(record);
-        if (record.finalInstitutionalFtes === 0) diagnostics.zeroFtesRows += 1;
         if (item.detail === 'child-detail-inherited') diagnostics.inheritedCrnRows += clean(record.crn) ? 1 : 0;
         else if (clean(record.crn)) diagnostics.explicitCrnRows += 1;
         diagnostics.normalizedRecords += 1;
@@ -321,6 +365,11 @@
       excludedRows: 0,
       ambiguousRows: 0,
       zeroFtesRows: 0,
+      zeroOrBlankFtesCells: 0,
+      recordsFromZeroOrBlankFtesCells: 0,
+      sourceRowsWithPopulatedFtes: 0,
+      rowsWithEnrollmentAllDetectedTerms: 0,
+      rowsWithEnrollmentCopiedToUnpopulatedTerms: 0,
       missingEnrollmentRows: 0,
       missingCrnRows: 0,
       terms: new Set(),
@@ -332,6 +381,8 @@
       errors: [],
       warnings: []
     };
+    diagnostics.rawTermFtesTotalsMap = {};
+    header.termColumns.forEach(term => { diagnostics.rawTermFtesTotalsMap[term.header] = 0; });
     if (header.rowIndex < 0) diagnostics.errors.push('Missing header row.');
     if (!header.termColumns.length) diagnostics.errors.push('No term-specific FTES columns were detected.');
     diagnostics.missingRequiredFields.forEach(field => diagnostics.errors.push(`Missing required column: ${field}.`));
@@ -367,17 +418,50 @@
       importBatchId,
       importedAt
     }, diagnostics));
+    diagnostics.rawTermFtesTotals = Object.entries(diagnostics.rawTermFtesTotalsMap)
+      .map(([termCode, finalInstitutionalFtes]) => ({ termCode, finalInstitutionalFtes: round(finalInstitutionalFtes) }))
+      .sort((a, b) => a.termCode.localeCompare(b.termCode));
+    validatePreviewDiagnostics(diagnostics, header);
     return finalizePreview(diagnostics, diagnostics.records);
   }
 
-  function finalizePreview(diagnostics, records) {
-    const byTerm = {};
-    records.forEach(record => {
-      byTerm[record.termCode] ||= { termCode: record.termCode, censusEnrollment: 0, finalInstitutionalFtes: 0, records: 0 };
-      byTerm[record.termCode].censusEnrollment += Number(record.censusEnrollment || 0);
-      byTerm[record.termCode].finalInstitutionalFtes += Number(record.finalInstitutionalFtes || 0);
-      byTerm[record.termCode].records += 1;
+  function validatePreviewDiagnostics(diagnostics, header) {
+    const detectedTerms = header.termColumns.map(term => term.header);
+    const byTerm = recordTotalsByTerm(diagnostics.records, detectedTerms);
+    const termTotals = detectedTerms.map(termCode => byTerm[termCode] || { termCode, censusEnrollment: 0, finalInstitutionalFtes: 0, records: 0 });
+    const populatedTermTotals = termTotals.filter(term => term.records > 0);
+    if (detectedTerms.length > 1 && populatedTermTotals.length === detectedTerms.length && equalNumericSeries(populatedTermTotals.map(term => term.records), 0)) {
+      diagnostics.errors.push('Blocking validation: every detected term has the same normalized record count. This usually indicates row-level data were copied across all term columns.');
+    }
+    if (detectedTerms.length > 1 && populatedTermTotals.length === detectedTerms.length && equalNumericSeries(populatedTermTotals.map(term => term.censusEnrollment))) {
+      diagnostics.errors.push('Blocking validation: every detected term has the same normalized census enrollment total. Verify enrollment was not copied across all term columns.');
+    }
+    if (diagnostics.recordsFromZeroOrBlankFtesCells > diagnostics.normalizedRecords * 0.5) {
+      diagnostics.errors.push('Blocking validation: more than 50% of normalized records were generated from zero or blank FTES cells.');
+    }
+    if (diagnostics.rowsWithEnrollmentCopiedToUnpopulatedTerms > 0) {
+      diagnostics.errors.push('Blocking validation: row-level enrollment was copied to detected terms whose Individual FTES cell was blank or zero.');
+    }
+    const rawByTerm = new Map((diagnostics.rawTermFtesTotals || []).map(item => [item.termCode, item.finalInstitutionalFtes]));
+    diagnostics.ftesReconciliation = termTotals.map(term => {
+      const sourceFtes = Number(rawByTerm.get(term.termCode) || 0);
+      const normalizedFtes = Number(term.finalInstitutionalFtes || 0);
+      return {
+        termCode: term.termCode,
+        sourceFtes: round(sourceFtes),
+        normalizedFtes: round(normalizedFtes),
+        variance: round(normalizedFtes - sourceFtes)
+      };
     });
+    diagnostics.ftesReconciliation.forEach(item => {
+      if (Math.abs(item.variance) > 0.000001) {
+        diagnostics.errors.push(`Blocking validation: normalized FTES for ${item.termCode} differs from the raw workbook term-column total by ${item.variance}.`);
+      }
+    });
+  }
+
+  function finalizePreview(diagnostics, records) {
+    const byTerm = recordTotalsByTerm(records, diagnostics.detectedTerms || []);
     return {
       valid: !diagnostics.errors.length,
       records,
@@ -389,6 +473,7 @@
         attendanceMethods: [...diagnostics.attendanceMethods].filter(Boolean).sort(),
         uniqueCrns: [...diagnostics.uniqueCrns].filter(Boolean).sort(),
         totalsByTerm: Object.values(byTerm).sort((a, b) => a.termCode.localeCompare(b.termCode)),
+        rawTermFtesTotalsMap: undefined,
         records: undefined
       }
     };

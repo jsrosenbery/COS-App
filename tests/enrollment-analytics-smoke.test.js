@@ -2601,10 +2601,12 @@ test('historical institutional results import detects dynamic term columns and n
 
   assert.equal(preview.valid, true);
   assert.deepEqual(preview.diagnostics.detectedTerms, ['202410', '202510', '202610']);
-  assert.equal(preview.records.length, 9);
+  assert.equal(preview.records.length, 8);
   assert.equal(preview.records.every(row => row.sourceQuality === 'FINAL_INSTITUTIONAL_ACTUAL'), true);
-  assert.equal(preview.records.some(row => row.validationStatus === 'REVIEW_ZERO_FTES'), true);
+  assert.equal(preview.records.some(row => row.validationStatus === 'REVIEW_ZERO_FTES'), false);
+  assert.equal(preview.records.some(row => row.termCode === '202410' && row.crn === '22345'), false);
   assert.equal(preview.diagnostics.totalsByTerm.find(row => row.termCode === '202610').finalInstitutionalFtes, 6.6);
+  assert.equal(preview.diagnostics.ftesReconciliation.every(row => row.variance === 0), true);
 });
 
 test('historical institutional results import merges Argos multi-row term and measure headers', () => {
@@ -2612,8 +2614,8 @@ test('historical institutional results import merges Argos multi-row term and me
   const table = [
     ['', '', '', '', '', '', '', '', '', '202410', '202510', '202610'],
     ['Campus', 'Division', 'Subject', 'Course #', 'CRN', 'Accounting Method', 'Part of Term', 'Enrollment', 'Student Contact Hrs', 'Individual FTES', 'Individual FTES', 'Individual FTES'],
-    ['COS', 'Public Safety', 'FIRE', '100', '12345', 'P', '1', '20', '400', '2', '2.2', '2.4'],
-    ['COS', 'Public Safety', 'FIRE', '101', '12346', 'E', '1', '10', '180', '1', '1.1', '1.2']
+    ['COS', 'Public Safety', 'FIRE', '100', '12345', 'P', '1', '20', '400', '2', '2.2', ''],
+    ['COS', 'Public Safety', 'FIRE', '101', '12346', 'E', '1', '10', '180', '0', '1.1', '1.2']
   ];
 
   const preview = historical.inspectWorkbookTable(table, { filename: 'argos-cube.xlsx', importedAt: '2026-07-28T00:00:00.000Z', importBatchId: 'TEST' });
@@ -2623,9 +2625,30 @@ test('historical institutional results import merges Argos multi-row term and me
   assert.equal(preview.diagnostics.termHeaderRow, 1);
   assert.deepEqual(preview.diagnostics.detectedTerms, ['202410', '202510', '202610']);
   assert.deepEqual(preview.diagnostics.detectedFtesColumns.map(column => column.measureHeader), ['Individual FTES', 'Individual FTES', 'Individual FTES']);
-  assert.equal(preview.records.length, 6);
+  assert.equal(preview.records.length, 4);
+  assert.equal(preview.records.some(row => row.termCode === '202410' && row.crn === '12346'), false);
+  assert.equal(preview.records.some(row => row.termCode === '202610' && row.crn === '12345'), false);
   const termTotal = preview.records.filter(row => row.termCode === '202510').reduce((sum, row) => sum + row.finalInstitutionalFtes, 0);
   assert.equal(Math.round(termTotal * 10) / 10, 3.3);
+  assert.equal(preview.diagnostics.totalsByTerm.find(row => row.termCode === '202410').censusEnrollment, 20);
+  assert.equal(preview.diagnostics.totalsByTerm.find(row => row.termCode === '202510').censusEnrollment, 30);
+  assert.equal(preview.diagnostics.totalsByTerm.find(row => row.termCode === '202610').censusEnrollment, 10);
+  assert.equal(preview.diagnostics.ftesReconciliation.every(row => row.variance === 0), true);
+});
+
+test('historical institutional results import blocks suspicious all-term enrollment replication', () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const table = [
+    ['Campus', 'Division', 'Subject', 'Course', 'CRN', 'Accounting Method', 'Part of Term', 'Enrollment', 'Student Contact Hrs', '202410', '202510', '202610'],
+    ['COS', 'Public Safety', 'FIRE', '100', '12345', 'P', '1', '20', '400', '2', '2.2', '2.4'],
+    ['COS', 'Public Safety', 'FIRE', '101', '12346', 'E', '1', '10', '180', '1', '1.1', '1.2']
+  ];
+
+  const preview = historical.inspectWorkbookTable(table, { filename: 'copied-terms.xlsx', importedAt: '2026-07-28T00:00:00.000Z', importBatchId: 'TEST' });
+
+  assert.equal(preview.valid, false);
+  assert.match(preview.diagnostics.errors.join(' '), /same normalized record count/);
+  assert.match(preview.diagnostics.errors.join(' '), /same normalized census enrollment total/);
 });
 
 test('historical institutional results handles child inheritance and avoids parent child double counting', () => {
