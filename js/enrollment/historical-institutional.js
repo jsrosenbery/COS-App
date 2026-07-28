@@ -7,6 +7,8 @@
   'use strict';
 
   const STORAGE_KEY = 'cos-historical-institutional-results-v1';
+  const DB_NAME = 'timber-historical-institutional-results';
+  const DB_VERSION = 1;
   const MODEL_VERSION = 'historical-institutional-yield-v1';
   const SOURCE = 'INSTITUTIONAL_CUBE';
   const SOURCE_QUALITY = 'FINAL_INSTITUTIONAL_ACTUAL';
@@ -287,6 +289,463 @@
     ].join('|');
   }
 
+  function stableRecordId(record = {}) {
+    return stableRecordIdentity(record)
+      .split('|')
+      .map(part => encodeURIComponent(clean(part)))
+      .join('|');
+  }
+
+  function requestPromise(request) {
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('IndexedDB request failed.'));
+    });
+  }
+
+  function transactionPromise(tx) {
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted.'));
+      tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed.'));
+    });
+  }
+
+  function createStoreIfMissing(db, tx, name, options) {
+    return db.objectStoreNames.contains(name) ? tx.objectStore(name) : db.createObjectStore(name, options);
+  }
+
+  function createIndexIfMissing(store, name, keyPath, options = {}) {
+    if (!store.indexNames.contains(name)) store.createIndex(name, keyPath, options);
+  }
+
+  function upgradeHistoricalDatabase(db, tx) {
+    const records = createStoreIfMissing(db, tx, 'historicalRecords', { keyPath: 'recordId' });
+    createIndexIfMissing(records, 'termCode', 'termCode');
+    createIndexIfMissing(records, 'crn', 'crn');
+    createIndexIfMissing(records, 'subject', 'subject');
+    createIndexIfMissing(records, 'courseKey', 'courseKey');
+    createIndexIfMissing(records, 'division', 'division');
+    createIndexIfMissing(records, 'attendanceMethod', 'attendanceMethod');
+    createIndexIfMissing(records, 'partOfTerm', 'partOfTerm');
+    createIndexIfMissing(records, 'importBatchId', 'importBatchId');
+    createIndexIfMissing(records, 'validationStatus', 'validationStatus');
+    createIndexIfMissing(records, 'sourceQuality', 'sourceQuality');
+    createIndexIfMissing(records, 'season', 'season');
+    createIndexIfMissing(records, 'termAttendance', ['termCode', 'attendanceMethod']);
+    createIndexIfMissing(records, 'termSubject', ['termCode', 'subject']);
+    createIndexIfMissing(records, 'termCourse', ['termCode', 'courseKey']);
+    createIndexIfMissing(records, 'subjectAttendance', ['subject', 'attendanceMethod']);
+    createIndexIfMissing(records, 'courseAttendance', ['courseKey', 'attendanceMethod']);
+
+    const batches = createStoreIfMissing(db, tx, 'importBatches', { keyPath: 'importBatchId' });
+    createIndexIfMissing(batches, 'importedAt', 'importedAt');
+    createIndexIfMissing(batches, 'originalFilename', 'filename');
+    createIndexIfMissing(batches, 'status', 'validationStatus');
+
+    const aggregates = createStoreIfMissing(db, tx, 'historicalModelAggregates', { keyPath: 'aggregateId' });
+    createIndexIfMissing(aggregates, 'modelLevel', 'modelLevel');
+    createIndexIfMissing(aggregates, 'groupKey', 'groupKey');
+    createIndexIfMissing(aggregates, 'season', 'season');
+    createIndexIfMissing(aggregates, 'attendanceMethod', 'attendanceMethod');
+    createIndexIfMissing(aggregates, 'modelVersion', 'modelVersion');
+    createStoreIfMissing(db, tx, 'metadata', { keyPath: 'key' });
+  }
+
+  function classifyStorageError(error = {}) {
+    const name = error?.name || '';
+    if (name === 'QuotaExceededError') return 'Storage quota exhausted. No partial import was saved.';
+    if (name === 'VersionError') return 'Historical database upgrade failed. Close other TIMBER tabs and reload.';
+    if (name === 'AbortError') return 'Historical database transaction was aborted. No partial import was saved.';
+    if (name === 'InvalidStateError') return 'Browser storage is unavailable or the database connection is closed.';
+    if (name === 'UnknownError') return 'Browser storage is unavailable or blocked. No partial import was saved.';
+    return 'TIMBER could not save the historical institutional dataset because browser storage is unavailable or full. No partial import was saved.';
+  }
+
+  function createIndexedDbRepository(scope = (typeof window !== 'undefined' ? window : globalThis), options = {}) {
+    const indexedDB = scope?.indexedDB;
+    const IDBKeyRangeRef = scope?.IDBKeyRange || globalThis.IDBKeyRange;
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+    let db = null;
+    let initialized = false;
+    let initializing = null;
+    let lastError = '';
+    let lastSuccessfulTransaction = '';
+    let migrationStatus = 'not-started';
+
+    function ensureIndexedDb() {
+      if (!indexedDB?.open || !IDBKeyRangeRef?.only) {
+        const error = new Error('IndexedDB is unavailable in this browser context.');
+        error.name = 'InvalidStateError';
+        throw error;
+      }
+    }
+
+    function openDatabase() {
+      ensureIndexedDb();
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = event => upgradeHistoricalDatabase(event.target.result, event.target.transaction);
+        request.onblocked = () => {
+          lastError = 'TIMBER needs to update its historical database. Close other TIMBER tabs and reload this page.';
+          reject(new Error(lastError));
+        };
+        request.onerror = () => {
+          lastError = classifyStorageError(request.error);
+          reject(request.error || new Error(lastError));
+        };
+        request.onsuccess = () => {
+          db = request.result;
+          db.onversionchange = () => {
+            db.close();
+            db = null;
+            initialized = false;
+            lastError = 'Historical database version changed. Reload TIMBER to continue.';
+          };
+          resolve(db);
+        };
+      });
+    }
+
+    function putMetadata(store, key, value) {
+      store.put({ key, value, updatedAt: new Date().toISOString() });
+    }
+
+    async function initialize() {
+      if (initialized && db) return db;
+      if (initializing) return initializing;
+      initializing = openDatabase()
+        .then(async active => {
+          initialized = true;
+          await migrateLegacyLocalStorage();
+          return active;
+        })
+        .catch(error => {
+          lastError = classifyStorageError(error);
+          throw error;
+        })
+        .finally(() => { initializing = null; });
+      return initializing;
+    }
+
+    function decorateRecord(record = {}) {
+      return { ...record, recordIdentity: record.recordIdentity || stableRecordIdentity(record), recordId: record.recordId || stableRecordId(record) };
+    }
+
+    function batchFromPreview(preview = {}, options = {}) {
+      const records = preview.records || [];
+      const diagnostics = preview.diagnostics || {};
+      const terms = [...new Set(records.map(record => record.termCode).filter(Boolean))].sort();
+      return {
+        importBatchId: records[0]?.importBatchId || `HIR-${Date.now()}`,
+        filename: diagnostics.filename || records[0]?.originalFilename || '',
+        importedBy: options.importedBy || '',
+        importedAt: records[0]?.importedAt || new Date().toISOString(),
+        termsIncluded: terms,
+        recordsAdded: records.length,
+        recordsReplaced: 0,
+        recordsExcluded: diagnostics.excludedRows || 0,
+        uniqueCrns: diagnostics.uniqueCrns?.length || 0,
+        validationWarnings: diagnostics.warnings || [],
+        validationErrors: diagnostics.errors || [],
+        validationStatus: preview.valid ? 'VALID' : 'ERROR',
+        totalsByTerm: diagnostics.totalsByTerm || [],
+        reconciliation: diagnostics.ftesReconciliation || [],
+        importAction: options.mode || 'replace-selected-terms',
+        replacedTerms: options.terms || terms,
+        modelVersion: MODEL_VERSION
+      };
+    }
+
+    function putRecordsInTransaction(tx, records = []) {
+      const store = tx.objectStore('historicalRecords');
+      let written = 0;
+      records.forEach(record => {
+        const request = store.put(decorateRecord(record));
+        request.onsuccess = () => {
+          written += 1;
+          if (written === records.length || written % 500 === 0) {
+            onProgress({ status: 'writing-records', written, total: records.length, message: `Writing ${written} of ${records.length} historical records...` });
+          }
+        };
+      });
+    }
+
+    function queueDeleteRecordsByValues(store, indexName, values = [], onDone, onError) {
+      const targets = [...values];
+      let targetIndex = 0;
+      const nextTarget = () => {
+        if (targetIndex >= targets.length) {
+          onDone();
+          return;
+        }
+        const request = store.index(indexName).openCursor(IDBKeyRangeRef.only(targets[targetIndex]));
+        request.onerror = () => onError(request.error || new Error(`Failed to delete records by ${indexName}.`));
+        request.onsuccess = event => {
+          const cursor = event.target.result;
+          if (cursor) {
+            cursor.delete();
+            cursor.continue();
+          } else {
+            targetIndex += 1;
+            nextTarget();
+          }
+        };
+      };
+      nextTarget();
+    }
+
+    async function saveImportBatch(batch, records = []) {
+      const active = await initialize();
+      const tx = active.transaction(['historicalRecords', 'importBatches', 'metadata'], 'readwrite');
+      onProgress({ status: 'preparing-import', written: 0, total: records.length, message: 'Preparing historical import...' });
+      putRecordsInTransaction(tx, records);
+      tx.objectStore('importBatches').put(batch);
+      const metadata = tx.objectStore('metadata');
+      putMetadata(metadata, 'schemaVersion', DB_VERSION);
+      putMetadata(metadata, 'activeModelVersion', MODEL_VERSION);
+      putMetadata(metadata, 'lastSuccessfulImport', batch);
+      putMetadata(metadata, 'lastSuccessfulTransaction', { type: 'saveImportBatch', importBatchId: batch.importBatchId, at: new Date().toISOString() });
+      await transactionPromise(tx);
+      lastSuccessfulTransaction = `saveImportBatch:${batch.importBatchId}`;
+      onProgress({ status: 'finalizing', written: records.length, total: records.length, message: 'Historical import finalized.' });
+      await scope?.navigator?.storage?.persist?.();
+    }
+
+    async function replaceTerms(batch, records = [], termCodes = []) {
+      const active = await initialize();
+      const terms = [...new Set((termCodes.length ? termCodes : records.map(record => record.termCode)).filter(Boolean))];
+      const tx = active.transaction(['historicalRecords', 'importBatches', 'metadata'], 'readwrite');
+      onProgress({ status: 'preparing-import', written: 0, total: records.length, message: 'Preparing term replacement...' });
+      const recordStore = tx.objectStore('historicalRecords');
+      await new Promise((resolve, reject) => {
+        queueDeleteRecordsByValues(recordStore, 'termCode', terms, () => {
+          putRecordsInTransaction(tx, records);
+          tx.objectStore('importBatches').put({ ...batch, replacedTerms: terms });
+          const metadata = tx.objectStore('metadata');
+          putMetadata(metadata, 'schemaVersion', DB_VERSION);
+          putMetadata(metadata, 'activeModelVersion', MODEL_VERSION);
+          putMetadata(metadata, 'lastSuccessfulImport', { ...batch, replacedTerms: terms });
+          putMetadata(metadata, 'lastSuccessfulTransaction', { type: 'replaceTerms', importBatchId: batch.importBatchId, terms, at: new Date().toISOString() });
+          resolve();
+        }, reject);
+      });
+      await transactionPromise(tx);
+      lastSuccessfulTransaction = `replaceTerms:${batch.importBatchId}`;
+      onProgress({ status: 'finalizing', written: records.length, total: records.length, message: 'Historical term replacement finalized.' });
+      await scope?.navigator?.storage?.persist?.();
+    }
+
+    async function commitImport(preview, options = {}) {
+      if (!preview?.valid) throw new Error('Historical Institutional Results import contains blocking validation errors.');
+      const batch = batchFromPreview(preview, options);
+      const records = (preview.records || []).map(decorateRecord);
+      if ((options.mode || 'replace-selected-terms') === 'append') await saveImportBatch(batch, records);
+      else await replaceTerms(batch, records, options.terms?.length ? options.terms.map(normalizeTermCode) : batch.termsIncluded);
+      return load();
+    }
+
+    async function getAllRecords() {
+      const active = await initialize();
+      return requestPromise(active.transaction('historicalRecords', 'readonly').objectStore('historicalRecords').getAll());
+    }
+
+    async function getByIndex(indexName, value) {
+      const active = await initialize();
+      return requestPromise(active.transaction('historicalRecords', 'readonly').objectStore('historicalRecords').index(indexName).getAll(value));
+    }
+
+    async function getRecordsByTerm(termCode) {
+      return getByIndex('termCode', normalizeTermCode(termCode));
+    }
+
+    async function getRecordsByTerms(termCodes = []) {
+      const groups = await Promise.all([...new Set(termCodes.map(normalizeTermCode).filter(Boolean))].map(getRecordsByTerm));
+      return groups.flat();
+    }
+
+    async function getRecordCount() {
+      const active = await initialize();
+      return requestPromise(active.transaction('historicalRecords', 'readonly').objectStore('historicalRecords').count());
+    }
+
+    async function getImportBatches() {
+      const active = await initialize();
+      const rows = await requestPromise(active.transaction('importBatches', 'readonly').objectStore('importBatches').getAll());
+      return rows.sort((a, b) => String(a.importedAt || '').localeCompare(String(b.importedAt || '')));
+    }
+
+    async function getImportBatch(importBatchId) {
+      const active = await initialize();
+      return requestPromise(active.transaction('importBatches', 'readonly').objectStore('importBatches').get(importBatchId));
+    }
+
+    async function deleteImportBatch(importBatchId) {
+      const active = await initialize();
+      const tx = active.transaction(['historicalRecords', 'importBatches', 'metadata'], 'readwrite');
+      await new Promise((resolve, reject) => {
+        queueDeleteRecordsByValues(tx.objectStore('historicalRecords'), 'importBatchId', [importBatchId], () => {
+          tx.objectStore('importBatches').delete(importBatchId);
+          putMetadata(tx.objectStore('metadata'), 'lastSuccessfulTransaction', { type: 'deleteImportBatch', importBatchId, at: new Date().toISOString() });
+          resolve();
+        }, reject);
+      });
+      await transactionPromise(tx);
+      lastSuccessfulTransaction = `deleteImportBatch:${importBatchId}`;
+    }
+
+    async function clearAll() {
+      const active = await initialize();
+      const tx = active.transaction(['historicalRecords', 'importBatches', 'historicalModelAggregates', 'metadata'], 'readwrite');
+      tx.objectStore('historicalRecords').clear();
+      tx.objectStore('importBatches').clear();
+      tx.objectStore('historicalModelAggregates').clear();
+      tx.objectStore('metadata').clear();
+      await transactionPromise(tx);
+      lastSuccessfulTransaction = 'clearAll';
+    }
+
+    async function load() {
+      const [records, batches] = await Promise.all([getAllRecords(), getImportBatches()]);
+      return { version: 1, records, batches, updatedAt: new Date().toISOString() };
+    }
+
+    async function previewDifferences(records = []) {
+      const existing = await getAllRecords();
+      const legacy = createRepository({
+        getItem() { return JSON.stringify({ records: existing, batches: [] }); },
+        setItem() {},
+        removeItem() {}
+      });
+      return legacy.previewDifferences(records);
+    }
+
+    async function metadataEntries() {
+      const active = await initialize();
+      const rows = await requestPromise(active.transaction('metadata', 'readonly').objectStore('metadata').getAll());
+      return Object.fromEntries(rows.map(row => [row.key, row.value]));
+    }
+
+    async function storageDiagnostics() {
+      const active = await initialize();
+      const [recordCount, batches, metadata, estimate, persistent] = await Promise.all([
+        getRecordCount(),
+        getImportBatches(),
+        metadataEntries(),
+        scope?.navigator?.storage?.estimate?.().catch(() => null),
+        scope?.navigator?.storage?.persisted?.().catch(() => null)
+      ]);
+      return {
+        databaseName: DB_NAME,
+        databaseVersion: active.version,
+        objectStores: Array.from(active.objectStoreNames || []),
+        historicalRecordCount: recordCount,
+        importBatchCount: batches.length,
+        aggregateCount: 0,
+        storageUsage: estimate?.usage ?? null,
+        storageQuota: estimate?.quota ?? null,
+        persistentStorageGranted: persistent,
+        indexedDbAvailable: true,
+        legacyMigrationStatus: migrationStatus,
+        lastSuccessfulTransaction,
+        lastDatabaseError: lastError,
+        metadata
+      };
+    }
+
+    async function exportBackup() {
+      const [records, importBatches, metadata] = await Promise.all([getAllRecords(), getImportBatches(), metadataEntries()]);
+      return { schemaVersion: DB_VERSION, exportedAt: new Date().toISOString(), records, importBatches, metadata, modelAggregates: [] };
+    }
+
+    async function migrateLegacyLocalStorage() {
+      const storage = scope?.localStorage;
+      if (!storage?.getItem || !storage?.removeItem) {
+        migrationStatus = 'no-local-storage';
+        return;
+      }
+      const active = db;
+      const existingMigration = await requestPromise(active.transaction('metadata', 'readonly').objectStore('metadata').get('legacyMigrationStatus'));
+      if (existingMigration?.value === 'complete' || existingMigration?.value === 'no-legacy-data') {
+        migrationStatus = existingMigration.value;
+        return;
+      }
+      const raw = storage.getItem(STORAGE_KEY);
+      if (!raw) {
+        const tx = active.transaction('metadata', 'readwrite');
+        putMetadata(tx.objectStore('metadata'), 'legacyMigrationStatus', 'no-legacy-data');
+        await transactionPromise(tx);
+        migrationStatus = 'no-legacy-data';
+        return;
+      }
+      let legacy;
+      try {
+        legacy = JSON.parse(raw);
+      } catch (_err) {
+        const tx = active.transaction('metadata', 'readwrite');
+        putMetadata(tx.objectStore('metadata'), 'legacyMigrationStatus', 'invalid-preserved');
+        await transactionPromise(tx);
+        migrationStatus = 'invalid-preserved';
+        return;
+      }
+      if (!legacy || !Array.isArray(legacy.records)) {
+        const tx = active.transaction('metadata', 'readwrite');
+        putMetadata(tx.objectStore('metadata'), 'legacyMigrationStatus', 'unrecognized-preserved');
+        await transactionPromise(tx);
+        migrationStatus = 'unrecognized-preserved';
+        return;
+      }
+      const records = legacy.records.map(decorateRecord);
+      const batch = {
+        importBatchId: legacy.batches?.[0]?.importBatchId || `LEGACY-${Date.now()}`,
+        filename: legacy.batches?.[0]?.filename || 'Migrated legacy localStorage historical results',
+        importedAt: legacy.batches?.[0]?.importedAt || new Date().toISOString(),
+        importedBy: legacy.batches?.[0]?.importedBy || '',
+        termsIncluded: [...new Set(records.map(record => record.termCode).filter(Boolean))].sort(),
+        recordsAdded: records.length,
+        validationStatus: 'VALID',
+        validationWarnings: ['Migrated from legacy localStorage payload.'],
+        importAction: 'legacy-migration',
+        modelVersion: MODEL_VERSION
+      };
+      await saveImportBatch(batch, records);
+      const count = await getRecordCount();
+      if (count >= records.length) {
+        storage.removeItem(STORAGE_KEY);
+        const tx = active.transaction('metadata', 'readwrite');
+        putMetadata(tx.objectStore('metadata'), 'legacyMigrationStatus', 'complete');
+        await transactionPromise(tx);
+        migrationStatus = 'complete';
+      } else {
+        migrationStatus = 'verification-failed-preserved';
+      }
+    }
+
+    return {
+      initialize,
+      getAllRecords,
+      getRecordsByTerm,
+      getRecordsByTerms,
+      getRecordsBySubject: subject => getByIndex('subject', normalizeSubject(subject)),
+      getRecordsByCourse: course => getByIndex('courseKey', clean(course).toUpperCase()),
+      getRecordsByAttendanceMethod: attendance => getByIndex('attendanceMethod', normalizeAttendanceMethod(attendance)),
+      getRecordCount,
+      saveImportBatch,
+      replaceTerms,
+      commitImport,
+      previewDifferences,
+      deleteImportBatch,
+      getImportBatches,
+      getImportBatch,
+      clearAll,
+      load,
+      exportBackup,
+      storageDiagnostics,
+      databaseName: DB_NAME,
+      databaseVersion: DB_VERSION
+    };
+  }
+
   function normalizeBlock(block, header, context, diagnostics) {
     const parent = block[0];
     const childRows = block.slice(1).filter(item => !hasIdentity(item.row) && (rowHasAnyFtes(item.row, header.termColumns) || numberValue(item.row.censusEnrollment) != null));
@@ -490,22 +949,25 @@
     };
   }
 
-  function createRepository(storage = (typeof window !== 'undefined' ? window.localStorage : null)) {
+  function createRepository(seedStorage = null) {
     function empty() {
       return { version: 1, records: [], batches: [], updatedAt: '' };
     }
-    function load() {
-      if (!storage?.getItem) return empty();
+    let currentPayload = empty();
+    if (seedStorage?.getItem) {
       try {
-        const parsed = JSON.parse(storage.getItem(STORAGE_KEY) || 'null');
-        return parsed && Array.isArray(parsed.records) ? { ...empty(), ...parsed } : empty();
+        const parsed = JSON.parse(seedStorage.getItem(STORAGE_KEY) || 'null');
+        if (parsed && Array.isArray(parsed.records)) currentPayload = { ...empty(), ...parsed };
       } catch (_err) {
-        return empty();
+        currentPayload = empty();
       }
     }
-    function save(payload) {
-      const next = { ...empty(), ...payload, updatedAt: new Date().toISOString() };
-      if (storage?.setItem) storage.setItem(STORAGE_KEY, JSON.stringify(next));
+    function load() {
+      return { ...currentPayload, records: [...(currentPayload.records || [])], batches: [...(currentPayload.batches || [])] };
+    }
+    function save(nextPayload) {
+      const next = { ...empty(), ...nextPayload, updatedAt: new Date().toISOString() };
+      currentPayload = next;
       return next;
     }
     function previewDifferences(records = []) {
@@ -876,6 +1338,8 @@
 
   return Object.freeze({
     STORAGE_KEY,
+    DB_NAME,
+    DB_VERSION,
     MODEL_VERSION,
     SOURCE,
     SOURCE_QUALITY,
@@ -889,6 +1353,8 @@
     normalizeAttendanceMethod,
     termSeason,
     stableRecordIdentity,
+    stableRecordId,
+    createIndexedDbRepository,
     createRepository,
     buildYieldModel,
     backtestRecords,

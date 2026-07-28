@@ -2749,6 +2749,25 @@ test('historical institutional repository supports replacement preview and persi
   assert.equal(repo.load().batches[0].validationStatus, 'VALID');
 });
 
+test('historical institutional browser persistence uses IndexedDB repository boundary', async () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment/historical-institutional.js'), 'utf8');
+
+  assert.equal(historical.DB_NAME, 'timber-historical-institutional-results');
+  assert.equal(historical.DB_VERSION, 1);
+  assert.equal(typeof historical.createIndexedDbRepository, 'function');
+  assert.match(source, /historicalRecords/);
+  assert.match(source, /importBatches/);
+  assert.match(source, /historicalModelAggregates/);
+  assert.match(source, /metadata/);
+  assert.match(source, /createIndexIfMissing\(records, 'termCode'/);
+  assert.match(source, /createIndexIfMissing\(records, 'courseKey'/);
+  assert.match(source, /createIndexIfMissing\(records, 'importBatchId'/);
+  assert.match(source, /navigator\?\.storage\?\.persist/);
+  assert.doesNotMatch(source, /setItem\(STORAGE_KEY/);
+  await assert.rejects(() => historical.createIndexedDbRepository({}).initialize(), /IndexedDB is unavailable/);
+});
+
 test('historical institutional model is wired as admin source hub workflow and explorer report', () => {
   const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
@@ -2760,9 +2779,13 @@ test('historical institutional model is wired as admin source hub workflow and e
   assert.ok(index.indexOf('js/enrollment/historical-institutional.js') < index.indexOf('js/enrollment-analytics.js'));
   assert.match(app, /id="dataHubHistoricalInstitutionalFile"/);
   assert.match(app, /id="dataHubHistoricalInstitutionalTolerance"/);
+  assert.match(app, /id="exportHistoricalInstitutionalBackup"/);
+  assert.match(app, /id="dataHubHistoricalInstitutionalDiagnostics"/);
   assert.match(app, /Historical Institutional Results/);
   assert.match(app, /FTES Source-to-Normalized Reconciliation/);
   assert.match(app, /historicalInstitutionalImportTolerance/);
+  assert.match(app, /createIndexedDbRepository/);
+  assert.doesNotMatch(app, /createRepository\(window\.localStorage/);
   assert.match(app, /id="historicalInstitutionalModelReport"/);
   assert.match(app, /cefShowHistoricalPendingEstimates/);
   assert.match(app, /Projected Total FTES \(Opt-In Historical\)/);

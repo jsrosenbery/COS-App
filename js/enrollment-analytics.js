@@ -402,6 +402,11 @@
     ftesReconciliationRan: false,
     historicalInstitutionalPreview: null,
     historicalInstitutionalPayload: null,
+    historicalInstitutionalRepository: null,
+    historicalInstitutionalDataStatus: 'idle',
+    historicalInstitutionalStorageDiagnostics: null,
+    historicalInstitutionalStorageError: '',
+    historicalInstitutionalModelStatus: 'idle',
     historicalInstitutionalModel: null,
     historicalInstitutionalEstimates: [],
     historicalInstitutionalExplorerRows: [],
@@ -2484,9 +2489,11 @@
                 <label>FTES tolerance <input id="dataHubHistoricalInstitutionalTolerance" type="number" min="0" step="0.01" value="0.01"></label>
                 <button id="dataHubPreviewHistoricalInstitutional" type="button">Preview Historical Results</button>
                 <button id="dataHubCommitHistoricalInstitutional" type="button">Commit Historical Results</button>
+                <button id="exportHistoricalInstitutionalBackup" type="button">Export Historical Backup JSON</button>
               </div>
               <p id="dataHubHistoricalInstitutionalStatus" class="analytics-note">No Historical Institutional Results import has been previewed.</p>
               <div id="dataHubHistoricalInstitutionalPreview" class="analytics-table"></div>
+              <div id="dataHubHistoricalInstitutionalDiagnostics" class="analytics-table"></div>
             </section>
             <section class="source-data-card" data-source-type="snapshots">
               <h3>Enrollment Snapshots</h3>
@@ -9334,6 +9341,13 @@
     const historicalPayload = historicalInstitutionalPayload();
     const historicalRecords = historicalPayload.records || [];
     const historicalTerms = [...new Set(historicalRecords.map(row => row.termCode).filter(Boolean))].sort();
+    const historicalStatusText = state.historicalInstitutionalDataStatus === 'initializing'
+      ? 'Historical Institutional Results database loading...'
+      : state.historicalInstitutionalDataStatus === 'error'
+        ? `Historical Institutional Results database error: ${state.historicalInstitutionalStorageError || 'storage unavailable'}`
+        : historicalRecords.length
+          ? `${formatWholeNumber(historicalRecords.length)} Historical Institutional Results record(s) stored in IndexedDB; terms: ${historicalTerms.slice(0, 8).join(', ')}${historicalTerms.length > 8 ? ', ...' : ''}.`
+          : 'No Historical Institutional Results records stored in IndexedDB yet.';
     const sectionStatus = document.getElementById('dataHubSectionStatus');
     if (sectionStatus) sectionStatus.textContent = window.BACKEND_BASE_URL
       ? `${archiveTerms.length} Section Seating / Schedule archive term(s) listed${archiveTerms.length ? `: ${archiveTerms.map(item => item.term || item).filter(Boolean).slice(0, 8).join(', ')}${archiveTerms.length > 8 ? ', ...' : ''}` : '.'}`
@@ -9357,9 +9371,7 @@
     if (snapshotStatus) snapshotStatus.textContent = `${snapshotRows.length} stored enrollment snapshot record(s) loaded in this browser session.`;
     const historicalStatus = document.getElementById('dataHubHistoricalInstitutionalStatus');
     if (historicalStatus && !state.historicalInstitutionalPreview) {
-      historicalStatus.textContent = historicalRecords.length
-        ? `${formatWholeNumber(historicalRecords.length)} Historical Institutional Results record(s) stored; terms: ${historicalTerms.slice(0, 8).join(', ')}${historicalTerms.length > 8 ? ', ...' : ''}.`
-        : 'No Historical Institutional Results records stored yet.';
+      historicalStatus.textContent = historicalStatusText;
     }
     const summary = document.getElementById('sourceDataHubStatus');
     if (summary) {
@@ -9368,12 +9380,13 @@
           <span><strong>Section Seating / Schedule Data</strong>${archiveTerms.length} backend term(s)</span>
           <span><strong>Faculty Schedule Data</strong>${facultyTerms.length} backend term(s)</span>
           <span><strong>Work Experience</strong>${savedWorkTerms.length} backend term(s), ${workRows.length} session row(s)</span>
-          <span><strong>Historical Institutional Results</strong>${historicalTerms.length} term(s), ${formatWholeNumber(historicalRecords.length)} record(s)</span>
+          <span><strong>Historical Institutional Results</strong>IndexedDB, ${historicalTerms.length} term(s), ${formatWholeNumber(historicalRecords.length)} record(s)</span>
           <span><strong>Enrollment Snapshots</strong>${snapshotRows.length} stored record(s)</span>
         </div>
         ${message ? `<p class="analytics-note">${escapeAttr(message)}</p>` : '<p class="analytics-note">Data source storage remains separated by dataset type. Reports consume these sources through their existing selectors and filters.</p>'}
       `;
     }
+    renderHistoricalInstitutionalDiagnostics();
   }
 
   function workExperienceSummary(rows) {
@@ -11235,6 +11248,7 @@
       pendingFtesDiagnosticArchiveLoad: diagnosticHistory
     });
     if (document.getElementById('cefShowHistoricalPendingEstimates')?.checked) {
+      await ensureHistoricalInstitutionalReady();
       const focusRows = rows.filter(row => normalizeTermLabel(row.term) === focusTerm && pendingFtesPopulation(row));
       state.currentEnrollmentHistoricalEstimateRows = historicalInstitutionalEstimateRows(focusRows);
     } else {
@@ -11606,14 +11620,43 @@
   }
 
   function historicalInstitutionalRepository() {
-    return historicalInstitutional.createRepository(window.localStorage);
+    if (!state.historicalInstitutionalRepository) {
+      state.historicalInstitutionalRepository = historicalInstitutional.createIndexedDbRepository(window, {
+        onProgress(progress = {}) {
+          const status = document.getElementById('dataHubHistoricalInstitutionalStatus');
+          if (status && progress.message) status.textContent = progress.message;
+        }
+      });
+    }
+    return state.historicalInstitutionalRepository;
+  }
+
+  async function ensureHistoricalInstitutionalReady(options = {}) {
+    if (!options.force && state.historicalInstitutionalDataStatus === 'ready' && state.historicalInstitutionalPayload) {
+      return state.historicalInstitutionalPayload;
+    }
+    state.historicalInstitutionalDataStatus = 'initializing';
+    state.historicalInstitutionalStorageError = '';
+    const started = performance.now();
+    try {
+      const repo = historicalInstitutionalRepository();
+      await repo.initialize();
+      const payload = await repo.load();
+      state.historicalInstitutionalPayload = payload;
+      state.historicalInstitutionalStorageDiagnostics = await repo.storageDiagnostics();
+      state.historicalInstitutionalStorageDiagnostics.initializationMs = Math.round(performance.now() - started);
+      state.historicalInstitutionalDataStatus = 'ready';
+      return payload;
+    } catch (err) {
+      state.historicalInstitutionalDataStatus = 'error';
+      state.historicalInstitutionalStorageError = err?.message || String(err);
+      state.historicalInstitutionalPayload = { version: 1, records: [], batches: [], updatedAt: '' };
+      throw err;
+    }
   }
 
   function historicalInstitutionalPayload() {
-    if (!state.historicalInstitutionalPayload) {
-      state.historicalInstitutionalPayload = historicalInstitutionalRepository().load();
-    }
-    return state.historicalInstitutionalPayload;
+    return state.historicalInstitutionalPayload || { version: 1, records: [], batches: [], updatedAt: '' };
   }
 
   function historicalInstitutionalRecords() {
@@ -11700,6 +11743,33 @@
     }
   }
 
+  function renderHistoricalInstitutionalDiagnostics() {
+    const node = document.getElementById('dataHubHistoricalInstitutionalDiagnostics');
+    if (!node) return;
+    const diagnostics = state.historicalInstitutionalStorageDiagnostics || {};
+    const rows = [
+      { metric: 'Storage Engine', value: 'IndexedDB' },
+      { metric: 'Database Name', value: diagnostics.databaseName || historicalInstitutional.DB_NAME || 'timber-historical-institutional-results' },
+      { metric: 'Database Version', value: diagnostics.databaseVersion || historicalInstitutional.DB_VERSION || 1 },
+      { metric: 'Object Stores', value: (diagnostics.objectStores || []).join(', ') || 'Not initialized' },
+      { metric: 'Historical Record Count', value: formatWholeNumber(diagnostics.historicalRecordCount || 0) },
+      { metric: 'Import Batch Count', value: formatWholeNumber(diagnostics.importBatchCount || 0) },
+      { metric: 'Aggregate Count', value: formatWholeNumber(diagnostics.aggregateCount || 0) },
+      { metric: 'Storage Usage', value: diagnostics.storageUsage == null ? 'Unavailable' : `${formatWholeNumber(diagnostics.storageUsage)} bytes` },
+      { metric: 'Storage Quota', value: diagnostics.storageQuota == null ? 'Unavailable' : `${formatWholeNumber(diagnostics.storageQuota)} bytes` },
+      { metric: 'Persistent Storage Granted', value: diagnostics.persistentStorageGranted == null ? 'Unknown' : (diagnostics.persistentStorageGranted ? 'Yes' : 'No') },
+      { metric: 'IndexedDB Available', value: diagnostics.indexedDbAvailable === false ? 'No' : 'Yes' },
+      { metric: 'Legacy Migration Status', value: diagnostics.legacyMigrationStatus || 'Unknown' },
+      { metric: 'Last Successful Transaction', value: diagnostics.lastSuccessfulTransaction || 'None' },
+      { metric: 'Last Database Error', value: diagnostics.lastDatabaseError || state.historicalInstitutionalStorageError || 'None' },
+      { metric: 'Initialization Time', value: diagnostics.initializationMs == null ? 'Unavailable' : `${formatWholeNumber(diagnostics.initializationMs)} ms` }
+    ];
+    node.innerHTML = `
+      <h3>Historical IndexedDB Diagnostics</h3>
+      ${analyticsTableMarkup(rows, ['metric', 'value'])}
+    `;
+  }
+
   async function previewHistoricalInstitutionalImport() {
     state.historicalInstitutionalPreview = await parseHistoricalInstitutionalResultsInput(document.getElementById('dataHubHistoricalInstitutionalFile'));
     renderHistoricalInstitutionalImportPreview();
@@ -11708,18 +11778,24 @@
       : 'Historical Institutional Results preview has blocking validation errors.');
   }
 
-  function commitHistoricalInstitutionalImport() {
+  async function commitHistoricalInstitutionalImport() {
     const preview = state.historicalInstitutionalPreview;
     if (!preview) throw new Error('Preview Historical Institutional Results before committing.');
     if (!preview.valid) throw new Error('Historical Institutional Results import has blocking validation errors.');
     const repo = historicalInstitutionalRepository();
-    const differences = repo.previewDifferences(preview.records || []);
-    const payload = repo.commitImport(preview, { mode: 'replace-selected-terms' });
+    state.historicalInstitutionalDataStatus = 'importing';
+    const differences = await repo.previewDifferences(preview.records || []);
+    const started = performance.now();
+    const payload = await repo.commitImport(preview, { mode: 'replace-selected-terms' });
     state.historicalInstitutionalPayload = payload;
+    state.historicalInstitutionalStorageDiagnostics = await repo.storageDiagnostics();
+    state.historicalInstitutionalStorageDiagnostics.lastImportMs = Math.round(performance.now() - started);
+    state.historicalInstitutionalDataStatus = 'ready';
+    state.historicalInstitutionalModelStatus = 'rebuilding-model';
     state.historicalInstitutionalModel = null;
     renderHistoricalInstitutionalImportPreview(preview);
-    renderSourceDataHubStatus(`Committed Historical Institutional Results: ${formatWholeNumber(preview.records.length)} record(s). Added ${differences.addedRecords}; replaced ${differences.removedRecords}.`);
-    renderHistoricalInstitutionalModel();
+    renderSourceDataHubStatus(`Import complete. Historical records saved: ${formatWholeNumber(preview.records.length)}. Added ${differences.addedRecords}; replaced ${differences.removedRecords}. Storage: IndexedDB. FTES reconciliation: Passed. Model rebuild in progress.`);
+    await renderHistoricalInstitutionalModel();
   }
 
   function historicalInstitutionalCurrentPendingRows() {
@@ -11747,6 +11823,9 @@
     const attendance = new Set(records.map(row => row.attendanceMethod).filter(Boolean));
     const batches = historicalInstitutionalPayload().batches || [];
     return [
+      ['Storage Engine', 'IndexedDB'],
+      ['Historical Data Status', state.historicalInstitutionalDataStatus],
+      ['Historical Model Status', state.historicalInstitutionalModelStatus],
       ['Imported Workbooks', formatWholeNumber(batches.length)],
       ['Import Batches', formatWholeNumber(batches.length)],
       ['Historical Terms', formatWholeNumber(terms.length)],
@@ -11780,13 +11859,21 @@
     ];
   }
 
-  function renderHistoricalInstitutionalModel() {
+  async function renderHistoricalInstitutionalModel() {
+    try {
+      await ensureHistoricalInstitutionalReady();
+    } catch (err) {
+      metric('historicalInstitutionalMetrics', [['Historical Data Status', `Error: ${err?.message || err}`]]);
+      return;
+    }
     const records = historicalInstitutionalRecords();
+    state.historicalInstitutionalModelStatus = 'rebuilding-model';
     const model = historicalInstitutionalModel();
     const estimates = historicalInstitutionalEstimateRows();
     const health = historicalInstitutional.modelHealth(estimates, model);
     state.historicalInstitutionalExplorerRows = historicalInstitutional.exportYieldModel(model);
     state.historicalInstitutionalRan = true;
+    state.historicalInstitutionalModelStatus = 'ready';
     metric('historicalInstitutionalMetrics', historicalInstitutionalSummaryRows(records, model));
     const healthNode = document.getElementById('historicalInstitutionalHealth');
     if (healthNode) {
@@ -21829,6 +21916,17 @@
     URL.revokeObjectURL(link.href);
   }
 
+  async function exportHistoricalInstitutionalBackupJson() {
+    await ensureHistoricalInstitutionalReady();
+    const backup = await historicalInstitutionalRepository().exportBackup();
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `historical-institutional-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
   function exportRowsExcel(rows, columns, filename) {
     const contextRows = reportContextToExportRows();
     const contextTable = contextRows.length
@@ -22196,10 +22294,12 @@
       document.getElementById('ftesReconCrnTable').innerHTML = '<p class="analytics-empty">No CRN-level reconciliation rows yet.</p>';
     }
     if (selected === REPORTS.historicalInstitutionalModel && !state.historicalInstitutionalRan) {
-      renderHistoricalInstitutionalModel();
+      renderHistoricalInstitutionalModel().catch(err => console.warn(err));
     }
     if (selected === REPORTS.dataHub) {
-      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), refreshWorkExperienceArchives(), loadEnrollmentSnapshots()])
+      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), refreshWorkExperienceArchives(), loadEnrollmentSnapshots(), ensureHistoricalInstitutionalReady().catch(err => {
+        console.warn('Historical Institutional Results IndexedDB initialization skipped:', err);
+      })])
         .then(() => renderSourceDataHubStatus())
         .catch(err => {
           console.warn('Source Data Hub refresh skipped:', err);
@@ -22816,10 +22916,11 @@
     document.getElementById('exportCurrentEnrollmentFtes')?.addEventListener('click', exportCurrentEnrollmentFtes);
     attachBusyClick('runFtesReconciliation', 'Reconciling TIMBER FTES to institutional validation source...', () => runFtesReconciliation(), { key: 'runFtesReconciliation', runningLabel: 'Reconciling...' });
     document.getElementById('exportFtesReconciliation')?.addEventListener('click', exportFtesReconciliation);
-    document.getElementById('refreshHistoricalInstitutionalModel')?.addEventListener('click', renderHistoricalInstitutionalModel);
-    document.getElementById('exportHistoricalInstitutionalRecords')?.addEventListener('click', () => exportRowsWithoutMethodology(historicalInstitutional.exportHistoricalRecords(historicalInstitutionalRecords()), 'historical-institutional-records.csv'));
-    document.getElementById('exportHistoricalInstitutionalYieldModel')?.addEventListener('click', () => exportRowsWithoutMethodology(historicalInstitutional.exportYieldModel(historicalInstitutionalModel()), 'historical-institutional-yield-model.csv'));
-    document.getElementById('exportHistoricalInstitutionalBacktests')?.addEventListener('click', () => exportRowsWithoutMethodology(historicalInstitutionalModel().backtests || [], 'historical-institutional-backtests.csv'));
+    attachBusyClick('refreshHistoricalInstitutionalModel', 'Refreshing Historical Institutional Model...', () => renderHistoricalInstitutionalModel(), { key: 'refreshHistoricalInstitutionalModel', runningLabel: 'Refreshing...' });
+    attachBusyClick('exportHistoricalInstitutionalBackup', 'Exporting Historical Institutional backup...', () => exportHistoricalInstitutionalBackupJson(), { key: 'exportHistoricalInstitutionalBackup', runningLabel: 'Exporting...' });
+    document.getElementById('exportHistoricalInstitutionalRecords')?.addEventListener('click', () => ensureHistoricalInstitutionalReady().then(() => exportRowsWithoutMethodology(historicalInstitutional.exportHistoricalRecords(historicalInstitutionalRecords()), 'historical-institutional-records.csv')).catch(err => alert(err.message || 'Historical records export failed.')));
+    document.getElementById('exportHistoricalInstitutionalYieldModel')?.addEventListener('click', () => ensureHistoricalInstitutionalReady().then(() => exportRowsWithoutMethodology(historicalInstitutional.exportYieldModel(historicalInstitutionalModel()), 'historical-institutional-yield-model.csv')).catch(err => alert(err.message || 'Historical yield export failed.')));
+    document.getElementById('exportHistoricalInstitutionalBacktests')?.addEventListener('click', () => ensureHistoricalInstitutionalReady().then(() => exportRowsWithoutMethodology(historicalInstitutionalModel().backtests || [], 'historical-institutional-backtests.csv')).catch(err => alert(err.message || 'Historical backtesting export failed.')));
     document.getElementById('exportHistoricalInstitutionalEstimates')?.addEventListener('click', () => exportRowsWithoutMethodology(state.historicalInstitutionalEstimates || [], 'historical-institutional-pending-estimates.csv'));
     document.getElementById('cefArchiveTerms')?.addEventListener('change', () => loadCurrentEnrollmentFtesRows().then(() => renderCurrentEnrollmentFtesSummary()).catch(err => console.warn(err)));
     document.getElementById('cefFocusTerm')?.addEventListener('change', () => {
