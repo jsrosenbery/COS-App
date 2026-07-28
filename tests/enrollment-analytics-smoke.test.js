@@ -2768,6 +2768,23 @@ test('historical institutional browser persistence uses IndexedDB repository bou
   await assert.rejects(() => historical.createIndexedDbRepository({}).initialize(), /IndexedDB is unavailable/);
 });
 
+test('historical institutional source data version changes with records and import metadata', () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const records = [
+    { termCode: '202510', censusEnrollment: 10, finalInstitutionalFtes: 1.25 },
+    { termCode: '202520', censusEnrollment: 15, finalInstitutionalFtes: 1.75 }
+  ];
+  const batches = [{ importBatchId: 'A', importedAt: '2026-07-28T00:00:00.000Z' }];
+
+  const first = historical.sourceDataVersion(records, batches);
+  const changedRecord = historical.sourceDataVersion(records.map(row => row.termCode === '202520' ? { ...row, finalInstitutionalFtes: 2 } : row), batches);
+  const changedBatch = historical.sourceDataVersion(records, [{ importBatchId: 'B', importedAt: '2026-07-29T00:00:00.000Z' }]);
+
+  assert.notEqual(first, changedRecord);
+  assert.notEqual(first, changedBatch);
+  assert.match(first, /^2\|202510,202520\|A\|2026-07-28T00:00:00.000Z\|3\|25$/);
+});
+
 test('historical institutional model is wired as admin source hub workflow and explorer report', () => {
   const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
@@ -2789,6 +2806,54 @@ test('historical institutional model is wired as admin source hub workflow and e
   assert.match(app, /id="historicalInstitutionalModelReport"/);
   assert.match(app, /cefShowHistoricalPendingEstimates/);
   assert.match(app, /Projected Total FTES \(Opt-In Historical\)/);
+});
+
+test('historical institutional model hydrates persisted aggregates before dashboard rendering', () => {
+  const historicalSource = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment/historical-institutional.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(historicalSource, /saveModelAggregates/);
+  assert.match(historicalSource, /getPersistedModel/);
+  assert.match(historicalSource, /modelSourceDataVersion/);
+  assert.match(historicalSource, /lastModelRebuild/);
+  assert.match(app, /function hydrateHistoricalInstitutionalModel/);
+  assert.match(app, /getPersistedModel\(version\)/);
+  assert.match(app, /saveModelAggregates\(model, version\)/);
+  assert.match(app, /historicalInstitutionalModelRebuildPromise/);
+  assert.match(app, /state\.historicalInstitutionalModelStatus = 'restoring-model'/);
+  assert.match(app, /state\.historicalInstitutionalModelStatus = options\.force \? 'rebuilding-model' : 'rebuilding-stale-model'/);
+  assert.match(app, /await hydrateHistoricalInstitutionalModel\(\)/);
+  assert.match(app, /Rebuild Model/);
+});
+
+test('historical institutional dashboard avoids misleading startup zero state and separates information hierarchy', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(app, /loading-historical-records/);
+  assert.match(app, /Historical Institutional Results database loading/);
+  assert.match(app, /Historical Institutional Results records loading from IndexedDB/);
+  assert.match(app, /id="historicalInstitutionalStatusBanner"/);
+  assert.match(app, /Model Status:/);
+  assert.match(app, /Primary Status/);
+  assert.match(app, /Historical Coverage/);
+  assert.match(app, /id="historicalInstitutionalTechnicalDiagnostics"/);
+  assert.match(app, /Repository Status/);
+  assert.match(app, /updateHistoricalInstitutionalTermControls/);
+  assert.match(app, /termTabs\.hidden = hideOperationalTerms/);
+});
+
+test('historical institutional explorer controls and forecast-basis explanations are present', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(app, /historicalInstitutionalExplorerFilter/);
+  assert.match(app, /historicalInstitutionalExplorerSort/);
+  assert.match(app, /Result Count/);
+  assert.match(app, /Showing \$\{formatWholeNumber\(Math\.min\(filteredRows\.length, 100\)\)\} of/);
+  assert.match(app, /Backtest Rows/);
+  assert.match(app, /Average Absolute Error/);
+  assert.match(app, /Insufficient Historical Basis/);
+  assert.match(app, /No comparable completed terms/);
+  assert.match(app, /No estimate generated/);
 });
 
 test('historical pending FTES visibility uses actual Developer and System Administrator role resolution', () => {

@@ -408,6 +408,12 @@
     historicalInstitutionalStorageError: '',
     historicalInstitutionalModelStatus: 'idle',
     historicalInstitutionalModel: null,
+    historicalInstitutionalModelSourceVersion: '',
+    historicalInstitutionalModelRebuildPromise: null,
+    historicalInstitutionalModelRestored: false,
+    historicalInstitutionalExplorerFilter: '',
+    historicalInstitutionalExplorerSort: 'confidence',
+    historicalInstitutionalExplorerPage: 1,
     historicalInstitutionalEstimates: [],
     historicalInstitutionalExplorerRows: [],
     historicalInstitutionalRan: false,
@@ -2412,14 +2418,19 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <button id="refreshHistoricalInstitutionalModel" type="button">Refresh Model</button>
+            <button id="refreshHistoricalInstitutionalModel" type="button">Rebuild Model</button>
             <button id="exportHistoricalInstitutionalRecords" type="button">Export Historical Records</button>
             <button id="exportHistoricalInstitutionalYieldModel" type="button">Export Yield Model</button>
             <button id="exportHistoricalInstitutionalBacktests" type="button">Export Backtesting</button>
             <button id="exportHistoricalInstitutionalEstimates" type="button">Export Pending Estimates</button>
           </div>
+          <div id="historicalInstitutionalStatusBanner"></div>
           <div id="historicalInstitutionalMetrics" class="analytics-metrics"></div>
           <div id="historicalInstitutionalHealth" class="dashboard-grid"></div>
+          <details id="historicalInstitutionalTechnicalDiagnostics" class="analytics-methodology">
+            <summary>Technical Diagnostics</summary>
+            <div id="historicalInstitutionalTechnicalDiagnosticsBody" class="analytics-table"></div>
+          </details>
           <div id="historicalInstitutionalExplorer" class="analytics-table"></div>
           <div id="historicalInstitutionalBacktests" class="analytics-table"></div>
           <div id="historicalInstitutionalEstimates" class="analytics-table"></div>
@@ -9343,6 +9354,8 @@
     const historicalTerms = [...new Set(historicalRecords.map(row => row.termCode).filter(Boolean))].sort();
     const historicalStatusText = state.historicalInstitutionalDataStatus === 'initializing'
       ? 'Historical Institutional Results database loading...'
+      : state.historicalInstitutionalDataStatus === 'loading-historical-records'
+        ? 'Historical Institutional Results records loading from IndexedDB...'
       : state.historicalInstitutionalDataStatus === 'error'
         ? `Historical Institutional Results database error: ${state.historicalInstitutionalStorageError || 'storage unavailable'}`
         : historicalRecords.length
@@ -11641,6 +11654,7 @@
     try {
       const repo = historicalInstitutionalRepository();
       await repo.initialize();
+      state.historicalInstitutionalDataStatus = 'loading-historical-records';
       const payload = await repo.load();
       state.historicalInstitutionalPayload = payload;
       state.historicalInstitutionalStorageDiagnostics = await repo.storageDiagnostics();
@@ -11663,12 +11677,59 @@
     return historicalInstitutionalPayload().records || [];
   }
 
+  function historicalInstitutionalSourceVersion() {
+    const payload = historicalInstitutionalPayload();
+    return historicalInstitutional.sourceDataVersion(payload.records || [], payload.batches || []);
+  }
+
   function historicalInstitutionalModel() {
     const records = historicalInstitutionalRecords();
-    if (!state.historicalInstitutionalModel || state.historicalInstitutionalModel.records !== records.length) {
+    const version = historicalInstitutionalSourceVersion();
+    if (!state.historicalInstitutionalModel || state.historicalInstitutionalModelSourceVersion !== version) {
       state.historicalInstitutionalModel = historicalInstitutional.buildYieldModel(records);
+      state.historicalInstitutionalModel.sourceDataVersion = version;
+      state.historicalInstitutionalModelSourceVersion = version;
+      state.historicalInstitutionalModelRestored = false;
     }
     return state.historicalInstitutionalModel;
+  }
+
+  async function hydrateHistoricalInstitutionalModel(options = {}) {
+    await ensureHistoricalInstitutionalReady();
+    const repo = historicalInstitutionalRepository();
+    const version = historicalInstitutionalSourceVersion();
+    if (!options.force && state.historicalInstitutionalModel && state.historicalInstitutionalModelSourceVersion === version) return state.historicalInstitutionalModel;
+    if (!options.force) {
+      state.historicalInstitutionalModelStatus = 'restoring-model';
+      const persisted = await repo.getPersistedModel(version);
+      if (persisted) {
+        state.historicalInstitutionalModel = persisted;
+        state.historicalInstitutionalModelSourceVersion = version;
+        state.historicalInstitutionalModelRestored = true;
+        state.historicalInstitutionalModelStatus = 'ready';
+        return persisted;
+      }
+    }
+    if (state.historicalInstitutionalModelRebuildPromise && !options.force) return state.historicalInstitutionalModelRebuildPromise;
+    state.historicalInstitutionalModelStatus = options.force ? 'rebuilding-model' : 'rebuilding-stale-model';
+    state.historicalInstitutionalModelRebuildPromise = Promise.resolve().then(async () => {
+      const model = historicalInstitutional.buildYieldModel(historicalInstitutionalRecords());
+      model.sourceDataVersion = version;
+      state.historicalInstitutionalModel = model;
+      state.historicalInstitutionalModelSourceVersion = version;
+      state.historicalInstitutionalModelRestored = false;
+      await repo.saveModelAggregates(model, version);
+      state.historicalInstitutionalStorageDiagnostics = await repo.storageDiagnostics();
+      state.historicalInstitutionalModelStatus = 'ready';
+      return model;
+    }).catch(err => {
+      state.historicalInstitutionalModelStatus = 'error';
+      state.historicalInstitutionalStorageError = err?.message || String(err);
+      throw err;
+    }).finally(() => {
+      state.historicalInstitutionalModelRebuildPromise = null;
+    });
+    return state.historicalInstitutionalModelRebuildPromise;
   }
 
   async function parseHistoricalInstitutionalResultsInput(input) {
@@ -11846,6 +11907,72 @@
     ];
   }
 
+  function historicalInstitutionalPrimaryStatusRows(records = historicalInstitutionalRecords(), model = state.historicalInstitutionalModel || {}) {
+    const terms = [...new Set(records.map(row => row.termCode).filter(Boolean))].sort();
+    return [
+      { metric: 'Model Status', value: state.historicalInstitutionalModelStatus || 'idle' },
+      { metric: 'Records Used', value: formatWholeNumber(model.records ?? records.length) },
+      { metric: 'Terms Covered', value: formatWholeNumber(terms.length) },
+      { metric: 'Model Version', value: model.modelVersion || historicalInstitutional.MODEL_VERSION },
+      { metric: 'Last Rebuild', value: model.builtAt || 'Not rebuilt' },
+      { metric: 'Source', value: state.historicalInstitutionalModelRestored ? 'Restored persisted aggregates' : 'Current IndexedDB records' }
+    ];
+  }
+
+  function historicalInstitutionalCoverageRows(records = historicalInstitutionalRecords(), model = state.historicalInstitutionalModel || {}) {
+    const terms = [...new Set(records.map(row => row.termCode).filter(Boolean))].sort();
+    const attendance = [...new Set(records.map(row => row.attendanceMethod).filter(Boolean))].sort();
+    return [
+      { metric: 'Historical Terms', value: formatWholeNumber(terms.length) },
+      { metric: 'Earliest Term', value: terms[0] || 'None' },
+      { metric: 'Latest Term', value: terms[terms.length - 1] || 'None' },
+      { metric: 'Historical Records', value: formatWholeNumber(records.length) },
+      { metric: 'Final Institutional FTES', value: round1(records.reduce((sum, row) => sum + Number(row.finalInstitutionalFtes || 0), 0)) },
+      { metric: 'Census Enrollment', value: formatWholeNumber(records.reduce((sum, row) => sum + Number(row.censusEnrollment || 0), 0)) },
+      { metric: 'Yield Groups', value: formatWholeNumber(model.groups?.length || 0) },
+      { metric: 'Attendance Methods', value: attendance.join(', ') || 'None' }
+    ];
+  }
+
+  function renderHistoricalInstitutionalStatusBanner(records = historicalInstitutionalRecords(), model = state.historicalInstitutionalModel || {}) {
+    const node = document.getElementById('historicalInstitutionalStatusBanner');
+    if (!node) return;
+    const terms = [...new Set(records.map(row => row.termCode).filter(Boolean))].sort();
+    const status = state.historicalInstitutionalModelStatus || state.historicalInstitutionalDataStatus || 'idle';
+    node.innerHTML = `
+      <section class="dashboard-panel">
+        <h3>Model Status: ${escapeAttr(status)}</h3>
+        <p class="analytics-note">Ready models are built from IndexedDB historical observations. The global term selector is not a filter for this page; forecast targeting is controlled in Current Enrollment & FTES.</p>
+        ${analyticsTableMarkup([
+          { metric: 'Records Used', value: formatWholeNumber(model.records ?? records.length) },
+          { metric: 'Terms Covered', value: terms.length ? `${formatWholeNumber(terms.length)} (${terms[0]} to ${terms[terms.length - 1]})` : 'None' },
+          { metric: 'Model Version', value: model.modelVersion || historicalInstitutional.MODEL_VERSION },
+          { metric: 'Last Rebuild', value: model.builtAt || 'Not rebuilt' },
+          { metric: 'Persistence', value: state.historicalInstitutionalModelRestored ? 'Restored from persisted aggregates' : 'Built from current records' }
+        ], ['metric', 'value'])}
+      </section>
+    `;
+  }
+
+  function historicalInstitutionalTechnicalRows() {
+    const diagnostics = state.historicalInstitutionalStorageDiagnostics || {};
+    return [
+      { metric: 'IndexedDB Database', value: diagnostics.databaseName || historicalInstitutional.DB_NAME },
+      { metric: 'Database Version', value: diagnostics.databaseVersion || historicalInstitutional.DB_VERSION },
+      { metric: 'Repository Status', value: state.historicalInstitutionalDataStatus },
+      { metric: 'Migration Status', value: diagnostics.legacyMigrationStatus || 'Unknown' },
+      { metric: 'Object Stores', value: (diagnostics.objectStores || []).join(', ') || 'Unavailable' },
+      { metric: 'Record Count', value: formatWholeNumber(diagnostics.historicalRecordCount || 0) },
+      { metric: 'Import Batch Count', value: formatWholeNumber(diagnostics.importBatchCount || 0) },
+      { metric: 'Aggregate Count', value: formatWholeNumber(diagnostics.aggregateCount || 0) },
+      { metric: 'Storage Usage', value: diagnostics.storageUsage == null ? 'Unavailable' : `${formatWholeNumber(diagnostics.storageUsage)} bytes` },
+      { metric: 'Storage Quota', value: diagnostics.storageQuota == null ? 'Unavailable' : `${formatWholeNumber(diagnostics.storageQuota)} bytes` },
+      { metric: 'Persistent Storage', value: diagnostics.persistentStorageGranted == null ? 'Unknown' : (diagnostics.persistentStorageGranted ? 'Granted' : 'Not granted') },
+      { metric: 'Last Transaction', value: diagnostics.lastSuccessfulTransaction || 'None' },
+      { metric: 'Last Error', value: diagnostics.lastDatabaseError || state.historicalInstitutionalStorageError || 'None' }
+    ];
+  }
+
   function historicalInstitutionalModelHealthCards(health = {}) {
     const basis = Object.entries(health.byBasis || {}).map(([key, value]) => `${key}: ${value}`).join('; ') || 'No current pending estimates';
     const confidence = Object.entries(health.byConfidence || {}).map(([key, value]) => `${key}: ${value}`).join('; ') || 'No current pending estimates';
@@ -11859,22 +11986,62 @@
     ];
   }
 
+  function historicalInstitutionalFilteredExplorerRows() {
+    const needle = canon(state.historicalInstitutionalExplorerFilter || '');
+    const rows = (state.historicalInstitutionalExplorerRows || []).filter(row => {
+      if (!needle) return true;
+      return canon(Object.values(row).join(' ')).includes(needle);
+    });
+    const sortKey = state.historicalInstitutionalExplorerSort || 'confidence';
+    return rows.sort((a, b) => {
+      if (['observations', 'enrollment', 'ftes', 'weightedYield', 'variation', 'backtestingPerformance'].includes(sortKey)) {
+        return Number(b[sortKey] || 0) - Number(a[sortKey] || 0);
+      }
+      return String(a[sortKey] || '').localeCompare(String(b[sortKey] || ''));
+    });
+  }
+
+  async function rebuildHistoricalInstitutionalModelManually() {
+    await ensureHistoricalInstitutionalReady();
+    const records = historicalInstitutionalRecords();
+    if (records.length > 20000 && typeof confirm === 'function' && !confirm(`Rebuild the Historical Institutional Model from ${formatWholeNumber(records.length)} records? This may take a moment.`)) return;
+    state.historicalInstitutionalModel = null;
+    state.historicalInstitutionalModelSourceVersion = '';
+    await hydrateHistoricalInstitutionalModel({ force: true });
+    await renderHistoricalInstitutionalModel();
+  }
+
   async function renderHistoricalInstitutionalModel() {
     try {
       await ensureHistoricalInstitutionalReady();
     } catch (err) {
       metric('historicalInstitutionalMetrics', [['Historical Data Status', `Error: ${err?.message || err}`]]);
+      renderHistoricalInstitutionalStatusBanner([], {});
       return;
     }
     const records = historicalInstitutionalRecords();
-    state.historicalInstitutionalModelStatus = 'rebuilding-model';
-    const model = historicalInstitutionalModel();
+    const model = await hydrateHistoricalInstitutionalModel();
     const estimates = historicalInstitutionalEstimateRows();
     const health = historicalInstitutional.modelHealth(estimates, model);
     state.historicalInstitutionalExplorerRows = historicalInstitutional.exportYieldModel(model);
     state.historicalInstitutionalRan = true;
     state.historicalInstitutionalModelStatus = 'ready';
-    metric('historicalInstitutionalMetrics', historicalInstitutionalSummaryRows(records, model));
+    renderHistoricalInstitutionalStatusBanner(records, model);
+    const metricsNode = document.getElementById('historicalInstitutionalMetrics');
+    if (metricsNode) {
+      metricsNode.innerHTML = `
+        <section class="dashboard-panel">
+          <h3>Primary Status</h3>
+          ${analyticsTableMarkup(historicalInstitutionalPrimaryStatusRows(records, model), ['metric', 'value'])}
+        </section>
+        <section class="dashboard-panel">
+          <h3>Historical Coverage</h3>
+          ${analyticsTableMarkup(historicalInstitutionalCoverageRows(records, model), ['metric', 'value'])}
+        </section>
+      `;
+    }
+    const technicalNode = document.getElementById('historicalInstitutionalTechnicalDiagnosticsBody');
+    if (technicalNode) technicalNode.innerHTML = analyticsTableMarkup(historicalInstitutionalTechnicalRows(), ['metric', 'value']);
     const healthNode = document.getElementById('historicalInstitutionalHealth');
     if (healthNode) {
       healthNode.innerHTML = `
@@ -11886,23 +12053,55 @@
     }
     const explorer = document.getElementById('historicalInstitutionalExplorer');
     if (explorer) {
+      const filteredRows = historicalInstitutionalFilteredExplorerRows();
       explorer.innerHTML = `
         <h3>Historical Yield Explorer</h3>
-        ${analyticsTableMarkup(state.historicalInstitutionalExplorerRows, ['modelLevel', 'groupKey', 'terms', 'observations', 'enrollment', 'ftes', 'weightedYield', 'variation', 'backtestingPerformance', 'confidence'])}
+        ${analyticsTableMarkup([
+          { metric: 'Result Count', value: formatWholeNumber(filteredRows.length) },
+          { metric: 'Filters', value: state.historicalInstitutionalExplorerFilter || 'None' },
+          { metric: 'Sort', value: state.historicalInstitutionalExplorerSort || 'confidence' }
+        ], ['metric', 'value'])}
+        <div class="analytics-toolbar">
+          <label>Filter <input id="historicalInstitutionalExplorerFilter" type="search" value="${escapeAttr(state.historicalInstitutionalExplorerFilter || '')}" placeholder="course, subject, group, confidence"></label>
+          <label>Sort <select id="historicalInstitutionalExplorerSort">
+            ${['confidence', 'observations', 'enrollment', 'ftes', 'modelLevel', 'groupKey'].map(option => `<option value="${option}"${state.historicalInstitutionalExplorerSort === option ? ' selected' : ''}>${label(option)}</option>`).join('')}
+          </select></label>
+        </div>
+        ${analyticsTableMarkup(filteredRows.slice(0, 100), ['modelLevel', 'groupKey', 'terms', 'observations', 'enrollment', 'ftes', 'weightedYield', 'variation', 'backtestingPerformance', 'confidence'])}
+        <p class="analytics-note">Showing ${formatWholeNumber(Math.min(filteredRows.length, 100))} of ${formatWholeNumber(filteredRows.length)} yield rows. Use the filter to narrow results.</p>
       `;
+      document.getElementById('historicalInstitutionalExplorerFilter')?.addEventListener('input', event => {
+        state.historicalInstitutionalExplorerFilter = event.target.value || '';
+        renderHistoricalInstitutionalModel().catch(err => console.warn(err));
+      });
+      document.getElementById('historicalInstitutionalExplorerSort')?.addEventListener('change', event => {
+        state.historicalInstitutionalExplorerSort = event.target.value || 'confidence';
+        renderHistoricalInstitutionalModel().catch(err => console.warn(err));
+      });
     }
     const backtests = document.getElementById('historicalInstitutionalBacktests');
     if (backtests) {
+      const backtestRows = model.backtests || [];
       backtests.innerHTML = `
         <h3>Backtesting Explorer</h3>
-        ${analyticsTableMarkup(model.backtests || [], ['testTerm', 'modelLevel', 'groupKey', 'predictedFtes', 'actualFtes', 'absoluteError', 'percentError', 'bias', 'supportingTerms'])}
+        ${analyticsTableMarkup([
+          { metric: 'Backtest Rows', value: formatWholeNumber(backtestRows.length) },
+          { metric: 'Average Absolute Error', value: backtestRows.length ? round1(backtestRows.reduce((sum, row) => sum + Number(row.absoluteError || 0), 0) / backtestRows.length) : 'Unavailable' }
+        ], ['metric', 'value'])}
+        ${analyticsTableMarkup(backtestRows.slice(0, 100), ['testTerm', 'modelLevel', 'groupKey', 'predictedFtes', 'actualFtes', 'absoluteError', 'percentError', 'bias', 'supportingTerms'])}
       `;
     }
     const estimateNode = document.getElementById('historicalInstitutionalEstimates');
     if (estimateNode) {
       estimateNode.innerHTML = `
         <h3>Forecast Basis Explorer</h3>
-        ${analyticsTableMarkup(estimates, ['termCode', 'crn', 'subject', 'courseNumber', 'attendanceMethod', 'currentEnrollment', 'historicalBasisLevel', 'historicalTermsUsed', 'weightedHistoricalYield', 'estimatedFtes', 'lowerEstimate', 'upperEstimate', 'confidence', 'backtestingError', 'selectedReason', 'reason'])}
+        ${analyticsTableMarkup(estimates.map(row => ({
+          ...row,
+          historicalBasisLevel: row.historicalBasisLevel || 'Insufficient Historical Basis',
+          historicalTermsUsed: row.historicalTermsUsed || 'No comparable completed terms',
+          selectedReason: row.selectedReason || row.reason || 'No estimate generated',
+          reason: row.reason || row.selectedReason || 'Available when a pending FTES section is matched to historical data'
+        })), ['termCode', 'crn', 'subject', 'courseNumber', 'attendanceMethod', 'currentEnrollment', 'historicalBasisLevel', 'historicalTermsUsed', 'weightedHistoricalYield', 'estimatedFtes', 'lowerEstimate', 'upperEstimate', 'confidence', 'backtestingError', 'selectedReason', 'reason'])}
       `;
     }
   }
@@ -22182,6 +22381,12 @@
     node.style.display = canAccess(reportName) && selectedEnrollmentReport() === reportName ? 'block' : 'none';
   }
 
+  function updateHistoricalInstitutionalTermControls(selectedReport) {
+    const hideOperationalTerms = selectedReport === REPORTS.historicalInstitutionalModel;
+    const termTabs = document.getElementById('term-tabs');
+    if (termTabs) termTabs.hidden = hideOperationalTerms;
+  }
+
   function updateVisibility() {
     const selected = selectedEnrollmentReport();
     const wrap = document.getElementById('analyticsReports');
@@ -22207,6 +22412,7 @@
       ? `Logged in as: ${ROLE_LABEL[role]}.`
       : `A locked report requires ${ROLE_LABEL[REPORT_ACCESS[selected] || 'general']} access.`;
     renderLockedReportPanel(selected);
+    updateHistoricalInstitutionalTermControls(selected);
     setReportDisplay(REPORTS.dashboard, 'dashboardReport');
     setReportDisplay(REPORTS.attrition, 'attritionReport');
     setReportDisplay(REPORTS.consolidation, 'consolidationReport');
@@ -22916,11 +23122,11 @@
     document.getElementById('exportCurrentEnrollmentFtes')?.addEventListener('click', exportCurrentEnrollmentFtes);
     attachBusyClick('runFtesReconciliation', 'Reconciling TIMBER FTES to institutional validation source...', () => runFtesReconciliation(), { key: 'runFtesReconciliation', runningLabel: 'Reconciling...' });
     document.getElementById('exportFtesReconciliation')?.addEventListener('click', exportFtesReconciliation);
-    attachBusyClick('refreshHistoricalInstitutionalModel', 'Refreshing Historical Institutional Model...', () => renderHistoricalInstitutionalModel(), { key: 'refreshHistoricalInstitutionalModel', runningLabel: 'Refreshing...' });
+    attachBusyClick('refreshHistoricalInstitutionalModel', 'Rebuilding Historical Institutional Model...', () => rebuildHistoricalInstitutionalModelManually(), { key: 'refreshHistoricalInstitutionalModel', runningLabel: 'Rebuilding...' });
     attachBusyClick('exportHistoricalInstitutionalBackup', 'Exporting Historical Institutional backup...', () => exportHistoricalInstitutionalBackupJson(), { key: 'exportHistoricalInstitutionalBackup', runningLabel: 'Exporting...' });
     document.getElementById('exportHistoricalInstitutionalRecords')?.addEventListener('click', () => ensureHistoricalInstitutionalReady().then(() => exportRowsWithoutMethodology(historicalInstitutional.exportHistoricalRecords(historicalInstitutionalRecords()), 'historical-institutional-records.csv')).catch(err => alert(err.message || 'Historical records export failed.')));
-    document.getElementById('exportHistoricalInstitutionalYieldModel')?.addEventListener('click', () => ensureHistoricalInstitutionalReady().then(() => exportRowsWithoutMethodology(historicalInstitutional.exportYieldModel(historicalInstitutionalModel()), 'historical-institutional-yield-model.csv')).catch(err => alert(err.message || 'Historical yield export failed.')));
-    document.getElementById('exportHistoricalInstitutionalBacktests')?.addEventListener('click', () => ensureHistoricalInstitutionalReady().then(() => exportRowsWithoutMethodology(historicalInstitutionalModel().backtests || [], 'historical-institutional-backtests.csv')).catch(err => alert(err.message || 'Historical backtesting export failed.')));
+    document.getElementById('exportHistoricalInstitutionalYieldModel')?.addEventListener('click', () => hydrateHistoricalInstitutionalModel().then(model => exportRowsWithoutMethodology(historicalInstitutional.exportYieldModel(model), 'historical-institutional-yield-model.csv')).catch(err => alert(err.message || 'Historical yield export failed.')));
+    document.getElementById('exportHistoricalInstitutionalBacktests')?.addEventListener('click', () => hydrateHistoricalInstitutionalModel().then(model => exportRowsWithoutMethodology(model.backtests || [], 'historical-institutional-backtests.csv')).catch(err => alert(err.message || 'Historical backtesting export failed.')));
     document.getElementById('exportHistoricalInstitutionalEstimates')?.addEventListener('click', () => exportRowsWithoutMethodology(state.historicalInstitutionalEstimates || [], 'historical-institutional-pending-estimates.csv'));
     document.getElementById('cefArchiveTerms')?.addEventListener('change', () => loadCurrentEnrollmentFtesRows().then(() => renderCurrentEnrollmentFtesSummary()).catch(err => console.warn(err)));
     document.getElementById('cefFocusTerm')?.addEventListener('change', () => {

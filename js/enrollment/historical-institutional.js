@@ -230,6 +230,16 @@
     return values.every(value => Math.abs(Number(value || 0) - Number(values[0] || 0)) <= tolerance);
   }
 
+  function sourceDataVersion(records = [], batches = []) {
+    const recordCount = records.length;
+    const recordTerms = [...new Set(records.map(record => record.termCode).filter(Boolean))].sort();
+    const batchIds = (batches || []).map(batch => batch.importBatchId).filter(Boolean).sort();
+    const latestImport = (batches || []).map(batch => batch.importedAt || '').sort().pop() || '';
+    const ftes = round(records.reduce((sum, record) => sum + Number(record.finalInstitutionalFtes || 0), 0), 3);
+    const enrollment = round(records.reduce((sum, record) => sum + Number(record.censusEnrollment || 0), 0), 3);
+    return [recordCount, recordTerms.join(','), batchIds.join(','), latestImport, ftes, enrollment].join('|');
+  }
+
   function reconciliationTolerance(options = {}) {
     const parsed = numberValue(options.reconciliationTolerance);
     return parsed != null && parsed >= 0 ? parsed : DEFAULT_RECONCILIATION_TOLERANCE;
@@ -497,15 +507,17 @@
 
     async function saveImportBatch(batch, records = []) {
       const active = await initialize();
-      const tx = active.transaction(['historicalRecords', 'importBatches', 'metadata'], 'readwrite');
+      const tx = active.transaction(['historicalRecords', 'importBatches', 'historicalModelAggregates', 'metadata'], 'readwrite');
       onProgress({ status: 'preparing-import', written: 0, total: records.length, message: 'Preparing historical import...' });
       putRecordsInTransaction(tx, records);
       tx.objectStore('importBatches').put(batch);
       const metadata = tx.objectStore('metadata');
       putMetadata(metadata, 'schemaVersion', DB_VERSION);
       putMetadata(metadata, 'activeModelVersion', MODEL_VERSION);
+      putMetadata(metadata, 'modelStatus', 'stale');
       putMetadata(metadata, 'lastSuccessfulImport', batch);
       putMetadata(metadata, 'lastSuccessfulTransaction', { type: 'saveImportBatch', importBatchId: batch.importBatchId, at: new Date().toISOString() });
+      clearModelAggregates(tx);
       await transactionPromise(tx);
       lastSuccessfulTransaction = `saveImportBatch:${batch.importBatchId}`;
       onProgress({ status: 'finalizing', written: records.length, total: records.length, message: 'Historical import finalized.' });
@@ -515,7 +527,7 @@
     async function replaceTerms(batch, records = [], termCodes = []) {
       const active = await initialize();
       const terms = [...new Set((termCodes.length ? termCodes : records.map(record => record.termCode)).filter(Boolean))];
-      const tx = active.transaction(['historicalRecords', 'importBatches', 'metadata'], 'readwrite');
+      const tx = active.transaction(['historicalRecords', 'importBatches', 'historicalModelAggregates', 'metadata'], 'readwrite');
       onProgress({ status: 'preparing-import', written: 0, total: records.length, message: 'Preparing term replacement...' });
       const recordStore = tx.objectStore('historicalRecords');
       await new Promise((resolve, reject) => {
@@ -525,8 +537,10 @@
           const metadata = tx.objectStore('metadata');
           putMetadata(metadata, 'schemaVersion', DB_VERSION);
           putMetadata(metadata, 'activeModelVersion', MODEL_VERSION);
+          putMetadata(metadata, 'modelStatus', 'stale');
           putMetadata(metadata, 'lastSuccessfulImport', { ...batch, replacedTerms: terms });
           putMetadata(metadata, 'lastSuccessfulTransaction', { type: 'replaceTerms', importBatchId: batch.importBatchId, terms, at: new Date().toISOString() });
+          clearModelAggregates(tx);
           resolve();
         }, reject);
       });
@@ -582,10 +596,12 @@
 
     async function deleteImportBatch(importBatchId) {
       const active = await initialize();
-      const tx = active.transaction(['historicalRecords', 'importBatches', 'metadata'], 'readwrite');
+      const tx = active.transaction(['historicalRecords', 'importBatches', 'historicalModelAggregates', 'metadata'], 'readwrite');
       await new Promise((resolve, reject) => {
         queueDeleteRecordsByValues(tx.objectStore('historicalRecords'), 'importBatchId', [importBatchId], () => {
           tx.objectStore('importBatches').delete(importBatchId);
+          clearModelAggregates(tx);
+          putMetadata(tx.objectStore('metadata'), 'modelStatus', 'stale');
           putMetadata(tx.objectStore('metadata'), 'lastSuccessfulTransaction', { type: 'deleteImportBatch', importBatchId, at: new Date().toISOString() });
           resolve();
         }, reject);
@@ -626,11 +642,71 @@
       return Object.fromEntries(rows.map(row => [row.key, row.value]));
     }
 
+    function clearModelAggregates(tx = null) {
+      if (tx) {
+        tx.objectStore('historicalModelAggregates').clear();
+        return Promise.resolve();
+      }
+      return initialize().then(active => {
+        const nextTx = active.transaction(['historicalModelAggregates', 'metadata'], 'readwrite');
+        nextTx.objectStore('historicalModelAggregates').clear();
+        putMetadata(nextTx.objectStore('metadata'), 'modelStatus', 'stale');
+        return transactionPromise(nextTx);
+      });
+    }
+
+    async function saveModelAggregates(model = {}, version = '') {
+      const active = await initialize();
+      const tx = active.transaction(['historicalModelAggregates', 'metadata'], 'readwrite');
+      const store = tx.objectStore('historicalModelAggregates');
+      store.clear();
+      const calculatedAt = model.builtAt || new Date().toISOString();
+      (model.groups || []).forEach(group => {
+        store.put({
+          ...group,
+          aggregateId: [MODEL_VERSION, group.modelLevel, encodeURIComponent(group.groupKey || '')].join('|'),
+          sourceDataVersion: version,
+          modelVersion: MODEL_VERSION,
+          calculatedAt
+        });
+      });
+      const metadata = tx.objectStore('metadata');
+      putMetadata(metadata, 'modelStatus', 'ready');
+      putMetadata(metadata, 'modelVersion', MODEL_VERSION);
+      putMetadata(metadata, 'modelSourceDataVersion', version);
+      putMetadata(metadata, 'modelRecordCount', model.records || 0);
+      putMetadata(metadata, 'lastModelRebuild', calculatedAt);
+      putMetadata(metadata, 'lastSuccessfulTransaction', { type: 'saveModelAggregates', sourceDataVersion: version, at: new Date().toISOString() });
+      await transactionPromise(tx);
+      lastSuccessfulTransaction = 'saveModelAggregates';
+    }
+
+    async function getPersistedModel(version = '', modelVersion = MODEL_VERSION) {
+      const active = await initialize();
+      const metadata = await metadataEntries();
+      if (metadata.modelVersion !== modelVersion || metadata.modelSourceDataVersion !== version || metadata.modelStatus !== 'ready') return null;
+      const groups = await requestPromise(active.transaction('historicalModelAggregates', 'readonly').objectStore('historicalModelAggregates').getAll());
+      if (!groups.length && Number(metadata.modelRecordCount || 0) > 0) return null;
+      return {
+        modelVersion,
+        builtAt: metadata.lastModelRebuild || '',
+        records: Number(metadata.modelRecordCount || 0),
+        sourceDataVersion: version,
+        restoredFromPersistence: true,
+        groups: groups.map(group => {
+          const { aggregateId, sourceDataVersion: _sourceDataVersion, calculatedAt: _calculatedAt, ...rest } = group;
+          return rest;
+        }),
+        backtests: groups.flatMap(group => (group.backtesting?.rows || []).map(row => ({ ...row, confidence: group.confidence })))
+      };
+    }
+
     async function storageDiagnostics() {
       const active = await initialize();
-      const [recordCount, batches, metadata, estimate, persistent] = await Promise.all([
+      const [recordCount, batches, aggregateCount, metadata, estimate, persistent] = await Promise.all([
         getRecordCount(),
         getImportBatches(),
+        requestPromise(active.transaction('historicalModelAggregates', 'readonly').objectStore('historicalModelAggregates').count()),
         metadataEntries(),
         scope?.navigator?.storage?.estimate?.().catch(() => null),
         scope?.navigator?.storage?.persisted?.().catch(() => null)
@@ -641,7 +717,7 @@
         objectStores: Array.from(active.objectStoreNames || []),
         historicalRecordCount: recordCount,
         importBatchCount: batches.length,
-        aggregateCount: 0,
+        aggregateCount,
         storageUsage: estimate?.usage ?? null,
         storageQuota: estimate?.quota ?? null,
         persistentStorageGranted: persistent,
@@ -654,8 +730,14 @@
     }
 
     async function exportBackup() {
-      const [records, importBatches, metadata] = await Promise.all([getAllRecords(), getImportBatches(), metadataEntries()]);
-      return { schemaVersion: DB_VERSION, exportedAt: new Date().toISOString(), records, importBatches, metadata, modelAggregates: [] };
+      const active = await initialize();
+      const [records, importBatches, metadata, modelAggregates] = await Promise.all([
+        getAllRecords(),
+        getImportBatches(),
+        metadataEntries(),
+        requestPromise(active.transaction('historicalModelAggregates', 'readonly').objectStore('historicalModelAggregates').getAll())
+      ]);
+      return { schemaVersion: DB_VERSION, exportedAt: new Date().toISOString(), records, importBatches, metadata, modelAggregates };
     }
 
     async function migrateLegacyLocalStorage() {
@@ -737,6 +819,9 @@
       deleteImportBatch,
       getImportBatches,
       getImportBatch,
+      getPersistedModel,
+      saveModelAggregates,
+      clearModelAggregates,
       clearAll,
       load,
       exportBackup,
@@ -1354,6 +1439,7 @@
     termSeason,
     stableRecordIdentity,
     stableRecordId,
+    sourceDataVersion,
     createIndexedDbRepository,
     createRepository,
     buildYieldModel,
