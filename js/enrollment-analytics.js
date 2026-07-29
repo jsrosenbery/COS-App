@@ -10931,9 +10931,20 @@
       divisionLevelMatchCount: diagnostics.divisionLevelMatchCount || 0,
       attendanceMethodMatchCount: diagnostics.attendanceMethodMatchCount || 0,
       institutionLevelMatchCount: diagnostics.institutionLevelMatchCount || 0,
+      usableCourseLevelMatchCount: diagnostics.usableCourseLevelMatchCount || 0,
+      usableSubjectLevelMatchCount: diagnostics.usableSubjectLevelMatchCount || 0,
+      usableDivisionLevelMatchCount: diagnostics.usableDivisionLevelMatchCount || 0,
+      usableAttendanceMethodMatchCount: diagnostics.usableAttendanceMethodMatchCount || 0,
+      usableInstitutionLevelMatchCount: diagnostics.usableInstitutionLevelMatchCount || 0,
       selectedFallbackLevel: diagnostics.selectedFallbackLevel || prediction.historicalBasisLevel || '',
+      selectedWeightedYield: diagnostics.selectedWeightedYield ?? prediction.weightedHistoricalYield ?? null,
+      diagnosticPredictedFtes: diagnostics.predictedFtes ?? prediction.estimatedFtes ?? null,
+      diagnosticConfidence: diagnostics.confidence || prediction.confidence || '',
       failureReason: diagnostics.failureReason || prediction.reason || '',
-      attendanceMethodAliases: diagnostics.attendanceMethodAliases || ''
+      attendanceMethodAliases: diagnostics.attendanceMethodAliases || '',
+      lastRejectedMatchedLevel: diagnostics.lastRejectedMatchedLevel || '',
+      lastRejectedMatchedGroupKey: diagnostics.lastRejectedMatchedGroupKey || '',
+      lastRejectedMatchedReason: diagnostics.lastRejectedMatchedReason || ''
     };
   }
 
@@ -11051,6 +11062,16 @@
           classification: 'unavailable',
           confidence: 'insufficient-data',
           reason: prediction.reason || 'Historical institutional results are missing or insufficient for this positive-attendance-like section.',
+          predictionDetail: prediction,
+          predictionDiagnostics
+        };
+      }
+      if (!directOrDeterministic) {
+        return {
+          ...common,
+          classification: 'unavailable',
+          confidence: 'insufficient-data',
+          reason: prediction.reason || 'No historical prediction was available for this prediction-eligible section.',
           predictionDetail: prediction,
           predictionDiagnostics
         };
@@ -11336,7 +11357,8 @@
         comparisonEffectiveAsOfDateSource: comparisonAsOf.source,
         ftesMaturityDefinition: 'FTES Maturity shows how much existing calculated FTES is confirmed/final versus estimated based on source as-of date, section census date, and final-source availability.',
         ftesClassificationDefinition: 'Confirmed FTES reflects sections whose applicable census milestone has passed. Estimated FTES is calculated from current enrollment before census. Predicted FTES is forecast from comparable historical institutional results for P/E/Work Experience sections and does not alter official FTES reporting.',
-        historicalPredictionMapping: 'Historical prediction normalizes Positive Attendance to P and Open Entry/Open Exit - Positive Attendance to E. Work Experience is identified by source, division, population, WKEX/WKEXP subject, or Work Experience modality; imported Cube history may appear under accounting method D, so lookup tests Work Experience aliases plus the observed D convention.',
+        historicalPredictionMapping: 'Historical prediction normalizes subjects, course numbers, course keys, divisions, attendance methods, and term season before lookup. Positive Attendance maps to Cube accounting method P. Open Entry/Open Exit - Positive Attendance maps to Cube accounting method E. Work Experience is identified by source, division, population, WKEX/WKEXP subject, or Work Experience modality; imported Cube history may appear under accounting method D, so lookup tests Work Experience aliases plus the observed D convention.',
+        historicalPredictionEvidenceRule: 'At least one completed Historical Institutional Results term with enough enrollment can support a low-confidence planning prediction. Additional completed terms improve confidence through the Historical Institutional Model thresholds and backtesting.',
         workExperiencePredictionRule: 'Work Experience sections without direct final FTES are prediction-eligible because final FTES can depend on later hours or activity. They remain Estimated only when the loaded current row has deterministic production inputs sufficient for the existing FTES formula and no historical prediction is available.'
       },
       reconciliation: {
@@ -11390,9 +11412,20 @@
           divisionLevelMatchCount: diagnostics.divisionLevelMatchCount ?? 0,
           attendanceMethodMatchCount: diagnostics.attendanceMethodMatchCount ?? 0,
           institutionLevelMatchCount: diagnostics.institutionLevelMatchCount ?? 0,
+          usableCourseLevelMatchCount: diagnostics.usableCourseLevelMatchCount ?? 0,
+          usableSubjectLevelMatchCount: diagnostics.usableSubjectLevelMatchCount ?? 0,
+          usableDivisionLevelMatchCount: diagnostics.usableDivisionLevelMatchCount ?? 0,
+          usableAttendanceMethodMatchCount: diagnostics.usableAttendanceMethodMatchCount ?? 0,
+          usableInstitutionLevelMatchCount: diagnostics.usableInstitutionLevelMatchCount ?? 0,
           selectedFallbackLevel: diagnostics.selectedFallbackLevel || basis.modelLevel || '',
+          selectedWeightedYield: diagnostics.selectedWeightedYield ?? basis.weightedYield ?? '',
+          diagnosticPredictedFtes: diagnostics.diagnosticPredictedFtes ?? classified.predictedFtes ?? '',
+          diagnosticConfidence: diagnostics.diagnosticConfidence || classified.confidence || '',
           predictionFailureReason: diagnostics.failureReason || (classified.classification === 'unavailable' ? classified.reason : ''),
           attendanceMethodAliases: diagnostics.attendanceMethodAliases || '',
+          lastRejectedMatchedLevel: diagnostics.lastRejectedMatchedLevel || '',
+          lastRejectedMatchedGroupKey: diagnostics.lastRejectedMatchedGroupKey || '',
+          lastRejectedMatchedReason: diagnostics.lastRejectedMatchedReason || '',
           partOfTerm: row.partOfTerm || '',
           startDate: row.startDate || '',
           endDate: row.endDate || '',
@@ -11653,11 +11686,19 @@
       const rows = state.currentEnrollmentFtesRows || [];
       const focusTerm = normalizeTermLabel(document.getElementById('cefFocusTerm')?.value || currentTerm());
       const comparisonTerm = normalizeTermLabel(document.getElementById('cefCompareTerm')?.value || '');
+      let historicalModel = state.historicalInstitutionalModel || null;
+      try {
+        historicalModel = await hydrateHistoricalInstitutionalModel();
+      } catch (err) {
+        state.historicalInstitutionalModelStatus = 'error';
+        state.historicalInstitutionalStorageError = err?.message || String(err);
+      }
       state.currentEnrollmentFtesSummary = buildCurrentEnrollmentFtesSummary(rows, {
         focusTerm,
         comparisonTerm,
         includeWorkExperience: includeWorkExperience('cef'),
-        includeDualEnrollment: document.getElementById('cefIncludeDualEnrollment')?.checked !== false
+        includeDualEnrollment: document.getElementById('cefIncludeDualEnrollment')?.checked !== false,
+        historicalModel
       });
     }
     renderCurrentEnrollmentFtesSummary();
@@ -11748,6 +11789,7 @@
         { metric: 'FTES Maturity Definition', value: summary.context.ftesMaturityDefinition },
         { metric: 'FTES Classification Definition', value: summary.context.ftesClassificationDefinition },
         { metric: 'Historical Prediction Mapping', value: summary.context.historicalPredictionMapping },
+        { metric: 'Historical Prediction Evidence Rule', value: summary.context.historicalPredictionEvidenceRule },
         { metric: 'Work Experience Prediction Rule', value: summary.context.workExperiencePredictionRule },
         { metric: 'Work Experience Included', value: summary.context.includeWorkExperience ? `Yes (${summary.context.selectedWorkExperienceRows} selected / ${summary.context.comparisonWorkExperienceRows} comparison rows)` : 'No' },
         { metric: 'Dual Enrollment Included', value: summary.context.includeDualEnrollment ? `Yes (${summary.context.selectedDualEnrollmentRows} selected / ${summary.context.comparisonDualEnrollmentRows} comparison rows)` : 'No' },
@@ -11783,7 +11825,7 @@
       refreshGeneratedCollapsibleSections(breakdowns);
     }
     const filteredRows = filteredCurrentEnrollmentFtesDetailRows(summary);
-    table('snapshotTable', filteredRows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'rawAttendanceMethod', 'normalizedAttendanceMethod', 'normalizedCourseKey', 'predictionEligibility', 'historicalModelReadiness', 'courseLevelMatchCount', 'subjectLevelMatchCount', 'divisionLevelMatchCount', 'attendanceMethodMatchCount', 'institutionLevelMatchCount', 'selectedFallbackLevel', 'predictionFailureReason', 'censusStatus', 'ftesClassification', 'currentCalculatedFtes', 'projectedFinalFtes', 'confidence', 'derivation', 'reason', 'currentEnrollment', 'seats', 'confirmedFtes', 'estimatedFtes', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'historicalObservationCount', 'historicalTermsUsed', 'ftesSource', 'ftesWarning']);
+    table('snapshotTable', filteredRows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'rawAttendanceMethod', 'normalizedAttendanceMethod', 'normalizedCourseKey', 'predictionEligibility', 'historicalModelReadiness', 'courseLevelMatchCount', 'subjectLevelMatchCount', 'divisionLevelMatchCount', 'attendanceMethodMatchCount', 'institutionLevelMatchCount', 'usableCourseLevelMatchCount', 'usableSubjectLevelMatchCount', 'usableDivisionLevelMatchCount', 'usableAttendanceMethodMatchCount', 'usableInstitutionLevelMatchCount', 'selectedFallbackLevel', 'selectedWeightedYield', 'diagnosticPredictedFtes', 'diagnosticConfidence', 'predictionFailureReason', 'lastRejectedMatchedLevel', 'lastRejectedMatchedGroupKey', 'lastRejectedMatchedReason', 'censusStatus', 'ftesClassification', 'currentCalculatedFtes', 'projectedFinalFtes', 'confidence', 'derivation', 'reason', 'currentEnrollment', 'seats', 'confirmedFtes', 'estimatedFtes', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'historicalObservationCount', 'historicalTermsUsed', 'ftesSource', 'ftesWarning']);
     const tableNode = document.getElementById('snapshotTable');
     if (tableNode) tableNode.insertAdjacentHTML('afterbegin', `<p class="analytics-chart-note">Showing ${formatWholeNumber(filteredRows.length)} of ${formatWholeNumber(summary.rows.length)} section row(s). Unavailable FTES values are blank, not zero.</p>`);
     renderSnapshotLegend();
@@ -11834,9 +11876,20 @@
       'Division-Level Match Count': row.divisionLevelMatchCount ?? '',
       'Attendance-Method Match Count': row.attendanceMethodMatchCount ?? '',
       'Institution-Level Match Count': row.institutionLevelMatchCount ?? '',
+      'Usable Course-Level Match Count': row.usableCourseLevelMatchCount ?? '',
+      'Usable Subject-Level Match Count': row.usableSubjectLevelMatchCount ?? '',
+      'Usable Division-Level Match Count': row.usableDivisionLevelMatchCount ?? '',
+      'Usable Attendance-Method Match Count': row.usableAttendanceMethodMatchCount ?? '',
+      'Usable Institution-Level Match Count': row.usableInstitutionLevelMatchCount ?? '',
       'Selected Fallback Level': row.selectedFallbackLevel || '',
+      'Selected Weighted Yield': row.selectedWeightedYield ?? '',
+      'Diagnostic Predicted FTES': row.diagnosticPredictedFtes ?? '',
+      'Diagnostic Confidence': row.diagnosticConfidence || '',
       'Prediction Failure Reason': row.predictionFailureReason || '',
       'Attendance Method Aliases': row.attendanceMethodAliases || '',
+      'Last Rejected Matched Level': row.lastRejectedMatchedLevel || '',
+      'Last Rejected Matched Group Key': row.lastRejectedMatchedGroupKey || '',
+      'Last Rejected Matched Reason': row.lastRejectedMatchedReason || '',
       'Part of Term': row.partOfTerm || '',
       'Start Date': row.startDate || '',
       'End Date': row.endDate || '',

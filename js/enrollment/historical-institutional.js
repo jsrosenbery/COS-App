@@ -9,7 +9,7 @@
   const STORAGE_KEY = 'cos-historical-institutional-results-v1';
   const DB_NAME = 'timber-historical-institutional-results';
   const DB_VERSION = 1;
-  const MODEL_VERSION = 'historical-institutional-yield-v1';
+  const MODEL_VERSION = 'historical-institutional-yield-v2';
   const SOURCE = 'INSTITUTIONAL_CUBE';
   const SOURCE_QUALITY = 'FINAL_INSTITUTIONAL_ACTUAL';
   const TERM_COLUMN_PATTERN = /^(19|20)\d{2}(10|20|30)$/;
@@ -18,7 +18,7 @@
   const MODEL_THRESHOLDS = Object.freeze({
     high: { minTerms: 4, minEnrollment: 100, maxCv: 0.12, maxWape: 0.08, maxBias: 0.05 },
     medium: { minTerms: 3, minEnrollment: 50, maxCv: 0.25, maxWape: 0.15, maxBias: 0.1 },
-    low: { minTerms: 2, minEnrollment: 20 },
+    low: { minTerms: 1, minEnrollment: 20 },
     maxHighVarianceCv: 0.45,
     maxHighVarianceWape: 0.25
   });
@@ -105,6 +105,10 @@
   }
 
   function normalizeCourse(value) {
+    return clean(value).toUpperCase();
+  }
+
+  function normalizeDivision(value) {
     return clean(value).toUpperCase();
   }
 
@@ -289,7 +293,7 @@
       termCode,
       season: termSeason(termCode),
       campus: clean(row.campus),
-      division: clean(row.division),
+      division: normalizeDivision(row.division),
       subject,
       courseNumber,
       courseKey: stableCourseKeyForRow({ subject, courseNumber }),
@@ -1159,7 +1163,7 @@
     const attendance = normalizeAttendanceMethod(record.attendanceMethod);
     if (level === 'course') return [season, attendance, record.courseKey].join('|');
     if (level === 'subject') return [season, attendance, record.subject].join('|');
-    if (level === 'division') return [season, attendance, record.division].join('|');
+    if (level === 'division') return [season, attendance, normalizeDivision(record.division)].join('|');
     if (level === 'attendanceMethod') return [season, attendance].join('|');
     return [season || 'ALL'].join('|');
   }
@@ -1332,7 +1336,7 @@
     const season = row.season || termSeason(term);
     const subject = normalizeSubject(row.subject || row.Subject || '');
     const course = stableCourseKeyForRow(row);
-    const division = clean(row.division || row.Division || '');
+    const division = normalizeDivision(row.division || row.Division || '');
     const candidates = [];
     const add = candidate => {
       const key = `${candidate.modelLevel}:${candidate.groupKey}`;
@@ -1367,9 +1371,17 @@
       attendanceMethod: 0,
       institution: 0
     };
+    const usableMatchCounts = {
+      course: 0,
+      subject: 0,
+      division: 0,
+      attendanceMethod: 0,
+      institution: 0
+    };
     candidates.forEach(candidate => {
       const group = groups.get(`${candidate.modelLevel}:${candidate.groupKey}`);
-      if (group && group.confidence !== 'INSUFFICIENT_DATA') matchCounts[candidate.modelLevel] = (matchCounts[candidate.modelLevel] || 0) + 1;
+      if (group) matchCounts[candidate.modelLevel] = (matchCounts[candidate.modelLevel] || 0) + 1;
+      if (group && group.confidence !== 'INSUFFICIENT_DATA') usableMatchCounts[candidate.modelLevel] = (usableMatchCounts[candidate.modelLevel] || 0) + 1;
     });
     const eligible = ELIGIBLE_PENDING_ATTENDANCE.has(attendance) || isWorkExperienceIdentity(row);
     return {
@@ -1387,7 +1399,15 @@
       divisionLevelMatchCount: matchCounts.division || 0,
       attendanceMethodMatchCount: matchCounts.attendanceMethod || 0,
       institutionLevelMatchCount: matchCounts.institution || 0,
+      usableCourseLevelMatchCount: usableMatchCounts.course || 0,
+      usableSubjectLevelMatchCount: usableMatchCounts.subject || 0,
+      usableDivisionLevelMatchCount: usableMatchCounts.division || 0,
+      usableAttendanceMethodMatchCount: usableMatchCounts.attendanceMethod || 0,
+      usableInstitutionLevelMatchCount: usableMatchCounts.institution || 0,
       selectedFallbackLevel: '',
+      selectedWeightedYield: null,
+      predictedFtes: null,
+      confidence: '',
       failureReason: '',
       attendanceMethodAliases: attendanceAliasesForSection(row).join('; '),
       candidates
@@ -1421,11 +1441,16 @@
         return false;
       }
       if (group.confidence === 'INSUFFICIENT_DATA') {
+        diagnostics.lastRejectedMatchedLevel = candidate.modelLevel;
+        diagnostics.lastRejectedMatchedGroupKey = candidate.groupKey;
+        diagnostics.lastRejectedMatchedReason = 'Insufficient comparable terms, enrollment volume, or final observations.';
         rejected.push({ ...candidate, reason: 'Insufficient comparable terms, enrollment volume, or final observations.' });
         return false;
       }
       selected = group;
       diagnostics.selectedFallbackLevel = selected.modelLevel;
+      diagnostics.selectedWeightedYield = selected.weightedYield;
+      diagnostics.confidence = selected.confidence;
       return true;
     });
     if (!selected || !enrollment) {
@@ -1447,6 +1472,7 @@
     }
     const estimatedFtes = enrollment * selected.weightedYield;
     const range = estimateRange(estimatedFtes, selected);
+    diagnostics.predictedFtes = round(estimatedFtes, 3);
     return {
       estimated: true,
       termCode: currentSectionTermCode(row),

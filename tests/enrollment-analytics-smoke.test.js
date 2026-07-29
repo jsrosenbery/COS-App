@@ -2727,6 +2727,36 @@ test('historical institutional yield model uses weighted final institutional act
   assert.match(estimate.explanation, /Weighted historical yield/);
 });
 
+test('historical institutional yield model uses single completed term as low confidence evidence', () => {
+  const historical = require('../js/enrollment/historical-institutional.js');
+  const table = [
+    ['', '', '', '', '', '', '', '', '', '202610'],
+    ['Campus', 'Division', 'Subject', 'Course #', 'CRN', 'Accounting Method', 'Part of Term', 'Enrollment', 'Student Contact Hrs', 'Individual FTES'],
+    ['COS', 'Public Safety', 'FIRE', '100', '12345', 'Positive Attendance', '1', '30', '600', '3'],
+    ['COS', 'Public Safety', 'FIRE', '101', '12346', 'Open Entry/Open Exit - Positive Attendance', '1', '25', '500', '2.5']
+  ];
+  const preview = historical.inspectWorkbookTable(table, { filename: 'fall-2025-cube.xlsx', importedAt: '2026-07-28T00:00:00.000Z', importBatchId: 'TEST' });
+  const model = historical.buildYieldModel(preview.records);
+  const estimate = historical.estimatePendingSection({
+    term: 'FALL 2026',
+    crn: '99999',
+    subject: 'FIRE',
+    course: '999',
+    division: 'PUBLIC SAFETY',
+    accountingMethodLabel: 'Positive Attendance',
+    census: 20
+  }, model);
+
+  assert.equal(historical.MODEL_VERSION, 'historical-institutional-yield-v2');
+  assert.equal(estimate.estimated, true);
+  assert.equal(estimate.confidence, 'LOW');
+  assert.equal(estimate.historicalBasisLevel, 'subject');
+  assert.equal(estimate.predictionDiagnostics.subjectLevelMatchCount, 1);
+  assert.equal(estimate.predictionDiagnostics.usableSubjectLevelMatchCount, 1);
+  assert.equal(estimate.predictionDiagnostics.selectedWeightedYield, 0.1);
+  assert.equal(estimate.predictionDiagnostics.predictedFtes, 2);
+});
+
 test('historical institutional repository supports replacement preview and persistent payload', () => {
   const historical = require('../js/enrollment/historical-institutional.js');
   const store = new Map();
@@ -5655,7 +5685,7 @@ test('current enrollment FTES historical prediction hierarchy falls back by evid
   const cases = [
     [group('course', 'Fall|P|HIST 017'), 'historical-course-model'],
     [group('subject', 'Fall|P|HIST'), 'historical-subject-model'],
-    [group('division', 'Fall|P|Social Science'), 'historical-division-model'],
+    [group('division', 'Fall|P|SOCIAL SCIENCE'), 'historical-division-model'],
     [group('attendanceMethod', 'Fall|P'), 'historical-attendance-method-model'],
     [group('institution', 'Fall'), 'historical-institution-model']
   ];
