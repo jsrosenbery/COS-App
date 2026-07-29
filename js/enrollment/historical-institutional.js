@@ -411,6 +411,7 @@
     let initializing = null;
     let lastError = '';
     let lastSuccessfulTransaction = '';
+    let lastImportCommitDiagnostics = null;
     let migrationStatus = 'not-started';
 
     function ensureIndexedDb() {
@@ -497,18 +498,26 @@
       };
     }
 
-    function putRecordsInTransaction(tx, records = []) {
+    function putRecordsInTransaction(tx, records = [], diagnostics = null) {
       const store = tx.objectStore('historicalRecords');
       let written = 0;
       records.forEach(record => {
         const request = store.put(decorateRecord(record));
         request.onsuccess = () => {
           written += 1;
+          if (diagnostics) diagnostics.recordsWritten = written;
           if (written === records.length || written % 500 === 0) {
             onProgress({ status: 'writing-records', written, total: records.length, message: `Writing ${written} of ${records.length} historical records...` });
           }
         };
+        request.onerror = () => {
+          if (diagnostics) {
+            diagnostics.transactionStatus = 'failed';
+            diagnostics.transactionError = request.error?.message || request.error?.name || 'Record write failed.';
+          }
+        };
       });
+      if (diagnostics) diagnostics.recordsQueuedForWrite = records.length;
     }
 
     function queueDeleteRecordsByValues(store, indexName, values = [], onDone, onError) {
@@ -537,9 +546,29 @@
 
     async function saveImportBatch(batch, records = []) {
       const active = await initialize();
+      if (!records.length) throw new Error('Historical Institutional Results import commit blocked: no normalized records were passed to saveImportBatch().');
+      const commitDiagnostics = {
+        operation: 'saveImportBatch',
+        importBatchId: batch.importBatchId,
+        normalizedRecordCountBeforePersistence: records.length,
+        recordsPassedToSaveImportBatch: records.length,
+        recordsQueuedForWrite: 0,
+        recordsWritten: 0,
+        transactionStatus: 'started',
+        startedAt: new Date().toISOString()
+      };
+      lastImportCommitDiagnostics = commitDiagnostics;
       const tx = active.transaction(['historicalRecords', 'importBatches', 'historicalModelAggregates', 'metadata'], 'readwrite');
       onProgress({ status: 'preparing-import', written: 0, total: records.length, message: 'Preparing historical import...' });
-      putRecordsInTransaction(tx, records);
+      tx.onerror = () => {
+        commitDiagnostics.transactionStatus = 'failed';
+        commitDiagnostics.transactionError = tx.error?.message || tx.error?.name || 'Import transaction failed.';
+      };
+      tx.onabort = () => {
+        commitDiagnostics.transactionStatus = 'aborted';
+        commitDiagnostics.transactionError = tx.error?.message || tx.error?.name || 'Import transaction aborted.';
+      };
+      putRecordsInTransaction(tx, records, commitDiagnostics);
       tx.objectStore('importBatches').put(batch);
       const metadata = tx.objectStore('metadata');
       putMetadata(metadata, 'schemaVersion', DB_VERSION);
@@ -550,6 +579,12 @@
       clearModelAggregates(tx);
       await transactionPromise(tx);
       lastSuccessfulTransaction = `saveImportBatch:${batch.importBatchId}`;
+      commitDiagnostics.transactionStatus = 'complete';
+      commitDiagnostics.completedAt = new Date().toISOString();
+      commitDiagnostics.recordCountImmediatelyAfterCommit = await getRecordCount();
+      if (commitDiagnostics.recordsWritten !== records.length || commitDiagnostics.recordCountImmediatelyAfterCommit < records.length) {
+        throw new Error(`Historical Institutional Results import verification failed: wrote ${commitDiagnostics.recordsWritten} of ${records.length}; store count after commit is ${commitDiagnostics.recordCountImmediatelyAfterCommit}.`);
+      }
       onProgress({ status: 'finalizing', written: records.length, total: records.length, message: 'Historical import finalized.' });
       await scope?.navigator?.storage?.persist?.();
     }
@@ -557,12 +592,38 @@
     async function replaceTerms(batch, records = [], termCodes = []) {
       const active = await initialize();
       const terms = [...new Set((termCodes.length ? termCodes : records.map(record => record.termCode)).filter(Boolean))];
+      if (!records.length) throw new Error('Historical Institutional Results import commit blocked: no normalized records were passed to replaceTerms().');
+      if (!terms.length) throw new Error('Historical Institutional Results import commit blocked: no term codes were available for replaceTerms().');
+      const recordsOutsideSelectedTerms = records.filter(record => !terms.includes(record.termCode));
+      if (recordsOutsideSelectedTerms.length) {
+        throw new Error(`Historical Institutional Results import commit blocked: ${recordsOutsideSelectedTerms.length} normalized record(s) are outside the selected replacement terms.`);
+      }
+      const commitDiagnostics = {
+        operation: 'replaceTerms',
+        importBatchId: batch.importBatchId,
+        terms,
+        normalizedRecordCountBeforePersistence: records.length,
+        recordsPassedToReplaceTerms: records.length,
+        recordsQueuedForWrite: 0,
+        recordsWritten: 0,
+        transactionStatus: 'started',
+        startedAt: new Date().toISOString()
+      };
+      lastImportCommitDiagnostics = commitDiagnostics;
       const tx = active.transaction(['historicalRecords', 'importBatches', 'historicalModelAggregates', 'metadata'], 'readwrite');
       onProgress({ status: 'preparing-import', written: 0, total: records.length, message: 'Preparing term replacement...' });
+      tx.onerror = () => {
+        commitDiagnostics.transactionStatus = 'failed';
+        commitDiagnostics.transactionError = tx.error?.message || tx.error?.name || 'Term replacement transaction failed.';
+      };
+      tx.onabort = () => {
+        commitDiagnostics.transactionStatus = 'aborted';
+        commitDiagnostics.transactionError = tx.error?.message || tx.error?.name || 'Term replacement transaction aborted.';
+      };
       const recordStore = tx.objectStore('historicalRecords');
       await new Promise((resolve, reject) => {
         queueDeleteRecordsByValues(recordStore, 'termCode', terms, () => {
-          putRecordsInTransaction(tx, records);
+          putRecordsInTransaction(tx, records, commitDiagnostics);
           tx.objectStore('importBatches').put({ ...batch, replacedTerms: terms });
           const metadata = tx.objectStore('metadata');
           putMetadata(metadata, 'schemaVersion', DB_VERSION);
@@ -576,6 +637,15 @@
       });
       await transactionPromise(tx);
       lastSuccessfulTransaction = `replaceTerms:${batch.importBatchId}`;
+      commitDiagnostics.transactionStatus = 'complete';
+      commitDiagnostics.completedAt = new Date().toISOString();
+      commitDiagnostics.recordCountImmediatelyAfterCommit = await getRecordCount();
+      const termCounts = await Promise.all(terms.map(async termCode => ({ termCode, recordCount: (await getRecordsByTerm(termCode)).length })));
+      commitDiagnostics.recordCountsByReplacedTermAfterCommit = termCounts;
+      const replacedTermCount = termCounts.reduce((sum, item) => sum + Number(item.recordCount || 0), 0);
+      if (commitDiagnostics.recordsWritten !== records.length || replacedTermCount !== records.length) {
+        throw new Error(`Historical Institutional Results import verification failed: wrote ${commitDiagnostics.recordsWritten} of ${records.length}; replaced terms contain ${replacedTermCount} record(s) after commit.`);
+      }
       onProgress({ status: 'finalizing', written: records.length, total: records.length, message: 'Historical term replacement finalized.' });
       await scope?.navigator?.storage?.persist?.();
     }
@@ -584,6 +654,7 @@
       if (!preview?.valid) throw new Error('Historical Institutional Results import contains blocking validation errors.');
       const batch = batchFromPreview(preview, options);
       const records = (preview.records || []).map(decorateRecord);
+      if (!records.length) throw new Error('Historical Institutional Results import commit blocked: preview contains zero normalized records.');
       if ((options.mode || 'replace-selected-terms') === 'append') await saveImportBatch(batch, records);
       else await replaceTerms(batch, records, options.terms?.length ? options.terms.map(normalizeTermCode) : batch.termsIncluded);
       return load();
@@ -754,6 +825,7 @@
         indexedDbAvailable: true,
         legacyMigrationStatus: migrationStatus,
         lastSuccessfulTransaction,
+        lastImportCommitDiagnostics,
         lastDatabaseError: lastError,
         metadata
       };

@@ -2782,6 +2782,7 @@ test('historical institutional repository supports replacement preview and persi
 test('historical institutional browser persistence uses IndexedDB repository boundary', async () => {
   const historical = require('../js/enrollment/historical-institutional.js');
   const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment/historical-institutional.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.equal(historical.DB_NAME, 'timber-historical-institutional-results');
   assert.equal(historical.DB_VERSION, 1);
@@ -2794,6 +2795,14 @@ test('historical institutional browser persistence uses IndexedDB repository bou
   assert.match(source, /createIndexIfMissing\(records, 'courseKey'/);
   assert.match(source, /createIndexIfMissing\(records, 'importBatchId'/);
   assert.match(source, /navigator\?\.storage\?\.persist/);
+  assert.match(source, /no normalized records were passed to replaceTerms\(\)/);
+  assert.match(source, /recordCountImmediatelyAfterCommit/);
+  assert.match(source, /recordsWritten/);
+  assert.match(source, /transactionStatus/);
+  assert.match(source, /lastImportCommitDiagnostics/);
+  assert.match(app, /normalizedRecordCountBeforePersistence/);
+  assert.match(app, /recordCountAfterAutomaticModelRebuild/);
+  assert.match(app, /recordCountAfterPageInitialization/);
   assert.doesNotMatch(source, /setItem\(STORAGE_KEY/);
   await assert.rejects(() => historical.createIndexedDbRepository({}).initialize(), /IndexedDB is unavailable/);
 });

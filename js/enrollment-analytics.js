@@ -12169,6 +12169,7 @@
       state.historicalInstitutionalPayload = payload;
       state.historicalInstitutionalStorageDiagnostics = await repo.storageDiagnostics();
       state.historicalInstitutionalStorageDiagnostics.initializationMs = Math.round(performance.now() - started);
+      state.historicalInstitutionalStorageDiagnostics.recordCountAfterPageInitialization = payload.records?.length || 0;
       state.historicalInstitutionalDataStatus = 'ready';
       return payload;
     } catch (err) {
@@ -12230,6 +12231,7 @@
       state.historicalInstitutionalModelRestored = false;
       await repo.saveModelAggregates(model, version);
       state.historicalInstitutionalStorageDiagnostics = await repo.storageDiagnostics();
+      state.historicalInstitutionalStorageDiagnostics.recordCountAfterAutomaticModelRebuild = historicalInstitutionalRecords().length;
       state.historicalInstitutionalModelStatus = 'ready';
       return model;
     }).catch(err => {
@@ -12332,6 +12334,16 @@
       { metric: 'IndexedDB Available', value: diagnostics.indexedDbAvailable === false ? 'No' : 'Yes' },
       { metric: 'Legacy Migration Status', value: diagnostics.legacyMigrationStatus || 'Unknown' },
       { metric: 'Last Successful Transaction', value: diagnostics.lastSuccessfulTransaction || 'None' },
+      { metric: 'Last Import Operation', value: diagnostics.lastImportCommitDiagnostics?.operation || 'None' },
+      { metric: 'Normalized Records Before Persistence', value: formatWholeNumber(diagnostics.lastImportCommitDiagnostics?.normalizedRecordCountBeforePersistence || 0) },
+      { metric: 'Records Passed to replaceTerms()', value: formatWholeNumber(diagnostics.lastImportCommitDiagnostics?.recordsPassedToReplaceTerms || 0) },
+      { metric: 'Records Passed to saveImportBatch()', value: formatWholeNumber(diagnostics.lastImportCommitDiagnostics?.recordsPassedToSaveImportBatch || 0) },
+      { metric: 'Records Written During Transaction', value: formatWholeNumber(diagnostics.lastImportCommitDiagnostics?.recordsWritten || 0) },
+      { metric: 'Import Transaction Status', value: diagnostics.lastImportCommitDiagnostics?.transactionStatus || 'None' },
+      { metric: 'Import Transaction Error', value: diagnostics.lastImportCommitDiagnostics?.transactionError || 'None' },
+      { metric: 'Record Count Immediately After Commit', value: formatWholeNumber(diagnostics.lastImportCommitDiagnostics?.recordCountImmediatelyAfterCommit || 0) },
+      { metric: 'Record Count After Automatic Model Rebuild', value: formatWholeNumber(diagnostics.recordCountAfterAutomaticModelRebuild || 0) },
+      { metric: 'Record Count After Page Initialization', value: formatWholeNumber(diagnostics.recordCountAfterPageInitialization || 0) },
       { metric: 'Last Database Error', value: diagnostics.lastDatabaseError || state.historicalInstitutionalStorageError || 'None' },
       { metric: 'Initialization Time', value: diagnostics.initializationMs == null ? 'Unavailable' : `${formatWholeNumber(diagnostics.initializationMs)} ms` }
     ];
@@ -12355,12 +12367,21 @@
     if (!preview.valid) throw new Error('Historical Institutional Results import has blocking validation errors.');
     const repo = historicalInstitutionalRepository();
     state.historicalInstitutionalDataStatus = 'importing';
+    const normalizedRecordCountBeforePersistence = preview.records?.length || 0;
+    if (!normalizedRecordCountBeforePersistence) {
+      throw new Error('Historical Institutional Results import blocked: preview contains zero normalized records. Re-run preview and verify the Cube header mapping.');
+    }
     const differences = await repo.previewDifferences(preview.records || []);
     const started = performance.now();
     const payload = await repo.commitImport(preview, { mode: 'replace-selected-terms' });
     state.historicalInstitutionalPayload = payload;
     state.historicalInstitutionalStorageDiagnostics = await repo.storageDiagnostics();
     state.historicalInstitutionalStorageDiagnostics.lastImportMs = Math.round(performance.now() - started);
+    state.historicalInstitutionalStorageDiagnostics.normalizedRecordCountBeforePersistence = normalizedRecordCountBeforePersistence;
+    state.historicalInstitutionalStorageDiagnostics.recordCountImmediatelyAfterCommit = payload.records?.length || 0;
+    if ((payload.records?.length || 0) < normalizedRecordCountBeforePersistence) {
+      throw new Error(`Historical Institutional Results import verification failed: preview had ${formatWholeNumber(normalizedRecordCountBeforePersistence)} normalized records, but IndexedDB returned ${formatWholeNumber(payload.records?.length || 0)} after commit.`);
+    }
     state.historicalInstitutionalDataStatus = 'ready';
     state.historicalInstitutionalModelStatus = 'rebuilding-model';
     state.historicalInstitutionalModel = null;
