@@ -10128,8 +10128,10 @@
     const terms = dashboardAvailableTerms(rows);
     if (!select) return '';
     const prior = select.value;
-    const active = canon(currentTerm());
+    const active = normalizeTermLabel(currentTerm());
+    const normalizedPrior = normalizeTermLabel(prior);
     const defaultTerm = terms.includes(prior) ? prior :
+      terms.includes(normalizedPrior) ? normalizedPrior :
       terms.includes(active) ? active :
       terms.length ? terms[terms.length - 1] : '';
     select.replaceChildren();
@@ -10166,12 +10168,13 @@
   }
 
   function studentPresenceFocusTerm() {
-    return canon(document.getElementById('spFocusTerm')?.value || '');
+    return normalizeTermLabel(document.getElementById('spFocusTerm')?.value || '');
   }
 
   function dashboardCurrentRows(sourceRows, focusTerm) {
     if (!focusTerm) return sourceRows;
-    return sourceRows.filter(row => row.term === focusTerm);
+    const normalizedFocus = normalizeTermLabel(focusTerm);
+    return sourceRows.filter(row => normalizeTermLabel(row.term) === normalizedFocus);
   }
 
   function dashboardHistoricalRows(rows, focusTerm) {
@@ -14929,7 +14932,7 @@
   function studentPresencePhysicalGraphRows(rows) {
     return (rows || [])
       .map(row => window.COSSectionModel?.normalizeSection?.(row) || row)
-      .filter(row => row.isPhysical && !row.isOnline && row.timeBlock !== 'ONLINE/TBA')
+      .filter(row => !row.isOnline && row.timeBlock !== 'ONLINE/TBA')
       .filter(studentPresenceHasUsableFixedTime);
   }
 
@@ -14967,7 +14970,7 @@
       const counts = window.COSSectionModel.buildHalfHourPresenceSeries(source.rows, hours, {
         metric: 'presence',
         daysOfWeek,
-        excludeOnlineTba: true,
+        excludeOnlineTba: false,
         presenceMultiplier: (section, rawRow) => expectedPresence
           ? (dashboard.meetingFrequencyFactor?.({ ...rawRow, ...section }, sourceOptions)?.factor || 1)
           : 1
