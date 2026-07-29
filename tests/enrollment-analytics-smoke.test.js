@@ -5804,6 +5804,103 @@ test('current enrollment FTES historical prediction uses full fallback and Work 
   assert.equal(workExperienceResult.predictionDiagnostics.courseLevelMatchCount, 1);
 });
 
+test('current enrollment FTES historical prediction uses live enrollment before census enrollment', () => {
+  const { COSEnrollmentAnalytics, COSHistoricalInstitutional } = loadEnrollmentAnalyticsRuntime();
+  const asOfContext = { iso: '2026-07-24' };
+  const model = {
+    groups: [
+      {
+        modelLevel: 'institution',
+        groupKey: 'Fall',
+        terms: ['202610'],
+        observationCount: 10,
+        totalCensusEnrollment: 100,
+        totalInstitutionalFtes: 10,
+        weightedYield: 0.1,
+        coefficientOfVariation: 0.1,
+        confidence: 'LOW',
+        backtesting: { weightedAbsolutePercentageError: null, rows: [] },
+        distinctTerms: 1
+      }
+    ]
+  };
+  const positive = section({ term: 'FALL 2026', crn: 'P041', subject: 'FIRE', course: '100', accountingMethod: 'P', hasFtesData: false, hasDirectFtesData: false, actual: 41, census: 0, censusEnrollment: 0 });
+  const openEntry = section({ term: 'FALL 2026', crn: 'E011', subject: 'LA', course: '425', accountingMethod: 'E', hasFtesData: false, hasDirectFtesData: false, actual: 11, census: null, censusEnrollment: '' });
+  const zero = section({ term: 'FALL 2026', crn: 'E000', subject: 'LA', course: '425', accountingMethod: 'E', hasFtesData: false, hasDirectFtesData: false, actual: 0, census: 0 });
+  const positiveResult = COSEnrollmentAnalytics.classifySectionFtes(positive, { asOfContext, historicalModel: model });
+  const openEntryResult = COSEnrollmentAnalytics.classifySectionFtes(openEntry, { asOfContext, historicalModel: model });
+  const zeroResult = COSEnrollmentAnalytics.classifySectionFtes(zero, { asOfContext, historicalModel: model });
+
+  assert.equal(COSHistoricalInstitutional.currentLiveEnrollment(positive), 41);
+  assert.equal(positiveResult.classification, 'predicted');
+  assert.equal(positiveResult.predictedFtes, 4.1);
+  assert.equal(positiveResult.predictionDiagnostics.currentEnrollmentSource, 'actual');
+  assert.equal(openEntryResult.classification, 'predicted');
+  assert.equal(openEntryResult.predictedFtes, 1.1);
+  assert.equal(zeroResult.classification, 'predicted');
+  assert.equal(zeroResult.predictedFtes, 0);
+  assert.match(zeroResult.reason, /current enrollment is zero/i);
+});
+
+test('current enrollment FTES historical prediction reports pending when model is not ready', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const asOfContext = { iso: '2026-07-24' };
+  const row = section({ term: 'FALL 2026', crn: 'P041', subject: 'FIRE', course: '100', accountingMethod: 'P', hasFtesData: false, hasDirectFtesData: false, actual: 41, census: 0 });
+  const result = COSEnrollmentAnalytics.classifySectionFtes(row, { asOfContext, historicalModel: null });
+
+  assert.equal(result.classification, 'prediction-pending');
+  assert.equal(result.predictionDiagnostics.repositoryModelReadiness, 'pending');
+  assert.match(result.reason, /not ready/i);
+});
+
+test('current enrollment FTES prediction export reconciles after historical predictions', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const model = {
+    groups: [
+      {
+        modelLevel: 'subject',
+        groupKey: 'Fall|P|FIRE',
+        terms: ['202610'],
+        observationCount: 10,
+        totalCensusEnrollment: 100,
+        totalInstitutionalFtes: 10,
+        weightedYield: 0.1,
+        coefficientOfVariation: 0.1,
+        confidence: 'LOW',
+        backtesting: { weightedAbsolutePercentageError: null, rows: [] },
+        distinctTerms: 1
+      },
+      {
+        modelLevel: 'attendanceMethod',
+        groupKey: 'Fall|E',
+        terms: ['202610'],
+        observationCount: 10,
+        totalCensusEnrollment: 100,
+        totalInstitutionalFtes: 5,
+        weightedYield: 0.05,
+        coefficientOfVariation: 0.1,
+        confidence: 'LOW',
+        backtesting: { weightedAbsolutePercentageError: null, rows: [] },
+        distinctTerms: 1
+      }
+    ]
+  };
+  const rows = [
+    section({ term: 'FALL 2026', crn: 'P041', subject: 'FIRE', course: '999', accountingMethod: 'P', hasFtesData: false, hasDirectFtesData: false, actual: 41, census: 0 }),
+    section({ term: 'FALL 2026', crn: 'E011', subject: 'LA', course: '425', accountingMethod: 'E', hasFtesData: false, hasDirectFtesData: false, actual: 11, census: null })
+  ];
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', effectiveAsOfDate: '2026-07-24', historicalModel: model });
+  const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
+  const projected = summary.ftesClassification.focus.confirmedFtesTotal + summary.ftesClassification.focus.estimatedFtesTotal + summary.ftesClassification.focus.predictedFtesTotal;
+
+  assert.equal(summary.ftesClassification.focus.predictedSections, 2);
+  assert.equal(summary.rows.find(row => row.crn === 'P041').selectedFallbackLevel, 'subject');
+  assert.equal(summary.rows.find(row => row.crn === 'E011').selectedFallbackLevel, 'attendanceMethod');
+  assert.equal(Math.round(summary.ftesClassification.focus.projectedFinalFtesTotal * 1000) / 1000, Math.round(projected * 1000) / 1000);
+  assert.equal(summary.reconciliation.projectedFtes.matches, true);
+  assert.ok(exportRows.find(row => row.Section === 'Detail' && row.CRN === 'P041')['Current Live Enrollment Source']);
+});
+
 test('current enrollment FTES historical prediction diagnostics and delayed readiness hook are wired', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 

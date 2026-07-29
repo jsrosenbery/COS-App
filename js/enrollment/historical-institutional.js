@@ -1168,14 +1168,46 @@
     return [season || 'ALL'].join('|');
   }
 
+  function historicalCensusEnrollment(record = {}) {
+    const value = numberValue(record.censusEnrollment);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function currentLiveEnrollment(section = {}) {
+    return currentLiveEnrollmentResolution(section).value;
+  }
+
+  function currentLiveEnrollmentResolution(section = {}) {
+    const fields = [
+      ['actual', section.actual],
+      ['currentEnrollment', section.currentEnrollment],
+      ['enrollment', section.enrollment],
+      ['ACTUAL_ENROLL', section.ACTUAL_ENROLL],
+      ['Actual Enroll', section['Actual Enroll']],
+      ['Actual Enrollment', section['Actual Enrollment']],
+      ['census1', section.census1],
+      ['census', section.census],
+      ['censusEnrollment', section.censusEnrollment],
+      ['CENSUS_ENROLL', section.CENSUS_ENROLL],
+      ['finalEnrollment', section.finalEnrollment]
+    ];
+    for (const [source, value] of fields) {
+      if (value === '' || value == null) continue;
+      const number = numberValue(value);
+      if (Number.isFinite(number)) return { value: number, source };
+    }
+    return { value: null, source: '' };
+  }
+
   function recordYield(record) {
-    return record.censusEnrollment ? Number(record.finalInstitutionalFtes || 0) / Number(record.censusEnrollment || 0) : null;
+    const enrollment = historicalCensusEnrollment(record);
+    return enrollment ? Number(record.finalInstitutionalFtes || 0) / enrollment : null;
   }
 
   function statsForRecords(records = [], level = 'institution', key = '') {
-    const eligible = records.filter(record => record.sourceQuality === SOURCE_QUALITY && Number(record.censusEnrollment || 0) > 0 && Number.isFinite(Number(record.finalInstitutionalFtes)));
+    const eligible = records.filter(record => record.sourceQuality === SOURCE_QUALITY && Number(historicalCensusEnrollment(record) || 0) > 0 && Number.isFinite(Number(record.finalInstitutionalFtes)));
     const yields = eligible.map(recordYield).filter(Number.isFinite);
-    const enrollment = eligible.reduce((sum, record) => sum + Number(record.censusEnrollment || 0), 0);
+    const enrollment = eligible.reduce((sum, record) => sum + Number(historicalCensusEnrollment(record) || 0), 0);
     const ftes = eligible.reduce((sum, record) => sum + Number(record.finalInstitutionalFtes || 0), 0);
     const weightedYield = enrollment ? ftes / enrollment : null;
     const sd = standardDeviation(yields);
@@ -1211,7 +1243,7 @@
       const actualRows = records.filter(record => record.termCode === testTerm);
       const trainingRows = records.filter(record => record.termCode < testTerm);
       const training = statsForRecords(trainingRows, level, key);
-      const actualEnrollment = actualRows.reduce((sum, record) => sum + Number(record.censusEnrollment || 0), 0);
+      const actualEnrollment = actualRows.reduce((sum, record) => sum + Number(historicalCensusEnrollment(record) || 0), 0);
       const actualFtes = actualRows.reduce((sum, record) => sum + Number(record.finalInstitutionalFtes || 0), 0);
       if (!actualEnrollment || training.weightedYield == null || training.distinctTerms < 2) return;
       const predictedFtes = actualEnrollment * training.weightedYield;
@@ -1290,10 +1322,6 @@
     };
   }
 
-  function currentSectionEnrollment(row = {}) {
-    return numberValue(row.censusEnrollment ?? row.census ?? row.actual ?? row.currentEnrollment ?? row.enrollment ?? row.ACTUAL_ENROLL) || 0;
-  }
-
   function currentSectionTermCode(row = {}) {
     const raw = row.termCode || row.term || row.Term || '';
     return seasonYearTermCode(raw) || normalizeTermCode(raw);
@@ -1362,7 +1390,8 @@
   function predictionDiagnosticsForSection(row = {}, model = {}) {
     const groups = new Map((model.groups || []).map(group => [`${group.modelLevel}:${group.groupKey}`, group]));
     const attendance = currentSectionAttendance(row);
-    const enrollment = currentSectionEnrollment(row);
+    const enrollmentResolution = currentLiveEnrollmentResolution(row);
+    const enrollment = enrollmentResolution.value;
     const candidates = candidateKeysForSection(row);
     const matchCounts = {
       course: 0,
@@ -1392,6 +1421,7 @@
       rawAttendanceMethod: clean(firstPresent(row.attendanceAccountingCode, row.accountingMethod, row.ACCOUNTING_METHOD, row['Accounting Method'], row.attendanceMethod, row.accountingMethodLabel, row['Attendance Method'], row.ACAM) || ''),
       normalizedAttendanceMethod: attendance,
       currentEnrollment: enrollment,
+      currentEnrollmentSource: enrollmentResolution.source,
       predictionEligibility: eligible,
       repositoryModelReadiness: (model.groups || []).length ? 'ready' : 'unavailable-or-empty',
       courseLevelMatchCount: matchCounts.course || 0,
@@ -1423,14 +1453,19 @@
     };
   }
 
-  function estimatePendingSection(row = {}, model = buildYieldModel([]), options = {}) {
+  function estimatePendingSection(row = {}, model = null, options = {}) {
     const attendance = currentSectionAttendance(row);
-    const diagnostics = predictionDiagnosticsForSection(row, model);
+    const diagnostics = predictionDiagnosticsForSection(row, model || {});
+    if (!model || !Array.isArray(model.groups)) {
+      diagnostics.failureReason = 'Historical Institutional Model is not ready for prediction.';
+      diagnostics.repositoryModelReadiness = 'pending';
+      return { estimated: false, pending: true, confidence: 'INSUFFICIENT_DATA', reason: diagnostics.failureReason, predictionDiagnostics: diagnostics, modelVersion: MODEL_VERSION };
+    }
     if (!ELIGIBLE_PENDING_ATTENDANCE.has(attendance) && !isWorkExperienceIdentity(row) && !options.allowAllAttendanceMethods) {
       diagnostics.failureReason = 'Attendance population is not configured for historical pending FTES estimation.';
       return { estimated: false, confidence: 'INSUFFICIENT_DATA', reason: diagnostics.failureReason, predictionDiagnostics: diagnostics };
     }
-    const enrollment = currentSectionEnrollment(row);
+    const enrollment = currentLiveEnrollment(row);
     const groups = new Map((model.groups || []).map(group => [`${group.modelLevel}:${group.groupKey}`, group]));
     const rejected = [];
     let selected = null;
@@ -1453,8 +1488,8 @@
       diagnostics.confidence = selected.confidence;
       return true;
     });
-    if (!selected || !enrollment) {
-      diagnostics.failureReason = !enrollment ? 'Current census enrollment is unavailable.' : 'No acceptable historical basis was available.';
+    if (!selected || enrollment == null) {
+      diagnostics.failureReason = enrollment == null ? 'Current enrollment is unavailable.' : 'No acceptable historical basis was available.';
       return {
         estimated: false,
         termCode: currentSectionTermCode(row),
@@ -1468,6 +1503,38 @@
         rejectedCandidateLevels: rejected,
         modelVersion: model.modelVersion || MODEL_VERSION,
         predictionDiagnostics: diagnostics
+      };
+    }
+    if (enrollment === 0) {
+      diagnostics.failureReason = 'Current enrollment is zero; predicted FTES is zero.';
+      diagnostics.predictedFtes = 0;
+      return {
+        estimated: true,
+        termCode: currentSectionTermCode(row),
+        crn: clean(row.crn || row.CRN),
+        subject: normalizeSubject(row.subject || row.Subject),
+        courseNumber: normalizeCourse(row.courseNumber || row.course || row.Course),
+        attendanceMethod: attendance,
+        currentEnrollment: enrollment,
+        historicalBasisLevel: selected.modelLevel,
+        historicalGroupKey: selected.groupKey,
+        historicalTermsUsed: selected.terms.join('; '),
+        historicalRecordsUsed: selected.observationCount,
+        historicalEnrollment: selected.totalCensusEnrollment,
+        historicalFtes: selected.totalInstitutionalFtes,
+        weightedHistoricalYield: selected.weightedYield,
+        estimatedFtes: 0,
+        lowerEstimate: 0,
+        upperEstimate: 0,
+        confidence: selected.confidence,
+        backtestingError: selected.backtesting?.weightedAbsolutePercentageError,
+        fallbackReason: rejected.length ? `${rejected[rejected.length - 1].modelLevel} rejected before selecting ${selected.modelLevel}.` : '',
+        selectedReason: `${selected.modelLevel} history selected from ${selected.distinctTerms} comparable completed term(s), but current enrollment is zero.`,
+        reason: diagnostics.failureReason,
+        rejectedCandidateLevels: rejected,
+        modelVersion: model.modelVersion || MODEL_VERSION,
+        predictionDiagnostics: diagnostics,
+        explanation: explainEstimate(row, selected, 0, { lowerEstimate: 0, upperEstimate: 0 })
       };
     }
     const estimatedFtes = enrollment * selected.weightedYield;
@@ -1502,14 +1569,14 @@
   }
 
   function explainEstimate(row = {}, selected = {}, estimatedFtes = 0, range = {}) {
-    const enrollment = currentSectionEnrollment(row);
+    const enrollment = currentLiveEnrollment(row) ?? 0;
     return [
       `TIMBER used ${selected.modelLevel || 'historical'} final institutional history.`,
       `Comparable terms: ${(selected.terms || []).join(', ') || 'none'}.`,
       `Historical census enrollment: ${selected.totalCensusEnrollment || 0}.`,
       `Historical institutional FTES: ${selected.totalInstitutionalFtes || 0}.`,
       `Weighted historical yield: ${selected.weightedYield || 0} FTES per census enrollment.`,
-      `Calculation: ${enrollment} x ${selected.weightedYield || 0} = ${round(estimatedFtes, 3)} FTES.`,
+      `Calculation: current enrollment ${enrollment} x ${selected.weightedYield || 0} = ${round(estimatedFtes, 3)} FTES.`,
       `Historical estimate range: ${range.lowerEstimate ?? ''} to ${range.upperEstimate ?? ''}.`,
       `Backtesting weighted error: ${selected.backtesting?.weightedAbsolutePercentageError ?? 'not enough completed terms'}.`
     ].join(' ');
@@ -1574,6 +1641,9 @@
     seasonYearTermCode,
     courseKey,
     stableCourseKeyForRow,
+    historicalCensusEnrollment,
+    currentLiveEnrollment,
+    currentLiveEnrollmentResolution,
     normalizeAttendanceMethod,
     isWorkExperienceIdentity,
     termSeason,

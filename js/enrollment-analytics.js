@@ -10745,6 +10745,7 @@
     confirmed: 'Confirmed',
     estimated: 'Estimated',
     predicted: 'Predicted',
+    'prediction-pending': 'Prediction Pending',
     unavailable: 'Unavailable'
   });
   const FTES_CONFIDENCE_LABELS = Object.freeze({
@@ -10924,6 +10925,7 @@
       normalizedCourseKey: diagnostics.normalizedCourseKey || normalizedHistoricalCourseKeyForSection(section),
       rawAttendanceMethod: diagnostics.rawAttendanceMethod || rawAttendanceMethodForPrediction(section),
       normalizedAttendanceMethod: diagnostics.normalizedAttendanceMethod || normalizedHistoricalAttendanceMethodForSection(section),
+      currentEnrollmentSource: diagnostics.currentEnrollmentSource || '',
       predictionEligibility: diagnostics.predictionEligibility ?? isHistoricallyPredictedSection(section),
       repositoryModelReadiness: diagnostics.repositoryModelReadiness || ((historicalModel?.groups || []).length ? 'ready' : 'unavailable-or-empty'),
       courseLevelMatchCount: diagnostics.courseLevelMatchCount || 0,
@@ -11041,7 +11043,7 @@
           projectedFinalFtes: predictedFtes,
           confidence: ftesConfidenceFromHistorical(prediction.confidence),
           derivation: ftesDerivationFromHistorical(prediction.historicalBasisLevel),
-          reason: prediction.explanation || prediction.selectedReason || 'Predicted from comparable Historical Institutional Results.',
+          reason: prediction.reason || prediction.explanation || prediction.selectedReason || 'Predicted from comparable Historical Institutional Results.',
           historicalBasis: {
             modelLevel: prediction.historicalBasisLevel || '',
             groupKey: prediction.historicalGroupKey || '',
@@ -11052,6 +11054,16 @@
             upperBound: prediction.upperEstimate ?? null,
             backtestingError: prediction.backtestingError ?? null
           },
+          predictionDetail: prediction,
+          predictionDiagnostics
+        };
+      }
+      if (prediction.pending) {
+        return {
+          ...common,
+          classification: 'prediction-pending',
+          confidence: 'insufficient-data',
+          reason: prediction.reason || 'Historical Institutional Model is still loading; prediction will rerun automatically when ready.',
           predictionDetail: prediction,
           predictionDiagnostics
         };
@@ -11134,6 +11146,7 @@
       if (classification === 'unavailable') acc.unavailableSectionCount += 1;
       if (Number.isFinite(value)) acc.projectedFinalFtesTotal += value;
       if (classification === 'predicted') acc.predictionConfidence[item.confidence || 'insufficient-data'] = (acc.predictionConfidence[item.confidence || 'insufficient-data'] || 0) + 1;
+      if (classification === 'prediction-pending') acc.predictionPendingSectionCount += 1;
       return acc;
     }, {
       confirmedFtesTotal: 0,
@@ -11145,6 +11158,7 @@
       estimatedSections: 0,
       predictedSections: 0,
       unavailableSections: 0,
+      predictionPendingSectionCount: 0,
       predictionConfidence: {}
     });
     totals.confirmedShare = safeDiv(totals.confirmedFtesTotal, totals.projectedFinalFtesTotal);
@@ -11376,6 +11390,7 @@
           { name: 'Confirmed FTES', classification: 'Confirmed', classOfferings: focusClassification.confirmedSections, ftes: focusClassification.confirmedFtesTotal, share: focusClassification.confirmedShare, note: 'Applicable census milestone has passed.' },
           { name: 'Estimated FTES', classification: 'Estimated', classOfferings: focusClassification.estimatedSections, ftes: focusClassification.estimatedFtesTotal, share: focusClassification.estimatedShare, note: 'Calculated from current enrollment before census.' },
           { name: 'Predicted FTES', classification: 'Predicted', classOfferings: focusClassification.predictedSections, ftes: focusClassification.predictedFtesTotal, share: focusClassification.predictedShare, note: 'Forecast from comparable historical institutional results.' },
+          { name: 'Prediction Pending', classification: 'Prediction Pending', classOfferings: focusClassification.predictionPendingSectionCount, ftes: '', share: '', note: 'Historical Institutional Model is still loading; eligible rows rerun automatically.' },
           { name: 'Unavailable FTES', classification: 'Unavailable', classOfferings: focusClassification.unavailableSectionCount, ftes: '', share: '', note: 'No reliable FTES value can be produced from current or historical evidence.' }
         ],
         ftesMaturityStatus: focusMaturity.rows,
@@ -11404,6 +11419,7 @@
           accountingMethod: row.accountingMethodLabel || row.accountingMethod || 'Unknown',
           rawAttendanceMethod: diagnostics.rawAttendanceMethod || rawAttendanceMethodForPrediction(row),
           normalizedAttendanceMethod: diagnostics.normalizedAttendanceMethod || normalizedHistoricalAttendanceMethodForSection(row),
+          currentEnrollmentSource: diagnostics.currentEnrollmentSource || '',
           normalizedCourseKey: diagnostics.normalizedCourseKey || normalizedHistoricalCourseKeyForSection(row),
           predictionEligibility: diagnostics.predictionEligibility ? 'Eligible' : 'Not eligible',
           historicalModelReadiness: diagnostics.repositoryModelReadiness || ((historicalModel?.groups || []).length ? 'ready' : 'unavailable-or-empty'),
@@ -11718,7 +11734,7 @@
   function maybeRecomputeCurrentEnrollmentFtesAfterHistoricalReady(summary = state.currentEnrollmentFtesSummary) {
     if (!summary || state.currentEnrollmentFtesHistoricalRefreshQueued) return;
     const eligibleUnavailable = (summary.rows || []).some(row =>
-      row.ftesClassificationKey === 'unavailable' &&
+      ['unavailable', 'prediction-pending'].includes(row.ftesClassificationKey) &&
       row.predictionEligibility === 'Eligible' &&
       row.historicalModelReadiness !== 'ready'
     );
@@ -11825,7 +11841,7 @@
       refreshGeneratedCollapsibleSections(breakdowns);
     }
     const filteredRows = filteredCurrentEnrollmentFtesDetailRows(summary);
-    table('snapshotTable', filteredRows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'rawAttendanceMethod', 'normalizedAttendanceMethod', 'normalizedCourseKey', 'predictionEligibility', 'historicalModelReadiness', 'courseLevelMatchCount', 'subjectLevelMatchCount', 'divisionLevelMatchCount', 'attendanceMethodMatchCount', 'institutionLevelMatchCount', 'usableCourseLevelMatchCount', 'usableSubjectLevelMatchCount', 'usableDivisionLevelMatchCount', 'usableAttendanceMethodMatchCount', 'usableInstitutionLevelMatchCount', 'selectedFallbackLevel', 'selectedWeightedYield', 'diagnosticPredictedFtes', 'diagnosticConfidence', 'predictionFailureReason', 'lastRejectedMatchedLevel', 'lastRejectedMatchedGroupKey', 'lastRejectedMatchedReason', 'censusStatus', 'ftesClassification', 'currentCalculatedFtes', 'projectedFinalFtes', 'confidence', 'derivation', 'reason', 'currentEnrollment', 'seats', 'confirmedFtes', 'estimatedFtes', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'historicalObservationCount', 'historicalTermsUsed', 'ftesSource', 'ftesWarning']);
+    table('snapshotTable', filteredRows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'rawAttendanceMethod', 'normalizedAttendanceMethod', 'currentEnrollmentSource', 'normalizedCourseKey', 'predictionEligibility', 'historicalModelReadiness', 'courseLevelMatchCount', 'subjectLevelMatchCount', 'divisionLevelMatchCount', 'attendanceMethodMatchCount', 'institutionLevelMatchCount', 'usableCourseLevelMatchCount', 'usableSubjectLevelMatchCount', 'usableDivisionLevelMatchCount', 'usableAttendanceMethodMatchCount', 'usableInstitutionLevelMatchCount', 'selectedFallbackLevel', 'selectedWeightedYield', 'diagnosticPredictedFtes', 'diagnosticConfidence', 'predictionFailureReason', 'lastRejectedMatchedLevel', 'lastRejectedMatchedGroupKey', 'lastRejectedMatchedReason', 'censusStatus', 'ftesClassification', 'currentCalculatedFtes', 'projectedFinalFtes', 'confidence', 'derivation', 'reason', 'currentEnrollment', 'seats', 'confirmedFtes', 'estimatedFtes', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'historicalObservationCount', 'historicalTermsUsed', 'ftesSource', 'ftesWarning']);
     const tableNode = document.getElementById('snapshotTable');
     if (tableNode) tableNode.insertAdjacentHTML('afterbegin', `<p class="analytics-chart-note">Showing ${formatWholeNumber(filteredRows.length)} of ${formatWholeNumber(summary.rows.length)} section row(s). Unavailable FTES values are blank, not zero.</p>`);
     renderSnapshotLegend();
@@ -11868,6 +11884,7 @@
       'Attendance Accounting Method': row.accountingMethod || '',
       'Raw Attendance Method': row.rawAttendanceMethod || '',
       'Normalized Attendance Method': row.normalizedAttendanceMethod || '',
+      'Current Live Enrollment Source': row.currentEnrollmentSource || '',
       'Normalized Course Key': row.normalizedCourseKey || '',
       'Prediction Eligibility': row.predictionEligibility || '',
       'Historical Model Readiness': row.historicalModelReadiness || '',
