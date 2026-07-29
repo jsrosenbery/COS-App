@@ -11753,40 +11753,191 @@
       });
   }
 
+  function currentEnrollmentExecutivePrimaryComparisonFtes(summary = {}) {
+    const confirmed = Number(summary.ftesClassification?.comparison?.confirmedFtesTotal);
+    if (Number.isFinite(confirmed) && confirmed > 0) return confirmed;
+    const finalFtes = Number(summary.comparison?.ftes);
+    return Number.isFinite(finalFtes) ? finalFtes : 0;
+  }
+
+  function currentEnrollmentForecastConfidence(summary = {}) {
+    const rows = summary.rows || [];
+    const predicted = rows.filter(row => row.ftesClassificationKey === 'predicted');
+    if (summary.ftesClassification?.focus?.predictionPendingSectionCount) return 'Pending model';
+    if (summary.ftesClassification?.focus?.unavailableSectionCount) return 'Limited';
+    if (!predicted.length) return 'High';
+    const confidences = new Set(predicted.map(row => String(row.confidence || '').toUpperCase()));
+    if (confidences.has('LOW')) return 'Low';
+    if (confidences.has('MEDIUM')) return 'Medium';
+    return 'High';
+  }
+
+  function scorecardChangeClass(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || Math.abs(numeric) < 0.000001) return 'neutral';
+    return numeric > 0 ? 'positive' : 'negative';
+  }
+
+  function signedWhole(value) {
+    const numeric = Number(value || 0);
+    return `${numeric > 0 ? '+' : ''}${formatWholeNumber(numeric)}`;
+  }
+
+  function signedFtes(value) {
+    const numeric = Number(value || 0);
+    return `${numeric > 0 ? '+' : ''}${round1(numeric)}`;
+  }
+
+  function signedPct(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 'N/A';
+    return `${numeric > 0 ? '+' : ''}${pct(numeric)}`;
+  }
+
+  function currentEnrollmentScorecardCell(labelText, value, subtext = '', changeValue = 0) {
+    const changeClass = scorecardChangeClass(changeValue);
+    return `
+      <div class="cef-scorecard-cell ${subtext ? `cef-change-${changeClass}` : ''}" role="cell" aria-label="${escapeAttr(`${labelText}: ${value}${subtext ? `, ${subtext}` : ''}`)}">
+        <span>${escapeAttr(labelText)}</span>
+        <strong>${escapeAttr(value)}</strong>
+        ${subtext ? `<em>${escapeAttr(subtext)}</em>` : ''}
+      </div>
+    `;
+  }
+
+  function renderCurrentEnrollmentExecutiveScorecard(summary = {}, options = {}) {
+    const node = document.getElementById('snapshotMetrics');
+    if (!node) return;
+    const comparisonFtes = currentEnrollmentExecutivePrimaryComparisonFtes(summary);
+    const currentProjectedFtes = Number(summary.ftesClassification?.focus?.projectedFinalFtesTotal || 0);
+    const ftesDifference = currentProjectedFtes - comparisonFtes;
+    const ftesDifferencePct = safeDiv(ftesDifference, comparisonFtes);
+    const enrollmentDifference = Number(summary.focus?.enrollment || 0) - Number(summary.comparison?.enrollment || 0);
+    const offeringDifference = Number(summary.focus?.classOfferings || 0) - Number(summary.comparison?.classOfferings || 0);
+    const enrollmentDifferencePct = safeDiv(enrollmentDifference, summary.comparison?.enrollment || 0);
+    const offeringDifferencePct = safeDiv(offeringDifference, summary.comparison?.classOfferings || 0);
+    const projectedTotal = currentProjectedFtes || 0;
+    const compositionRows = [
+      {
+        label: 'Confirmed',
+        value: round1(summary.ftesClassification?.focus?.confirmedFtesTotal || 0),
+        share: pct(summary.ftesClassification?.focus?.confirmedShare || 0),
+        count: `${formatWholeNumber(summary.ftesClassification?.focus?.confirmedSections || 0)} offerings`
+      },
+      {
+        label: 'Estimated',
+        value: round1(summary.ftesClassification?.focus?.estimatedFtesTotal || 0),
+        share: pct(summary.ftesClassification?.focus?.estimatedShare || 0),
+        count: `${formatWholeNumber(summary.ftesClassification?.focus?.estimatedSections || 0)} offerings`
+      },
+      {
+        label: 'Predicted',
+        value: round1(summary.ftesClassification?.focus?.predictedFtesTotal || 0),
+        share: pct(summary.ftesClassification?.focus?.predictedShare || 0),
+        count: `${formatWholeNumber(summary.ftesClassification?.focus?.predictedSections || 0)} offerings`
+      },
+      {
+        label: 'Unavailable',
+        value: formatWholeNumber(summary.ftesClassification?.focus?.unavailableSectionCount || 0),
+        share: projectedTotal ? 'Not in total' : 'N/A',
+        count: 'sections'
+      }
+    ];
+    const technicalRows = [
+      { metric: 'Current Calculated FTES (Official Formula Output)', value: round1(summary.focus?.ftes || 0) },
+      { metric: 'Maturity Calculated FTES', value: round1(summary.maturity?.focus?.projectedFtes || 0) },
+      { metric: 'Maturity Estimated FTES', value: round1(summary.maturity?.focus?.estimatedFtes || 0) },
+      { metric: 'Calculated Confirmed FTES', value: round1(summary.maturity?.focus?.confirmedFinalFtes || 0) },
+      { metric: 'Unknown FTES', value: round1(summary.maturity?.focus?.maturityUnknownFtes || 0) },
+      { metric: 'FTES Unavailable Rows', value: formatWholeNumber(summary.focus?.unavailableFtesRows || 0) },
+      { metric: 'Current Formula Output', value: round1(summary.focus?.ftes || 0) },
+      { metric: 'Current Formula Version', value: 'TIMBER Current Enrollment & FTES production formulas' },
+      { metric: 'Confirmed Section Count', value: formatWholeNumber(summary.ftesClassification?.focus?.confirmedSections || 0) },
+      { metric: 'Estimated Section Count', value: formatWholeNumber(summary.ftesClassification?.focus?.estimatedSections || 0) },
+      { metric: 'Predicted Section Count', value: formatWholeNumber(summary.ftesClassification?.focus?.predictedSections || 0) },
+      { metric: 'Prediction Pending Section Count', value: formatWholeNumber(summary.ftesClassification?.focus?.predictionPendingSectionCount || 0) },
+      { metric: 'Unavailable Classification Count', value: formatWholeNumber(summary.ftesClassification?.focus?.unavailableSectionCount || 0) },
+      ...(options.historicalProjectionEnabled ? [
+        { metric: 'Estimated Pending FTES (Historical Institutional)', value: round1(options.historicalEstimatedPendingFtes || 0) },
+        { metric: 'Projected Total FTES (Opt-In Historical)', value: round1((summary.maturity?.focus?.confirmedFinalFtes || 0) + (options.historicalEstimatedPendingFtes || 0)) }
+      ] : [])
+    ];
+    node.innerHTML = `
+      <section class="cef-executive-scorecard" aria-label="Current Enrollment and FTES Executive Summary">
+        <div class="cef-hero-card" aria-label="Projected Final FTES ${round1(currentProjectedFtes)}, compared to ${summary.comparisonTerm || 'comparison term'} ${signedFtes(ftesDifference)} FTES, ${signedPct(ftesDifferencePct)}">
+          <span>Projected Final FTES</span>
+          <strong>${round1(currentProjectedFtes)}</strong>
+          <p>Compared to ${escapeAttr(summary.comparisonTerm || 'comparison term')}: <b class="cef-change-${scorecardChangeClass(ftesDifference)}">${signedFtes(ftesDifference)} FTES (${signedPct(ftesDifferencePct)})</b></p>
+        </div>
+        <section class="cef-context-panel" aria-label="Planning Context">
+          <h3>Planning Context</h3>
+          <dl>
+            <div><dt>Focus Term</dt><dd>${escapeAttr(summary.focusTerm || 'Select term')}</dd></div>
+            <div><dt>Comparison</dt><dd>${escapeAttr(summary.comparisonTerm || 'None')}</dd></div>
+            <div><dt>As Of</dt><dd>${escapeAttr(summary.context?.selectedEffectiveAsOfDate || summary.maturity?.focus?.asOf?.display || 'Unavailable')}</dd></div>
+            <div><dt>Historical Model</dt><dd>${escapeAttr(label(state.historicalInstitutionalModelStatus || 'unavailable'))}</dd></div>
+            <div><dt>Forecast Confidence</dt><dd>${escapeAttr(currentEnrollmentForecastConfidence(summary))}</dd></div>
+            <div><dt>Enrollment Source</dt><dd>Section Seating</dd></div>
+          </dl>
+        </section>
+        <section class="cef-aligned-scorecard" aria-label="Comparison current and difference scorecard">
+          <h3>Executive Scorecard</h3>
+          <div class="cef-scorecard-grid" role="table" aria-label="Comparison term, current term, and difference for enrollment, FTES, and class offerings">
+            <div class="cef-scorecard-row cef-scorecard-header" role="row">
+              <div role="columnheader">Term</div>
+              <div role="columnheader">Enrollment</div>
+              <div role="columnheader">FTES</div>
+              <div role="columnheader">Offerings</div>
+            </div>
+            <div class="cef-scorecard-row" role="row">
+              <div class="cef-scorecard-term" role="rowheader">${escapeAttr(summary.comparisonTerm || 'Comparison')}</div>
+              ${currentEnrollmentScorecardCell('Enrollment', formatWholeNumber(summary.comparison?.enrollment || 0))}
+              ${currentEnrollmentScorecardCell('FTES', round1(comparisonFtes))}
+              ${currentEnrollmentScorecardCell('Class Offerings', formatWholeNumber(summary.comparison?.classOfferings || 0))}
+            </div>
+            <div class="cef-scorecard-row" role="row">
+              <div class="cef-scorecard-term" role="rowheader">${escapeAttr(summary.focusTerm || 'Current')}</div>
+              ${currentEnrollmentScorecardCell('Enrollment', formatWholeNumber(summary.focus?.enrollment || 0))}
+              ${currentEnrollmentScorecardCell('Projected Final FTES', round1(currentProjectedFtes))}
+              ${currentEnrollmentScorecardCell('Class Offerings', formatWholeNumber(summary.focus?.classOfferings || 0))}
+            </div>
+            <div class="cef-scorecard-row" role="row">
+              <div class="cef-scorecard-term" role="rowheader">Difference</div>
+              ${currentEnrollmentScorecardCell('Enrollment Difference', signedWhole(enrollmentDifference), `(${signedPct(enrollmentDifferencePct)})`, enrollmentDifference)}
+              ${currentEnrollmentScorecardCell('FTES Difference', signedFtes(ftesDifference), `(${signedPct(ftesDifferencePct)})`, ftesDifference)}
+              ${currentEnrollmentScorecardCell('Offering Difference', signedWhole(offeringDifference), `(${signedPct(offeringDifferencePct)})`, offeringDifference)}
+            </div>
+          </div>
+        </section>
+        <section class="cef-composition-panel" aria-label="FTES Composition">
+          <h3>FTES Composition</h3>
+          <div class="cef-composition-grid">
+            ${compositionRows.map(row => `
+              <div class="cef-composition-card">
+                <span>${escapeAttr(row.label)}</span>
+                <strong>${escapeAttr(row.value)}</strong>
+                <em>${escapeAttr(row.share)}</em>
+                <small>${escapeAttr(row.count)}</small>
+              </div>
+            `).join('')}
+          </div>
+          <p>Composition reconciles to Projected Final FTES: ${round1(summary.ftesClassification?.focus?.confirmedFtesTotal || 0)} + ${round1(summary.ftesClassification?.focus?.estimatedFtesTotal || 0)} + ${round1(summary.ftesClassification?.focus?.predictedFtesTotal || 0)} = ${round1(currentProjectedFtes)}.</p>
+        </section>
+        <details class="cef-technical-metrics">
+          <summary>Technical Metrics</summary>
+          ${miniTable(technicalRows, ['metric', 'value'], 'ftes')}
+        </details>
+      </section>
+    `;
+  }
+
   function renderCurrentEnrollmentFtesSummary() {
     const summary = state.currentEnrollmentFtesSummary || buildCurrentEnrollmentFtesSummary([], {});
     maybeRecomputeCurrentEnrollmentFtesAfterHistoricalReady(summary);
     const historicalEstimates = state.currentEnrollmentHistoricalEstimateRows || [];
     const historicalEstimatedPendingFtes = historicalEstimates.reduce((sum, row) => sum + Number(row.estimatedFtes || 0), 0);
     const historicalProjectionEnabled = Boolean(document.getElementById('cefShowHistoricalPendingEstimates')?.checked);
-    const metricRows = [
-      ['Focus Term', summary.focusTerm || 'Select term'],
-      ['Comparison Term', summary.comparisonTerm || 'None'],
-      ['Selected Term Class Offerings', formatWholeNumber(summary.focus.classOfferings), 'scheduled-class-offerings'],
-      ['Selected Term Enrollment', formatWholeNumber(summary.focus.enrollment), 'enrollment'],
-      ['Projected Final FTES (Confirmed + Estimated + Predicted)', round1(summary.ftesClassification.focus.projectedFinalFtesTotal), 'ftes'],
-      ['Confirmed FTES', `${round1(summary.ftesClassification.focus.confirmedFtesTotal)} (${pct(summary.ftesClassification.focus.confirmedShare)})`, 'ftes'],
-      ['Estimated FTES', `${round1(summary.ftesClassification.focus.estimatedFtesTotal)} (${pct(summary.ftesClassification.focus.estimatedShare)})`, 'ftes'],
-      ['Predicted FTES', `${round1(summary.ftesClassification.focus.predictedFtesTotal)} (${pct(summary.ftesClassification.focus.predictedShare)})`, 'ftes'],
-      ['Unavailable FTES Sections', formatWholeNumber(summary.ftesClassification.focus.unavailableSectionCount)],
-      ['Current Calculated FTES (Official Formula Output)', round1(summary.focus.ftes), 'ftes'],
-      ['Calculated / Confirmed FTES', round1(summary.maturity.focus.confirmedFinalFtes), 'ftes'],
-      ['Maturity Estimated FTES', round1(summary.maturity.focus.estimatedFtes), 'ftes'],
-      ['Maturity Projected Calculated FTES', round1(summary.maturity.focus.projectedFtes), 'ftes'],
-      ...(historicalProjectionEnabled ? [
-        ['Estimated Pending FTES (Historical Institutional)', round1(historicalEstimatedPendingFtes), 'ftes'],
-        ['Projected Total FTES (Opt-In Historical)', round1(summary.maturity.focus.confirmedFinalFtes + historicalEstimatedPendingFtes), 'ftes']
-      ] : []),
-      ['Maturity Unknown FTES', round1(summary.maturity.focus.maturityUnknownFtes), 'ftes'],
-      ['FTES Maturity', summary.maturity.focus.maturityPercent == null ? 'Unavailable' : formatPercent(summary.maturity.focus.maturityPercent), 'ftes'],
-      ['As Of', summary.maturity.focus.asOf.display || 'Unavailable'],
-      ['Comparison Term Enrollment', summary.comparisonTerm ? formatWholeNumber(summary.comparison.enrollment) : 'N/A', 'enrollment'],
-      ['Enrollment Difference', summary.comparisonTerm ? `${summary.variances.enrollment >= 0 ? '+' : ''}${formatWholeNumber(summary.variances.enrollment)} (${pct(summary.variances.enrollmentPct)})` : 'N/A'],
-      ['Comparison Term FTES', summary.comparisonTerm ? (summary.comparison.unavailableFtesRows ? `${round1(summary.comparison.ftes)}*` : round1(summary.comparison.ftes)) : 'N/A', 'ftes'],
-      ['FTES Difference', summary.comparisonTerm ? `${summary.variances.ftes >= 0 ? '+' : ''}${round1(summary.variances.ftes)} (${pct(summary.variances.ftesPct)})` : 'N/A'],
-      ['FTES Unavailable Rows', formatWholeNumber(summary.focus.unavailableFtesRows)]
-    ];
-    metric('snapshotMetrics', metricRows);
+    renderCurrentEnrollmentExecutiveScorecard(summary, { historicalProjectionEnabled, historicalEstimatedPendingFtes });
     const warningNode = document.getElementById('snapshotWarnings');
     if (warningNode) {
       warningNode.innerHTML = (summary.warnings || []).map(warning => `<p>${escapeAttr(warning)}</p>`).join('');
@@ -23367,6 +23518,36 @@
       .dashboard-status-behind{background:#fdecec;color:#9b1c1c;border-color:#f4b4b4}
       .dashboard-status-n-a{background:#eef2f7;color:#51657c;border-color:#d6e1ec}
       .dashboard-note{margin:0 0 8px;color:#334862;font-size:13px;line-height:1.35}
+      .cef-executive-scorecard{display:grid;grid-template-columns:minmax(260px,.85fr) minmax(320px,1.15fr);gap:12px;margin:0 0 14px;width:100%}
+      .cef-executive-scorecard section,.cef-hero-card,.cef-technical-metrics{min-width:0;border:1px solid #d8e1ec;border-radius:8px;background:#fff;padding:12px;box-sizing:border-box}
+      .cef-hero-card{background:#f6fbff;border-color:#b8cde3;display:flex;flex-direction:column;justify-content:center;gap:6px}
+      .cef-hero-card span,.cef-context-panel dt,.cef-scorecard-cell span,.cef-composition-card span{display:block;color:#51657c;font-size:11px;text-transform:uppercase;font-weight:900;line-height:1.2}
+      .cef-hero-card strong{display:block;color:#123367;font-size:34px;line-height:1.05;font-weight:900}
+      .cef-hero-card p,.cef-composition-panel p{margin:0;color:#334862;font-size:13px;line-height:1.35}
+      .cef-context-panel h3,.cef-aligned-scorecard h3,.cef-composition-panel h3{margin:0 0 8px;color:#123367;font-size:15px}
+      .cef-context-panel dl{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:8px;margin:0}
+      .cef-context-panel dl div{min-width:0;border:1px solid #e6edf5;border-radius:8px;background:#f8fbff;padding:8px}
+      .cef-context-panel dd{margin:3px 0 0;color:#123367;font-weight:900;line-height:1.2;overflow-wrap:break-word}
+      .cef-aligned-scorecard,.cef-composition-panel,.cef-technical-metrics{grid-column:1/-1}
+      .cef-scorecard-grid{display:grid;gap:0;border:1px solid #d8e1ec;border-radius:8px;overflow:hidden;background:#fff}
+      .cef-scorecard-row{display:grid;grid-template-columns:minmax(140px,.8fr) repeat(3,minmax(150px,1fr));align-items:stretch}
+      .cef-scorecard-row>div{border-top:1px solid #e6edf5;border-left:1px solid #e6edf5;padding:10px;box-sizing:border-box}
+      .cef-scorecard-row>div:first-child{border-left:0}
+      .cef-scorecard-header>div{border-top:0;background:#eaf1f7;color:#123367;font-size:11px;text-transform:uppercase;font-weight:900}
+      .cef-scorecard-term{display:flex;align-items:center;color:#123367;background:#f8fbff;font-weight:900;line-height:1.2}
+      .cef-scorecard-cell{min-width:0;background:#fff}
+      .cef-scorecard-cell strong{display:block;margin-top:4px;color:#123367;font-size:22px;line-height:1.1;font-weight:900}
+      .cef-scorecard-cell em{display:block;margin-top:3px;color:#51657c;font-style:normal;font-weight:800}
+      .cef-change-positive strong,.cef-change-positive em,.cef-change-positive{color:#176c3a}
+      .cef-change-negative strong,.cef-change-negative em,.cef-change-negative{color:#a2342b}
+      .cef-change-neutral strong,.cef-change-neutral em,.cef-change-neutral{color:#51657c}
+      .cef-composition-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:8px}
+      .cef-composition-card{min-width:0;border:1px solid #e6edf5;border-radius:8px;background:#f8fbff;padding:10px}
+      .cef-composition-card strong{display:block;margin-top:4px;color:#123367;font-size:24px;line-height:1.1;font-weight:900}
+      .cef-composition-card em,.cef-composition-card small{display:block;margin-top:3px;color:#334862;font-style:normal;font-weight:800}
+      .cef-composition-card small{color:#51657c;font-size:12px;font-weight:700}
+      .cef-technical-metrics summary{cursor:pointer;color:#123367;font-weight:900}
+      .cef-technical-metrics .dashboard-table-wrap{margin-top:10px}
       .analytics-chart-panel{grid-column:1/-1;background:#fff}
       .analytics-line-chart{display:block;width:100%;height:auto;min-height:240px;background:#fff;border:1px solid #e2eaf3;border-radius:8px}
       .analytics-chart-grid{stroke:#e6edf5;stroke-width:1}
@@ -23463,10 +23644,22 @@
       @media (max-width:760px){
         .analytics-insights{grid-template-columns:1fr}
         .dashboard-grid{grid-template-columns:1fr}
+        .cef-executive-scorecard{grid-template-columns:1fr}
+        .cef-context-panel dl{grid-template-columns:1fr}
+        .cef-scorecard-row{grid-template-columns:1fr}
+        .cef-scorecard-header{display:none}
+        .cef-scorecard-row>div{border-left:0}
+        .cef-scorecard-row>div:first-child{border-top:1px solid #d8e1ec}
+        .cef-scorecard-term{background:#eaf1f7}
+        .cef-composition-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
         .presence-curve .heatmap-wrap{overflow-x:auto}
         .presence-curve table{min-width:720px}
         .supply-demand-line svg{min-height:190px}
         .prime-time-gauges{grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr))}
+      }
+      @media (max-width:460px){
+        .cef-composition-grid{grid-template-columns:1fr}
+        .cef-hero-card strong{font-size:28px}
       }
     </style>`);
   }

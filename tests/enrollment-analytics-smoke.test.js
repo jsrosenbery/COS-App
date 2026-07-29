@@ -5975,7 +5975,14 @@ test('current enrollment FTES classification UI filters and methodology are wire
   assert.match(text, /Predicted FTES Explainability/);
   assert.match(text, /Predicted FTES is a planning value/);
   assert.match(text, /Unavailable FTES values are blank, not zero/);
-  assert.match(text, /Projected Final FTES \(Confirmed \+ Estimated \+ Predicted\)/);
+  assert.match(text, /function renderCurrentEnrollmentExecutiveScorecard/);
+  assert.match(text, /cef-executive-scorecard/);
+  assert.match(text, /Projected Final FTES/);
+  assert.match(text, /Executive Scorecard/);
+  assert.match(text, /FTES Composition/);
+  assert.match(text, /Technical Metrics/);
+  assert.match(text, /currentEnrollmentExecutivePrimaryComparisonFtes/);
+  assert.match(text, /recordCountAfterPageInitialization/);
 });
 
 test('current enrollment and FTES preserves census and as-of metadata through repeated normalization', () => {
