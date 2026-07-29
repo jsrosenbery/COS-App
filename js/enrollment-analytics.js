@@ -10900,8 +10900,45 @@
     };
   }
 
+  function rawAttendanceMethodForPrediction(section = {}) {
+    return section.attendanceAccountingCode || section.accountingMethod || section.ACCOUNTING_METHOD || section['Accounting Method'] || section.attendanceMethod || section.accountingMethodLabel || section['Attendance Method'] || '';
+  }
+
+  function normalizedHistoricalAttendanceMethodForSection(section = {}) {
+    const raw = rawAttendanceMethodForPrediction(section);
+    if (historicalInstitutional?.normalizeAttendanceMethod) return historicalInstitutional.normalizeAttendanceMethod(raw, section);
+    return canon(raw);
+  }
+
+  function normalizedHistoricalCourseKeyForSection(section = {}) {
+    if (historicalInstitutional?.stableCourseKeyForRow) return historicalInstitutional.stableCourseKeyForRow(section);
+    return canon(`${section.subject || ''} ${section.courseNumber || section.course || ''}`.trim());
+  }
+
+  function predictionDiagnosticsFromResult(section = {}, historicalModel = {}, prediction = {}) {
+    const diagnostics = prediction.predictionDiagnostics || (historicalInstitutional?.predictionDiagnosticsForSection
+      ? historicalInstitutional.predictionDiagnosticsForSection(section, historicalModel || {})
+      : {});
+    return {
+      currentCrn: diagnostics.currentCrn || section.crn || '',
+      normalizedCourseKey: diagnostics.normalizedCourseKey || normalizedHistoricalCourseKeyForSection(section),
+      rawAttendanceMethod: diagnostics.rawAttendanceMethod || rawAttendanceMethodForPrediction(section),
+      normalizedAttendanceMethod: diagnostics.normalizedAttendanceMethod || normalizedHistoricalAttendanceMethodForSection(section),
+      predictionEligibility: diagnostics.predictionEligibility ?? isHistoricallyPredictedSection(section),
+      repositoryModelReadiness: diagnostics.repositoryModelReadiness || ((historicalModel?.groups || []).length ? 'ready' : 'unavailable-or-empty'),
+      courseLevelMatchCount: diagnostics.courseLevelMatchCount || 0,
+      subjectLevelMatchCount: diagnostics.subjectLevelMatchCount || 0,
+      divisionLevelMatchCount: diagnostics.divisionLevelMatchCount || 0,
+      attendanceMethodMatchCount: diagnostics.attendanceMethodMatchCount || 0,
+      institutionLevelMatchCount: diagnostics.institutionLevelMatchCount || 0,
+      selectedFallbackLevel: diagnostics.selectedFallbackLevel || prediction.historicalBasisLevel || '',
+      failureReason: diagnostics.failureReason || prediction.reason || '',
+      attendanceMethodAliases: diagnostics.attendanceMethodAliases || ''
+    };
+  }
+
   function determineCensusStatus(section = {}, reportAsOfDate = {}, termMetadata = {}) {
-    const method = canon(section.accountingMethod || section.attendanceAccountingCode || section.attendanceMethod || '');
+    const method = normalizedHistoricalAttendanceMethodForSection(section);
     if (!DETERMINISTIC_FTES_METHODS.has(method)) return 'not-applicable';
     const rawAsOf = typeof reportAsOfDate === 'object'
       ? reportAsOfDate.iso || reportAsOfDate.raw || reportAsOfDate.asOfDate || ''
@@ -10913,11 +10950,11 @@
   }
 
   function isHistoricallyPredictedSection(section = {}) {
-    const method = canon(section.accountingMethod || section.attendanceAccountingCode || section.attendanceMethod || '');
+    const method = normalizedHistoricalAttendanceMethodForSection(section);
     const subject = canon(section.subject || '');
     const course = canon(section.course || section.courseNumber || '');
     const modality = canon(section.modality || section.instructionalMethod || '');
-    if (section.isWorkExperience || currentEnrollmentPopulation(section) === 'Work Experience') return true;
+    if (historicalInstitutional?.isWorkExperienceIdentity?.(section) || section.isWorkExperience || currentEnrollmentPopulation(section) === 'Work Experience') return true;
     if (['P', 'E'].includes(method)) return true;
     if (/^WK?EXP|^WKEX|WORK\s*EXP/.test(subject) || /WORK\s*EXP/.test(course) || /WORK\s*EXPERIENCE/.test(modality)) return true;
     return false;
@@ -10944,7 +10981,7 @@
 
   function classifySectionFtes(section = {}, context = {}) {
     const asOfContext = context.asOfContext || context.reportAsOfDate || {};
-    const method = canon(section.accountingMethod || section.attendanceAccountingCode || section.attendanceMethod || '');
+    const method = normalizedHistoricalAttendanceMethodForSection(section);
     const attendanceMethod = method || null;
     const censusStatus = determineCensusStatus(section, asOfContext, context.termMetadata || {});
     const currentEnrollment = currentEnrollmentValue(section);
@@ -10952,6 +10989,7 @@
     const currentCalculatedFtes = currentUnavailable ? null : currentEnrollmentFtesValue(section, asOfContext);
     const eligiblePrediction = isHistoricallyPredictedSection(section);
     const directOrDeterministic = section.hasDirectFtesData || DETERMINISTIC_FTES_METHODS.has(method);
+    const basePredictionDiagnostics = predictionDiagnosticsFromResult(section, context.historicalModel || {}, {});
     const common = {
       attendanceMethod,
       censusStatus,
@@ -10965,7 +11003,8 @@
       derivation: 'unavailable',
       reason: '',
       historicalBasis: null,
-      predictionDetail: null
+      predictionDetail: null,
+      predictionDiagnostics: basePredictionDiagnostics
     };
 
     if (!attendanceMethod && !section.isWorkExperience) {
@@ -10980,6 +11019,7 @@
       const prediction = historicalInstitutional?.estimatePendingSection
         ? historicalInstitutional.estimatePendingSection(section, model)
         : { estimated: false, confidence: 'INSUFFICIENT_DATA', reason: 'Historical Institutional Model is unavailable.' };
+      const predictionDiagnostics = predictionDiagnosticsFromResult(section, model, prediction);
       if (prediction.estimated) {
         const predictedFtes = Number(prediction.estimatedFtes);
         return {
@@ -11001,7 +11041,8 @@
             upperBound: prediction.upperEstimate ?? null,
             backtestingError: prediction.backtestingError ?? null
           },
-          predictionDetail: prediction
+          predictionDetail: prediction,
+          predictionDiagnostics
         };
       }
       if (currentUnavailable) {
@@ -11010,7 +11051,8 @@
           classification: 'unavailable',
           confidence: 'insufficient-data',
           reason: prediction.reason || 'Historical institutional results are missing or insufficient for this positive-attendance-like section.',
-          predictionDetail: prediction
+          predictionDetail: prediction,
+          predictionDiagnostics
         };
       }
     }
@@ -11293,7 +11335,9 @@
         comparisonEffectiveAsOfDate: comparisonAsOf.display,
         comparisonEffectiveAsOfDateSource: comparisonAsOf.source,
         ftesMaturityDefinition: 'FTES Maturity shows how much existing calculated FTES is confirmed/final versus estimated based on source as-of date, section census date, and final-source availability.',
-        ftesClassificationDefinition: 'Confirmed FTES reflects sections whose applicable census milestone has passed. Estimated FTES is calculated from current enrollment before census. Predicted FTES is forecast from comparable historical institutional results for P/E/Work Experience sections and does not alter official FTES reporting.'
+        ftesClassificationDefinition: 'Confirmed FTES reflects sections whose applicable census milestone has passed. Estimated FTES is calculated from current enrollment before census. Predicted FTES is forecast from comparable historical institutional results for P/E/Work Experience sections and does not alter official FTES reporting.',
+        historicalPredictionMapping: 'Historical prediction normalizes Positive Attendance to P and Open Entry/Open Exit - Positive Attendance to E. Work Experience is identified by source, division, population, WKEX/WKEXP subject, or Work Experience modality; imported Cube history may appear under accounting method D, so lookup tests Work Experience aliases plus the observed D convention.',
+        workExperiencePredictionRule: 'Work Experience sections without direct final FTES are prediction-eligible because final FTES can depend on later hours or activity. They remain Estimated only when the loaded current row has deterministic production inputs sufficient for the existing FTES formula and no historical prediction is available.'
       },
       reconciliation: {
         focus: currentEnrollmentFtesReconciliation(focus, focusComponents),
@@ -11326,6 +11370,7 @@
         const maturity = maturityByCrn.get(sectionKey(row)) || classifyCurrentEnrollmentFtesMaturity(row, focusAsOf);
         const classified = classificationByCrn.get(sectionKey(row)) || classifySectionFtes(row, { asOfContext: focusAsOf, historicalModel });
         const basis = classified.historicalBasis || {};
+        const diagnostics = classified.predictionDiagnostics || {};
         return {
           term: row.term,
           crn: row.crn,
@@ -11335,6 +11380,19 @@
           campus: currentEnrollmentCampusBucket(row),
           instructionalMethod: currentEnrollmentInstructionalMethod(row),
           accountingMethod: row.accountingMethodLabel || row.accountingMethod || 'Unknown',
+          rawAttendanceMethod: diagnostics.rawAttendanceMethod || rawAttendanceMethodForPrediction(row),
+          normalizedAttendanceMethod: diagnostics.normalizedAttendanceMethod || normalizedHistoricalAttendanceMethodForSection(row),
+          normalizedCourseKey: diagnostics.normalizedCourseKey || normalizedHistoricalCourseKeyForSection(row),
+          predictionEligibility: diagnostics.predictionEligibility ? 'Eligible' : 'Not eligible',
+          historicalModelReadiness: diagnostics.repositoryModelReadiness || ((historicalModel?.groups || []).length ? 'ready' : 'unavailable-or-empty'),
+          courseLevelMatchCount: diagnostics.courseLevelMatchCount ?? 0,
+          subjectLevelMatchCount: diagnostics.subjectLevelMatchCount ?? 0,
+          divisionLevelMatchCount: diagnostics.divisionLevelMatchCount ?? 0,
+          attendanceMethodMatchCount: diagnostics.attendanceMethodMatchCount ?? 0,
+          institutionLevelMatchCount: diagnostics.institutionLevelMatchCount ?? 0,
+          selectedFallbackLevel: diagnostics.selectedFallbackLevel || basis.modelLevel || '',
+          predictionFailureReason: diagnostics.failureReason || (classified.classification === 'unavailable' ? classified.reason : ''),
+          attendanceMethodAliases: diagnostics.attendanceMethodAliases || '',
           partOfTerm: row.partOfTerm || '',
           startDate: row.startDate || '',
           endDate: row.endDate || '',
@@ -11616,8 +11674,31 @@
     });
   }
 
+  function maybeRecomputeCurrentEnrollmentFtesAfterHistoricalReady(summary = state.currentEnrollmentFtesSummary) {
+    if (!summary || state.currentEnrollmentFtesHistoricalRefreshQueued) return;
+    const eligibleUnavailable = (summary.rows || []).some(row =>
+      row.ftesClassificationKey === 'unavailable' &&
+      row.predictionEligibility === 'Eligible' &&
+      row.historicalModelReadiness !== 'ready'
+    );
+    if (!eligibleUnavailable) return;
+    state.currentEnrollmentFtesHistoricalRefreshQueued = true;
+    hydrateHistoricalInstitutionalModel()
+      .then(model => {
+        state.currentEnrollmentFtesHistoricalRefreshQueued = false;
+        if ((model?.groups || []).length) return runCurrentEnrollmentFtes();
+        return null;
+      })
+      .catch(err => {
+        state.currentEnrollmentFtesHistoricalRefreshQueued = false;
+        state.historicalInstitutionalModelStatus = 'error';
+        state.historicalInstitutionalStorageError = err?.message || String(err);
+      });
+  }
+
   function renderCurrentEnrollmentFtesSummary() {
     const summary = state.currentEnrollmentFtesSummary || buildCurrentEnrollmentFtesSummary([], {});
+    maybeRecomputeCurrentEnrollmentFtesAfterHistoricalReady(summary);
     const historicalEstimates = state.currentEnrollmentHistoricalEstimateRows || [];
     const historicalEstimatedPendingFtes = historicalEstimates.reduce((sum, row) => sum + Number(row.estimatedFtes || 0), 0);
     const historicalProjectionEnabled = Boolean(document.getElementById('cefShowHistoricalPendingEstimates')?.checked);
@@ -11666,6 +11747,8 @@
         { metric: 'Comparison Term As Of', value: summary.context.comparisonTerm ? `${summary.context.comparisonEffectiveAsOfDate} (${summary.context.comparisonEffectiveAsOfDateSource})` : 'No comparison selected' },
         { metric: 'FTES Maturity Definition', value: summary.context.ftesMaturityDefinition },
         { metric: 'FTES Classification Definition', value: summary.context.ftesClassificationDefinition },
+        { metric: 'Historical Prediction Mapping', value: summary.context.historicalPredictionMapping },
+        { metric: 'Work Experience Prediction Rule', value: summary.context.workExperiencePredictionRule },
         { metric: 'Work Experience Included', value: summary.context.includeWorkExperience ? `Yes (${summary.context.selectedWorkExperienceRows} selected / ${summary.context.comparisonWorkExperienceRows} comparison rows)` : 'No' },
         { metric: 'Dual Enrollment Included', value: summary.context.includeDualEnrollment ? `Yes (${summary.context.selectedDualEnrollmentRows} selected / ${summary.context.comparisonDualEnrollmentRows} comparison rows)` : 'No' },
         { metric: 'Historical Institutional Estimates', value: historicalProjectionEnabled ? `Displayed separately (${historicalEstimates.length} pending row(s)); production FTES totals unchanged.` : 'Off. Existing production totals preserved.' },
@@ -11687,7 +11770,7 @@
         historicalEstimatePanel,
         historicalPendingFtesAnalysisPanel(pendingFtesAnalysis),
         dashboardPanel('FTES Classification Summary', `<p class="analytics-chart-note">Projected Final FTES equals Confirmed FTES plus Estimated FTES plus Predicted FTES. Predicted FTES is a planning value from Historical Institutional Results and does not alter official/reportable FTES.</p>${miniTable(summary.breakdowns.ftesClassification, ['classification', 'classOfferings', 'ftes', 'share', 'note'], 'ftes')}`),
-        dashboardPanel('Predicted FTES Explainability', `<p class="analytics-chart-note">Predicted rows show the historical basis selected by the model. Comparable terms, observation counts, weighted yield, range, confidence, and backtesting error are shown for audit review.</p>${miniTable(predictedRows, ['crn', 'course', 'attendanceMethod', 'currentEnrollment', 'historicalModelLevel', 'historicalTermsUsed', 'historicalObservationCount', 'weightedHistoricalYield', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'confidence', 'backtestingError', 'reason'], 'ftes')}`),
+        dashboardPanel('Predicted FTES Explainability', `<p class="analytics-chart-note">Predicted rows show the historical basis selected by the model. Comparable terms, observation counts, weighted yield, range, confidence, and backtesting error are shown for audit review.</p>${miniTable(predictedRows, ['crn', 'course', 'normalizedCourseKey', 'rawAttendanceMethod', 'normalizedAttendanceMethod', 'currentEnrollment', 'historicalModelReadiness', 'historicalModelLevel', 'historicalTermsUsed', 'historicalObservationCount', 'weightedHistoricalYield', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'confidence', 'backtestingError', 'reason'], 'ftes')}`),
         dashboardPanel('Focus vs Comparison Totals', miniTable(summary.comparisonRows, ['line', 'term', 'classOfferings', 'enrollment', 'ftes', 'seats'], 'ftes')),
         dashboardPanel('Selected vs Comparison Metrics', miniTable(summary.metricComparisonRows, ['metric', 'selectedTerm', 'comparisonTerm', 'change', 'changePct'], 'ftes')),
         dashboardPanel('FTES Status Breakdown', `<p class="analytics-chart-note">Projected FTES equals confirmed/final plus estimated plus maturity-unknown valid FTES. FTES Unavailable rows are only rows where the FTES amount itself cannot be calculated from the loaded source.</p>${miniTable(summary.breakdowns.ftesMaturityStatus, ['name', 'group', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'reason'], 'ftes')}`),
@@ -11700,7 +11783,7 @@
       refreshGeneratedCollapsibleSections(breakdowns);
     }
     const filteredRows = filteredCurrentEnrollmentFtesDetailRows(summary);
-    table('snapshotTable', filteredRows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'censusStatus', 'ftesClassification', 'currentCalculatedFtes', 'projectedFinalFtes', 'confidence', 'derivation', 'reason', 'currentEnrollment', 'seats', 'confirmedFtes', 'estimatedFtes', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'historicalObservationCount', 'historicalTermsUsed', 'ftesSource', 'ftesWarning']);
+    table('snapshotTable', filteredRows, ['term', 'crn', 'course', 'section', 'population', 'campus', 'instructionalMethod', 'accountingMethod', 'rawAttendanceMethod', 'normalizedAttendanceMethod', 'normalizedCourseKey', 'predictionEligibility', 'historicalModelReadiness', 'courseLevelMatchCount', 'subjectLevelMatchCount', 'divisionLevelMatchCount', 'attendanceMethodMatchCount', 'institutionLevelMatchCount', 'selectedFallbackLevel', 'predictionFailureReason', 'censusStatus', 'ftesClassification', 'currentCalculatedFtes', 'projectedFinalFtes', 'confidence', 'derivation', 'reason', 'currentEnrollment', 'seats', 'confirmedFtes', 'estimatedFtes', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'historicalObservationCount', 'historicalTermsUsed', 'ftesSource', 'ftesWarning']);
     const tableNode = document.getElementById('snapshotTable');
     if (tableNode) tableNode.insertAdjacentHTML('afterbegin', `<p class="analytics-chart-note">Showing ${formatWholeNumber(filteredRows.length)} of ${formatWholeNumber(summary.rows.length)} section row(s). Unavailable FTES values are blank, not zero.</p>`);
     renderSnapshotLegend();
@@ -11741,6 +11824,19 @@
       Campus: row.campus || '',
       'Instructional Method': row.instructionalMethod || '',
       'Attendance Accounting Method': row.accountingMethod || '',
+      'Raw Attendance Method': row.rawAttendanceMethod || '',
+      'Normalized Attendance Method': row.normalizedAttendanceMethod || '',
+      'Normalized Course Key': row.normalizedCourseKey || '',
+      'Prediction Eligibility': row.predictionEligibility || '',
+      'Historical Model Readiness': row.historicalModelReadiness || '',
+      'Course-Level Match Count': row.courseLevelMatchCount ?? '',
+      'Subject-Level Match Count': row.subjectLevelMatchCount ?? '',
+      'Division-Level Match Count': row.divisionLevelMatchCount ?? '',
+      'Attendance-Method Match Count': row.attendanceMethodMatchCount ?? '',
+      'Institution-Level Match Count': row.institutionLevelMatchCount ?? '',
+      'Selected Fallback Level': row.selectedFallbackLevel || '',
+      'Prediction Failure Reason': row.predictionFailureReason || '',
+      'Attendance Method Aliases': row.attendanceMethodAliases || '',
       'Part of Term': row.partOfTerm || '',
       'Start Date': row.startDate || '',
       'End Date': row.endDate || '',

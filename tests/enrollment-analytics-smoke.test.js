@@ -5671,6 +5671,120 @@ test('current enrollment FTES historical prediction hierarchy falls back by evid
   assert.equal(insufficient.confidence, 'insufficient-data');
 });
 
+test('current enrollment FTES historical prediction normalizes descriptive attendance methods and course keys', () => {
+  const { COSEnrollmentAnalytics, COSHistoricalInstitutional } = loadEnrollmentAnalyticsRuntime();
+  const asOfContext = { iso: '2026-09-01' };
+  const model = {
+    groups: [{
+      modelLevel: 'subject',
+      groupKey: 'Fall|P|ESL',
+      terms: ['202510', '202410'],
+      observationCount: 8,
+      totalCensusEnrollment: 100,
+      totalInstitutionalFtes: 9,
+      weightedYield: 0.09,
+      coefficientOfVariation: 0.08,
+      confidence: 'HIGH',
+      backtesting: { weightedAbsolutePercentageError: 0.08, rows: [] },
+      distinctTerms: 2
+    }]
+  };
+  const row = section({
+    term: 'FALL 2026',
+    crn: 'P402',
+    subject: 'ESL',
+    course: '402',
+    accountingMethod: '',
+    accountingMethodLabel: 'Positive Attendance',
+    hasFtesData: false,
+    hasDirectFtesData: false,
+    actual: 20,
+    census: 20
+  });
+  const result = COSEnrollmentAnalytics.classifySectionFtes(row, { asOfContext, historicalModel: model });
+
+  assert.equal(COSHistoricalInstitutional.normalizeAttendanceMethod('Positive Attendance'), 'P');
+  assert.equal(COSHistoricalInstitutional.normalizeAttendanceMethod('Open Entry/Open Exit - Positive Attendance'), 'E');
+  assert.equal(COSHistoricalInstitutional.stableCourseKeyForRow(row), 'ESL 402');
+  assert.equal(result.classification, 'predicted');
+  assert.equal(result.derivation, 'historical-subject-model');
+  assert.equal(result.predictionDiagnostics.normalizedAttendanceMethod, 'P');
+  assert.equal(result.predictionDiagnostics.normalizedCourseKey, 'ESL 402');
+  assert.equal(result.predictionDiagnostics.subjectLevelMatchCount, 1);
+});
+
+test('current enrollment FTES historical prediction uses full fallback and Work Experience cube conventions', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const asOfContext = { iso: '2026-09-01' };
+  const group = (modelLevel, groupKey, weightedYield = 0.1) => ({
+    modelLevel,
+    groupKey,
+    terms: ['202510', '202410'],
+    observationCount: 10,
+    totalCensusEnrollment: 100,
+    totalInstitutionalFtes: 10,
+    weightedYield,
+    coefficientOfVariation: 0.08,
+    confidence: 'MEDIUM',
+    backtesting: { weightedAbsolutePercentageError: 0.08, rows: [] },
+    distinctTerms: 2
+  });
+  const noCourseMatch = section({
+    term: 'FALL 2026',
+    crn: 'E100',
+    subject: 'OPEN',
+    course: '100',
+    division: 'Noncredit',
+    accountingMethodLabel: 'Open Entry/Open Exit - Positive Attendance',
+    hasFtesData: false,
+    hasDirectFtesData: false,
+    actual: 12,
+    census: 12
+  });
+  const institutionResult = COSEnrollmentAnalytics.classifySectionFtes(noCourseMatch, {
+    asOfContext,
+    historicalModel: { groups: [group('institution', 'Fall', 0.08)] }
+  });
+  const workExperience = section({
+    term: 'FALL 2026',
+    crn: 'WE20',
+    subject: 'WKEX',
+    course: '020',
+    division: 'Work Experience',
+    accountingMethod: 'D',
+    isWorkExperience: true,
+    hasFtesData: false,
+    hasDirectFtesData: false,
+    actual: 15,
+    census: 15
+  });
+  const workExperienceResult = COSEnrollmentAnalytics.classifySectionFtes(workExperience, {
+    asOfContext,
+    historicalModel: { groups: [group('course', 'Fall|D|WKEX 020', 0.12)] }
+  });
+
+  assert.equal(institutionResult.classification, 'predicted');
+  assert.equal(institutionResult.derivation, 'historical-institution-model');
+  assert.equal(institutionResult.predictionDiagnostics.normalizedAttendanceMethod, 'E');
+  assert.equal(institutionResult.predictionDiagnostics.courseLevelMatchCount, 0);
+  assert.equal(institutionResult.predictionDiagnostics.institutionLevelMatchCount, 1);
+  assert.equal(workExperienceResult.classification, 'predicted');
+  assert.equal(workExperienceResult.derivation, 'historical-course-model');
+  assert.match(workExperienceResult.predictionDiagnostics.attendanceMethodAliases, /D/);
+  assert.equal(workExperienceResult.predictionDiagnostics.courseLevelMatchCount, 1);
+});
+
+test('current enrollment FTES historical prediction diagnostics and delayed readiness hook are wired', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(source, /maybeRecomputeCurrentEnrollmentFtesAfterHistoricalReady/);
+  assert.match(source, /currentEnrollmentFtesHistoricalRefreshQueued/);
+  assert.match(source, /hydrateHistoricalInstitutionalModel\(\)\s*[\r\n\s.]*then\(model =>/);
+  assert.match(source, /predictionFailureReason/);
+  assert.match(source, /courseLevelMatchCount/);
+  assert.match(source, /Normalized Attendance Method/);
+});
+
 test('current enrollment FTES classification totals and exports reconcile without official prediction labels', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const historicalModel = {

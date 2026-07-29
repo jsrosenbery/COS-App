@@ -108,8 +108,27 @@
     return clean(value).toUpperCase();
   }
 
-  function normalizeAttendanceMethod(value) {
+  function isWorkExperienceIdentity(row = {}) {
+    const subject = normalizeSubject(row.subject || row.Subject || row.SUBJECT || '');
+    const course = normalizeCourse(row.courseNumber || row.course || row.Course || row.COURSE || '');
+    const division = clean(row.division || row.Division || row.DIVISION || '').toUpperCase();
+    const population = clean(row.population || row.Population || '').toUpperCase();
+    const sourceType = clean(row.sourceType || row.__sourceType || '').toUpperCase();
+    const modality = clean(row.modality || row.instructionalMethod || row.instructionalMethodLabel || '').toUpperCase();
+    return Boolean(
+      row.isWorkExperience ||
+      /WORK\s*EXPERIENCE/.test(sourceType) ||
+      /WORK\s*EXPERIENCE/.test(population) ||
+      /WORK\s*EXPERIENCE/.test(division) ||
+      /^WKEX|^WKEXP|WORK\s*EXP/.test(subject) ||
+      /WORK\s*EXP/.test(course) ||
+      /WORK\s*EXPERIENCE/.test(modality)
+    );
+  }
+
+  function normalizeAttendanceMethod(value, row = {}) {
     const raw = clean(value).toUpperCase();
+    if (!raw && isWorkExperienceIdentity(row)) return 'WORK EXPERIENCE';
     if (/OPEN.*ENTRY|OPEN.*EXIT/.test(raw)) return 'E';
     if (/POSITIVE/.test(raw) && !/OPEN/.test(raw)) return 'P';
     if (/WORK.*EXPERIENCE/.test(raw)) return 'WORK EXPERIENCE';
@@ -122,6 +141,13 @@
 
   function courseKey(subject, courseNumber) {
     return [normalizeSubject(subject), normalizeCourse(courseNumber)].filter(Boolean).join(' ');
+  }
+
+  function stableCourseKeyForRow(row = {}) {
+    const subject = normalizeSubject(row.subject || row.Subject || row.SUBJECT || '');
+    const courseNumber = normalizeCourse(row.courseNumber || row.course || row.Course || row.COURSE || '');
+    if (subject || courseNumber) return courseKey(subject, courseNumber);
+    return clean(row.courseKey || row.CourseKey || '').toUpperCase();
   }
 
   function termCodeNear(termHeaders = [], index) {
@@ -266,9 +292,9 @@
       division: clean(row.division),
       subject,
       courseNumber,
-      courseKey: courseKey(subject, courseNumber),
+      courseKey: stableCourseKeyForRow({ subject, courseNumber }),
       crn: clean(row.crn),
-      attendanceMethod: normalizeAttendanceMethod(row.attendanceMethod),
+      attendanceMethod: normalizeAttendanceMethod(row.attendanceMethod, row),
       partOfTerm: normalizePartOfTerm(row.partOfTerm),
       censusEnrollment,
       studentContactHours,
@@ -1269,24 +1295,103 @@
     return seasonYearTermCode(raw) || normalizeTermCode(raw);
   }
 
+  function firstPresent(...values) {
+    return values.find(value => clean(value));
+  }
+
   function currentSectionAttendance(row = {}) {
-    return normalizeAttendanceMethod(row.attendanceMethod || row.accountingMethod || row['Accounting Method'] || row.ACAM || '');
+    const raw = firstPresent(
+      row.attendanceAccountingCode,
+      row.accountingMethod,
+      row.ACCOUNTING_METHOD,
+      row['Accounting Method'],
+      row.attendanceMethod,
+      row.accountingMethodLabel,
+      row['Attendance Method'],
+      row.ACAM
+    );
+    return normalizeAttendanceMethod(raw || '', row);
+  }
+
+  function attendanceAliasesForSection(row = {}) {
+    const primary = currentSectionAttendance(row);
+    const aliases = [];
+    const add = value => {
+      const normalized = normalizeAttendanceMethod(value, row);
+      if (normalized && !aliases.includes(normalized)) aliases.push(normalized);
+    };
+    add(primary);
+    if (isWorkExperienceIdentity(row)) {
+      ['WORK EXPERIENCE', 'WE', 'I', 'D'].forEach(add);
+    }
+    return aliases;
   }
 
   function candidateKeysForSection(row = {}) {
     const term = currentSectionTermCode(row);
     const season = row.season || termSeason(term);
-    const attendance = currentSectionAttendance(row);
     const subject = normalizeSubject(row.subject || row.Subject || '');
-    const courseNumber = normalizeCourse(row.courseNumber || row.course || row.Course || '');
+    const course = stableCourseKeyForRow(row);
     const division = clean(row.division || row.Division || '');
-    return [
-      { modelLevel: 'course', groupKey: [season, attendance, courseKey(subject, courseNumber)].join('|') },
-      { modelLevel: 'subject', groupKey: [season, attendance, subject].join('|') },
-      { modelLevel: 'division', groupKey: [season, attendance, division].join('|') },
-      { modelLevel: 'attendanceMethod', groupKey: [season, attendance].join('|') },
-      { modelLevel: 'institution', groupKey: [season || 'ALL'].join('|') }
-    ];
+    const candidates = [];
+    const add = candidate => {
+      const key = `${candidate.modelLevel}:${candidate.groupKey}`;
+      if (!candidates.some(item => `${item.modelLevel}:${item.groupKey}` === key)) candidates.push(candidate);
+    };
+    const aliases = attendanceAliasesForSection(row);
+    aliases.forEach(attendance => {
+      if (course) add({ modelLevel: 'course', groupKey: [season, attendance, course].join('|'), attendanceMethod: attendance });
+    });
+    aliases.forEach(attendance => {
+      if (subject) add({ modelLevel: 'subject', groupKey: [season, attendance, subject].join('|'), attendanceMethod: attendance });
+    });
+    aliases.forEach(attendance => {
+      if (division) add({ modelLevel: 'division', groupKey: [season, attendance, division].join('|'), attendanceMethod: attendance });
+    });
+    aliases.forEach(attendance => {
+      if (attendance) add({ modelLevel: 'attendanceMethod', groupKey: [season, attendance].join('|'), attendanceMethod: attendance });
+    });
+    add({ modelLevel: 'institution', groupKey: [season || 'ALL'].join('|'), attendanceMethod: '' });
+    return candidates;
+  }
+
+  function predictionDiagnosticsForSection(row = {}, model = {}) {
+    const groups = new Map((model.groups || []).map(group => [`${group.modelLevel}:${group.groupKey}`, group]));
+    const attendance = currentSectionAttendance(row);
+    const enrollment = currentSectionEnrollment(row);
+    const candidates = candidateKeysForSection(row);
+    const matchCounts = {
+      course: 0,
+      subject: 0,
+      division: 0,
+      attendanceMethod: 0,
+      institution: 0
+    };
+    candidates.forEach(candidate => {
+      const group = groups.get(`${candidate.modelLevel}:${candidate.groupKey}`);
+      if (group && group.confidence !== 'INSUFFICIENT_DATA') matchCounts[candidate.modelLevel] = (matchCounts[candidate.modelLevel] || 0) + 1;
+    });
+    const eligible = ELIGIBLE_PENDING_ATTENDANCE.has(attendance) || isWorkExperienceIdentity(row);
+    return {
+      currentCrn: clean(row.crn || row.CRN),
+      subject: normalizeSubject(row.subject || row.Subject),
+      courseNumber: normalizeCourse(row.courseNumber || row.course || row.Course),
+      normalizedCourseKey: stableCourseKeyForRow(row),
+      rawAttendanceMethod: clean(firstPresent(row.attendanceAccountingCode, row.accountingMethod, row.ACCOUNTING_METHOD, row['Accounting Method'], row.attendanceMethod, row.accountingMethodLabel, row['Attendance Method'], row.ACAM) || ''),
+      normalizedAttendanceMethod: attendance,
+      currentEnrollment: enrollment,
+      predictionEligibility: eligible,
+      repositoryModelReadiness: (model.groups || []).length ? 'ready' : 'unavailable-or-empty',
+      courseLevelMatchCount: matchCounts.course || 0,
+      subjectLevelMatchCount: matchCounts.subject || 0,
+      divisionLevelMatchCount: matchCounts.division || 0,
+      attendanceMethodMatchCount: matchCounts.attendanceMethod || 0,
+      institutionLevelMatchCount: matchCounts.institution || 0,
+      selectedFallbackLevel: '',
+      failureReason: '',
+      attendanceMethodAliases: attendanceAliasesForSection(row).join('; '),
+      candidates
+    };
   }
 
   function estimateRange(estimate, stats = {}) {
@@ -1300,14 +1405,16 @@
 
   function estimatePendingSection(row = {}, model = buildYieldModel([]), options = {}) {
     const attendance = currentSectionAttendance(row);
-    if (!ELIGIBLE_PENDING_ATTENDANCE.has(attendance) && !options.allowAllAttendanceMethods) {
-      return { estimated: false, confidence: 'INSUFFICIENT_DATA', reason: 'Attendance population is not configured for historical pending FTES estimation.' };
+    const diagnostics = predictionDiagnosticsForSection(row, model);
+    if (!ELIGIBLE_PENDING_ATTENDANCE.has(attendance) && !isWorkExperienceIdentity(row) && !options.allowAllAttendanceMethods) {
+      diagnostics.failureReason = 'Attendance population is not configured for historical pending FTES estimation.';
+      return { estimated: false, confidence: 'INSUFFICIENT_DATA', reason: diagnostics.failureReason, predictionDiagnostics: diagnostics };
     }
     const enrollment = currentSectionEnrollment(row);
     const groups = new Map((model.groups || []).map(group => [`${group.modelLevel}:${group.groupKey}`, group]));
     const rejected = [];
     let selected = null;
-    candidateKeysForSection(row).some(candidate => {
+    diagnostics.candidates.some(candidate => {
       const group = groups.get(`${candidate.modelLevel}:${candidate.groupKey}`);
       if (!group) {
         rejected.push({ ...candidate, reason: 'No comparable final institutional history.' });
@@ -1318,9 +1425,11 @@
         return false;
       }
       selected = group;
+      diagnostics.selectedFallbackLevel = selected.modelLevel;
       return true;
     });
     if (!selected || !enrollment) {
+      diagnostics.failureReason = !enrollment ? 'Current census enrollment is unavailable.' : 'No acceptable historical basis was available.';
       return {
         estimated: false,
         termCode: currentSectionTermCode(row),
@@ -1330,9 +1439,10 @@
         attendanceMethod: attendance,
         currentEnrollment: enrollment,
         confidence: 'INSUFFICIENT_DATA',
-        reason: !enrollment ? 'Current census enrollment is unavailable.' : 'No acceptable historical basis was available.',
+        reason: diagnostics.failureReason,
         rejectedCandidateLevels: rejected,
-        modelVersion: model.modelVersion || MODEL_VERSION
+        modelVersion: model.modelVersion || MODEL_VERSION,
+        predictionDiagnostics: diagnostics
       };
     }
     const estimatedFtes = enrollment * selected.weightedYield;
@@ -1360,6 +1470,7 @@
       selectedReason: `${selected.modelLevel} history selected from ${selected.distinctTerms} comparable completed term(s).`,
       rejectedCandidateLevels: rejected,
       modelVersion: model.modelVersion || MODEL_VERSION,
+      predictionDiagnostics: diagnostics,
       explanation: explainEstimate(row, selected, estimatedFtes, range)
     };
   }
@@ -1435,7 +1546,10 @@
     inspectWorkbookTable,
     normalizeTermCode,
     seasonYearTermCode,
+    courseKey,
+    stableCourseKeyForRow,
     normalizeAttendanceMethod,
+    isWorkExperienceIdentity,
     termSeason,
     stableRecordIdentity,
     stableRecordId,
@@ -1444,6 +1558,7 @@
     createRepository,
     buildYieldModel,
     backtestRecords,
+    predictionDiagnosticsForSection,
     estimatePendingSection,
     estimatePendingRows,
     modelHealth,
