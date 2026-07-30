@@ -1152,6 +1152,28 @@ test('snapshot manager updates same term CRN type instead of duplicating', () =>
   assert.equal(saved.records[0].snapshotDate, '2027-08-18');
 });
 
+test('custom enrollment snapshots default to date labels and retain multiple dated checkpoints', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const first = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '22' }
+  ], { term: 'FALL 2027', snapshotType: 'Custom', snapshotDate: '2027-07-30' });
+  const second = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '24' }
+  ], { term: 'FALL 2027', snapshotType: 'Custom', snapshotDate: '2027-08-06' });
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  const saved = COSEnrollmentAnalytics.upsertSnapshotRecords(first, second);
+
+  assert.equal(first[0].lifecycleLabel, 'Snapshot 2027-07-30');
+  assert.equal(second[0].lifecycleLabel, 'Snapshot 2027-08-06');
+  assert.equal(saved.appended, 1);
+  assert.equal(saved.updated, 0);
+  assert.equal(saved.records.length, 2);
+  assert.match(source, /<option>Census 2<\/option>/);
+  assert.match(source, /options\.requireCustomLifecycleLabel/);
+  assert.doesNotMatch(source, /requireCustomLifecycleLabel:\s*true/);
+});
+
 test('stored first-day snapshots merge into lifecycle rows by term and CRN', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [

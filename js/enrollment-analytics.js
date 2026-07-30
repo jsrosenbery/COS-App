@@ -1581,7 +1581,10 @@
   }
 
   function snapshotKey(record) {
-    return [canon(record?.term), canon(record?.crn), canon(record?.snapshotType)].join('|');
+    const snapshotType = normalizeSnapshotType(record?.snapshotType);
+    const parts = [canon(record?.term), canon(record?.crn), snapshotType];
+    if (snapshotType === 'CUSTOM') parts.push(String(record?.snapshotDate || '').trim());
+    return parts.join('|');
   }
 
   function normalizeSnapshotType(value) {
@@ -1621,7 +1624,9 @@
     const snapshotTime = String(options.snapshotTime || '').trim();
     const lifecyclePhase = String(options.lifecyclePhase || snapshotType || '').trim();
     const customLifecycleLabel = String(options.customLifecycleLabel || '').trim();
-    const lifecycleLabel = lifecyclePhase === 'Custom' && customLifecycleLabel ? customLifecycleLabel : lifecyclePhase;
+    const lifecycleLabel = normalizeSnapshotType(lifecyclePhase) === 'CUSTOM'
+      ? (customLifecycleLabel || `Snapshot ${snapshotDate}`)
+      : lifecyclePhase;
     const daysBeforeTermStart = String(options.daysBeforeTermStart || '').trim();
     const daysAfterTermStart = String(options.daysAfterTermStart || '').trim();
     const notes = String(options.notes || '').trim();
@@ -2600,7 +2605,7 @@
               <p>Term + CRN + snapshot-type records used for first-day, census, final, and lifecycle readiness analysis.</p>
               <div class="analytics-toolbar">
                 <label>Term <input id="dataHubSnapshotTerm" type="text" placeholder="FALL 2026"></label>
-                <label>Snapshot type <select id="dataHubSnapshotType"><option>First Day</option><option>Census 1</option><option>Final</option><option>Custom</option></select></label>
+                <label>Snapshot type <select id="dataHubSnapshotType"><option>First Day</option><option>Census 1</option><option>Census 2</option><option>Final</option><option>Custom</option></select></label>
                 <label>Snapshot date <input id="dataHubSnapshotDate" type="date"></label>
                 <label>Snapshot CSV <input id="dataHubSnapshotCsv" type="file" accept=".csv"></label>
                 <button id="dataHubSaveSnapshotBatch" type="button">Save Snapshot</button>
@@ -10566,7 +10571,7 @@
       alert('Term, snapshot type, and snapshot date are required.');
       return;
     }
-    if (lifecyclePhase === 'Custom' && !customLifecycleLabel.trim()) {
+    if (normalizeSnapshotType(lifecyclePhase) === 'CUSTOM' && !customLifecycleLabel.trim() && options.requireCustomLifecycleLabel) {
       alert('Custom lifecycle label is required when Lifecycle Phase is Custom.');
       return;
     }
