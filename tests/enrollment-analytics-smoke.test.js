@@ -4404,11 +4404,48 @@ test('launcher renderer exposes titles descriptions subgroups statuses and respo
   assert.match(text, /@media \(max-width:1320px\)/);
   assert.match(text, /@media \(max-width:960px\)/);
   assert.match(text, /@media \(max-width:760px\)/);
-  assert.match(text, /REPORT_LABEL\[report\] \|\| report/);
+  assert.match(text, /Locked Report/);
+  assert.match(text, /Report name and description available after unlock/);
   assert.doesNotMatch(reports, /label: 'Developer'/);
   assert.doesNotMatch(reports, /label: 'Dean \/ Enrollment Management'/);
   assert.doesNotMatch(reports, /Development Lab/);
   assert.match(reports, /label: 'Enrollment Management'/);
+});
+
+test('launcher locked cards hide protected report names descriptions and broken symbols before unlock', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.doesNotMatch(text, /Ã/);
+  assert.doesNotMatch(text, /â/);
+  assert.doesNotMatch(text, /em-report-button-chevron/);
+  assert.doesNotMatch(text, /aria-describedby="desc-\$\{report\}"/);
+  assert.match(text, /const label = locked \? 'Locked Report' : \(REPORT_LABEL\[report\] \|\| report\)/);
+  assert.match(text, /const description = locked \? 'Report name and description available after unlock\.' : \(REPORT_DESCRIPTIONS\[report\] \|\| purpose\)/);
+  assert.match(text, /const ariaLabel = locked \? `Locked report\. \$\{status\}\.` : `\$\{label\}\. \$\{description\}\. \$\{status\}\.`/);
+  assert.match(text, /\$\{locked \? ' aria-disabled="true" disabled' : ' aria-disabled="false"'\}/);
+  assert.match(text, /option\.disabled = locked/);
+  assert.match(text, /option\.textContent = lockedReportLabel\(report\)/);
+});
+
+test('launcher unlock and relock refresh report labels descriptions accessibility and activation state', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
+
+  assert.match(text, /if \(canAccess\(report\)\) return REPORT_LABEL\[report\] \|\| report/);
+  assert.match(text, /const labelText = locked \? 'Locked Report' : \(REPORT_LABEL\[report\] \|\| report\)/);
+  assert.match(text, /const noteText = locked \? 'Report name and description available after unlock\.' : \(REPORT_DESCRIPTIONS\[report\]/);
+  assert.match(text, /button\.disabled = locked/);
+  assert.match(text, /button\.setAttribute\('aria-label', locked \? `Locked report\. \$\{statusText\}\.` : `\$\{labelText\}\. \$\{noteText\}\. \$\{statusText\}\.`\)/);
+  assert.match(text, /function clearRoleSession/);
+  assert.match(text, /id="lockEnrollmentReports"/);
+  assert.match(text, /updateVisibility\(\)/);
+  assert.match(text, /if \(targetReport && reportSelect\)/);
+  assert.match(text, /if \(!canAccess\(targetReport\)\) requestReportAccess\(targetReport\)/);
+  assert.match(reports, /\[REPORTS\.instructorAvailability\]: 'general'/);
+  assert.match(reports, /\[REPORTS\.heatmap\]: 'divchair'/);
+  assert.match(reports, /\[REPORTS\.dashboard\]: 'dean'/);
+  assert.match(reports, /\[REPORTS\.demand\]: 'development'/);
+  assert.match(reports, /\[REPORTS\.dataHub\]: 'admin'/);
 });
 
 test('course duration heatmap visible rename is applied across UI strings', () => {

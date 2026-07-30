@@ -2118,25 +2118,35 @@
   }
 
   function lockedReportLabel(report) {
-    return REPORT_LABEL[report] || report;
+    if (canAccess(report)) return REPORT_LABEL[report] || report;
+    return 'Locked Report';
+  }
+
+  function reportAccessRequirement(report) {
+    const requiredRole = REPORT_ACCESS[report] || 'general';
+    if (requiredRole === 'general') return 'Available - no password required';
+    return `Requires ${ROLE_LABEL[requiredRole] || 'protected'} access or higher`;
   }
 
   function reportAccessStatus(report) {
     if ((REPORT_ACCESS[report] || 'general') === 'general') return 'Available - no password required';
-    return canAccess(report) ? 'Unlocked' : `Locked - requires ${ROLE_LABEL[REPORT_ACCESS[report] || 'general']} access or higher`;
+    return canAccess(report) ? 'Unlocked' : reportAccessRequirement(report);
   }
 
   function reportButtonHtml(report, groupKey = '', purpose = '') {
+    const locked = !canAccess(report);
+    const label = locked ? 'Locked Report' : (REPORT_LABEL[report] || report);
+    const description = locked ? 'Report name and description available after unlock.' : (REPORT_DESCRIPTIONS[report] || purpose);
+    const status = reportAccessStatus(report);
+    const ariaLabel = locked ? `Locked report. ${status}.` : `${label}. ${description}. ${status}.`;
     return `
-            <button type="button" class="em-report-button" data-report-target="${report}" data-report-group="${groupKey}" data-required-role="${REPORT_ACCESS[report] || 'general'}" aria-describedby="desc-${report}">
-              <span class="em-report-button-chevron" aria-hidden="true">â€º</span>
-              <span class="em-report-button-label">${escapeAttr(REPORT_LABEL[report] || report)}</span>
-              <small id="desc-${report}">${escapeAttr(REPORT_DESCRIPTIONS[report] || purpose)}</small>
-              <span class="em-report-button-status">${escapeAttr(reportAccessStatus(report))}</span>
+            <button type="button" class="em-report-button${locked ? ' is-locked' : ''}" data-report-target="${report}" data-report-group="${groupKey}" data-required-role="${REPORT_ACCESS[report] || 'general'}" aria-label="${escapeAttr(ariaLabel)}"${locked ? ' aria-disabled="true" disabled' : ' aria-disabled="false"'}>
+              <span class="em-report-button-label">${escapeAttr(label)}</span>
+              <small>${escapeAttr(description)}</small>
+              <span class="em-report-button-status">${escapeAttr(status)}</span>
             </button>
           `;
   }
-
   function reportButtonListHtml(reports = [], groupKey = '', purpose = '') {
     return reports.length
       ? reports.map(report => reportButtonHtml(report, groupKey, purpose)).join('')
@@ -23075,21 +23085,27 @@
       const locked = !canAccess(report);
       option.dataset.requiredRole = requiredRole;
       option.dataset.locked = locked ? 'true' : 'false';
-      option.textContent = REPORT_LABEL[report] || report;
+      option.disabled = locked;
+      option.textContent = lockedReportLabel(report);
     });
     document.querySelectorAll('.em-report-button[data-report-target]').forEach(button => {
       const report = button.dataset.reportTarget || '';
       const locked = !canAccess(report);
+      const labelText = locked ? 'Locked Report' : (REPORT_LABEL[report] || report);
+      const noteText = locked ? 'Report name and description available after unlock.' : (REPORT_DESCRIPTIONS[report] || reportSubtitleForGroup(button.dataset.reportGroup) || reportSubtitleForReport(report));
+      const statusText = reportAccessStatus(report);
       button.classList.toggle('is-active', report === selected);
       button.classList.toggle('is-locked', locked);
       button.setAttribute('aria-current', report === selected ? 'page' : 'false');
       button.setAttribute('aria-disabled', locked ? 'true' : 'false');
+      button.disabled = locked;
+      button.setAttribute('aria-label', locked ? `Locked report. ${statusText}.` : `${labelText}. ${noteText}. ${statusText}.`);
       const label = button.querySelector('.em-report-button-label');
-      if (label) label.textContent = REPORT_LABEL[report] || report;
+      if (label) label.textContent = labelText;
       const note = button.querySelector('small');
-      if (note) note.textContent = REPORT_DESCRIPTIONS[report] || reportSubtitleForGroup(button.dataset.reportGroup) || reportSubtitleForReport(report);
+      if (note) note.textContent = noteText;
       const status = button.querySelector('.em-report-button-status');
-      if (status) status.textContent = reportAccessStatus(report);
+      if (status) status.textContent = statusText;
     });
   }
   function renderLockedReportPanel(reportName) {
@@ -23103,7 +23119,7 @@
     const requiredRole = REPORT_ACCESS[reportName] || 'general';
     panel.hidden = false;
     panel.innerHTML = `
-      <h3>Locked report ••••••••</h3>
+      <h3>Locked Report</h3>
       <p>This report requires <strong>${escapeAttr(ROLE_LABEL[requiredRole])}</strong> access or higher.</p>
       <button type="button" data-unlock-report="${escapeAttr(reportName)}">Unlock This Report</button>
     `;
@@ -23384,16 +23400,16 @@
       .em-report-subgroup{display:grid;gap:8px;margin-top:10px}
       .em-report-subgroup h4{margin:0;color:#123367;font-size:12px;font-weight:900;line-height:1.2;text-transform:uppercase;letter-spacing:.04em}
       .em-report-button-list{display:grid;gap:8px}
-      .em-report-button{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto auto;column-gap:8px;row-gap:2px;align-items:start;width:100%;min-height:68px;border:1px solid #c7d5e4;border-radius:9px;background:#fff;color:#123367;text-align:left;padding:9px 10px;cursor:pointer;box-shadow:none;transition:border-color .16s ease,background .16s ease,box-shadow .16s ease,transform .16s ease}
-      .em-report-button-chevron{grid-row:1/4;color:#1f7aa8;font-size:20px;font-weight:900;line-height:1}
+      .em-report-button{display:grid;grid-template-rows:auto auto auto;row-gap:2px;align-items:start;width:100%;min-height:68px;border:1px solid #c7d5e4;border-radius:9px;background:#fff;color:#123367;text-align:left;padding:9px 10px;cursor:pointer;box-shadow:none;transition:border-color .16s ease,background .16s ease,box-shadow .16s ease,transform .16s ease}
       .em-report-button-label{font-weight:900;line-height:1.2}
-      .em-report-button small{grid-column:2;color:#51657c;font-size:11px;line-height:1.25}
-      .em-report-button-status{grid-column:2;color:#365169;font-size:10px;font-weight:900;line-height:1.25;text-transform:uppercase}
+      .em-report-button small{color:#51657c;font-size:11px;line-height:1.25}
+      .em-report-button-status{color:#365169;font-size:10px;font-weight:900;line-height:1.25;text-transform:uppercase}
       .em-report-button:hover{border-color:#8ba6c2;background:#fafdff;transform:translateY(-1px);box-shadow:0 8px 18px rgba(16,32,51,.08)}
       .em-report-button.is-active{border-color:#1f7aa8;background:#e8f7fc;box-shadow:inset 4px 0 0 #1f7aa8}
-      .em-report-button.is-locked{background:#f4f6f8;color:#6b7d91;border-style:dashed;opacity:.78}
-      .em-report-button.is-locked small{color:#8a5660}
-      .em-report-button.is-locked .em-report-button-status{color:#8a5660}
+      .em-report-button.is-locked{background:#f4f6f8;color:#6b7d91;border-color:#ccd4dd;border-style:dashed;cursor:not-allowed;opacity:1}
+      .em-report-button.is-locked:hover{border-color:#ccd4dd;background:#f4f6f8;box-shadow:none;transform:none}
+      .em-report-button.is-locked small{color:#6b7d91}
+      .em-report-button.is-locked .em-report-button-status{color:#6b7d91}
       .em-report-empty{margin:0;color:#6b7d91;font-size:12px}
       .analytics-report-intro{margin-bottom:16px;color:#51657c;line-height:1.45}
       .analytics-report-intro h2{margin:0 0 6px;color:#123367;font-size:24px}
