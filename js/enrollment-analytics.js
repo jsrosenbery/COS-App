@@ -455,7 +455,8 @@
     finalEnrollment,
     expectedEnrollment,
     expectedFillRate,
-    expectedOpenSeats
+    expectedOpenSeats,
+    ftesValue
   } = metrics;
   const {
     isOnlineSection,
@@ -5680,7 +5681,7 @@
       actualEnrollment: Number(row.actualEnrollment ?? row.final ?? row.enrollment) || 0,
       fillRateNumber: Number(row.fillRateNumber || row.fillRate) || 0,
       waitlist: Number(row.waitlist) || 0,
-      ftes: Number(row.ftes) || 0,
+      ftes: ftesValue(row),
       studentPresence: Number(row.studentPresence) || 0,
       enrollmentPerClassOffering: Number(row.enrollmentPerClassOffering) || 0,
       seatsPerOffering: safeDiv(Number(row.seatsOffered || row.capacity) || 0, Number(row.scheduledClassOfferings || row.sections) || 0)
@@ -5762,7 +5763,7 @@
       isPrimeTime: rowOverlapsPrimeTime(row, definition),
       enrollment: row.actualEnroll || 0,
       seats: row.maxEnroll || 0,
-      ftes: row.ftes || 0
+      ftes: ftesValue(row)
     }));
     const terms = [...new Set(analyzed.map(facultyTerm).filter(Boolean))].sort((a, b) => termSortValue(a) - termSortValue(b));
     const focusTerm = options.focusTerm || document.getElementById('ptTerm')?.value || terms[terms.length - 1] || '';
@@ -9444,7 +9445,7 @@
     return {
       rows: included.length,
       enrollment: included.reduce((total, row) => total + (Number(row.census ?? row.actual) || 0), 0),
-      ftes: included.reduce((total, row) => total + (Number(row.ftes) || 0), 0),
+      ftes: included.reduce((total, row) => total + ftesValue(row), 0),
       terms: collectRowTerms(included),
       estimatedFtesRows: included.filter(row => !row.hasDirectFtesData && row.hasFtesData).length,
       missingFtes: included.filter(row => row.ftesUnavailable).length
@@ -11252,7 +11253,7 @@
   }
 
   function currentEnrollmentFtesReconciliation(total, components) {
-    const componentTotal = (components || []).reduce((sum, row) => sum + (Number(row.ftes) || 0), 0);
+    const componentTotal = (components || []).reduce((sum, row) => sum + ftesValue(row), 0);
     const difference = round1((Number(total?.ftes) || 0) - componentTotal);
     return {
       totalFtes: Number(total?.ftes) || 0,
@@ -16887,7 +16888,7 @@
     const projection = buildTrendProjection(trends.map(row => ({
       term: row.term,
       enrollment: row.census || 0,
-      ftes: row.ftes || 0,
+      ftes: ftesValue(row),
       seatsOffered: row.seats || row.capacity || 0,
       scheduledClassOfferings: row.sections || row.scheduledClassOfferings || 0
     })));
@@ -18839,7 +18840,7 @@
     const targetRows = allRows.filter(row => normalizeTermLabel(row.term) === targetTerm);
     const isPendingTargetRow = row => pendingFtesPopulation(row) && (!row.hasDirectFtesData || row.ftesUnavailable || /PENDING|ESTIMATED|UNAVAILABLE/.test(canon(row.ftesMaturity || row.ftesWarning || '')));
     const targetPendingRows = targetRows.filter(isPendingTargetRow);
-    const establishedFtes = targetRows.reduce((total, row) => total + (isPendingTargetRow(row) ? 0 : Number(row.ftes || 0)), 0);
+    const establishedFtes = targetRows.reduce((total, row) => total + (isPendingTargetRow(row) ? 0 : ftesValue(row)), 0);
     const pendingFtes = sum(simulationRows, 'predictedFtes');
     const lower = establishedFtes + sum(simulationRows.filter(row => row.lowerEstimate != null), 'lowerEstimate');
     const upper = establishedFtes + sum(simulationRows.filter(row => row.upperEstimate != null), 'upperEstimate');
@@ -19616,7 +19617,7 @@
       const season = termParts(sourceTerm).season;
       if (!totals.has(season)) return;
       const item = totals.get(season);
-      item.ftes += row.ftes || 0;
+      item.ftes += ftesValue(row);
       item.census += row.census == null ? row.actual : row.census;
     });
     const totalFtes = [...totals.values()].reduce((total, row) => total + row.ftes, 0);
@@ -20072,7 +20073,7 @@
       const bucket = buckets[key];
       bucket.rows += 1;
       bucket.enrollment += row.census == null ? row.actual || 0 : row.census || 0;
-      bucket.ftes += row.ftes || 0;
+      bucket.ftes += ftesValue(row);
       bucket.seats += row.cap || 0;
       bucket.crns.add(row.crn || [row.term, row.subject, row.course, row.section].filter(Boolean).join('|'));
     });
@@ -21548,6 +21549,9 @@
   }
 
   function sum(rows, key) {
+    if (key === 'ftes' && typeof ftesValue === 'function') {
+      return rows.reduce((total, row) => total + ftesValue(row), 0);
+    }
     return rows.reduce((total, row) => total + num(row[key]), 0);
   }
 

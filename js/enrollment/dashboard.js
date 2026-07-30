@@ -5,7 +5,7 @@
   const filterUtils = window.COSEnrollmentFilters;
   if (!metrics || !filterUtils) throw new Error('Dashboard analytics requires enrollment metrics and filters.');
 
-  const { censusEnrollment, finalEnrollment, safeDiv, average } = metrics;
+  const { censusEnrollment, finalEnrollment, safeDiv, average, ftesValue, sumFtes } = metrics;
   const { valueMatchesSelection } = filterUtils;
   const dayOrder = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
@@ -28,7 +28,7 @@
   }
 
   function ftes(row) {
-    return Number(row?.ftes) || 0;
+    return ftesValue(row);
   }
 
   function canon(value) {
@@ -195,7 +195,7 @@
       previousLikeTermVariancePct: previousEnrollment ? (currentEnrollment - previousEnrollment) / previousEnrollment : null,
       coursesReviewed: group(rows, courseKey).size,
       sectionsReviewed: rows.length,
-      ftes: sum(rows, 'ftes'),
+      ftes: sumFtes(rows),
       ftesByAccountingMethod: ftesByAccountingMethod(rows),
       lifecycle: enrollmentLifecycle(rows)
     };

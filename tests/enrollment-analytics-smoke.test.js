@@ -427,6 +427,23 @@ test('metrics use census as the planning enrollment basis', () => {
   assert.equal(COSEnrollmentMetrics.expectedFillRate(row), 0.8);
 });
 
+test('shared FTES resolver separates direct estimated unavailable and predicted values', () => {
+  const { COSEnrollmentMetrics } = loadEnrollmentModules();
+  const direct = section({ ftes: 99, sourceFtes: 2.4, hasDirectFtesData: true, hasFtesData: true });
+  const estimated = section({ ftes: 1.6, hasDirectFtesData: false, hasFtesData: true });
+  const unavailable = section({ ftes: 7, ftesUnavailable: true, hasDirectFtesData: false, hasFtesData: false });
+  const predicted = section({ ftes: 0, predictedFtes: 0.8, ftesUnavailable: true, hasDirectFtesData: false, hasFtesData: false });
+
+  assert.equal(COSEnrollmentMetrics.ftesValue(direct), 2.4);
+  assert.equal(COSEnrollmentMetrics.ftesStatus(direct).source, 'Direct');
+  assert.equal(COSEnrollmentMetrics.ftesValue(estimated), 1.6);
+  assert.equal(COSEnrollmentMetrics.ftesStatus(estimated).source, 'Estimated');
+  assert.equal(COSEnrollmentMetrics.ftesValue(unavailable), 0);
+  assert.equal(COSEnrollmentMetrics.ftesValue(predicted), 0);
+  assert.equal(COSEnrollmentMetrics.ftesValue(predicted, { includePredicted: true }), 0.8);
+  assert.equal(COSEnrollmentMetrics.sumFtes([direct, estimated, unavailable, predicted]), 4);
+});
+
 test('config exposes future enrollment access feature placeholders', () => {
   const config = loadConfigModule();
 
@@ -3578,6 +3595,20 @@ test('trend projection engine replaces simple historical average for planning fo
   assert.match(upProjection.audit.warning, /one selected comparable series only/);
 });
 
+test('trend projection uses shared FTES resolver when available in the app runtime', () => {
+  const { COSTrendProjection } = loadEnrollmentAnalyticsRuntime();
+  const projection = COSTrendProjection.buildProjection({
+    termTotals: [
+      { term: 'FALL 2023', enrollment: 100, ftes: 10, hasDirectFtesData: true, hasFtesData: true },
+      { term: 'FALL 2024', enrollment: 100, ftes: 20, hasDirectFtesData: false, hasFtesData: true },
+      { term: 'FALL 2025', enrollment: 100, ftes: 50, ftesUnavailable: true, hasDirectFtesData: false, hasFtesData: false, predictedFtes: 40 }
+    ]
+  });
+
+  assert.deepEqual(projection.metrics.ftes.termTotals.map(row => row.value), [10, 20, 0]);
+  assert.equal(projection.historicalBaseline.ftes, 10);
+});
+
 test('forecast growth audit documents same-season or academic-year growth series only', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
@@ -4068,6 +4099,21 @@ test('dashboard breaks FTES out by attendance accounting method and work experie
   assert.equal(weekly.directFtesRows, 2);
   assert.equal(work.ftes, 0.5);
   assert.equal(work.estimatedFtesRows, 1);
+});
+
+test('dashboard FTES summaries use shared resolver for unavailable rows', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'FALL 2026', crn: '10001', census: 20, ftes: 2, accountingMethodLabel: 'Weekly Census', hasDirectFtesData: true, hasFtesData: true }),
+    section({ term: 'FALL 2026', crn: '10002', census: 10, ftes: 1, accountingMethodLabel: 'Positive Attendance', hasDirectFtesData: false, hasFtesData: true }),
+    section({ term: 'FALL 2026', crn: '10003', census: 5, ftes: 9, accountingMethodLabel: 'Positive Attendance', ftesUnavailable: true, hasDirectFtesData: false, hasFtesData: false, predictedFtes: 0.7 })
+  ];
+  const summary = COSEnrollmentDashboard.dashboardSummary(rows, [], []);
+  const positive = summary.health.ftesByAccountingMethod.find(row => row.accountingMethod === 'Positive Attendance');
+
+  assert.equal(summary.health.ftes, 3);
+  assert.equal(positive.ftes, 1);
+  assert.equal(positive.unavailableFtesRows, 1);
 });
 
 test('instructor availability supports all full-time and part-time faculty filters', () => {

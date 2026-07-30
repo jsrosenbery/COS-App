@@ -18,6 +18,58 @@
     return usable.length ? usable.reduce((total, value) => total + value, 0) / usable.length : 0;
   }
 
+  function numeric(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function ftesStatus(row, options = {}) {
+    const includePredicted = Boolean(options.includePredicted);
+    const includeUnavailableRaw = Boolean(options.includeUnavailableRaw);
+    const direct = numeric(row?.sourceFtes ?? row?.directFtes ?? row?.sourceFtesValue);
+    const calculated = numeric(row?.ftes ?? row?.estimatedFtes ?? row?.calculatedFtes ?? row?.standardizedFtes);
+    const predicted = numeric(row?.predictedFtes ?? row?.historicalPredictedFtes);
+    const unavailable = Boolean(row?.ftesUnavailable);
+    const hasExplicitAvailability = row && (
+      Object.prototype.hasOwnProperty.call(row, 'hasDirectFtesData') ||
+      Object.prototype.hasOwnProperty.call(row, 'hasFtesData') ||
+      Object.prototype.hasOwnProperty.call(row, 'ftesUnavailable')
+    );
+
+    if (unavailable && !includeUnavailableRaw) {
+      if (includePredicted && predicted != null) {
+        return { value: predicted, source: 'Predicted', unavailable: false, direct: false, estimated: false, predictedOnly: true };
+      }
+      return { value: 0, source: 'Unavailable', unavailable: true, direct: false, estimated: false, predictedOnly: false };
+    }
+
+    if (row?.hasDirectFtesData && (direct != null || calculated != null)) {
+      return { value: direct ?? calculated, source: 'Direct', unavailable: false, direct: true, estimated: false, predictedOnly: false };
+    }
+
+    if (row?.hasFtesData && calculated != null) {
+      return { value: calculated, source: row?.hasDirectFtesData ? 'Direct' : 'Estimated', unavailable: false, direct: Boolean(row?.hasDirectFtesData), estimated: !row?.hasDirectFtesData, predictedOnly: false };
+    }
+
+    if (!hasExplicitAvailability && calculated != null) {
+      return { value: calculated, source: 'Legacy FTES', unavailable: false, direct: false, estimated: false, predictedOnly: false };
+    }
+
+    if (includePredicted && predicted != null) {
+      return { value: predicted, source: 'Predicted', unavailable: false, direct: false, estimated: false, predictedOnly: true };
+    }
+
+    return { value: 0, source: 'Unavailable', unavailable: true, direct: false, estimated: false, predictedOnly: false };
+  }
+
+  function ftesValue(row, options = {}) {
+    return ftesStatus(row, options).value;
+  }
+
+  function sumFtes(rows, options = {}) {
+    return (rows || []).reduce((total, row) => total + ftesValue(row, options), 0);
+  }
+
   function expectedEnrollment(row) {
     return row?.expectedEnrollment ?? censusEnrollment(row);
   }
@@ -35,6 +87,9 @@
     finalEnrollment,
     safeDiv,
     average,
+    ftesStatus,
+    ftesValue,
+    sumFtes,
     expectedEnrollment,
     expectedFillRate,
     expectedOpenSeats

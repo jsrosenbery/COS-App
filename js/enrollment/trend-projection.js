@@ -1,8 +1,8 @@
 // Shared read-only trend projection engine for forecasting presentation and planning comparisons.
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.COSTrendProjection = factory();
-})(typeof window !== 'undefined' ? window : globalThis, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(root);
+  else root.COSTrendProjection = factory(root);
+})(typeof window !== 'undefined' ? window : globalThis, function (root) {
   function num(value) {
     const n = Number(value);
     return Number.isFinite(n) ? n : 0;
@@ -10,6 +10,11 @@
 
   function safeDiv(a, b) {
     return b ? a / b : 0;
+  }
+
+  function ftesValue(row) {
+    const resolver = root?.COSEnrollmentMetrics?.ftesValue;
+    return typeof resolver === 'function' ? resolver(row) : num(row?.ftes);
   }
 
   function round(value, places = 2) {
@@ -39,7 +44,7 @@
         scheduledClassOfferings: num(row.scheduledClassOfferings ?? row.sections),
         instructionalMeetings: num(row.instructionalMeetings ?? row.meetings ?? row.sections),
         waitlist: num(row.waitlist),
-        ftes: num(row.ftes),
+        ftes: ftesValue(row),
         studentPresence: num(row.studentPresence),
         fillRateNumber: num(row.fillRateNumber ?? row.fillRate),
         enrollmentPerClassOffering: num(row.enrollmentPerClassOffering),
