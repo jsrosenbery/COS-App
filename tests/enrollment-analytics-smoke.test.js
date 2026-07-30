@@ -1169,7 +1169,7 @@ test('custom enrollment snapshots default to date labels and retain multiple dat
   assert.equal(saved.appended, 1);
   assert.equal(saved.updated, 0);
   assert.equal(saved.records.length, 2);
-  assert.match(source, /<option>Census 2<\/option>/);
+  assert.doesNotMatch(source, /<option>Census 2<\/option>/);
   assert.match(source, /options\.requireCustomLifecycleLabel/);
   assert.doesNotMatch(source, /requireCustomLifecycleLabel:\s*true/);
 });

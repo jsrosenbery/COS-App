@@ -2605,7 +2605,7 @@
               <p>Term + CRN + snapshot-type records used for first-day, census, final, and lifecycle readiness analysis.</p>
               <div class="analytics-toolbar">
                 <label>Term <input id="dataHubSnapshotTerm" type="text" placeholder="FALL 2026"></label>
-                <label>Snapshot type <select id="dataHubSnapshotType"><option>First Day</option><option>Census 1</option><option>Census 2</option><option>Final</option><option>Custom</option></select></label>
+                <label>Snapshot type <select id="dataHubSnapshotType"><option>First Day</option><option>Census 1</option><option>Final</option><option>Custom</option></select></label>
                 <label>Snapshot date <input id="dataHubSnapshotDate" type="date"></label>
                 <label>Snapshot CSV <input id="dataHubSnapshotCsv" type="file" accept=".csv"></label>
                 <button id="dataHubSaveSnapshotBatch" type="button">Save Snapshot</button>
