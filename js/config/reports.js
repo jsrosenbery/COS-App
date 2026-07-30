@@ -45,11 +45,11 @@
     admin: 5
   });
   const ROLE_LABEL = Object.freeze({
-    general: 'General',
+    general: 'Public Reports',
     divchair: 'Division Chair / Administrative Assistant',
-    dean: 'Dean / Enrollment Management',
-    em: 'Dean / Enrollment Management',
-    development: 'Developer',
+    dean: 'Dean',
+    em: 'Enrollment Management',
+    development: 'Enrollment Management',
     admin: 'System Administrator'
   });
   const REPORT_ACCESS = Object.freeze({
@@ -62,17 +62,17 @@
     [REPORTS.dashboard]: 'dean',
     [REPORTS.duration]: 'divchair',
     [REPORTS.heatmap]: 'divchair',
-    [REPORTS.instructorAvailability]: 'divchair',
+    [REPORTS.instructorAvailability]: 'general',
     [REPORTS.modality]: 'divchair',
     [REPORTS.conflictCheck]: 'dean',
     [REPORTS.attrition]: 'dean',
-    [REPORTS.demand]: 'dean',
-    [REPORTS.emSnapshot]: 'dean',
+    [REPORTS.demand]: 'development',
+    [REPORTS.emSnapshot]: 'development',
     [REPORTS.roomFit]: 'dean',
     [REPORTS.utilization]: 'dean',
-    [REPORTS.consolidation]: 'dean',
+    [REPORTS.consolidation]: 'development',
     [REPORTS.studentPresence]: 'divchair',
-    [REPORTS.facultyModality]: 'development',
+    [REPORTS.facultyModality]: 'dean',
     [REPORTS.instructionalMethodValidation]: 'admin',
     [REPORTS.primeTimeAnalysis]: 'development',
     [REPORTS.supplyDemand]: 'development',
@@ -87,7 +87,7 @@
     [REPORTS.archiveInspection]: 'Archived Schedule',
     [REPORTS.dataHub]: 'Source Data Hub',
     [REPORTS.conflictCheck]: 'Conflict Check Report',
-    [REPORTS.duration]: 'Active Class Demand',
+    [REPORTS.duration]: 'Course Duration Heatmap',
     [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
     [REPORTS.attrition]: 'Enrollment Attrition',
     [REPORTS.demand]: 'Enrollment Planning Forecast',
@@ -121,25 +121,23 @@
     REPORTS.modality,
     REPORTS.duration,
     REPORTS.dashboard,
-    REPORTS.demand,
-    REPORTS.emSnapshot,
     REPORTS.attrition,
-    REPORTS.consolidation,
     REPORTS.utilization,
     REPORTS.roomFit,
     REPORTS.conflictCheck,
     REPORTS.facultyHeatmap,
-    REPORTS.scheduleBuilder,
+    REPORTS.facultyModality,
+    REPORTS.demand,
+    REPORTS.emSnapshot,
+    REPORTS.consolidation,
     REPORTS.busyTimeDashboard,
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
     REPORTS.studentChoiceOpportunity,
     REPORTS.recommendationEngine,
     REPORTS.scheduleOptimizationLab,
-    REPORTS.facultyModality,
     REPORTS.instructionalMethodValidation,
     REPORTS.dataHub,
-    REPORTS.snapshotManager,
     REPORTS.ftesReconciliation,
     REPORTS.historicalInstitutionalModel,
     REPORTS.archiveInspection,
@@ -147,10 +145,18 @@
   ]);
   const REPORT_WORKFLOW_GROUPS = Object.freeze([
     {
+      key: 'public',
+      label: 'Public Reports',
+      accessLabel: 'No password required',
+      reports: Object.freeze([
+        REPORTS.instructorAvailability
+      ])
+    },
+    {
       key: 'division-chair',
       label: 'Division Chair / Administrative Assistant',
+      accessLabel: 'Division Chair Access',
       reports: Object.freeze([
-        REPORTS.instructorAvailability,
         REPORTS.heatmap,
         REPORTS.studentPresence,
         REPORTS.modality,
@@ -158,41 +164,42 @@
       ])
     },
     {
-      key: 'dean-enrollment',
-      label: 'Dean / Enrollment Management',
+      key: 'dean',
+      label: 'Dean',
+      accessLabel: 'Dean Access',
       reports: Object.freeze([
         REPORTS.dashboard,
-        REPORTS.demand,
-        REPORTS.emSnapshot,
         REPORTS.attrition,
-        REPORTS.consolidation,
         REPORTS.utilization,
         REPORTS.roomFit,
         REPORTS.conflictCheck,
         REPORTS.facultyHeatmap,
-        REPORTS.scheduleBuilder
+        REPORTS.facultyModality
       ])
     },
     {
-      key: 'development',
-      label: 'Developer',
+      key: 'enrollment-management',
+      label: 'Enrollment Management',
+      accessLabel: 'Enrollment Management Access',
       reports: Object.freeze([
+        REPORTS.demand,
+        REPORTS.emSnapshot,
+        REPORTS.consolidation,
         REPORTS.busyTimeDashboard,
         REPORTS.primeTimeAnalysis,
         REPORTS.supplyDemand,
         REPORTS.studentChoiceOpportunity,
         REPORTS.recommendationEngine,
-        REPORTS.scheduleOptimizationLab,
-        REPORTS.facultyModality
+        REPORTS.scheduleOptimizationLab
       ])
     },
     {
       key: 'admin',
       label: 'System Administrator',
+      accessLabel: 'System Administrator Access',
       reports: Object.freeze([
         REPORTS.instructionalMethodValidation,
         REPORTS.dataHub,
-        REPORTS.snapshotManager,
         REPORTS.ftesReconciliation,
         REPORTS.historicalInstitutionalModel,
         REPORTS.archiveInspection,
@@ -201,47 +208,60 @@
     }
   ]);
   const REPORT_GROUP_SUBTITLES = Object.freeze({
-    'division-chair': 'Daily scheduling, instructor planning, and department-level monitoring.',
-    'dean-enrollment': 'Strategic enrollment management, schedule planning, and room optimization.',
-    development: 'Planning algorithms, feature testing, and scheduling model development.',
-    admin: 'System administration, imports, auditing, and maintenance.'
+    public: 'General scheduling information available without a report password.',
+    'division-chair': 'Operational scheduling, course-pattern, modality, and student-presence tools.',
+    dean: 'Division oversight, enrollment monitoring, space planning, and faculty scheduling.',
+    'enrollment-management': 'Strategic enrollment planning, forecasting, schedule optimization, and demand analysis.',
+    admin: 'Data imports, validation, auditing, historical modeling, and administrative maintenance.'
   });
   const REPORT_GROUP_WORKFLOW_LABELS = Object.freeze({
-    'division-chair': 'Scheduling Reports',
-    'dean-enrollment': 'Enrollment & Resource Planning',
-    development: 'Development Lab',
-    admin: 'Administrative Utilities'
+    public: 'Public Reports',
+    'division-chair': 'Division Chair Access',
+    dean: 'Dean Access',
+    'enrollment-management': 'Enrollment Management Access',
+    admin: 'System Administrator Access'
+  });
+  const REPORT_SUBGROUPS = Object.freeze({
+    [REPORTS.demand]: 'Analytics',
+    [REPORTS.emSnapshot]: 'Analytics',
+    [REPORTS.consolidation]: 'Analytics',
+    [REPORTS.busyTimeDashboard]: 'Analytics',
+    [REPORTS.primeTimeAnalysis]: 'Analytics',
+    [REPORTS.supplyDemand]: 'Planning Tools',
+    [REPORTS.studentChoiceOpportunity]: 'Planning Tools',
+    [REPORTS.recommendationEngine]: 'Planning Tools',
+    [REPORTS.scheduleOptimizationLab]: 'Planning Tools'
   });
   const REPORT_DESCRIPTIONS = Object.freeze({
-    [REPORTS.archiveInspection]: 'Review archived section seating files, validation, and loaded-term diagnostics.',
-    [REPORTS.conflictCheck]: 'Find room and instructor conflicts in fixed-time schedule rows.',
-    [REPORTS.duration]: 'Analyze active class duration and student presence patterns across the week.',
+    [REPORTS.archiveInspection]: 'Review archived Section Seating files, validation results, and term-level diagnostics.',
+    [REPORTS.conflictCheck]: 'Find room and instructor conflicts in fixed-time schedule records.',
+    [REPORTS.duration]: 'Visualize course duration and active class patterns across the instructional week.',
     [REPORTS.dashboard]: 'Review enrollment health, registration pace, demand, attrition, and schedule signals.',
-    [REPORTS.attrition]: 'Compare census and end/final enrollment movement across completed historical terms.',
+    [REPORTS.attrition]: 'Compare census enrollment with end-of-term enrollment across completed terms.',
     [REPORTS.demand]: 'Forecast enrollment, FTES, schedule supply, demand, and planning gaps.',
-    [REPORTS.emSnapshot]: 'Review current enrollment and FTES by campus, modality, population, and attendance method with optional prior-term comparison.',
+    [REPORTS.emSnapshot]: 'Review current enrollment, confirmed FTES, estimated FTES, and historically predicted FTES.',
     [REPORTS.snapshotManager]: 'Report current enrollment and FTES from loaded Section Seating data with like-term comparison.',
-    [REPORTS.ftesReconciliation]: 'Compare TIMBER calculated FTES to an institutional Cube validation source by CRN, accounting method, and part of term.',
-    [REPORTS.historicalInstitutionalModel]: 'Import completed institutional FTES Cube results, audit historical yield models, and explain pending FTES estimates.',
-    [REPORTS.heatmap]: 'Show when classes begin by day and scheduled start time, with enrollment and capacity views.',
-    [REPORTS.instructorAvailability]: 'Check instructor teaching conflicts and shared availability windows.',
-    [REPORTS.modality]: 'Compare class offerings and enrollment by in-person, hybrid, online, and Dual Enrollment.',
-    [REPORTS.roomFit]: 'Flag room capacity fit issues and possible room mismatches.',
-    [REPORTS.utilization]: 'Assess room utilization categories, opportunity, and fragmentation.',
-    [REPORTS.consolidation]: 'Identify possible section consolidation and online reduction candidates.',
-    [REPORTS.studentPresence]: 'Estimate nominal and expected physical student presence by time, room, and campus.',
+    [REPORTS.ftesReconciliation]: 'Compare TIMBER-calculated FTES with authoritative institutional Cube results.',
+    [REPORTS.historicalInstitutionalModel]: 'Manage historical FTES results, yield models, backtesting, and pending FTES predictions.',
+    [REPORTS.heatmap]: 'Analyze when courses begin by day and scheduled start time.',
+    [REPORTS.instructorAvailability]: 'Review instructor teaching assignments and identify shared availability windows.',
+    [REPORTS.modality]: 'Compare class offerings and enrollment across in-person, hybrid, online, and dual-enrollment formats.',
+    [REPORTS.roomFit]: 'Identify room-capacity mismatches and possible room-placement issues.',
+    [REPORTS.utilization]: 'Assess room use, opportunity, fragmentation, and underutilized space.',
+    [REPORTS.consolidation]: 'Identify possible section consolidation and schedule-reduction opportunities.',
+    [REPORTS.studentPresence]: 'Estimate student presence by time, room, building, and campus.',
     [REPORTS.facultyModality]: 'Summarize full-time and part-time faculty class offerings by modality.',
-    [REPORTS.instructionalMethodValidation]: 'Review instructional method, faculty type, and meeting type mappings.',
-    [REPORTS.dataHub]: 'Upload, validate, archive, and inspect source datasets from one administrative workspace.',
-    [REPORTS.primeTimeAnalysis]: 'Analyze prime-time scheduling concentration against historical patterns.',
-    [REPORTS.supplyDemand]: 'Compare scheduled supply against demand during practical planning windows.',
-    [REPORTS.busyTimeDashboard]: 'Monitor busy-time signals across faculty, students, rooms, and demand.',
-    [REPORTS.studentChoiceOpportunity]: 'Evaluate schedule choice, hidden demand, oversupply, and opportunity gaps.',
-    [REPORTS.recommendationEngine]: 'Generate advisory scheduling recommendations and priority lists.',
-    [REPORTS.scheduleOptimizationLab]: 'Test room moves, time shifts, and placement options without changing source data.',
+    [REPORTS.instructionalMethodValidation]: 'Review source mappings, instructional methods, meeting types, and data-quality issues.',
+    [REPORTS.dataHub]: 'Upload, validate, archive, and inspect source datasets.',
+    [REPORTS.primeTimeAnalysis]: 'Analyze prime-time scheduling concentration and compare it with historical patterns.',
+    [REPORTS.supplyDemand]: 'Compare scheduled supply with student demand during practical planning windows.',
+    [REPORTS.busyTimeDashboard]: 'Monitor busy-time patterns across students, faculty, rooms, and demand.',
+    [REPORTS.studentChoiceOpportunity]: 'Identify hidden demand, oversupply, scheduling gaps, and student-choice opportunities.',
+    [REPORTS.recommendationEngine]: 'Generate advisory scheduling recommendations and prioritized planning actions.',
+    [REPORTS.scheduleOptimizationLab]: 'Test room moves, time shifts, and schedule-placement alternatives without changing source data.',
     [REPORTS.scheduleBuilder]: 'Build anonymous schedule options from selected courses and current term schedule data.',
     [REPORTS.facultyHeatmap]: 'Compare all, full-time, and part-time faculty schedule patterns.',
-    [REPORTS.workExperience]: 'Load supplemental Work Experience rows for enrollment and FTES reporting.'
+    [REPORTS.workExperience]: 'Load and review supplemental Work Experience enrollment and FTES records.'
   });
 
   return Object.freeze({
@@ -254,6 +274,7 @@
     REPORT_WORKFLOW_GROUPS,
     REPORT_GROUP_SUBTITLES,
     REPORT_GROUP_WORKFLOW_LABELS,
+    REPORT_SUBGROUPS,
     REPORT_DESCRIPTIONS
   });
 });

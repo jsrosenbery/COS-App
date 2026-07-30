@@ -52,11 +52,11 @@
     admin: 5
   };
   const ROLE_LABEL = reportConfig.ROLE_LABEL || {
-    general: 'General',
+    general: 'Public Reports',
     divchair: 'Division Chair / Administrative Assistant',
-    dean: 'Dean / Enrollment Management',
-    em: 'Dean / Enrollment Management',
-    development: 'Developer',
+    dean: 'Dean',
+    em: 'Enrollment Management',
+    development: 'Enrollment Management',
     admin: 'System Administrator'
   };
   const REPORT_ACCESS = reportConfig.REPORT_ACCESS || {
@@ -69,17 +69,17 @@
     [REPORTS.dashboard]: 'dean',
     [REPORTS.duration]: 'divchair',
     [REPORTS.heatmap]: 'divchair',
-    [REPORTS.instructorAvailability]: 'divchair',
+    [REPORTS.instructorAvailability]: 'general',
     [REPORTS.modality]: 'divchair',
     [REPORTS.conflictCheck]: 'dean',
     [REPORTS.attrition]: 'dean',
-    [REPORTS.demand]: 'dean',
-    [REPORTS.emSnapshot]: 'dean',
+    [REPORTS.demand]: 'development',
+    [REPORTS.emSnapshot]: 'development',
     [REPORTS.roomFit]: 'dean',
     [REPORTS.utilization]: 'dean',
-    [REPORTS.consolidation]: 'dean',
+    [REPORTS.consolidation]: 'development',
     [REPORTS.studentPresence]: 'divchair',
-    [REPORTS.facultyModality]: 'development',
+    [REPORTS.facultyModality]: 'dean',
     [REPORTS.instructionalMethodValidation]: 'admin',
     [REPORTS.primeTimeAnalysis]: 'development',
     [REPORTS.supplyDemand]: 'development',
@@ -122,7 +122,7 @@
     [REPORTS.archiveInspection]: 'Archived Schedule',
     [REPORTS.dataHub]: 'Source Data Hub',
     [REPORTS.conflictCheck]: 'Conflict Check Report',
-    [REPORTS.duration]: 'Active Class Demand',
+    [REPORTS.duration]: 'Course Duration Heatmap',
     [REPORTS.dashboard]: 'Enrollment Analytics Dashboard',
     [REPORTS.attrition]: 'Enrollment Attrition',
     [REPORTS.demand]: 'Enrollment Planning Forecast',
@@ -156,25 +156,23 @@
     REPORTS.modality,
     REPORTS.duration,
     REPORTS.dashboard,
-    REPORTS.demand,
-    REPORTS.emSnapshot,
     REPORTS.attrition,
-    REPORTS.consolidation,
     REPORTS.utilization,
     REPORTS.roomFit,
     REPORTS.conflictCheck,
     REPORTS.facultyHeatmap,
-    REPORTS.scheduleBuilder,
+    REPORTS.facultyModality,
+    REPORTS.demand,
+    REPORTS.emSnapshot,
+    REPORTS.consolidation,
     REPORTS.busyTimeDashboard,
     REPORTS.primeTimeAnalysis,
     REPORTS.supplyDemand,
     REPORTS.studentChoiceOpportunity,
     REPORTS.recommendationEngine,
     REPORTS.scheduleOptimizationLab,
-    REPORTS.facultyModality,
     REPORTS.instructionalMethodValidation,
     REPORTS.dataHub,
-    REPORTS.snapshotManager,
     REPORTS.ftesReconciliation,
     REPORTS.historicalInstitutionalModel,
     REPORTS.archiveInspection,
@@ -182,10 +180,18 @@
   ];
   const REPORT_WORKFLOW_GROUPS = reportConfig.REPORT_WORKFLOW_GROUPS || [
     {
+      key: 'public',
+      label: 'Public Reports',
+      accessLabel: 'No password required',
+      reports: [
+        REPORTS.instructorAvailability
+      ]
+    },
+    {
       key: 'division-chair',
       label: 'Division Chair / Administrative Assistant',
+      accessLabel: 'Division Chair Access',
       reports: [
-        REPORTS.instructorAvailability,
         REPORTS.heatmap,
         REPORTS.studentPresence,
         REPORTS.modality,
@@ -193,41 +199,42 @@
       ]
     },
     {
-      key: 'dean-enrollment',
-      label: 'Dean / Enrollment Management',
+      key: 'dean',
+      label: 'Dean',
+      accessLabel: 'Dean Access',
       reports: [
         REPORTS.dashboard,
-        REPORTS.demand,
-        REPORTS.emSnapshot,
         REPORTS.attrition,
-        REPORTS.consolidation,
         REPORTS.utilization,
         REPORTS.roomFit,
         REPORTS.conflictCheck,
         REPORTS.facultyHeatmap,
-        REPORTS.scheduleBuilder
+        REPORTS.facultyModality
       ]
     },
     {
-      key: 'development',
-      label: 'Developer',
+      key: 'enrollment-management',
+      label: 'Enrollment Management',
+      accessLabel: 'Enrollment Management Access',
       reports: [
+        REPORTS.demand,
+        REPORTS.emSnapshot,
+        REPORTS.consolidation,
         REPORTS.busyTimeDashboard,
         REPORTS.primeTimeAnalysis,
         REPORTS.supplyDemand,
         REPORTS.studentChoiceOpportunity,
         REPORTS.recommendationEngine,
-        REPORTS.scheduleOptimizationLab,
-        REPORTS.facultyModality
+        REPORTS.scheduleOptimizationLab
       ]
     },
     {
       key: 'admin',
       label: 'System Administrator',
+      accessLabel: 'System Administrator Access',
       reports: [
         REPORTS.instructionalMethodValidation,
         REPORTS.dataHub,
-        REPORTS.snapshotManager,
         REPORTS.ftesReconciliation,
         REPORTS.historicalInstitutionalModel,
         REPORTS.archiveInspection,
@@ -236,47 +243,60 @@
     }
   ];
   const REPORT_GROUP_SUBTITLES = reportConfig.REPORT_GROUP_SUBTITLES || {
-    'division-chair': 'Daily scheduling, instructor planning, and department-level monitoring.',
-    'dean-enrollment': 'Strategic enrollment management, schedule planning, and room optimization.',
-    development: 'Planning algorithms, feature testing, and scheduling model development.',
-    admin: 'System administration, imports, auditing, and maintenance.'
+    public: 'General scheduling information available without a report password.',
+    'division-chair': 'Operational scheduling, course-pattern, modality, and student-presence tools.',
+    dean: 'Division oversight, enrollment monitoring, space planning, and faculty scheduling.',
+    'enrollment-management': 'Strategic enrollment planning, forecasting, schedule optimization, and demand analysis.',
+    admin: 'Data imports, validation, auditing, historical modeling, and administrative maintenance.'
   };
   const REPORT_GROUP_WORKFLOW_LABELS = reportConfig.REPORT_GROUP_WORKFLOW_LABELS || {
-    'division-chair': 'Scheduling Reports',
-    'dean-enrollment': 'Enrollment & Resource Planning',
-    development: 'Development Lab',
-    admin: 'Administrative Utilities'
+    public: 'Public Reports',
+    'division-chair': 'Division Chair Access',
+    dean: 'Dean Access',
+    'enrollment-management': 'Enrollment Management Access',
+    admin: 'System Administrator Access'
+  };
+  const REPORT_SUBGROUPS = reportConfig.REPORT_SUBGROUPS || {
+    [REPORTS.demand]: 'Analytics',
+    [REPORTS.emSnapshot]: 'Analytics',
+    [REPORTS.consolidation]: 'Analytics',
+    [REPORTS.busyTimeDashboard]: 'Analytics',
+    [REPORTS.primeTimeAnalysis]: 'Analytics',
+    [REPORTS.supplyDemand]: 'Planning Tools',
+    [REPORTS.studentChoiceOpportunity]: 'Planning Tools',
+    [REPORTS.recommendationEngine]: 'Planning Tools',
+    [REPORTS.scheduleOptimizationLab]: 'Planning Tools'
   };
   const REPORT_DESCRIPTIONS = reportConfig.REPORT_DESCRIPTIONS || {
-    [REPORTS.archiveInspection]: 'Review archived section seating files, validation, and loaded-term diagnostics.',
-    [REPORTS.conflictCheck]: 'Find room and instructor conflicts in fixed-time schedule rows.',
-    [REPORTS.duration]: 'Analyze active class duration and student presence patterns across the week.',
+    [REPORTS.archiveInspection]: 'Review archived Section Seating files, validation results, and term-level diagnostics.',
+    [REPORTS.conflictCheck]: 'Find room and instructor conflicts in fixed-time schedule records.',
+    [REPORTS.duration]: 'Visualize course duration and active class patterns across the instructional week.',
     [REPORTS.dashboard]: 'Review enrollment health, registration pace, demand, attrition, and schedule signals.',
-    [REPORTS.attrition]: 'Compare census and end/final enrollment movement across completed historical terms.',
+    [REPORTS.attrition]: 'Compare census enrollment with end-of-term enrollment across completed terms.',
     [REPORTS.demand]: 'Forecast enrollment, FTES, schedule supply, demand, and planning gaps.',
-    [REPORTS.emSnapshot]: 'Review current enrollment and FTES by campus, modality, population, and attendance method with optional prior-term comparison.',
+    [REPORTS.emSnapshot]: 'Review current enrollment, confirmed FTES, estimated FTES, and historically predicted FTES.',
     [REPORTS.snapshotManager]: 'Report current enrollment and FTES from loaded Section Seating data with like-term comparison.',
-    [REPORTS.ftesReconciliation]: 'Compare TIMBER calculated FTES to an institutional Cube validation source by CRN, accounting method, and part of term.',
-    [REPORTS.historicalInstitutionalModel]: 'Import completed institutional FTES Cube results, audit historical yield models, and explain pending FTES estimates.',
-    [REPORTS.heatmap]: 'Show when classes begin by day and scheduled start time, with enrollment and capacity views.',
-    [REPORTS.instructorAvailability]: 'Check instructor teaching conflicts and shared availability windows.',
-    [REPORTS.modality]: 'Compare class offerings and enrollment by in-person, hybrid, online, and Dual Enrollment.',
-    [REPORTS.roomFit]: 'Flag room capacity fit issues and possible room mismatches.',
-    [REPORTS.utilization]: 'Assess room utilization categories, opportunity, and fragmentation.',
-    [REPORTS.consolidation]: 'Identify possible section consolidation and online reduction candidates.',
-    [REPORTS.studentPresence]: 'Estimate nominal and expected physical student presence by time, room, and campus.',
+    [REPORTS.ftesReconciliation]: 'Compare TIMBER-calculated FTES with authoritative institutional Cube results.',
+    [REPORTS.historicalInstitutionalModel]: 'Manage historical FTES results, yield models, backtesting, and pending FTES predictions.',
+    [REPORTS.heatmap]: 'Analyze when courses begin by day and scheduled start time.',
+    [REPORTS.instructorAvailability]: 'Review instructor teaching assignments and identify shared availability windows.',
+    [REPORTS.modality]: 'Compare class offerings and enrollment across in-person, hybrid, online, and dual-enrollment formats.',
+    [REPORTS.roomFit]: 'Identify room-capacity mismatches and possible room-placement issues.',
+    [REPORTS.utilization]: 'Assess room use, opportunity, fragmentation, and underutilized space.',
+    [REPORTS.consolidation]: 'Identify possible section consolidation and schedule-reduction opportunities.',
+    [REPORTS.studentPresence]: 'Estimate student presence by time, room, building, and campus.',
     [REPORTS.facultyModality]: 'Summarize full-time and part-time faculty class offerings by modality.',
-    [REPORTS.instructionalMethodValidation]: 'Review instructional method, faculty type, and meeting type mappings.',
-    [REPORTS.dataHub]: 'Upload, validate, archive, and inspect source datasets from one administrative workspace.',
-    [REPORTS.primeTimeAnalysis]: 'Analyze prime-time scheduling concentration against historical patterns.',
-    [REPORTS.supplyDemand]: 'Compare scheduled supply against demand during practical planning windows.',
-    [REPORTS.busyTimeDashboard]: 'Monitor busy-time signals across faculty, students, rooms, and demand.',
-    [REPORTS.studentChoiceOpportunity]: 'Evaluate schedule choice, hidden demand, oversupply, and opportunity gaps.',
-    [REPORTS.recommendationEngine]: 'Generate advisory scheduling recommendations and priority lists.',
-    [REPORTS.scheduleOptimizationLab]: 'Test room moves, time shifts, and placement options without changing source data.',
+    [REPORTS.instructionalMethodValidation]: 'Review source mappings, instructional methods, meeting types, and data-quality issues.',
+    [REPORTS.dataHub]: 'Upload, validate, archive, and inspect source datasets.',
+    [REPORTS.primeTimeAnalysis]: 'Analyze prime-time scheduling concentration and compare it with historical patterns.',
+    [REPORTS.supplyDemand]: 'Compare scheduled supply with student demand during practical planning windows.',
+    [REPORTS.busyTimeDashboard]: 'Monitor busy-time patterns across students, faculty, rooms, and demand.',
+    [REPORTS.studentChoiceOpportunity]: 'Identify hidden demand, oversupply, scheduling gaps, and student-choice opportunities.',
+    [REPORTS.recommendationEngine]: 'Generate advisory scheduling recommendations and prioritized planning actions.',
+    [REPORTS.scheduleOptimizationLab]: 'Test room moves, time shifts, and schedule-placement alternatives without changing source data.',
     [REPORTS.scheduleBuilder]: 'Build anonymous schedule options from selected courses and current term schedule data.',
     [REPORTS.facultyHeatmap]: 'Compare all, full-time, and part-time faculty schedule patterns.',
-    [REPORTS.workExperience]: 'Load supplemental Work Experience rows for enrollment and FTES reporting.'
+    [REPORTS.workExperience]: 'Load and review supplemental Work Experience enrollment and FTES records.'
   };
   const SNAPSHOT_STORAGE_KEY = 'cos-enrollment-snapshots';
   const ROLE_STORAGE_KEY = 'cos-access-role';
@@ -2098,33 +2118,54 @@
   }
 
   function lockedReportLabel(report) {
-    return canAccess(report) ? REPORT_LABEL[report] || report : 'Locked report ••••••••';
+    return REPORT_LABEL[report] || report;
+  }
+
+  function reportAccessStatus(report) {
+    if ((REPORT_ACCESS[report] || 'general') === 'general') return 'Available - no password required';
+    return canAccess(report) ? 'Unlocked' : `Locked - requires ${ROLE_LABEL[REPORT_ACCESS[report] || 'general']} access or higher`;
+  }
+
+  function reportButtonHtml(report, groupKey = '', purpose = '') {
+    return `
+            <button type="button" class="em-report-button" data-report-target="${report}" data-report-group="${groupKey}" data-required-role="${REPORT_ACCESS[report] || 'general'}" aria-describedby="desc-${report}">
+              <span class="em-report-button-chevron" aria-hidden="true">â€º</span>
+              <span class="em-report-button-label">${escapeAttr(REPORT_LABEL[report] || report)}</span>
+              <small id="desc-${report}">${escapeAttr(REPORT_DESCRIPTIONS[report] || purpose)}</small>
+              <span class="em-report-button-status">${escapeAttr(reportAccessStatus(report))}</span>
+            </button>
+          `;
+  }
+
+  function reportButtonListHtml(reports = [], groupKey = '', purpose = '') {
+    return reports.length
+      ? reports.map(report => reportButtonHtml(report, groupKey, purpose)).join('')
+      : '<p class="em-report-empty">No reports assigned.</p>';
   }
 
   function reportGroupsHtml() {
     return REPORT_WORKFLOW_GROUPS.map(group => {
       const reports = group.reports.filter(report => REPORT_ORDER.includes(report));
       const purpose = reportSubtitleForGroup(group.key);
-      const buttons = reports.length
-        ? reports.map(report => `
-            <button type="button" class="em-report-button" data-report-target="${report}" data-report-group="${group.key}" data-required-role="${REPORT_ACCESS[report] || 'general'}">
-              <span class="em-report-button-chevron" aria-hidden="true">›</span>
-              <span class="em-report-button-label">${escapeAttr(lockedReportLabel(report))}</span>
-              <small>${escapeAttr(REPORT_DESCRIPTIONS[report] || purpose)}</small>
-            </button>
+      const subgroupLabels = [...new Set(reports.map(report => REPORT_SUBGROUPS[report]).filter(Boolean))];
+      const buttons = subgroupLabels.length
+        ? subgroupLabels.map(subgroup => `
+            <div class="em-report-subgroup">
+              <h4>${escapeAttr(subgroup)}</h4>
+              <div class="em-report-button-list">${reportButtonListHtml(reports.filter(report => REPORT_SUBGROUPS[report] === subgroup), group.key, purpose)}</div>
+            </div>
           `).join('')
-        : '<p class="em-report-empty">No reports assigned.</p>';
+        : `<div class="em-report-button-list">${reportButtonListHtml(reports, group.key, purpose)}</div>`;
       return `
         <section class="em-report-group" data-report-role="${group.key}">
-          <span class="em-report-group-kicker">${escapeAttr(REPORT_GROUP_WORKFLOW_LABELS[group.key] || 'Reports')}</span>
+          <span class="em-report-group-kicker">${escapeAttr(group.accessLabel || REPORT_GROUP_WORKFLOW_LABELS[group.key] || 'Reports')}</span>
           <h3>${escapeAttr(group.label)}</h3>
           <p class="em-report-group-purpose">${escapeAttr(purpose)}</p>
-          <div class="em-report-button-list">${buttons}</div>
+          ${buttons}
         </section>
       `;
     }).join('');
   }
-
   function reportSubtitleForGroup(groupKey) {
     return REPORT_GROUP_SUBTITLES[groupKey] || '';
   }
@@ -2143,14 +2184,14 @@
     anchor.insertAdjacentHTML(position, `
       <section id="analyticsReports" class="analytics-reports" style="display:none">
         <div id="emAccessPanel" class="em-access-panel">
-          <div class="em-access-status">
+          <div class="em-access-status" role="status" aria-live="polite">
             <span>Logged in as</span>
-            <strong id="currentAccessLevel">General</strong>
+            <strong id="currentAccessLevel">Public Reports</strong>
             <small id="currentAccessExpiration">No active unlock session</small>
           </div>
           <button id="unlockEnrollmentManagement" type="button" class="em-unlock">Unlock Reports</button>
           <button id="lockEnrollmentReports" type="button" class="em-unlock">Lock Reports</button>
-          <span class="em-access-note">Reports unlock progressively by role for this browser session.</span>
+          <span class="em-access-note">Public Reports are available immediately. Protected groups unlock progressively by role for this browser session.</span>
           <form id="emPasswordPanel" class="em-password-panel" hidden>
             <label><span id="emPasswordLabelText">Report Password</span>
               <span class="password-input-wrap">
@@ -2196,7 +2237,7 @@
                   <li>Part-Time Faculty terminology is used for part-time instructional staffing references.</li>
                   <li>Student Presence Analytics excludes online rows and summarizes in-person/hybrid sections by campus, day, and hour.</li>
                   <li>Dashboard exports include the selected term, division, campus, modality, data source, and methodology version when methodology export is enabled.</li>
-                  <li>Role access: Division Chair / Administrative Assistant supports daily scheduling, instructor planning, and department monitoring; Dean / Enrollment Management supports strategic enrollment planning and room optimization; Developer supports planning algorithms and model development; System Administrator supports imports, auditing, archives, and maintenance.</li>
+                  <li>Role access: Public Reports are available without a password; Division Chair / Administrative Assistant supports operational scheduling and student-presence tools; Dean supports oversight, enrollment monitoring, space planning, and faculty scheduling; Enrollment Management supports forecasting, optimization, and demand analysis; System Administrator supports imports, auditing, historical modeling, and maintenance.</li>
                 </ul>
               </div>
             </div>
@@ -2435,7 +2476,7 @@
         <div id="historicalInstitutionalModelReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Historical Institutional Model</h2>
-            <p>Admin and Developer model explorer for completed institutional Cube results, historical FTES yield, backtesting, data coverage, and pending FTES estimate explanations. Historical estimates remain separate from production FTES calculations.</p>
+            <p>System Administrator and Enrollment Management model explorer for completed institutional Cube results, historical FTES yield, backtesting, data coverage, and pending FTES estimate explanations. Historical estimates remain separate from production FTES calculations.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>Model Scope</h3>
@@ -2482,7 +2523,7 @@
                 <h3>How to Use This Hub</h3>
                 <ul>
                   <li>Use Section Seating / Schedule Data for enrollment, section, room, modality, schedule builder, Room Availability, and planning reports.</li>
-                  <li>Use Faculty Schedule Data only for faculty-pattern reports, instructor/faculty planning views, and Development reports that explicitly consume faculty assignment/status data.</li>
+                  <li>Use Faculty Schedule Data only for faculty-pattern reports, instructor/faculty planning views, and Enrollment Management reports that explicitly consume faculty assignment/status data.</li>
                   <li>Use Work Experience Enrollment as a supplemental enrollment/FTES source. It is kept separate from regular section seating rows.</li>
                   <li>Room Catalog, Room Events, CAL-GETC, modality definitions, and curriculum crosswalk controls are grouped in this hub while remaining separate administrative datasets.</li>
                 </ul>
@@ -2761,7 +2802,7 @@
         <div id="facultyHeatmapReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Faculty Schedule Heatmap</h2>
-            <p>Uses Faculty Schedule Data to show when faculty instructional activity is concentrated by half-hour interval. Faculty Schedule Data is a separate optional dataset from Section Seating / Schedule Data and is used only for faculty-pattern and Developer reports.</p>
+            <p>Uses Faculty Schedule Data to show when faculty instructional activity is concentrated by half-hour interval. Faculty Schedule Data is a separate optional dataset from Section Seating / Schedule Data and is used only for faculty-pattern and Enrollment Management reports.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -6759,7 +6800,7 @@
     const maxDuration = Math.max(1, ...durationRows.map(row => row.courses || 0));
     const durationBars = durationRows.map(row => {
       const tooltip = analyticsTooltip([
-        ['Metric', 'Active Class Demand'],
+        ['Metric', 'Course Duration Heatmap'],
         ['Time', row.duration],
         ['Sections', row.courses || 0],
         ['Enrollment', row.enrollment || 0],
@@ -6783,7 +6824,7 @@
     }).join('');
     node.innerHTML = `
       <section data-collapsible-title="Student Presence Peaks" data-collapsible-id="busy-time-student-presence-peaks"><h3>Student Presence Peaks</h3>${presenceBars || '<p class="analytics-empty">No student presence buckets.</p>'}</section>
-      <section data-collapsible-title="Active Class Demand Mix" data-collapsible-id="busy-time-course-duration-mix"><h3>Active Class Demand Mix</h3>${durationBars || '<p class="analytics-empty">No fixed-duration courses.</p>'}</section>
+      <section data-collapsible-title="Course Duration Heatmap Mix" data-collapsible-id="busy-time-course-duration-mix"><h3>Course Duration Heatmap Mix</h3>${durationBars || '<p class="analytics-empty">No fixed-duration courses.</p>'}</section>
       <section data-collapsible-title="Faculty Concentration Peaks" data-collapsible-id="busy-time-faculty-concentration-peaks"><h3>Faculty Concentration Peaks</h3>${facultyBars || '<p class="analytics-empty">No faculty rows loaded.</p>'}</section>
     `;
     refreshGeneratedCollapsibleSections(node);
@@ -6869,7 +6910,7 @@
       title: 'Busy Time Dashboard Methodology & Data Dictionary',
       purpose: 'Summarizes busy-time patterns by combining student presence, course duration, faculty concentration, supply/demand, prime time, and room utilization signals.',
       metricsUsed: ['Historical Aggregation Mode', 'Student Presence', 'Scheduled Class Offerings, Unique CRNs', 'Instructional Meetings', 'Seats Offered', 'Enrollment Present', 'Fill Rate', 'Waitlist Pressure', 'Empty Seats', 'Choice Diversity Index', 'Faculty Count', 'Prime-Time Concentration'],
-      calculationRules: 'Student Presence and Supply vs. Demand use 30-minute intervals from fixed meeting rows. Active Class Demand groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by 30-minute interval. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Historical Aggregation defaults to Average per Selected Term for planning comparisons.',
+      calculationRules: 'Student Presence and Supply vs. Demand use 30-minute intervals from fixed meeting rows. Course Duration Heatmap groups fixed meetings by length. Faculty Concentration uses Faculty Schedule rows by 30-minute interval. Prime Time Score is the share of student presence occurring Monday-Thursday from 9:00 AM-3:00 PM. Demand Pressure = (enrollment + waitlist) / seats. Historical Aggregation defaults to Average per Selected Term for planning comparisons.',
       assumptions: 'Dashboard observations are descriptive summaries only. They are intended to show alignment or contrast among supply, demand, faculty concentration, student concentration, and room utilization.',
       limitations: 'This dashboard does not make scheduling recommendations and does not include every operational constraint, such as budget, program sequencing, instructor availability, or room setup requirements.',
       items: [
@@ -15108,7 +15149,7 @@
         ['Frequency Unknown', 'Rows without usable meeting count, weeks, or date fields default to 1.00 and are flagged so the row remains visible instead of being silently adjusted.'],
         ['Scheduled Class Offerings', 'Unique CRNs after filters are applied.'],
         ['Instructional Meetings', 'Distinct CRN/day/start/end/component blocks. The same CRN may count more than once when it has distinct lecture, lab, activity, day, or time records.'],
-        ['Active Class Demand', 'Active distinct CRN/day/start/end blocks across overlapping half-hour intervals.'],
+        ['Course Duration Heatmap', 'Active distinct CRN/day/start/end blocks across overlapping half-hour intervals.'],
         ['Sections Active', 'Distinct instructional meeting blocks active in the selected 30-minute interval.'],
         ['Distinct CRNs Included', 'Overall count of unique CRNs included after filters and physical-presence exclusions.'],
         ['Meeting Rows Included', 'Raw included meeting rows after filters. This can be higher than distinct CRNs when a section has multiple meeting rows.'],
@@ -19881,7 +19922,7 @@
       <section class="demand-report-section demand-ftes-bridge" data-collapsible-title="Fall-to-Fall FTES Bridge" data-collapsible-id="demand-fall-ftes-bridge" data-collapsible-default-open="false">
         <h3>Fall-to-Fall FTES Bridge</h3>
         <button id="exportFallFtesBridge" type="button">Export Bridge CSV</button>
-        <p class="analytics-chart-note">Developer/System Administrator diagnostic only. It summarizes existing normalized FTES values and does not change production FTES formulas. Attendance Accounting Method E means Open Entry/Open Exit Positive Attendance. Part of Term E means Excluding Holidays.</p>
+        <p class="analytics-chart-note">Enrollment Management/System Administrator diagnostic only. It summarizes existing normalized FTES values and does not change production FTES formulas. Attendance Accounting Method E means Open Entry/Open Exit Positive Attendance. Part of Term E means Excluding Holidays.</p>
         <p class="analytics-chart-note">Sequential bridge order: ${escapeAttr(d.order || '')}</p>
         <p class="analytics-chart-note">Fall 2025 institutional benchmark: ${formatDecimal(benchmark.actualFtes || 0, 2)} actual vs ${formatDecimal(benchmark.expectedFtes || 0, 2)} expected; status ${escapeAttr(benchmark.status || 'N/A')}.</p>
         ${analyticsTableMarkup(summaryRows, ['metric', 'value'])}
@@ -19968,7 +20009,7 @@
       <section class="demand-report-section demand-formula-audit" data-collapsible-title="Attendance Accounting Formula Audit" data-collapsible-id="demand-attendance-formula-audit" data-collapsible-default-open="false">
         <h3>Attendance Accounting Formula Audit</h3>
         <button id="exportAttendanceFormulaAudit" type="button">Export Formula Audit CSV</button>
-        <p class="analytics-chart-note">Developer/System Administrator diagnostic only. This audits current TIMBER FTES outputs against documented implementation logic and available transition inputs. It does not change production FTES formulas or apply calibration multipliers.</p>
+        <p class="analytics-chart-note">Enrollment Management/System Administrator diagnostic only. This audits current TIMBER FTES outputs against documented implementation logic and available transition inputs. It does not change production FTES formulas or apply calibration multipliers.</p>
         <p class="analytics-chart-note">Rule source used by this audit: TIMBER <code>estimatedFtes()</code> and the Enrollment Planning Forecast methodology text in this file. No separate AY 2026-27 standardized-attendance production rule module was found in the repository.</p>
         <p class="analytics-chart-note">Fall 2025 benchmark: ${formatDecimal(benchmark.actualFtes || 0, 5)} actual vs ${formatDecimal(benchmark.expectedFtes || 0, 5)} expected; status ${escapeAttr(benchmark.status || 'N/A')}.</p>
         ${analyticsTableMarkup(summary.ftesSummary || [], ['category', 'ftes'])}
@@ -20015,7 +20056,7 @@
       <section class="demand-report-section demand-pending-ftes-analysis" data-collapsible-title="Historical Pending FTES Analysis" data-collapsible-id="demand-historical-pending-ftes-analysis" data-collapsible-default-open="false">
         <h3>Historical Pending FTES Analysis</h3>
         <button id="exportHistoricalPendingFtesAnalysis" type="button">Export Historical Pending FTES Analysis CSV</button>
-        <p class="analytics-chart-note">Developer/System Administrator diagnostic only. This estimates whether prior completed terms can defensibly predict final FTES for P, Attendance Method E, Work Experience, and other actual-hours pending populations. It does not change Projected Total FTES or any production attendance formula.</p>
+        <p class="analytics-chart-note">Enrollment Management/System Administrator diagnostic only. This estimates whether prior completed terms can defensibly predict final FTES for P, Attendance Method E, Work Experience, and other actual-hours pending populations. It does not change Projected Total FTES or any production attendance formula.</p>
         <p class="analytics-chart-note">Attendance Method E is Open Entry/Open Exit Positive Attendance and remains separate from Part of Term E, which means Excluding Holidays. Current/incomplete target-term rows are excluded from historical actuals.</p>
         <p class="analytics-chart-note">${escapeAttr(summary.note || '')}</p>
         ${(analysis.simulationRows || []).length ? '' : '<p class="analytics-chart-note">No diagnostic estimate rows were produced. This usually means the selected term has no P, Attendance Method E, or Work Experience rows currently marked actual-hours pending, or the loaded source data does not contain those populations.</p>'}
@@ -22880,7 +22921,8 @@
   function normalizeRole(role) {
     const key = String(role || '').toLowerCase().replace(/[^a-z]/g, '');
     if (key === 'divisionchair' || key === 'divchair' || key === 'administrativeassistant') return 'divchair';
-    if (key === 'deanenrollmentmanagement' || key === 'enrollmentmanagement') return 'dean';
+    if (key === 'deanenrollmentmanagement') return 'dean';
+    if (key === 'enrollmentmanagement') return 'development';
     if (key === 'developer') return 'development';
     if (key === 'systemadministrator' || key === 'systemadmin' || key === 'sysadmin') return 'admin';
     return ROLE_LEVEL[key] ? key : 'general';
@@ -22948,10 +22990,12 @@
     const input = document.getElementById('emPasswordInput');
     const label = document.getElementById('emPasswordLabelText');
     const hint = document.getElementById('emRequiredAccessHint');
-    if (label) label.textContent = `${ROLE_LABEL[state.pendingAccessRole]} Password`;
+    if (label) label.textContent = state.pendingAccessRole === 'general' && !reportName ? 'Report Password' : `${ROLE_LABEL[state.pendingAccessRole]} Password`;
     if (hint) {
       const reportLabel = reportName && canAccess(reportName) ? REPORT_LABEL[reportName] || reportName : 'the selected locked report';
-      hint.textContent = `Unlock ${reportLabel}. Requires ${ROLE_LABEL[state.pendingAccessRole]} or higher; higher roles inherit lower permissions.`;
+      hint.textContent = state.pendingAccessRole === 'general' && !reportName
+        ? 'Enter any configured report password. Higher roles inherit lower permissions.'
+        : `Unlock ${reportLabel}. Requires ${ROLE_LABEL[state.pendingAccessRole]} or higher; higher roles inherit lower permissions.`;
     }
     if (panel) panel.hidden = false;
     input?.focus();
@@ -23031,7 +23075,7 @@
       const locked = !canAccess(report);
       option.dataset.requiredRole = requiredRole;
       option.dataset.locked = locked ? 'true' : 'false';
-      option.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
+      option.textContent = REPORT_LABEL[report] || report;
     });
     document.querySelectorAll('.em-report-button[data-report-target]').forEach(button => {
       const report = button.dataset.reportTarget || '';
@@ -23041,12 +23085,13 @@
       button.setAttribute('aria-current', report === selected ? 'page' : 'false');
       button.setAttribute('aria-disabled', locked ? 'true' : 'false');
       const label = button.querySelector('.em-report-button-label');
-      if (label) label.textContent = locked ? 'Locked report ••••••••' : (REPORT_LABEL[report] || report);
+      if (label) label.textContent = REPORT_LABEL[report] || report;
       const note = button.querySelector('small');
       if (note) note.textContent = REPORT_DESCRIPTIONS[report] || reportSubtitleForGroup(button.dataset.reportGroup) || reportSubtitleForReport(report);
+      const status = button.querySelector('.em-report-button-status');
+      if (status) status.textContent = reportAccessStatus(report);
     });
   }
-
   function renderLockedReportPanel(reportName) {
     const panel = document.getElementById('lockedReportPanel');
     if (!panel) return;
@@ -23331,20 +23376,24 @@
       .em-workbench-note{flex-basis:100%;color:#6b7d91;font-size:12px;line-height:1.35}
       .em-report-controls select{min-height:36px;border:1px solid #ccd6e2;border-radius:8px;padding:6px 10px;background:#fff;color:#123367;font-weight:700}
       .sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-      .em-report-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:14px;flex-basis:100%}
+      .em-report-groups{display:grid;grid-template-columns:repeat(5,minmax(210px,1fr));gap:14px;flex-basis:100%}
       .em-report-group{min-width:0;border:1px solid #d8e1ec;border-radius:12px;background:linear-gradient(180deg,#fbfdff,#f5f9fd);padding:13px;box-shadow:0 8px 18px rgba(16,32,51,.04)}
       .em-report-group-kicker{display:inline-flex;margin-bottom:6px;padding:3px 8px;border:1px solid #cfe0ee;border-radius:999px;background:#fff;color:#51657c;font-size:10px;font-weight:900;letter-spacing:.05em;text-transform:uppercase}
       .em-report-group h3{margin:0 0 4px;color:#123367;font-size:16px;line-height:1.2}
       .em-report-group-purpose{margin:0 0 10px;color:#51657c;font-size:12px;line-height:1.35}
+      .em-report-subgroup{display:grid;gap:8px;margin-top:10px}
+      .em-report-subgroup h4{margin:0;color:#123367;font-size:12px;font-weight:900;line-height:1.2;text-transform:uppercase;letter-spacing:.04em}
       .em-report-button-list{display:grid;gap:8px}
-      .em-report-button{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:8px;row-gap:2px;align-items:start;width:100%;min-height:54px;border:1px solid #c7d5e4;border-radius:9px;background:#fff;color:#123367;text-align:left;padding:9px 10px;cursor:pointer;box-shadow:none;transition:border-color .16s ease,background .16s ease,box-shadow .16s ease,transform .16s ease}
-      .em-report-button-chevron{grid-row:1/3;color:#1f7aa8;font-size:20px;font-weight:900;line-height:1}
+      .em-report-button{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto auto;column-gap:8px;row-gap:2px;align-items:start;width:100%;min-height:68px;border:1px solid #c7d5e4;border-radius:9px;background:#fff;color:#123367;text-align:left;padding:9px 10px;cursor:pointer;box-shadow:none;transition:border-color .16s ease,background .16s ease,box-shadow .16s ease,transform .16s ease}
+      .em-report-button-chevron{grid-row:1/4;color:#1f7aa8;font-size:20px;font-weight:900;line-height:1}
       .em-report-button-label{font-weight:900;line-height:1.2}
       .em-report-button small{grid-column:2;color:#51657c;font-size:11px;line-height:1.25}
+      .em-report-button-status{grid-column:2;color:#365169;font-size:10px;font-weight:900;line-height:1.25;text-transform:uppercase}
       .em-report-button:hover{border-color:#8ba6c2;background:#fafdff;transform:translateY(-1px);box-shadow:0 8px 18px rgba(16,32,51,.08)}
       .em-report-button.is-active{border-color:#1f7aa8;background:#e8f7fc;box-shadow:inset 4px 0 0 #1f7aa8}
       .em-report-button.is-locked{background:#f4f6f8;color:#6b7d91;border-style:dashed;opacity:.78}
       .em-report-button.is-locked small{color:#8a5660}
+      .em-report-button.is-locked .em-report-button-status{color:#8a5660}
       .em-report-empty{margin:0;color:#6b7d91;font-size:12px}
       .analytics-report-intro{margin-bottom:16px;color:#51657c;line-height:1.45}
       .analytics-report-intro h2{margin:0 0 6px;color:#123367;font-size:24px}
@@ -23648,7 +23697,14 @@
       .methodology-panel summary{cursor:pointer;font-weight:900;color:#123367;font-size:16px}
       .methodology-panel-body{padding-top:10px}
       .methodology-panel-body section{margin-top:8px}
+      @media (max-width:1320px){
+        .em-report-groups{grid-template-columns:repeat(3,minmax(260px,1fr))}
+      }
+      @media (max-width:960px){
+        .em-report-groups{grid-template-columns:repeat(2,minmax(260px,1fr))}
+      }
       @media (max-width:760px){
+        .em-report-groups{grid-template-columns:1fr}
         .analytics-insights{grid-template-columns:1fr}
         .dashboard-grid{grid-template-columns:1fr}
         .cef-executive-scorecard{grid-template-columns:1fr}

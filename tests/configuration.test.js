@@ -6,20 +6,24 @@ const test = require('node:test');
 const config = require('../js/config/index.js');
 
 test('centralized config exposes report identifiers access and order', () => {
-  const { REPORTS, REPORT_ACCESS, REPORT_ORDER, REPORT_LABEL } = config.reports;
+  const { REPORTS, REPORT_ACCESS, REPORT_ORDER, REPORT_LABEL, REPORT_WORKFLOW_GROUPS, REPORT_DESCRIPTIONS } = config.reports;
 
   assert.equal(REPORTS.scheduleBuilder, 'schedule-builder');
   assert.equal(REPORTS.facultyHeatmap, 'faculty-schedule-heatmap');
   assert.equal(REPORTS.dataHub, 'source-data-hub');
   assert.equal(REPORTS.ftesReconciliation, 'ftes-reconciliation');
-  assert.equal(REPORT_ACCESS[REPORTS.scheduleBuilder], 'dean');
+  assert.equal(REPORT_ACCESS[REPORTS.instructorAvailability], 'general');
   assert.equal(REPORT_ACCESS[REPORTS.dataHub], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.ftesReconciliation], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.heatmap], 'divchair');
   assert.equal(REPORT_LABEL[REPORTS.dataHub], 'Source Data Hub');
   assert.equal(REPORT_LABEL[REPORTS.ftesReconciliation], 'FTES Reconciliation');
   assert.equal(REPORT_LABEL[REPORTS.demand], 'Enrollment Planning Forecast');
-  assert.ok(REPORT_ORDER.indexOf(REPORTS.instructorAvailability) < REPORT_ORDER.indexOf(REPORTS.dashboard));
+  assert.equal(REPORT_LABEL[REPORTS.duration], 'Course Duration Heatmap');
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS.map(group => group.label), ['Public Reports', 'Division Chair / Administrative Assistant', 'Dean', 'Enrollment Management', 'System Administrator']);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[0].reports, [REPORTS.instructorAvailability]);
+  assert.equal(REPORT_DESCRIPTIONS[REPORTS.emSnapshot], 'Review current enrollment, confirmed FTES, estimated FTES, and historically predicted FTES.');
+  assert.ok(REPORT_ORDER.indexOf(REPORTS.instructorAvailability) < REPORT_ORDER.indexOf(REPORTS.heatmap));
 });
 
 test('centralized campus config preserves default campus behavior', () => {

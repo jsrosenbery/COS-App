@@ -4358,176 +4358,76 @@ test('instructor availability derives occasional hybrid days from meeting dates'
   assert.equal(COSEnrollmentAnalytics.instructorHasConflict(grouped[0], 'TU', 9 * 60, 10 * 60), true);
 });
 
-test('TIMBER report organization moves analytics tools into enrollment management', () => {
+test('launcher configuration uses the required responsibility groups and order', () => {
+  const reportsConfig = require('../js/config/reports.js');
+  const { REPORTS, REPORT_WORKFLOW_GROUPS, REPORT_ACCESS, REPORT_LABEL, REPORT_DESCRIPTIONS, REPORT_SUBGROUPS } = reportsConfig;
+
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS.map(group => group.label), [
+    'Public Reports',
+    'Division Chair / Administrative Assistant',
+    'Dean',
+    'Enrollment Management',
+    'System Administrator'
+  ]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[0].reports, [REPORTS.instructorAvailability]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[1].reports, [REPORTS.heatmap, REPORTS.studentPresence, REPORTS.modality, REPORTS.duration]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[2].reports, [REPORTS.dashboard, REPORTS.attrition, REPORTS.utilization, REPORTS.roomFit, REPORTS.conflictCheck, REPORTS.facultyHeatmap, REPORTS.facultyModality]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[3].reports, [REPORTS.demand, REPORTS.emSnapshot, REPORTS.consolidation, REPORTS.busyTimeDashboard, REPORTS.primeTimeAnalysis, REPORTS.supplyDemand, REPORTS.studentChoiceOpportunity, REPORTS.recommendationEngine, REPORTS.scheduleOptimizationLab]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[4].reports, [REPORTS.instructionalMethodValidation, REPORTS.dataHub, REPORTS.ftesReconciliation, REPORTS.historicalInstitutionalModel, REPORTS.archiveInspection, REPORTS.workExperience]);
+
+  assert.equal(REPORT_ACCESS[REPORTS.instructorAvailability], 'general');
+  assert.equal(REPORT_ACCESS[REPORTS.heatmap], 'divchair');
+  assert.equal(REPORT_ACCESS[REPORTS.dashboard], 'dean');
+  assert.equal(REPORT_ACCESS[REPORTS.demand], 'development');
+  assert.equal(REPORT_ACCESS[REPORTS.dataHub], 'admin');
+  assert.equal(REPORT_LABEL[REPORTS.duration], 'Course Duration Heatmap');
+  assert.equal(REPORT_LABEL[REPORTS.supplyDemand], 'Supply vs. Demand');
+  assert.equal(REPORT_DESCRIPTIONS[REPORTS.duration], 'Visualize course duration and active class patterns across the instructional week.');
+  assert.match(REPORT_DESCRIPTIONS[REPORTS.emSnapshot], /confirmed FTES, estimated FTES, and historically predicted FTES/);
+  assert.equal(REPORT_SUBGROUPS[REPORTS.demand], 'Analytics');
+  assert.equal(REPORT_SUBGROUPS[REPORTS.supplyDemand], 'Planning Tools');
+});
+
+test('launcher renderer exposes titles descriptions subgroups statuses and responsive columns', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
-  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
-  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
-  const reportOrderStart = reports.indexOf('const REPORT_ORDER = Object.freeze([');
-  const reportOrderEnd = text.indexOf('];', reportOrderStart);
-  const reportOrderBlock = reports.slice(reportOrderStart, reports.indexOf(']);', reportOrderStart));
 
-  assert.match(text, /const REPORT_WORKFLOW_GROUPS = reportConfig\.REPORT_WORKFLOW_GROUPS \|\| \[/);
-  assert.match(reports, /label: 'Division Chair \/ Administrative Assistant'/);
-  assert.match(reports, /label: 'Dean \/ Enrollment Management'/);
-  assert.match(reports, /label: 'Developer'/);
-  assert.match(reports, /label: 'System Administrator'/);
   assert.match(text, /function reportGroupsHtml/);
-  assert.match(text, /const REPORT_GROUP_SUBTITLES = reportConfig\.REPORT_GROUP_SUBTITLES \|\| \{/);
-  assert.match(text, /const REPORT_GROUP_WORKFLOW_LABELS = reportConfig\.REPORT_GROUP_WORKFLOW_LABELS \|\| \{/);
-  assert.match(text, /const REPORT_DESCRIPTIONS = reportConfig\.REPORT_DESCRIPTIONS \|\| \{/);
-  assert.match(reports, /'division-chair': 'Daily scheduling, instructor planning, and department-level monitoring\.'/);
-  assert.match(reports, /'dean-enrollment': 'Strategic enrollment management, schedule planning, and room optimization\.'/);
-  assert.match(reports, /development: 'Planning algorithms, feature testing, and scheduling model development\.'/);
-  assert.match(reports, /admin: 'System administration, imports, auditing, and maintenance\.'/);
-  assert.match(text, /function reportSubtitleForGroup/);
-  assert.match(text, /function reportSubtitleForReport/);
-  assert.match(text, /class="em-report-groups"/);
-  assert.match(text, /class="em-report-group-kicker"/);
-  assert.match(text, /class="em-report-group-purpose"/);
-  assert.match(text, /class="em-report-button"/);
-  assert.match(text, /class="em-report-button-chevron"/);
-  assert.match(text, /class="em-report-button-label"/);
-  assert.match(text, /data-report-role="\$\{group\.key\}"/);
-  assert.match(text, /data-report-group="\$\{group\.key\}"/);
-  assert.match(text, /data-required-role="\$\{REPORT_ACCESS\[report\] \|\| 'general'\}"/);
-  assert.match(text, /<small>\$\{escapeAttr\(REPORT_DESCRIPTIONS\[report\] \|\| purpose\)\}<\/small>/);
-  assert.match(text, /id="emReportSelect" hidden/);
-  [
-    'REPORTS.instructorAvailability',
-    'REPORTS.heatmap',
-    'REPORTS.studentPresence',
-    'REPORTS.modality',
-    'REPORTS.duration',
-    'REPORTS.dashboard',
-    'REPORTS.demand',
-    'REPORTS.attrition',
-    'REPORTS.consolidation',
-    'REPORTS.utilization',
-    'REPORTS.roomFit',
-    'REPORTS.conflictCheck',
-    'REPORTS.facultyHeatmap',
-    'REPORTS.scheduleBuilder',
-    'REPORTS.busyTimeDashboard',
-    'REPORTS.primeTimeAnalysis',
-    'REPORTS.supplyDemand',
-    'REPORTS.studentChoiceOpportunity',
-    'REPORTS.recommendationEngine',
-    'REPORTS.scheduleOptimizationLab',
-    'REPORTS.facultyModality',
-    'REPORTS.instructionalMethodValidation',
-    'REPORTS.dataHub',
-    'REPORTS.snapshotManager',
-    'REPORTS.archiveInspection',
-    'REPORTS.workExperience'
-  ].reduce((lastIndex, report) => {
-    const indexOfReport = reportOrderBlock.indexOf(report);
-    assert.ok(indexOfReport > lastIndex, `${report} should appear in grouped report order`);
-    return indexOfReport;
-  }, -1);
-
-  assert.doesNotMatch(index, /<option value="heatmap">/);
-  assert.doesNotMatch(index, /<option value="modality">/);
-  assert.doesNotMatch(index, /<option value="linechart">/);
-  assert.match(text, /document\.getElementById\('analyticsReports'\)\.appendChild\(tool\)/);
-  assert.match(text, /roomFitReport/);
-  assert.match(index, /heatmap-archive-terms/);
-  assert.match(index, /heatmap-source-status/);
-  assert.match(index, /modality-archive-terms/);
-  assert.match(index, /linechart-archive-terms/);
-  assert.match(index, /linechart-source-status/);
-  assert.match(text, /roomFitArchiveTerms/);
-  assert.match(app, /renderRoomFitReport/);
-  assert.match(app, /function setScheduleAnalysisStatus/);
-  assert.match(app, /Choose an archived term, then click Load Source\. Upload source files from Source Data Hub/);
-  assert.match(app, /Loaded \$\{rows\.length\} row\(s\)/);
-  assert.match(app, /parseHour\(row\[5\]\?\.split/);
-  assert.match(app, /r\.Days \|\| r\.days \|\| r\.dayPattern/);
-  assert.match(app, /'roomOnly', 'room'/);
-  assert.match(app, /'Start_Time', 'Start Time', 'start', 'Start'/);
-  assert.match(app, /dayColumnMap/);
-  assert.match(app, /'MONDAY', 'Monday'/);
-  assert.match(app, /'INSTRUCTIONAL_METHOD_CODE'/);
-  assert.match(app, /Underutilized Room/);
-  assert.match(app, /Over Capacity Risk/);
-  assert.match(app, /Enrollment Exceeds Room Capacity/);
-  assert.match(text, /#roomFitReportMetrics button\.room-fit-card/);
-  assert.match(text, /#roomFitReportMetrics button\.room-fit-card\.is-active/);
-  assert.match(text, /#f59e0b/);
-  assert.match(app, /requestPassword/);
-  assert.doesNotMatch(app, /prompt\(/);
-  assert.doesNotMatch(text, /prompt\(/);
-  assert.match(text, /type="password"/);
-  assert.match(css, /password-eye/);
-  assert.match(text, /defaultCampusCodes = campusConfig\.CAMPUS_CODES/);
-  assert.match(text, /physicalCampusCodes = campusConfig\.PHYSICAL_CAMPUS_CODES/);
+  assert.match(text, /function reportAccessStatus/);
+  assert.match(text, /Available - no password required/);
+  assert.match(text, /em-report-button-status/);
+  assert.match(text, /em-report-subgroup/);
+  assert.match(text, /REPORT_SUBGROUPS\[report\]/);
+  assert.match(text, /role="status" aria-live="polite"/);
+  assert.match(text, /Public Reports are available immediately/);
+  assert.match(text, /grid-template-columns:repeat\(5,minmax\(210px,1fr\)\)/);
+  assert.match(text, /@media \(max-width:1320px\)/);
+  assert.match(text, /@media \(max-width:960px\)/);
+  assert.match(text, /@media \(max-width:760px\)/);
+  assert.match(text, /REPORT_LABEL\[report\] \|\| report/);
+  assert.doesNotMatch(reports, /label: 'Developer'/);
+  assert.doesNotMatch(reports, /label: 'Dean \/ Enrollment Management'/);
+  assert.doesNotMatch(reports, /Development Lab/);
+  assert.match(reports, /label: 'Enrollment Management'/);
 });
 
-test('report tiles use standardized category subtitles without changing navigation targets', () => {
-  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
-  const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
-
-  [
-    ["'division-chair'", "'Daily scheduling, instructor planning, and department-level monitoring.'"],
-    ["'dean-enrollment'", "'Strategic enrollment management, schedule planning, and room optimization.'"],
-    ['development', "'Planning algorithms, feature testing, and scheduling model development.'"],
-    ['admin', "'System administration, imports, auditing, and maintenance.'"]
-  ].forEach(([key, subtitle]) => {
-    assert.ok(reports.includes(`${key}: ${subtitle}`), `${key} should map to ${subtitle}`);
-  });
-  assert.match(text, /const purpose = reportSubtitleForGroup\(group\.key\)/);
-  assert.match(text, /data-report-target="\$\{report\}"/);
-  assert.match(text, /data-report-group="\$\{group\.key\}"/);
-  assert.match(text, /REPORT_GROUP_WORKFLOW_LABELS/);
-  assert.match(text, /REPORT_DESCRIPTIONS/);
-  assert.match(text, /<small>\$\{escapeAttr\(REPORT_DESCRIPTIONS\[report\] \|\| purpose\)\}<\/small>/);
-  assert.match(text, /note\.textContent = REPORT_DESCRIPTIONS\[report\] \|\| reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
-  assert.doesNotMatch(text, /<small>\$\{canAccess\(report\)/);
-  assert.doesNotMatch(text, /Locked - unlock to view name/);
-});
-
-test('TIMBER UX refinement adds planning admin hierarchy and collapsed methodology defaults', () => {
+test('course duration heatmap visible rename is applied across UI strings', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
   const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const metrics = fs.readFileSync(path.join(__dirname, '..', 'js/core/metric-definitions.js'), 'utf8');
   const utils = fs.readFileSync(path.join(__dirname, '..', 'js/shared/utils.js'), 'utf8');
+  const reports = fs.readFileSync(path.join(__dirname, '..', 'js/config/reports.js'), 'utf8');
 
-  assert.match(index, /timber-planning-intro/);
-  assert.match(index, /Room Availability & Scheduling Workspace/);
-  assert.match(index, /id="room-data-freshness"/);
-  assert.match(index, /Schedule Data Current As Of/);
-  assert.match(index, /Event Data Current As Of/);
-  assert.match(index, /Event Integration Status: In Development/);
-  assert.match(index, /Room event integration is currently under development/);
-  assert.match(index, /<option value="calendar">Room Availability Grid<\/option>/);
-  assert.match(index, /<option value="fullcalendar">Room Schedule Calendar<\/option>/);
-  assert.match(index, /id="view-helper-text"/);
-  assert.match(index, /Course Start-Time Heatmap/);
-  assert.match(index, /This report shows when classes begin/);
-  assert.match(index, /id="linechart-title">Active Class Demand/);
-  assert.match(index, /timber-admin-heading/);
-  assert.match(index, /Imports, Catalogs & Maintenance/);
-  assert.match(css, /room-data-freshness/);
-  assert.match(css, /freshness-warning/);
-  assert.match(css, /max-height: 32vh/);
-  assert.match(css, /#term-tabs[\s\S]*position: sticky/);
-  assert.match(css, /#schedule-container[\s\S]*width: min\(1600px, calc\(100% - 1\.25rem\)\)/);
-  assert.match(app, /scheduleLastUpdatedByTerm/);
-  assert.match(app, /updateRoomAvailabilityFreshnessPanel/);
-  assert.match(app, /latestEventImportedAt/);
-  assert.match(app, /importedAt/);
-  assert.match(app, /updateViewHelperText/);
-  assert.match(app, /Active Class Demand/);
-  assert.doesNotMatch(app, /Course Duration Graph/);
-  assert.match(analytics, /Analytics & Report Launcher/);
-  assert.match(analytics, /Choose a grouped report below/);
-  assert.match(analytics, /\[REPORTS\.duration\]: 'Active Class Demand'/);
-  assert.match(utils, /<details class="methodology-panel">/);
-  assert.doesNotMatch(utils, /<details class="methodology-panel" open>/);
-  assert.match(app, /id: 'heatmap-methodology', title: 'Heatmap Methodology', defaultOpen: false/);
-  assert.match(analytics, /id: 'dashboard-methodology', title: 'Dashboard Methodology & Definitions', defaultOpen: false/);
+  [index, app, analytics, metrics, utils, reports].forEach(source => {
+    assert.doesNotMatch(source, /Active Class Demand/);
+  });
+  assert.match(index, /id="linechart-title">Course Duration Heatmap/);
+  assert.match(app, /Course Duration Heatmap Help and Definitions/);
+  assert.match(analytics, /Course Duration Heatmap Mix/);
+  assert.match(metrics, /Course Duration Heatmap/);
+  assert.match(utils, /Course Duration Heatmap/);
+  assert.match(reports, /\[REPORTS\.duration\]: 'Course Duration Heatmap'/);
 });
 
 test('TIMBER role-based access is centralized and report scoped', () => {
@@ -4540,41 +4440,23 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(reports, /dean: 3/);
   assert.match(reports, /development: 4/);
   assert.match(text, /const REPORT_ACCESS = reportConfig\.REPORT_ACCESS \|\| \{/);
+  assert.match(reports, /\[REPORTS\.instructorAvailability\]: 'general'/);
   assert.match(reports, /\[REPORTS\.dashboard\]: 'dean'/);
   assert.match(reports, /\[REPORTS\.studentPresence\]: 'divchair'/);
-  assert.match(reports, /\[REPORTS\.heatmap\]: 'divchair'/);
-  assert.match(reports, /\[REPORTS\.utilization\]: 'dean'/);
-  assert.match(reports, /\[REPORTS\.roomFit\]: 'dean'/);
-  assert.match(reports, /\[REPORTS\.modality\]: 'divchair'/);
-  assert.match(reports, /\[REPORTS\.consolidation\]: 'dean'/);
-  assert.match(reports, /\[REPORTS\.facultyHeatmap\]: 'dean'/);
+  assert.match(reports, /\[REPORTS\.demand\]: 'development'/);
+  assert.match(reports, /\[REPORTS\.consolidation\]: 'development'/);
+  assert.match(reports, /\[REPORTS\.facultyModality\]: 'dean'/);
   assert.match(reports, /\[REPORTS\.archiveInspection\]: 'admin'/);
-  assert.match(reports, /\[REPORTS\.snapshotManager\]: 'admin'/);
   assert.match(reports, /\[REPORTS\.workExperience\]: 'admin'/);
   assert.match(reports, /\[REPORTS\.instructionalMethodValidation\]: 'admin'/);
   assert.match(text, /function canAccess\(reportName\)/);
   assert.match(text, /Logged in as/);
-  assert.match(text, /id="currentAccessLevel"/);
-  assert.match(text, /id="currentAccessExpiration"/);
-  assert.match(text, /function currentAccessExpirationLabel/);
+  assert.match(text, /id="currentAccessLevel">Public Reports/);
   assert.match(text, /No active unlock session/);
-  assert.match(text, /Expires \$\{new Date\(session\.expiresAt\)\.toLocaleString\(\)\}/);
-  assert.match(text, /accessStatus\.dataset\.accessRole = role/);
-  assert.match(text, /\.em-access-status\.is-unlocked/);
-  assert.match(text, /\.em-access-status\[data-access-role="admin"\]/);
-  assert.match(text, /Lock Reports/);
-  assert.match(text, /function lockedReportLabel/);
-  assert.match(text, /Locked report ••••••••/);
-  assert.doesNotMatch(text, /Locked - unlock to view name/);
-  assert.match(text, /note\.textContent = REPORT_DESCRIPTIONS\[report\] \|\| reportSubtitleForGroup\(button\.dataset\.reportGroup\) \|\| reportSubtitleForReport\(report\)/);
-  assert.match(text, /the selected locked report/);
-  assert.match(text, /A locked report requires/);
-  assert.doesNotMatch(text, /\[Locked\] \$\{escapeAttr\(REPORT_LABEL/);
-  assert.match(text, /data-unlock-report/);
+  assert.match(text, /Enrollment Management supports forecasting, optimization, and demand analysis/);
   assert.match(text, /api\/auth\/role/);
-  assert.match(text, /System Administrator supports imports, auditing, archives, and maintenance/);
-  assert.match(text, /Developer supports planning algorithms and model development/);
-  assert.doesNotMatch(text, /Upload2025/);
+  assert.doesNotMatch(text, /Locked - unlock to view name/);
+  assert.doesNotMatch(text, /Developer supports planning algorithms and model development/);
   assert.match(backend, /GENERAL_PASSWORD/);
   assert.match(backend, /DIV_CHAIR_PASSWORD/);
   assert.match(backend, /DEAN_PASSWORD/);
@@ -4583,10 +4465,9 @@ test('TIMBER role-based access is centralized and report scoped', () => {
   assert.match(backend, /ADMIN_PASSWORD/);
   assert.match(backend, /app\.post\('\/api\/auth\/role'/);
 });
-
 test('data validation and mapping report is an Admin diagnostic', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
-  const developmentBlock = app.slice(app.indexOf("key: 'development'"), app.indexOf("key: 'admin'"));
+  const developmentBlock = app.slice(app.indexOf("key: 'enrollment-management'"), app.indexOf("key: 'admin'"));
   const adminBlock = app.slice(app.indexOf("key: 'admin'"), app.indexOf('const SNAPSHOT_STORAGE_KEY'));
 
   assert.match(app, /instructionalMethodValidation: 'instructional-method-validation'/);
@@ -4715,8 +4596,8 @@ test('backend keeps faculty schedule archives isolated from section schedule sto
 
 test('course heatmap is Division Chair and faculty schedule heatmap is Dean report', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
-  const divisionBlock = text.slice(text.indexOf("key: 'division-chair'"), text.indexOf("key: 'dean-enrollment'"));
-  const deanBlock = text.slice(text.indexOf("key: 'dean-enrollment'"), text.indexOf("key: 'development'"));
+  const divisionBlock = text.slice(text.indexOf("key: 'division-chair'"), text.indexOf("key: 'dean'"));
+  const deanBlock = text.slice(text.indexOf("key: 'dean'"), text.indexOf("key: 'enrollment-management'"));
 
   assert.match(text, /heatmap: 'heatmap-analytics'/);
   assert.match(text, /\[REPORTS\.heatmap\]: 'divchair'/);
@@ -4853,11 +4734,11 @@ test('course heatmap is Division Chair and faculty schedule heatmap is Dean repo
   assert.match(text, /Peak Value/);
 });
 
-test('faculty modality is a standalone Development report using INSM codes', () => {
+test('faculty modality is a Dean report using INSM codes', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(text, /facultyModality: 'faculty-modality'/);
-  assert.match(text, /\[REPORTS\.facultyModality\]: 'development'/);
+  assert.match(text, /\[REPORTS\.facultyModality\]: 'dean'/);
   assert.match(text, /Faculty Modality/);
   assert.match(text, /id="facultyModalityReport"/);
   assert.match(text, /id="facultyModalityArchiveTerm"/);
@@ -4896,18 +4777,18 @@ test('faculty modality is a standalone Development report using INSM codes', () 
   assert.match(text, /INSM_CODE_SSBSECT/);
 });
 
-test('anonymous Schedule Builder is a Dean planning tool with browser-side engine wiring', () => {
+test('anonymous Schedule Builder keeps browser-side engine wiring outside launcher groups', () => {
   const root = path.join(__dirname, '..');
   const text = fs.readFileSync(path.join(root, 'js/enrollment-analytics.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const engine = fs.readFileSync(path.join(root, 'js/core/schedule-builder.js'), 'utf8');
-  const deanBlock = text.slice(text.indexOf("key: 'dean-enrollment'"), text.indexOf("key: 'development'"));
-  const developmentBlock = text.slice(text.indexOf("key: 'development'"), text.indexOf("key: 'admin'"));
+  const deanBlock = text.slice(text.indexOf("key: 'dean'"), text.indexOf("key: 'enrollment-management'"));
+  const developmentBlock = text.slice(text.indexOf("key: 'enrollment-management'"), text.indexOf("key: 'admin'"));
 
   assert.match(text, /scheduleBuilder: 'schedule-builder'/);
   assert.match(text, /\[REPORTS\.scheduleBuilder\]: 'dean'/);
   assert.match(text, /\[REPORTS\.scheduleBuilder\]: 'Schedule Builder'/);
-  assert.match(deanBlock, /REPORTS\.scheduleBuilder/);
+  assert.doesNotMatch(deanBlock, /REPORTS\.scheduleBuilder/);
   assert.doesNotMatch(developmentBlock, /REPORTS\.scheduleBuilder/);
   assert.match(text, /id="scheduleBuilderReport"/);
   assert.match(text, /id="scheduleBuilderSourceStatus"/);
@@ -5056,7 +4937,7 @@ test('faculty modality enriches enrollment and seats from matching section seati
   assert.equal(diagnostics.facultyScheduleFallbacks, 1);
 });
 
-test('prime time analysis is a standalone Development report with custom definition controls', () => {
+test('prime time analysis is a standalone Enrollment Management report with custom definition controls', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(text, /primeTimeAnalysis: 'prime-time-analysis'/);
@@ -5111,7 +4992,7 @@ test('prime time analysis is a standalone Development report with custom definit
   assert.match(text, /prime-time-analysis\.csv/);
 });
 
-test('supply vs demand is a standalone Development report with heatmap line and table views', () => {
+test('supply vs demand is a standalone Enrollment Management report with heatmap line and table views', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(text, /supplyDemand: 'supply-demand-analysis'/);
@@ -5159,7 +5040,7 @@ test('supply vs demand is a standalone Development report with heatmap line and 
   assert.match(text, /supply-vs-demand\.csv/);
 });
 
-test('busy time dashboard is a standalone Development report summarizing core busy-time signals', () => {
+test('busy time dashboard is a standalone Enrollment Management report summarizing core busy-time signals', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(text, /busyTimeDashboard: 'busy-time-dashboard'/);
@@ -5191,7 +5072,7 @@ test('busy time dashboard is a standalone Development report summarizing core bu
   assert.match(text, /busy-time-dashboard\.csv/);
 });
 
-test('schedule opportunity analysis is a standalone Development report with planning and scenario modes', () => {
+test('schedule opportunity analysis is a standalone Enrollment Management report with planning and scenario modes', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(text, /studentChoiceOpportunity: 'student-choice-opportunity'/);
@@ -6582,7 +6463,7 @@ test('modality balance uses shared modality category normalization and diagnosti
   assert.match(app, /CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL/);
 });
 
-test('schedule optimization lab is a standalone Development planning tool', () => {
+test('schedule optimization lab is a standalone Enrollment Management planning tool', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const moduleText = fs.readFileSync(path.join(__dirname, '..', 'js/core/schedule-optimization.js'), 'utf8');

@@ -899,7 +899,7 @@ function renderSchedulingAnalysisMethodologyPanels() {
     purpose: 'Shows when classes begin by day and 30-minute scheduled start time, with optional enrollment, capacity, and fill-rate metric views.',
     metricsUsed: ['Sections Active', 'Enrollment Present', 'Seats Offered', 'Fill Rate', 'Student Presence', 'Empty Seats'],
     calculationRules: 'A section is placed in the day/time block for each scheduled start time and meeting day it uses. Repeated rows for the same CRN/day/scheduled start time are counted once. Enrollment Heatmap mode sums census enrollment when available and actual/current enrollment otherwise. Seat Capacity Heatmap mode sums section capacity. Fill Rate Heatmap mode divides enrollment by capacity after deduplication.',
-    assumptions: 'Course Start-Time Heatmap is a start-time view. It complements Active Class Demand because starts and active classroom load answer different questions.',
+    assumptions: 'Course Start-Time Heatmap is a start-time view. It complements Course Duration Heatmap because starts and active classroom load answer different questions.',
     limitations: 'A busy scheduled start time does not prove student preference. It reflects the schedule that was offered and does not include constraints outside the uploaded data.',
     items: [
       ['Section Count Heatmap', 'Counts distinct CRNs beginning in each 30-minute day/time block.'],
@@ -938,7 +938,7 @@ function renderSchedulingAnalysisMethodologyPanels() {
     ]
   });
   renderPanel(document.getElementById('linechart-standard-methodology'), {
-    title: 'Active Class Demand and Student Presence Graph Methodology & Data Dictionary',
+    title: 'Course Duration Heatmap and Student Presence Graph Methodology & Data Dictionary',
     purpose: 'Shows how active course load or estimated student presence persists across half-hour intervals by day of week.',
     metricsUsed: ['Sections Active', 'Student Presence', 'Enrollment Present', 'Seats Offered'],
     calculationRules: 'Each valid physical meeting contributes to every half-hour interval it overlaps. Course Count mode counts active distinct CRN/day/start/end blocks. Student Presence mode applies census enrollment when available, otherwise actual/current enrollment, once per distinct CRN/day/start/end block. Duplicate CRN/day/start/end rows are counted once; the same CRN with a different start/end or different day counts as a distinct active meeting block.',
@@ -978,10 +978,10 @@ function registerSchedulingCollapsibleSections() {
     { selector: '#modality-table', id: 'modality-current-table', title: 'Current Term Modality Table' },
     { selector: '.modality-course-comparison', id: 'modality-course-comparison', title: 'Course-Level Term Differences' },
     { selector: '.modality-definitions', id: 'modality-instructional-method-details', title: 'Instructional Method Details' },
-    { selector: '#linechart-tool .analysis-explainer', id: 'duration-help', title: 'Active Class Demand Help and Definitions' },
-    { selector: '#linechart-standard-methodology', id: 'duration-methodology', title: 'Active Class Demand Methodology', defaultOpen: false },
-    { selector: '#linechart-controls', id: 'duration-controls', title: 'Active Class Demand Filters' },
-    { selector: '#chart-container', id: 'duration-chart', title: 'Active Class Demand' }
+    { selector: '#linechart-tool .analysis-explainer', id: 'duration-help', title: 'Course Duration Heatmap Help and Definitions' },
+    { selector: '#linechart-standard-methodology', id: 'duration-methodology', title: 'Course Duration Heatmap Methodology', defaultOpen: false },
+    { selector: '#linechart-controls', id: 'duration-controls', title: 'Course Duration Heatmap Filters' },
+    { selector: '#chart-container', id: 'duration-chart', title: 'Course Duration Heatmap' }
   ]);
   ['#heatmap-tool', '#utilization-tool', '#modality-tool', '#linechart-tool', '#availability-ui'].forEach(selector => {
     const root = document.querySelector(selector);
@@ -6253,11 +6253,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const isPresenceMetric = metric === 'presence';
     const titleNode = document.getElementById('linechart-title');
     const methodologyNode = document.getElementById('linechart-methodology');
-    if (titleNode) titleNode.textContent = isPresenceMetric ? 'Student Presence Duration Graph' : 'Active Class Demand';
+    if (titleNode) titleNode.textContent = isPresenceMetric ? 'Student Presence Duration Graph' : 'Course Duration Heatmap';
     if (methodologyNode) {
       methodologyNode.textContent = isPresenceMetric
         ? 'The Student Presence Duration Graph estimates how many enrolled students are scheduled to be physically present during each half-hour interval by day of week. Calculation: interval total = census enrollment when available, otherwise current enrollment, applied once per distinct CRN/day/start/end block whose meeting time overlaps that half-hour interval. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct meeting block.'
-        : 'Active Class Demand counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = active distinct CRN/day/start/end blocks whose meeting time overlaps that half-hour interval. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct meeting block. This is an overlapping instructional activity view, not a start-time view.';
+        : 'Course Duration Heatmap counts how many classes are active during each half-hour interval by day of week. Calculation: interval count = active distinct CRN/day/start/end blocks whose meeting time overlaps that half-hour interval. Duplicate rows for the same CRN/day/start/end count once; the same CRN with a different day or different start/end counts as a distinct meeting block. This is an overlapping instructional activity view, not a start-time view.';
     }
     const filtered = filterAnalysisRows({
       campusId: 'linechart-campus-select',
