@@ -5,6 +5,7 @@ globalThis.COSTermUtils = require('../js/core/term-utils.js');
 globalThis.COSCampusClassification = require('../js/core/campus-classification.js');
 globalThis.COSScheduleBuilder = require('../js/core/schedule-builder.js');
 globalThis.COSProgramRequirements = require('../js/core/program-requirements.js');
+globalThis.COSCatalogExtraction = require('../js/core/catalog-extraction.js');
 globalThis.COSFeasibilityTermWindow = require('../js/core/feasibility-term-window.js');
 const feasibility = require('../js/core/program-feasibility.js');
 
@@ -162,6 +163,17 @@ test('schedule builder reports 100 plus viable combinations while retaining only
   assert.equal(result.schedules.length, 10);
   assert.equal(result.count.viableConfigurationCount, 110);
   assert.equal(result.count.capReached, false);
+});
+
+test('schedule builder counts meaningful patterns beyond retained examples', () => {
+  const rows = [];
+  for (let i = 0; i < 10; i += 1) rows.push(section({ crn: `A${i}`, subject: 'BUS', course: '001', start: `${8 + i}:00`, end: `${9 + i}:00` }));
+  for (let i = 0; i < 10; i += 1) rows.push(section({ crn: `B${i}`, subject: 'MATH', course: '010', start: i < 5 ? '18:00' : '19:00', end: i < 5 ? '19:00' : '20:00' }));
+  const result = COSScheduleBuilder.buildScheduleOptions(rows, [{ course: 'BUS 001' }, { course: 'MATH 010' }], { countMode: true, maxResults: 5, requireAllRequestedCourses: true });
+
+  assert.equal(result.schedules.length, 5);
+  assert.equal(result.count.viableConfigurationCount, 100);
+  assert.equal(result.count.meaningfulPatternCount.count, 20);
 });
 
 test('program feasibility counts equivalent CRNs as fewer meaningful weekly patterns', () => {
@@ -429,6 +441,9 @@ test('unknown campus data creates indeterminate campus diagnostics for required 
   const result = feasibility.evaluateProgramFeasibility(program, [section({ crn: '85401', subject: 'BUS', course: '001', campus: 'ZZZ' })], { selectedTerm: 'FALL 2026' });
 
   assert.equal(result.unknownCampusDiagnostics.sectionsWithUnknownCampus, 1);
+  assert.equal(result.unknownCampusDiagnostics.unknownCampusSectionCount, 1);
+  assert.equal(result.unknownCampusDiagnostics.affectedConfigurationCount, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(result.unknownCampusDiagnostics, 'configurationsExcludedBecauseOfUnknownCampus'), false);
   assert.equal(result.unknownCampusDiagnostics.indeterminate, true);
   assert.match(result.blockers.map(blocker => blocker.issue).join(' '), /unknown campus/i);
 });
@@ -556,6 +571,57 @@ test('portfolio async evaluation reports progress and reuses cached program resu
   assert.equal(first.programsEvaluated, 2);
   assert.equal(second.programsEvaluated, 2);
   assert.equal(cache.size, 2);
+});
+
+test('portfolio cache fingerprints invalidate when row content or program requirements change', () => {
+  const rowA = [section({ crn: '86001', subject: 'BUS', course: '001', start: '09:00' })];
+  const rowB = [section({ crn: '86001', subject: 'BUS', course: '001', start: '10:00' })];
+  const programA = COSProgramRequirements.normalizeProgram({ programId: 'CACHE', catalogYear: '2026-2027', programName: 'Cache A', awardType: 'Certificate', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 001', units: 3 }] }] });
+  const programB = COSProgramRequirements.normalizeProgram({ ...programA, requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 001', units: 3 }, { courseKey: 'MATH 010', units: 3 }] }] });
+
+  assert.notEqual(feasibility.scheduleFingerprint(rowA), feasibility.scheduleFingerprint(rowB));
+  assert.notEqual(feasibility.programRequirementsFingerprint(programA), feasibility.programRequirementsFingerprint(programB));
+  assert.notEqual(feasibility.analysisOptionsFingerprint({ selectedTerm: 'FALL 2026', onlineMode: 'include' }), feasibility.analysisOptionsFingerprint({ selectedTerm: 'FALL 2026', onlineMode: 'exclude' }));
+});
+
+test('portfolio cancellation produces partial results and can restart cleanly', async () => {
+  const programs = ['A', 'B', 'C'].map(id => COSProgramRequirements.normalizeProgram({ programId: id, catalogYear: '2026-2027', programName: `Program ${id}`, awardType: 'Certificate', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 001', units: 3 }] }] }));
+  let progressCount = 0;
+  const partial = await feasibility.evaluateProgramPortfolioAsync(programs, [section({ subject: 'BUS', course: '001' })], {
+    selectedTerm: 'FALL 2026',
+    onProgress: () => { progressCount += 1; },
+    shouldCancel: () => progressCount >= 1
+  });
+  const complete = await feasibility.evaluateProgramPortfolioAsync(programs, [section({ subject: 'BUS', course: '001' })], { selectedTerm: 'FALL 2026' });
+
+  assert.equal(partial.cancelled, true);
+  assert.equal(partial.programsEvaluated, 1);
+  assert.equal(complete.cancelled, false);
+  assert.equal(complete.programsEvaluated, 3);
+});
+
+test('portfolio detects shared time conflicts separately from missing courses', () => {
+  const program = COSProgramRequirements.normalizeProgram({ programId: 'TIME-CONFLICT', catalogYear: '2026-2027', programName: 'Time Conflict Program', awardType: 'Certificate', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 001', units: 3 }, { courseKey: 'MATH 010', units: 3 }] }] });
+  const rows = [
+    section({ crn: '86101', subject: 'BUS', course: '001', start: '09:00', end: '10:00' }),
+    section({ crn: '86102', subject: 'MATH', course: '010', start: '09:30', end: '10:30' })
+  ];
+  const portfolio = feasibility.evaluateProgramPortfolio([program], rows, { selectedTerm: 'FALL 2026' });
+
+  assert.equal(portfolio.sharedCourseBlockers.length, 0);
+  assert.equal(portfolio.sharedTimeConflicts.length, 1);
+  assert.deepEqual(portfolio.sharedTimeConflicts[0].courseKeys, ['BUS 001', 'MATH 010']);
+});
+
+test('portfolio candidate recommendations stay qualitative while simulations carry impact', () => {
+  const program = COSProgramRequirements.normalizeProgram({ programId: 'REC', catalogYear: '2026-2027', programName: 'Recommendation Program', awardType: 'Certificate', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 127', units: 3 }] }] });
+  const portfolio = feasibility.evaluateProgramPortfolio([program], [section({ subject: 'BUS', course: '001' })], { selectedTerm: 'FALL 2026' });
+  const simulated = feasibility.simulatePortfolioRecommendation([program], [], { action: 'add-section', section: section({ crn: '86201', subject: 'BUS', course: '127' }) }, { selectedTerm: 'FALL 2026' });
+
+  assert.equal(portfolio.candidateRecommendations[0].simulated, false);
+  assert.equal(portfolio.candidateRecommendations[0].configurationsAdded, '');
+  assert.equal(simulated.simulated, true);
+  assert.ok(simulated.configurationsAdded > 0);
 });
 
 test('simulated added section improves portfolio programs without mutating source data', () => {

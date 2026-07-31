@@ -9,7 +9,11 @@
   const STORE_PROGRAMS = 'academicPrograms';
   const STORE_BATCHES = 'programImportBatches';
   const STORE_METADATA = 'programMetadata';
-  const DB_VERSION = 1;
+  const STORE_CATALOG_SOURCES = 'catalogSources';
+  const STORE_CATALOG_CANDIDATES = 'catalogProgramCandidates';
+  const STORE_CATALOG_DETAILS = 'catalogRequirementDetails';
+  const STORE_CATALOG_DECISIONS = 'catalogReviewDecisions';
+  const DB_VERSION = 2;
   const VALID_GROUP_RULES = new Set(['all', 'choose-count', 'choose-units', 'one-from-each-list', 'or', 'elective']);
   const VALID_REVIEW_STATUSES = new Set(['draft', 'needs-review', 'approved', 'retired']);
   const VALID_SOURCE_TYPES = new Set(['manual', 'json', 'csv', 'catalog-pdf']);
@@ -99,6 +103,7 @@
       subgroups: (group.subgroups || []).map(normalizeRequirementGroup),
       sourceText: compact(group.sourceText),
       pageNumber: numberOrUndefined(group.pageNumber),
+      sourceEvidence: Array.isArray(group.sourceEvidence) ? group.sourceEvidence.map(normalizeEvidence).filter(item => item.text || item.pageNumber) : [],
       notes: compact(group.notes)
     };
   }
@@ -111,7 +116,19 @@
       prerequisiteCourseKeys: (course.prerequisiteCourseKeys || []).map(normalizeCourseKey).filter(Boolean),
       corequisiteCourseKeys: (course.corequisiteCourseKeys || []).map(normalizeCourseKey).filter(Boolean),
       equivalentCourseKeys: (course.equivalentCourseKeys || []).map(normalizeCourseKey).filter(Boolean),
-      recommendedTerm: course.recommendedTerm == null || course.recommendedTerm === '' ? null : Number(course.recommendedTerm)
+      recommendedTerm: course.recommendedTerm == null || course.recommendedTerm === '' ? null : Number(course.recommendedTerm),
+      sourceCourseKey: compact(course.sourceCourseKey),
+      sourceEvidence: Array.isArray(course.sourceEvidence) ? course.sourceEvidence.map(normalizeEvidence).filter(item => item.text || item.pageNumber) : []
+    };
+  }
+
+  function normalizeEvidence(evidence = {}) {
+    return {
+      pageNumber: numberOrUndefined(evidence.pageNumber),
+      text: compact(evidence.text),
+      boundingContext: compact(evidence.boundingContext),
+      extractionMethod: compact(evidence.extractionMethod),
+      confidence: numberOrUndefined(evidence.confidence)
     };
   }
 
@@ -164,6 +181,10 @@
     const programs = new Map();
     const batches = new Map();
     const metadata = new Map();
+    const catalogSources = new Map();
+    const catalogCandidates = new Map();
+    const catalogDetails = new Map();
+    const catalogDecisions = new Map();
     initialPrograms.map(normalizeProgram).forEach(program => programs.set(program.key, program));
     return {
       async initialize() {},
@@ -196,11 +217,43 @@
         const record = metadata.get(compact(key));
         return record ? clone(record.value) : null;
       },
+      async saveCatalogSource(source = {}) {
+        const id = compact(source.catalogSourceId) || `catalog-${Date.now()}`;
+        const record = { ...clone(source), catalogSourceId: id, savedAt: compact(source.savedAt) || new Date().toISOString() };
+        catalogSources.set(id, record);
+        return clone(record);
+      },
+      async getCatalogSources() { return [...catalogSources.values()].map(clone); },
+      async saveCatalogProgramCandidates(records = []) {
+        for (const candidate of records) {
+          const id = compact(candidate.candidateId) || `candidate-${Date.now()}-${catalogCandidates.size}`;
+          catalogCandidates.set(id, { ...clone(candidate), candidateId: id });
+        }
+      },
+      async getCatalogProgramCandidates(catalogSourceId = '') {
+        return [...catalogCandidates.values()].filter(record => !catalogSourceId || record.catalogSourceId === catalogSourceId).map(clone);
+      },
+      async saveCatalogRequirementDetail(detail = {}) {
+        const id = compact(detail.candidateId);
+        if (!id) throw new Error('candidateId is required for catalog requirement detail.');
+        catalogDetails.set(id, clone(detail));
+      },
+      async getCatalogRequirementDetail(candidateId) {
+        const record = catalogDetails.get(compact(candidateId));
+        return record ? clone(record) : null;
+      },
+      async saveCatalogReviewDecision(decision = {}) {
+        const id = compact(decision.id) || `decision-${Date.now()}-${catalogDecisions.size}`;
+        const record = { ...clone(decision), id, savedAt: compact(decision.savedAt) || new Date().toISOString() };
+        catalogDecisions.set(id, record);
+        return clone(record);
+      },
+      async getCatalogReviewDecisions() { return [...catalogDecisions.values()].map(clone); },
       async deleteProgram(programId, catalogYear = '') {
         if (catalogYear) programs.delete(programKey(programId, catalogYear));
         else [...programs.keys()].filter(key => key.startsWith(`${canon(programId)}::`)).forEach(key => programs.delete(key));
       },
-      async clearAll() { programs.clear(); batches.clear(); metadata.clear(); }
+      async clearAll() { programs.clear(); batches.clear(); metadata.clear(); catalogSources.clear(); catalogCandidates.clear(); catalogDetails.clear(); catalogDecisions.clear(); }
     };
   }
 
@@ -218,6 +271,10 @@
           if (!db.objectStoreNames.contains(STORE_PROGRAMS)) db.createObjectStore(STORE_PROGRAMS, { keyPath: 'key' });
           if (!db.objectStoreNames.contains(STORE_BATCHES)) db.createObjectStore(STORE_BATCHES, { keyPath: 'id' });
           if (!db.objectStoreNames.contains(STORE_METADATA)) db.createObjectStore(STORE_METADATA, { keyPath: 'key' });
+          if (!db.objectStoreNames.contains(STORE_CATALOG_SOURCES)) db.createObjectStore(STORE_CATALOG_SOURCES, { keyPath: 'catalogSourceId' });
+          if (!db.objectStoreNames.contains(STORE_CATALOG_CANDIDATES)) db.createObjectStore(STORE_CATALOG_CANDIDATES, { keyPath: 'candidateId' });
+          if (!db.objectStoreNames.contains(STORE_CATALOG_DETAILS)) db.createObjectStore(STORE_CATALOG_DETAILS, { keyPath: 'candidateId' });
+          if (!db.objectStoreNames.contains(STORE_CATALOG_DECISIONS)) db.createObjectStore(STORE_CATALOG_DECISIONS, { keyPath: 'id' });
         };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error || new Error('Program requirements database failed to open.'));
@@ -274,6 +331,44 @@
         const record = await requestPromise((await store('readonly', STORE_METADATA)).get(compact(key)));
         return record ? clone(record.value) : null;
       },
+      async saveCatalogSource(source = {}) {
+        const id = compact(source.catalogSourceId) || `catalog-${Date.now()}`;
+        const record = { ...clone(source), catalogSourceId: id, savedAt: compact(source.savedAt) || new Date().toISOString() };
+        await requestPromise((await store('readwrite', STORE_CATALOG_SOURCES)).put(record));
+        return clone(record);
+      },
+      async getCatalogSources() {
+        return (await requestPromise((await store('readonly', STORE_CATALOG_SOURCES)).getAll())).map(clone);
+      },
+      async saveCatalogProgramCandidates(records = []) {
+        const catalogStore = await store('readwrite', STORE_CATALOG_CANDIDATES);
+        for (const candidate of records) {
+          const id = compact(candidate.candidateId) || `candidate-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          await requestPromise(catalogStore.put({ ...clone(candidate), candidateId: id }));
+        }
+      },
+      async getCatalogProgramCandidates(catalogSourceId = '') {
+        const records = (await requestPromise((await store('readonly', STORE_CATALOG_CANDIDATES)).getAll())).map(clone);
+        return records.filter(record => !catalogSourceId || record.catalogSourceId === catalogSourceId);
+      },
+      async saveCatalogRequirementDetail(detail = {}) {
+        const id = compact(detail.candidateId);
+        if (!id) throw new Error('candidateId is required for catalog requirement detail.');
+        await requestPromise((await store('readwrite', STORE_CATALOG_DETAILS)).put(clone(detail)));
+      },
+      async getCatalogRequirementDetail(candidateId) {
+        const record = await requestPromise((await store('readonly', STORE_CATALOG_DETAILS)).get(compact(candidateId)));
+        return record ? clone(record) : null;
+      },
+      async saveCatalogReviewDecision(decision = {}) {
+        const id = compact(decision.id) || `decision-${Date.now()}`;
+        const record = { ...clone(decision), id, savedAt: compact(decision.savedAt) || new Date().toISOString() };
+        await requestPromise((await store('readwrite', STORE_CATALOG_DECISIONS)).put(record));
+        return clone(record);
+      },
+      async getCatalogReviewDecisions() {
+        return (await requestPromise((await store('readonly', STORE_CATALOG_DECISIONS)).getAll())).map(clone);
+      },
       async deleteProgram(programId, catalogYear = '') {
         if (catalogYear) {
           await requestPromise((await store('readwrite')).delete(programKey(programId, catalogYear)));
@@ -286,6 +381,10 @@
         await requestPromise((await store('readwrite')).clear());
         await requestPromise((await store('readwrite', STORE_BATCHES)).clear());
         await requestPromise((await store('readwrite', STORE_METADATA)).clear());
+        await requestPromise((await store('readwrite', STORE_CATALOG_SOURCES)).clear());
+        await requestPromise((await store('readwrite', STORE_CATALOG_CANDIDATES)).clear());
+        await requestPromise((await store('readwrite', STORE_CATALOG_DETAILS)).clear());
+        await requestPromise((await store('readwrite', STORE_CATALOG_DECISIONS)).clear());
       }
     };
   }
@@ -354,6 +453,10 @@
     STORE_PROGRAMS,
     STORE_BATCHES,
     STORE_METADATA,
+    STORE_CATALOG_SOURCES,
+    STORE_CATALOG_CANDIDATES,
+    STORE_CATALOG_DETAILS,
+    STORE_CATALOG_DECISIONS,
     normalizeCourseKey,
     catalogYearSortValue,
     getMostRecentApprovedCatalogYear,

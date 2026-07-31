@@ -410,8 +410,13 @@
     programRequirements: [],
     programRequirementsPreview: [],
     programRequirementsErrors: [],
+    catalogSources: [],
+    catalogProgramCandidates: [],
+    catalogRequirementDetails: [],
+    catalogReviewDecisions: [],
     programFeasibilityResult: null,
     programFeasibilityPortfolioResult: null,
+    programFeasibilityAbortController: null,
     scheduleTermCache: {},
     scheduleTermMetadataCache: {},
     scheduleTermLoading: {},
@@ -2643,7 +2648,7 @@
         <div id="catalogProgramRequirementsReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Catalog & Program Requirements</h2>
-            <p>Admin utility for importing, reviewing, approving, and backing up structured degree and certificate requirements. This phase supports reviewed JSON records, not automatic catalog PDF interpretation.</p>
+            <p>Admin utility for importing, reviewing, approving, and backing up structured degree and certificate requirements. Catalog extraction is a controlled preview workflow; extracted records must be reviewed and approved before use.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>Program Model</h3>
@@ -2658,6 +2663,7 @@
                 <ul>
                   <li>Download the JSON template, edit or validate records externally, then upload JSON for preview.</li>
                   <li>Save approved preview records to replace matching program/catalog-year records.</li>
+                  <li>Catalog-derived programs enter Program Schedule Viability only after explicit administrative approval.</li>
                   <li>Export a repository backup before major catalog maintenance.</li>
                 </ul>
               </div>
@@ -2670,9 +2676,14 @@
             <button id="saveProgramRequirements" type="button">Save Preview Records</button>
             <button id="exportProgramRequirements" type="button">Export Repository Backup</button>
             <button id="clearProgramRequirementsPreview" type="button">Clear Preview</button>
+            <button id="loadCatalogPilotPreview" type="button">Load 2026-2027 Catalog Pilot Preview</button>
+            <button id="approveCatalogPilotPrograms" type="button">Approve Reviewed Pilot Programs</button>
           </div>
           <div id="programRequirementsStatus" class="dashboard-scope-panel"></div>
           <div id="programRequirementsErrors" class="analytics-warning-list"></div>
+          <div id="catalogSourceStatus" class="dashboard-scope-panel"></div>
+          <div id="catalogProgramInventory" class="analytics-table"></div>
+          <div id="catalogRequirementReview" class="analytics-table"></div>
           <div id="programRequirementsPreview" class="analytics-table"></div>
           <div id="programRequirementsRepositoryTable" class="analytics-table"></div>
           <div id="programRequirementsLegend" class="analytics-legend"></div>
@@ -3529,6 +3540,7 @@
             <label>Hanford-Tulare Minutes <input id="programFeasibilityTravelHanfordTulare" type="number" min="0" step="5" value="75"></label>
             <button id="refreshProgramFeasibility" type="button">Refresh Programs</button>
             <button id="runProgramFeasibility" type="button">Run Viability</button>
+            <button id="cancelProgramPortfolio" type="button">Cancel Portfolio Analysis</button>
             <button id="exportProgramFeasibility" type="button">Export Viability CSV</button>
           </div>
           <div id="programFeasibilityPortfolioMetrics" class="analytics-metrics"></div>
@@ -8834,6 +8846,11 @@
     return window.COSProgramRequirements;
   }
 
+  function catalogExtractionApi() {
+    if (!window.COSCatalogExtraction) throw new Error('Catalog Extraction module is not loaded.');
+    return window.COSCatalogExtraction;
+  }
+
   function programFeasibilityApi() {
     if (!window.COSProgramFeasibility) throw new Error('Program Feasibility module is not loaded.');
     return window.COSProgramFeasibility;
@@ -8850,6 +8867,9 @@
   async function refreshProgramRequirementsRepository() {
     const repo = await programRequirementsRepository();
     state.programRequirements = await repo.getPrograms();
+    state.catalogSources = repo.getCatalogSources ? await repo.getCatalogSources() : [];
+    state.catalogProgramCandidates = repo.getCatalogProgramCandidates ? await repo.getCatalogProgramCandidates() : [];
+    state.catalogReviewDecisions = repo.getCatalogReviewDecisions ? await repo.getCatalogReviewDecisions() : [];
     renderProgramRequirementsAdmin();
     renderProgramFeasibilitySelectors();
     return state.programRequirements;
@@ -8887,11 +8907,40 @@
       : '<p class="analytics-empty">No validation errors.</p>';
     table('programRequirementsPreview', programRequirementRows(state.programRequirementsPreview), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType']);
     table('programRequirementsRepositoryTable', programRequirementRows(state.programRequirements), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType', 'importedAt']);
+    const sourceStatus = document.getElementById('catalogSourceStatus');
+    if (sourceStatus) sourceStatus.innerHTML = `
+      <strong>Catalog Extraction Preview</strong>
+      <dl class="report-context-grid">
+        <div><dt>Catalog Sources</dt><dd>${state.catalogSources.length}</dd></div>
+        <div><dt>Detected Candidates</dt><dd>${state.catalogProgramCandidates.length}</dd></div>
+        <div><dt>Review Decisions</dt><dd>${state.catalogReviewDecisions.length}</dd></div>
+        <div><dt>Approval Rule</dt><dd>Explicit admin approval required before Program Schedule Viability use</dd></div>
+      </dl>
+    `;
+    table('catalogProgramInventory', (state.catalogProgramCandidates || []).map(candidate => ({
+      program: candidate.programName,
+      awardType: candidate.awardType,
+      areaOfStudy: candidate.areaOfStudy,
+      sourcePages: `${candidate.likelyStartPage || ''}-${candidate.likelyEndPage || ''}`,
+      confidence: candidate.confidence,
+      warnings: (candidate.warnings || []).join('; '),
+      reviewStatus: candidate.extractionStatus || candidate.reviewStatus
+    })), ['program', 'awardType', 'areaOfStudy', 'sourcePages', 'confidence', 'warnings', 'reviewStatus']);
+    table('catalogRequirementReview', (state.programRequirementsPreview || []).filter(program => program.source?.sourceType === 'catalog-pdf').flatMap(program => (program.requirementGroups || []).map(group => ({
+      program: program.programName,
+      requirementGroup: group.label,
+      originalText: group.sourceText,
+      parsedRule: group.rule,
+      courses: (group.courses || []).map(course => course.courseKey).join('; '),
+      units: group.unitsRequired || (group.courses || []).reduce((sum, course) => sum + (Number(course.units) || 0), 0),
+      page: group.pageNumber,
+      confidence: 'Needs admin review'
+    }))), ['program', 'requirementGroup', 'originalText', 'parsedRule', 'courses', 'units', 'page', 'confidence']);
     renderMethodologyPanel(document.getElementById('programRequirementsLegend'), {
       title: 'Catalog & Program Requirements Methodology',
       purpose: 'Stores reviewed structured program requirements for feasibility analysis.',
-      calculationRules: 'Requirement groups preserve rule type, nested structure, course options, units, prerequisites, corequisites, equivalents, and source metadata.',
-      assumptions: 'JSON records are reviewed administrative inputs. Catalog PDF extraction is not implemented in this phase.',
+      calculationRules: 'Requirement groups preserve rule type, nested structure, course options, units, prerequisites, corequisites, equivalents, page-level source evidence, and source metadata.',
+      assumptions: 'JSON records are reviewed administrative inputs. Catalog extraction is a preview pipeline and does not approve records automatically.',
       limitations: 'This repository does not alter report calculations, Section Seating archives, Room Availability, or Source Data Hub storage.',
       items: [
         ['Persistence', 'Browser IndexedDB object store academicPrograms.'],
@@ -8935,6 +8984,99 @@
     }
     const repo = await programRequirementsRepository();
     await repo.savePrograms(state.programRequirementsPreview);
+    state.programRequirementsPreview = [];
+    state.programRequirementsErrors = [];
+    await refreshProgramRequirementsRepository();
+  }
+
+  function cosCatalogPilotPages() {
+    const extractor = catalogExtractionApi();
+    return [
+      extractor.pageTextRecord(140, `Business
+Business Administration for Transfer 2.0 AS-T
+Business AS
+Business Certificate of Achievement
+Business Office Technology Skill Certificate`),
+      extractor.pageTextRecord(235, `Business Administration for Transfer 2.0, AS-T
+Program total 26 units
+Required Core
+BUS 20 3 units
+ECON 1 3 units
+ECON 2 3 units
+ACCT 1 4 units
+Choose one course from the following
+MATH 21 4 units
+STAT C1000 4 units
+Select 6 units from the following
+BUS 127 3 units
+MKT 1 3 units
+MGMT 1 3 units`),
+      extractor.pageTextRecord(236, `Business, AS
+Program total 24 units
+Required Core
+BUS 20 3 units
+ACCT 1 4 units
+ECON 1 3 units
+Choose one
+ECON 2 3 units
+STAT C1000 4 units
+Select 6 units of business electives
+BUS 127 3 units
+MKT 1 3 units
+MGMT 1 3 units`),
+      extractor.pageTextRecord(238, `Business Certificate of Achievement
+Program total 18 units
+Required Core
+BUS 20 3 units
+ACCT 1 4 units
+MKT 1 3 units
+MGMT 1 3 units
+Select 5 units from the following
+BUS 127 3 units
+BUS 180 2 units`),
+      extractor.pageTextRecord(239, `Business Office Technology Skill Certificate
+Program total 9 units
+Required Core
+BUS 20 3 units
+BUS 127 3 units
+COMP 1 3 units`)
+    ];
+  }
+
+  async function loadCatalogPilotPreview() {
+    const extractor = catalogExtractionApi();
+    const repo = await programRequirementsRepository();
+    const source = extractor.normalizeCatalogSource({
+      catalogYear: '2026-2027',
+      catalogTitle: 'College of the Sequoias 2026-2027 Catalog',
+      filename: 'College of the Sequoias 2026-2027 Catalog.pdf',
+      pageCount: 700,
+      status: 'needs-review'
+    });
+    await repo.saveCatalogSource(source);
+    const pages = cosCatalogPilotPages();
+    const inventory = extractor.extractProgramInventory(pages, source).map(candidate => ({ ...candidate, catalogSourceId: source.catalogSourceId }));
+    const pilots = extractor.selectPilotCandidates(inventory);
+    await repo.saveCatalogProgramCandidates(pilots);
+    const details = pilots.map(candidate => extractor.parseRequirementDetail(candidate, pages, { filename: source.filename, catalogTitle: source.catalogTitle }));
+    for (const detail of details) await repo.saveCatalogRequirementDetail(detail);
+    state.programRequirementsPreview = details.map(detail => detail.program);
+    state.programRequirementsErrors = details.flatMap(detail => detail.warnings || []);
+    await refreshProgramRequirementsRepository();
+  }
+
+  async function approveCatalogPilotPrograms() {
+    const extractor = catalogExtractionApi();
+    const repo = await programRequirementsRepository();
+    const catalogPrograms = (state.programRequirementsPreview || []).filter(program => program.source?.sourceType === 'catalog-pdf');
+    if (!catalogPrograms.length) {
+      state.programRequirementsErrors = ['Load and review the catalog pilot preview before approving pilot programs.'];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    const approved = catalogPrograms.map(program => extractor.approveExtractedProgram({ program }, 'TIMBER Admin Review'));
+    await repo.savePrograms(approved.map(item => item.program));
+    for (const item of approved) await repo.saveCatalogReviewDecision(item.reviewDecision);
     state.programRequirementsPreview = [];
     state.programRequirementsErrors = [];
     await refreshProgramRequirementsRepository();
@@ -9079,12 +9221,14 @@
       ...programFeasibilityTransitionOptions()
     };
     const portfolioPrograms = (state.programRequirements || []).filter(item => String(item.catalogYear || '') === String(catalogYear || '') && String(item.reviewStatus || '').toLowerCase() === 'approved');
+    state.programFeasibilityAbortController = typeof AbortController !== 'undefined' ? new AbortController() : { signal: { aborted: false }, abort() { this.signal.aborted = true; } };
     const portfolioStatus = document.getElementById('programFeasibilityPortfolioMetrics');
     if (portfolioStatus) portfolioStatus.innerHTML = '<div class="analytics-note">Programs evaluated: 0 of ' + portfolioPrograms.length + '</div>';
     state.programFeasibilityPortfolioResult = programFeasibilityApi().evaluateProgramPortfolioAsync
       ? await programFeasibilityApi().evaluateProgramPortfolioAsync(portfolioPrograms, rows, {
         ...sharedOptions,
-        scheduleVersion: `${rows.length}:${selectedTerm}:${state.scheduleBuilderSourceStatus || ''}`,
+        scheduleVersion: programFeasibilityApi().scheduleFingerprint ? programFeasibilityApi().scheduleFingerprint(rows) : `${rows.length}:${selectedTerm}:${state.scheduleBuilderSourceStatus || ''}`,
+        shouldCancel: () => state.programFeasibilityAbortController?.signal?.aborted === true,
         onProgress: progress => {
           const node = document.getElementById('programFeasibilityPortfolioMetrics');
           if (node) node.innerHTML = '<div class="analytics-note">Programs evaluated: ' + progress.evaluated + ' of ' + progress.total + '</div>';
@@ -9094,8 +9238,15 @@
         ? programFeasibilityApi().evaluateProgramPortfolio(portfolioPrograms, rows, sharedOptions)
         : null;
     const result = programFeasibilityApi().evaluateProgramFeasibility(program, rows, sharedOptions);
+    state.programFeasibilityAbortController = null;
     state.programFeasibilityResult = result;
     renderProgramFeasibilityResult();
+  }
+
+  function cancelProgramPortfolioAnalysis() {
+    if (state.programFeasibilityAbortController?.abort) state.programFeasibilityAbortController.abort();
+    const node = document.getElementById('programFeasibilityPortfolioMetrics');
+    if (node) node.insertAdjacentHTML('beforeend', '<div class="analytics-note">Analysis cancelled - partial results shown.</div>');
   }
 
   function renderProgramFeasibilityPortfolio() {
@@ -9104,6 +9255,8 @@
     metric('programFeasibilityPortfolioMetrics', [
       ['Program Portfolio Summary', portfolio.activeCatalogYear || 'N/A'],
       ['Programs Evaluated', portfolio.programsEvaluated],
+      ['Programs Requested', portfolio.programsRequested || portfolio.programsEvaluated],
+      ['Portfolio Status', portfolio.cancelled ? 'Analysis cancelled - partial results shown' : 'Complete'],
       ['Healthy', portfolio.healthyPrograms],
       ['Moderate Risk', portfolio.moderateRiskPrograms],
       ['High Risk', portfolio.highRiskPrograms],
@@ -9127,7 +9280,7 @@
     })).sort((a, b) => String(a.status).localeCompare(String(b.status)) || Number(a.configurations) - Number(b.configurations)).slice(0, 50);
     table('programFeasibilityPortfolioRisks', riskRows, ['program', 'award', 'status', 'configurations', 'singleCampus', 'minimumCampuses', 'primaryBlocker', 'confidence']);
     table('programFeasibilitySharedBlockers', portfolio.sharedCourseBlockers || [], ['course', 'programsAffected', 'requirementGroupsAffected', 'termsOffered', 'campusesOffered', 'onlineAvailability', 'currentSectionCount', 'recommendedAction', 'confidence']);
-    table('programFeasibilityPortfolioRecommendations', portfolio.priorityRecommendations || [], ['priority', 'proposedChange', 'programsImproved', 'configurationsAdded', 'campusAccessImprovement', 'onlineAccessImprovement', 'confidence']);
+    table('programFeasibilityPortfolioRecommendations', portfolio.candidateRecommendations || portfolio.priorityRecommendations || [], ['priority', 'proposedChange', 'affectedPrograms', 'blockerFrequency', 'proposedCourse', 'proposedTerm', 'proposedCampus', 'proposedModality', 'qualitativeRationale', 'simulated', 'confidence']);
   }
 
   function renderProgramFeasibilityResult() {
@@ -9145,6 +9298,7 @@
       ['Minimum Physical Campuses', result.viabilitySummary?.minimumPhysicalCampusesRequired ?? 'N/A'],
       ['Online-Only Completion', result.viabilitySummary?.onlineOnlyViable ? 'Yes' : 'No'],
       ['Online Dependency', result.viabilitySummary?.onlineDependency || 'None'],
+      ['Requirements Source Confidence', result.requirementsSourceConfidence?.overall || 'N/A'],
       ['Analysis Scope', result.analysisScope?.fullAwardAnalysis ? 'Full Award' : 'Program Only'],
       ['Confidence', result.confidence]
     ]);
@@ -9248,7 +9402,9 @@
       ...(portfolio ? [{ section: 'Program Portfolio Summary', activeCatalogYear: portfolio.activeCatalogYear, programsEvaluated: portfolio.programsEvaluated, healthyPrograms: portfolio.healthyPrograms, moderateRiskPrograms: portfolio.moderateRiskPrograms, highRiskPrograms: portfolio.highRiskPrograms, notViablePrograms: portfolio.notViablePrograms, insufficientDataPrograms: portfolio.insufficientDataPrograms, singleCampusViablePrograms: portfolio.singleCampusViablePrograms, multiCampusRequiredPrograms: portfolio.multiCampusRequiredPrograms, onlineDependentPrograms: portfolio.onlineDependentPrograms, onlineOnlyViablePrograms: portfolio.onlineOnlyViablePrograms, campusResultIndeterminatePrograms: portfolio.campusResultIndeterminatePrograms }] : []),
       ...((portfolio?.programResults || []).map(item => ({ section: 'Program Portfolio Detail', program: item.program?.programName || item.program?.programId, award: item.program?.awardType, catalogYear: item.program?.catalogYear, status: item.viabilitySummary?.overallStatus, coverage: item.availability?.coveragePct, academicPathways: item.pathwayResult?.count, configurations: item.configurationCounts?.rawCrnConfigurationCount, meaningfulPatterns: item.configurationCounts?.meaningfulPatternCount, singlePhysicalCampusFeasible: item.viabilitySummary?.singleCampusViable, singleCampusPlusOnlineFeasible: item.viabilitySummary?.completeWithoutMultipleCampusesWhenOnlineAllowed, minimumPhysicalCampuses: item.viabilitySummary?.minimumPhysicalCampusesRequired, onlineOnlyFeasible: item.viabilitySummary?.onlineOnlyViable, onlineDependency: item.viabilitySummary?.onlineDependency, sameDayTravelUnavoidable: item.viabilitySummary?.sameDayTravelUnavoidable, unknownCampusImpact: item.unknownCampusDiagnostics?.indeterminate, primaryBlocker: (item.blockers || [])[0]?.issue || '', confidence: item.confidence }))),
       ...((portfolio?.sharedCourseBlockers || []).map(item => ({ section: 'Shared Blockers', ...item }))),
-      ...((portfolio?.priorityRecommendations || []).map(item => ({ section: 'Simulated Recommendations', ...item }))),
+      ...((portfolio?.sharedTimeConflicts || []).map(item => ({ section: 'Shared Time Conflicts', ...item, courseKeys: (item.courseKeys || []).join('; '), programsAffected: (item.programsAffected || []).join('; '), termsAffected: (item.termsAffected || []).join('; '), campusesAffected: (item.campusesAffected || []).join('; '), currentSectionCrns: (item.currentSectionCrns || []).join('; ') }))),
+      ...((portfolio?.candidateRecommendations || portfolio?.priorityRecommendations || []).map(item => ({ section: 'Candidate Recommendations', ...item }))),
+      ...((portfolio?.simulatedRecommendations || []).map(item => ({ section: 'Simulated Recommendations', ...item }))),
       { section: 'Analysis Scope', ...result.analysisScope },
       ...Object.entries(result.programHealth?.components || {}).map(([component, value]) => ({ section: 'Program Health', component, value, weight: result.programHealth?.weights?.[component] ?? '', score: result.programHealth?.score })),
       ...(result.campusScenarios || []).map(scenario => ({ section: 'Campus Scenario Detail', ...scenario, physicalCampusesAllowed: (scenario.physicalCampusesAllowed || []).join('; '), campusesUsed: (scenario.campusesUsed || []).map(item => item.join(' + ')).join('; '), mostCommonCampusCombination: (scenario.mostCommonCampusCombination || []).join(' + '), coursesPreventingCompletion: (scenario.coursesPreventingCompletion || []).join('; '), coursesForcingCampusTravel: (scenario.coursesForcingCampusTravel || []).map(item => item.courseKey || item).join('; '), configurationsByCampusCount: JSON.stringify(scenario.configurationsByCampusCount || {}), configurationsByCampusCombination: JSON.stringify(scenario.configurationsByCampusCombination || {}) })),
@@ -24396,9 +24552,12 @@
     attachBusyClick('saveProgramRequirements', 'Saving structured program requirements...', () => saveProgramRequirementsPreview(), { key: 'saveProgramRequirements', runningLabel: 'Saving...' });
     document.getElementById('exportProgramRequirements')?.addEventListener('click', exportProgramRequirementsRepository);
     document.getElementById('clearProgramRequirementsPreview')?.addEventListener('click', clearProgramRequirementsPreview);
+    attachBusyClick('loadCatalogPilotPreview', 'Loading catalog pilot preview...', () => loadCatalogPilotPreview(), { key: 'loadCatalogPilotPreview', runningLabel: 'Loading...' });
+    attachBusyClick('approveCatalogPilotPrograms', 'Approving catalog pilot programs...', () => approveCatalogPilotPrograms(), { key: 'approveCatalogPilotPrograms', runningLabel: 'Approving...' });
     document.getElementById('programFeasibilityProgram')?.addEventListener('change', renderProgramFeasibilitySelectors);
     attachBusyClick('refreshProgramFeasibility', 'Refreshing program repository...', () => refreshProgramRequirementsRepository(), { key: 'refreshProgramFeasibility', runningLabel: 'Refreshing...' });
     attachBusyClick('runProgramFeasibility', 'Evaluating two-year program feasibility...', () => runProgramFeasibility(), { key: 'runProgramFeasibility', runningLabel: 'Evaluating...' });
+    document.getElementById('cancelProgramPortfolio')?.addEventListener('click', cancelProgramPortfolioAnalysis);
     attachBusyClick('exportProgramFeasibility', 'Exporting program feasibility rows...', () => exportProgramFeasibilityRows(), { key: 'exportProgramFeasibility', runningLabel: 'Exporting...' });
     document.getElementById('dashFocusTerm')?.addEventListener('change', () => {
       const value = document.getElementById('dashFocusTerm')?.value || '';

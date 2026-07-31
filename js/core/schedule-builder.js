@@ -36,6 +36,18 @@
     return canon(value).replace(/\s+/g, ' ');
   }
 
+  function courseKeyVariants(value) {
+    const key = normalizeCourseKey(value);
+    const match = key.match(/^([A-Z]{2,6})\s+([A-Z]?)(\d+)([A-Z]?)$/);
+    if (!match) return [key].filter(Boolean);
+    const [, subject, prefix, number, suffix] = match;
+    return [...new Set([
+      key,
+      `${subject} ${prefix}${String(Number(number))}${suffix}`,
+      `${subject} ${prefix}${number.padStart(3, '0')}${suffix}`
+    ])].filter(Boolean);
+  }
+
   function normalizeTermLabel(value) {
     if (termUtils?.normalizeTermLabel) return termUtils.normalizeTermLabel(value);
     const text = canon(value);
@@ -233,7 +245,9 @@
   function courseMatches(section, request) {
     const query = normalizeCourseKey(request.course || request.query || request);
     if (!query) return false;
-    return section.courseKey === query || section.courseKey.includes(query) || canon(section.title).includes(query);
+    const queryVariants = new Set(courseKeyVariants(query));
+    const sectionVariants = new Set(courseKeyVariants(section.courseKey));
+    return [...queryVariants].some(key => sectionVariants.has(key)) || section.courseKey.includes(query) || canon(section.title).includes(query);
   }
 
   function meetingConflicts(a, b, transitionMinutes = 0) {
@@ -351,11 +365,11 @@
     const latest = allMeetings.length ? Math.max(...allMeetings.map(meeting => meeting.endMinutes)) : null;
     const warnings = sections.flatMap(section => section.warnings || []);
     const requestedKeys = new Set((requests || []).map(request => normalizeCourseKey(request.course || request.query || request)));
-    const includedKeys = new Set(sections.map(section => section.courseKey));
+    const includedKeys = new Set(sections.flatMap(section => courseKeyVariants(section.courseKey)));
     const omittedOptionalCourses = (requests || [])
       .filter(request => request.optional || request.required === false)
       .map(request => normalizeCourseKey(request.course || request.query || request))
-      .filter(key => key && !includedKeys.has(key));
+      .filter(key => key && !courseKeyVariants(key).some(variant => includedKeys.has(variant)));
     const gaps = totalGapMinutes(sections);
     const days = campusDays(sections);
     return {
@@ -369,9 +383,19 @@
       waitlist: sections.reduce((sum, section) => sum + (section.waitlist || 0), 0),
       warnings: [...new Set(warnings)],
       omittedOptionalCourses,
-      complete: [...requestedKeys].every(key => includedKeys.has(key) || omittedOptionalCourses.includes(key)),
+      complete: [...requestedKeys].every(key => courseKeyVariants(key).some(variant => includedKeys.has(variant)) || omittedOptionalCourses.includes(key)),
       scoreExplanation: ''
     };
+  }
+
+  function meaningfulPatternHash(sections = []) {
+    return (sections || []).map(section => [
+      section.courseKey,
+      section.modality,
+      section.physicalCampus || '',
+      section.campus || '',
+      ...(section.meetings || []).map(meeting => `${(meeting.days || []).join('')}:${meeting.startMinutes}-${meeting.endMinutes}:${meeting.campus || ''}`)
+    ].join('|')).sort().join('||');
   }
 
   function scheduleViolatesAggregate(summary, preferences = {}) {
@@ -434,6 +458,9 @@
     let combinationsPruned = 0;
     let capReached = false;
     let viableConfigurationCount = 0;
+    const patternHashCap = Number(preferences.patternHashCap || preferences.meaningfulPatternCap || maxVisited) || maxVisited;
+    const meaningfulPatternHashes = new Set();
+    let meaningfulPatternCapReached = false;
 
     function visit(index, selected, selectedCourses) {
       visited += 1;
@@ -447,6 +474,8 @@
         const aggregateIssue = scheduleViolatesAggregate(summary, preferences);
         if (!aggregateIssue) {
           viableConfigurationCount += 1;
+          if (meaningfulPatternHashes.size < patternHashCap) meaningfulPatternHashes.add(meaningfulPatternHash(summary.sections || []));
+          else meaningfulPatternCapReached = true;
           if (typeof preferences.onViableSchedule === 'function') preferences.onViableSchedule(summary);
           if (countMode) {
             if (results.length < maxResults) results.push(summary);
@@ -506,6 +535,12 @@
       lowerBound: pruned,
       capReached: pruned,
       cappedAt: pruned ? maxVisited : undefined,
+      meaningfulPatternCount: {
+        count: meaningfulPatternHashes.size,
+        exact: !meaningfulPatternCapReached && !pruned,
+        lowerBound: meaningfulPatternCapReached || pruned,
+        cappedAt: meaningfulPatternCapReached || pruned ? patternHashCap : undefined
+      },
       maxResults
     };
     return {
@@ -531,6 +566,7 @@
       lowerBound: false,
       capReached: false,
       cappedAt: undefined,
+      meaningfulPatternCount: { count: 0, exact: true, lowerBound: false, cappedAt: undefined },
       maxResults
     };
   }
@@ -564,6 +600,7 @@
     sectionEligible,
     sectionsConflict,
     buildScheduleOptions,
+    meaningfulPatternHash,
     minutesFromTime,
     timeLabel,
     rankingLabel
