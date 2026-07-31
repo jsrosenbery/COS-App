@@ -13,11 +13,18 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.equal(REPORTS.dataHub, 'source-data-hub');
   assert.equal(REPORTS.ftesReconciliation, 'ftes-reconciliation');
   assert.equal(REPORT_ACCESS[REPORTS.instructorAvailability], 'general');
+  assert.equal(REPORTS.twoYearProgramFeasibility, 'two-year-program-feasibility');
+  assert.equal(REPORTS.catalogProgramRequirements, 'catalog-program-requirements');
+  assert.equal(REPORT_ACCESS[REPORTS.scheduleBuilder], 'dean');
+  assert.equal(REPORT_ACCESS[REPORTS.twoYearProgramFeasibility], 'em');
+  assert.equal(REPORT_ACCESS[REPORTS.catalogProgramRequirements], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.dataHub], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.ftesReconciliation], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.heatmap], 'divchair');
   assert.equal(REPORT_LABEL[REPORTS.dataHub], 'Source Data Hub');
   assert.equal(REPORT_LABEL[REPORTS.ftesReconciliation], 'FTES Reconciliation');
+  assert.equal(REPORT_LABEL[REPORTS.twoYearProgramFeasibility], 'Two-Year Program Feasibility');
+  assert.equal(REPORT_LABEL[REPORTS.catalogProgramRequirements], 'Catalog & Program Requirements');
   assert.equal(REPORT_LABEL[REPORTS.demand], 'Enrollment Planning Forecast');
   assert.equal(REPORT_LABEL[REPORTS.duration], 'Course Duration Heatmap');
   assert.deepEqual(REPORT_WORKFLOW_GROUPS.map(group => group.label), ['Public Reports', 'Division Chair / Administrative Assistant', 'Dean', 'Enrollment Management', 'System Administrator']);

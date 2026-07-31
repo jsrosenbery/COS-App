@@ -36,6 +36,8 @@
     recommendationEngine: 'scheduling-recommendation-engine',
     scheduleOptimizationLab: 'schedule-optimization-lab',
     scheduleBuilder: 'schedule-builder',
+    twoYearProgramFeasibility: 'two-year-program-feasibility',
+    catalogProgramRequirements: 'catalog-program-requirements',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     ftesReconciliation: 'ftes-reconciliation',
@@ -88,6 +90,8 @@
     [REPORTS.recommendationEngine]: 'development',
     [REPORTS.scheduleOptimizationLab]: 'development',
     [REPORTS.scheduleBuilder]: 'dean',
+    [REPORTS.twoYearProgramFeasibility]: 'em',
+    [REPORTS.catalogProgramRequirements]: 'admin',
     [REPORTS.facultyHeatmap]: 'dean'
   };
   const MIN_SHARED_AVAILABILITY_MINUTES = schedulingConfig.INSTRUCTOR_AVAILABILITY?.minSharedAvailabilityMinutes || 30;
@@ -146,6 +150,8 @@
     [REPORTS.recommendationEngine]: 'Schedule Recommendation',
     [REPORTS.scheduleOptimizationLab]: 'Schedule Optimization',
     [REPORTS.scheduleBuilder]: 'Schedule Builder',
+    [REPORTS.twoYearProgramFeasibility]: 'Two-Year Program Feasibility',
+    [REPORTS.catalogProgramRequirements]: 'Catalog & Program Requirements',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   };
@@ -162,7 +168,9 @@
     REPORTS.conflictCheck,
     REPORTS.facultyHeatmap,
     REPORTS.facultyModality,
+    REPORTS.scheduleBuilder,
     REPORTS.demand,
+    REPORTS.twoYearProgramFeasibility,
     REPORTS.emSnapshot,
     REPORTS.consolidation,
     REPORTS.busyTimeDashboard,
@@ -209,7 +217,8 @@
         REPORTS.roomFit,
         REPORTS.conflictCheck,
         REPORTS.facultyHeatmap,
-        REPORTS.facultyModality
+        REPORTS.facultyModality,
+        REPORTS.scheduleBuilder
       ]
     },
     {
@@ -218,6 +227,7 @@
       accessLabel: 'Enrollment Management Access',
       reports: [
         REPORTS.demand,
+        REPORTS.twoYearProgramFeasibility,
         REPORTS.emSnapshot,
         REPORTS.consolidation,
         REPORTS.busyTimeDashboard,
@@ -235,6 +245,7 @@
       reports: [
         REPORTS.instructionalMethodValidation,
         REPORTS.dataHub,
+        REPORTS.catalogProgramRequirements,
         REPORTS.ftesReconciliation,
         REPORTS.historicalInstitutionalModel,
         REPORTS.archiveInspection,
@@ -295,6 +306,8 @@
     [REPORTS.recommendationEngine]: 'Generate advisory scheduling recommendations and prioritized planning actions.',
     [REPORTS.scheduleOptimizationLab]: 'Test room moves, time shifts, and schedule-placement alternatives without changing source data.',
     [REPORTS.scheduleBuilder]: 'Build anonymous schedule options from selected courses and current term schedule data.',
+    [REPORTS.twoYearProgramFeasibility]: 'Evaluate whether recent course offerings support completion of degrees and certificates within two years.',
+    [REPORTS.catalogProgramRequirements]: 'Import, review, approve, and manage structured degree and certificate requirements.',
     [REPORTS.facultyHeatmap]: 'Compare all, full-time, and part-time faculty schedule patterns.',
     [REPORTS.workExperience]: 'Load and review supplemental Work Experience enrollment and FTES records.'
   };
@@ -393,6 +406,11 @@
     scheduleBuilderTermRows: {},
     scheduleBuilderTermMetadata: {},
     scheduleBuilderTermStatus: '',
+    programRequirementsRepository: null,
+    programRequirements: [],
+    programRequirementsPreview: [],
+    programRequirementsErrors: [],
+    programFeasibilityResult: null,
     scheduleTermCache: {},
     scheduleTermMetadataCache: {},
     scheduleTermLoading: {},
@@ -2621,6 +2639,43 @@
           <div id="sourceDataHubAdminImportsMount" class="source-data-admin-imports"></div>
           <div id="sourceDataHubLegend" class="analytics-legend"></div>
         </div>
+        <div id="catalogProgramRequirementsReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Catalog & Program Requirements</h2>
+            <p>Admin utility for importing, reviewing, approving, and backing up structured degree and certificate requirements. This phase supports reviewed JSON records, not automatic catalog PDF interpretation.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>Program Model</h3>
+                <ul>
+                  <li>Programs are stored as structured requirement groups with rules such as all, choose-count, choose-units, one-from-each-list, OR, and elective.</li>
+                  <li>Course options may include units, minimum grade, prerequisites, corequisites, equivalents, and recommended term.</li>
+                  <li>The repository is separate from Section Seating, Faculty Schedule, Room Availability, and Source Data Hub upload storage.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Review Workflow</h3>
+                <ul>
+                  <li>Download the JSON template, edit or validate records externally, then upload JSON for preview.</li>
+                  <li>Save approved preview records to replace matching program/catalog-year records.</li>
+                  <li>Export a repository backup before major catalog maintenance.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <button id="downloadProgramTemplate" type="button">Download JSON Template</button>
+            <label>Program JSON <input id="programRequirementsJson" type="file" accept=".json,application/json"></label>
+            <button id="previewProgramRequirements" type="button">Preview JSON</button>
+            <button id="saveProgramRequirements" type="button">Save Preview Records</button>
+            <button id="exportProgramRequirements" type="button">Export Repository Backup</button>
+            <button id="clearProgramRequirementsPreview" type="button">Clear Preview</button>
+          </div>
+          <div id="programRequirementsStatus" class="dashboard-scope-panel"></div>
+          <div id="programRequirementsErrors" class="analytics-warning-list"></div>
+          <div id="programRequirementsPreview" class="analytics-table"></div>
+          <div id="programRequirementsRepositoryTable" class="analytics-table"></div>
+          <div id="programRequirementsLegend" class="analytics-legend"></div>
+        </div>
         <div id="roomFitReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Room Fit Analysis</h2>
@@ -3418,6 +3473,58 @@
           <div id="scheduleBuilderCompare" class="analytics-table"></div>
           <div id="scheduleBuilderResults" class="analytics-insights schedule-builder-results"></div>
           <div id="scheduleBuilderLegend" class="analytics-legend"></div>
+        </div>
+        <div id="twoYearProgramFeasibilityReport" class="analytics-view">
+          <div class="analytics-report-intro">
+            <h2>Two-Year Program Feasibility</h2>
+            <p>Evaluates whether recent course offerings support completion of reviewed degree and certificate requirements within a selected two-year schedule-history window.</p>
+            <div class="analytics-methodology">
+              <div>
+                <h3>How to Use This Report</h3>
+                <ul>
+                  <li>Import structured program requirements in Catalog & Program Requirements.</li>
+                  <li>Select a program, catalog year, ending term, and term-window model.</li>
+                  <li>Run the report against loaded Section Seating / Schedule Data. The Schedule Builder engine is reused for CRN conflict checks.</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Scope</h3>
+                <ul>
+                  <li>This is a planning feasibility model based on recent scheduling history, not a student-specific education plan.</li>
+                  <li>It does not model transfer credit, substitutions, placement, completed coursework, or guaranteed future schedules.</li>
+                  <li>Catalog PDF extraction is intentionally deferred; reviewed JSON records use the same future-ready schema.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-toolbar">
+            <label>Program <select id="programFeasibilityProgram"></select></label>
+            <label>Catalog Year <select id="programFeasibilityCatalogYear"></select></label>
+            <label>Ending Term <select id="programFeasibilityTerm"></select></label>
+            <label>Window
+              <select id="programFeasibilityWindow">
+                <option value="full">Six terms including summer</option>
+                <option value="standard">Four fall/spring semesters</option>
+              </select>
+            </label>
+            <label>Primary Max Units <input id="programFeasibilityPrimaryMax" type="number" min="1" step="0.5" value="18"></label>
+            <label>Summer Max Units <input id="programFeasibilitySummerMax" type="number" min="0" step="0.5" value="9"></label>
+            <label>Enumeration Cap <input id="programFeasibilityCap" type="number" min="100" step="100" value="25000"></label>
+            <label>Campus Preference <select id="programFeasibilityCampus" multiple size="4"></select></label>
+            <label>Modality Preference <select id="programFeasibilityModality" multiple size="4"></select></label>
+            <label class="analytics-check"><input id="programFeasibilityIncludeFull" type="checkbox"> Include Full Sections</label>
+            <label class="analytics-check"><input id="programFeasibilityIncludeWaitlisted" type="checkbox" checked> Include Waitlisted Sections</label>
+            <button id="refreshProgramFeasibility" type="button">Refresh Programs</button>
+            <button id="runProgramFeasibility" type="button">Run Feasibility</button>
+            <button id="exportProgramFeasibility" type="button">Export Feasibility CSV</button>
+          </div>
+          <div id="programFeasibilityMetrics" class="analytics-metrics"></div>
+          <div id="programFeasibilityWindowStatus" class="dashboard-scope-panel"></div>
+          <div id="programFeasibilityCoverage" class="analytics-table"></div>
+          <div id="programFeasibilityPathways" class="analytics-table"></div>
+          <div id="programFeasibilityCounts" class="analytics-table"></div>
+          <div id="programFeasibilityBlockers" class="analytics-table"></div>
+          <div id="programFeasibilityLegend" class="analytics-legend"></div>
         </div>
         <div id="scheduleOptimizationLabReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -8700,6 +8807,285 @@
       }));
     });
     exportRowsWithoutMethodology(rows, 'timber-schedule-options.csv');
+  }
+
+  function programRequirementsApi() {
+    if (!window.COSProgramRequirements) throw new Error('Program Requirements module is not loaded.');
+    return window.COSProgramRequirements;
+  }
+
+  function programFeasibilityApi() {
+    if (!window.COSProgramFeasibility) throw new Error('Program Feasibility module is not loaded.');
+    return window.COSProgramFeasibility;
+  }
+
+  async function programRequirementsRepository() {
+    if (!state.programRequirementsRepository) {
+      state.programRequirementsRepository = programRequirementsApi().createIndexedDbRepository();
+      await state.programRequirementsRepository.initialize();
+    }
+    return state.programRequirementsRepository;
+  }
+
+  async function refreshProgramRequirementsRepository() {
+    const repo = await programRequirementsRepository();
+    state.programRequirements = await repo.getPrograms();
+    renderProgramRequirementsAdmin();
+    renderProgramFeasibilitySelectors();
+    return state.programRequirements;
+  }
+
+  function programRequirementRows(programs = state.programRequirements) {
+    return (programs || []).map(program => ({
+      programId: program.programId,
+      catalogYear: program.catalogYear,
+      programName: program.programName,
+      awardType: program.awardType,
+      reviewStatus: program.reviewStatus,
+      requirementGroups: (program.requirementGroups || []).length,
+      sourceType: program.source?.sourceType || '',
+      importedAt: program.source?.importedAt || ''
+    }));
+  }
+
+  function renderProgramRequirementsAdmin() {
+    const status = document.getElementById('programRequirementsStatus');
+    if (status) {
+      status.innerHTML = `
+        <strong>Structured Program Repository</strong>
+        <dl class="report-context-grid">
+          <div><dt>Saved Programs</dt><dd>${state.programRequirements.length}</dd></div>
+          <div><dt>Preview Records</dt><dd>${state.programRequirementsPreview.length}</dd></div>
+          <div><dt>Validation Errors</dt><dd>${state.programRequirementsErrors.length}</dd></div>
+          <div><dt>Storage</dt><dd>IndexedDB: timber-program-requirements / academicPrograms</dd></div>
+        </dl>
+      `;
+    }
+    const errors = document.getElementById('programRequirementsErrors');
+    if (errors) errors.innerHTML = state.programRequirementsErrors.length
+      ? `<strong>Validation Errors</strong><ul>${state.programRequirementsErrors.map(error => `<li>${escapeAttr(error)}</li>`).join('')}</ul>`
+      : '<p class="analytics-empty">No validation errors.</p>';
+    table('programRequirementsPreview', programRequirementRows(state.programRequirementsPreview), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType']);
+    table('programRequirementsRepositoryTable', programRequirementRows(state.programRequirements), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType', 'importedAt']);
+    renderMethodologyPanel(document.getElementById('programRequirementsLegend'), {
+      title: 'Catalog & Program Requirements Methodology',
+      purpose: 'Stores reviewed structured program requirements for feasibility analysis.',
+      calculationRules: 'Requirement groups preserve rule type, nested structure, course options, units, prerequisites, corequisites, equivalents, and source metadata.',
+      assumptions: 'JSON records are reviewed administrative inputs. Catalog PDF extraction is not implemented in this phase.',
+      limitations: 'This repository does not alter report calculations, Section Seating archives, Room Availability, or Source Data Hub storage.',
+      items: [
+        ['Persistence', 'Browser IndexedDB object store academicPrograms.'],
+        ['Replacement Rule', 'Saving preview records replaces matching programId + catalogYear records.'],
+        ['Future PDF Phase', 'PDF extraction can populate the same structured schema later.']
+      ],
+      version: 'Program requirements foundation v1'
+    });
+  }
+
+  function downloadProgramTemplate() {
+    const template = { programs: programRequirementsApi().templatePrograms };
+    const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'timber-program-requirements-template.json';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
+  async function previewProgramRequirementsJson() {
+    const input = document.getElementById('programRequirementsJson');
+    const file = input?.files?.[0];
+    if (!file) {
+      state.programRequirementsErrors = ['Choose a JSON file to preview.'];
+      state.programRequirementsPreview = [];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    const parsed = programRequirementsApi().parseProgramJson(await file.text(), file.name);
+    state.programRequirementsPreview = parsed.programs;
+    state.programRequirementsErrors = parsed.errors;
+    renderProgramRequirementsAdmin();
+  }
+
+  async function saveProgramRequirementsPreview() {
+    if (!state.programRequirementsPreview.length) {
+      state.programRequirementsErrors = ['No valid preview records are available to save.'];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    const repo = await programRequirementsRepository();
+    await repo.savePrograms(state.programRequirementsPreview);
+    state.programRequirementsPreview = [];
+    state.programRequirementsErrors = [];
+    await refreshProgramRequirementsRepository();
+  }
+
+  function exportProgramRequirementsRepository() {
+    const blob = new Blob([JSON.stringify({ programs: state.programRequirements }, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'timber-program-requirements-backup.json';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
+  function clearProgramRequirementsPreview() {
+    state.programRequirementsPreview = [];
+    state.programRequirementsErrors = [];
+    renderProgramRequirementsAdmin();
+  }
+
+  function programFeasibilityRows() {
+    return scheduleBuilderAllRows().map(normalize).filter(row => normalizeTermLabel(row.term || row.Term));
+  }
+
+  function selectedValues(id) {
+    const node = document.getElementById(id);
+    return Array.from(node?.selectedOptions || []).map(option => option.value || option.textContent || '').filter(Boolean);
+  }
+
+  function renderProgramFeasibilitySelectors() {
+    const programs = state.programRequirements || [];
+    const programSelect = document.getElementById('programFeasibilityProgram');
+    const catalogSelect = document.getElementById('programFeasibilityCatalogYear');
+    if (programSelect) {
+      const prior = programSelect.value;
+      const options = [...new Map(programs.map(program => [program.programId, program])).values()];
+      programSelect.innerHTML = options.length
+        ? options.map(program => `<option value="${escapeAttr(program.programId)}">${escapeAttr(program.programName || program.programId)}</option>`).join('')
+        : '<option value="">No saved programs</option>';
+      if (prior && [...programSelect.options].some(option => option.value === prior)) programSelect.value = prior;
+    }
+    if (catalogSelect) {
+      const selectedProgram = programSelect?.value || '';
+      const prior = catalogSelect.value;
+      const years = [...new Set(programs.filter(program => !selectedProgram || program.programId === selectedProgram).map(program => program.catalogYear).filter(Boolean))];
+      catalogSelect.innerHTML = years.length ? years.map(year => `<option>${escapeAttr(year)}</option>`).join('') : '<option value="">No catalog years</option>';
+      if (prior && [...catalogSelect.options].some(option => option.value === prior)) catalogSelect.value = prior;
+    }
+    const termSelect = document.getElementById('programFeasibilityTerm');
+    if (termSelect) {
+      const prior = termSelect.value || normalizeTermLabel(currentTerm());
+      const terms = [...new Set([...collectTerms(programFeasibilityRows()), normalizeTermLabel(currentTerm())].filter(Boolean))].sort((a, b) => termSortValue(a) - termSortValue(b));
+      termSelect.innerHTML = terms.length ? terms.map(term => `<option>${escapeAttr(term)}</option>`).join('') : '<option value="">No loaded terms</option>';
+      if (prior && [...termSelect.options].some(option => option.value === prior)) termSelect.value = prior;
+    }
+    setSimpleOptions('programFeasibilityCampus', [...new Set(programFeasibilityRows().map(row => canon(row.campus || row.Campus)).filter(Boolean))]);
+    setSimpleOptions('programFeasibilityModality', ['In-Person', 'Hybrid', 'Online', 'Asynchronous Online', 'Synchronous Online']);
+  }
+
+  function setSimpleOptions(id, values = []) {
+    const node = document.getElementById(id);
+    if (!node) return;
+    const selected = new Set(Array.from(node.selectedOptions || []).map(option => option.value));
+    node.innerHTML = values.map(value => `<option value="${escapeAttr(value)}">${escapeAttr(value)}</option>`).join('');
+    Array.from(node.options || []).forEach(option => {
+      option.selected = selected.has(option.value);
+    });
+  }
+
+  async function runProgramFeasibility() {
+    await refreshProgramRequirementsRepository();
+    const programId = document.getElementById('programFeasibilityProgram')?.value || '';
+    const catalogYear = document.getElementById('programFeasibilityCatalogYear')?.value || '';
+    const repo = await programRequirementsRepository();
+    const program = await repo.getProgram(programId, catalogYear);
+    if (!program) {
+      state.programFeasibilityResult = null;
+      metric('programFeasibilityMetrics', [['Programs Loaded', state.programRequirements.length], ['Configuration Count', 0], ['Status', 'No program selected']]);
+      document.getElementById('programFeasibilityCoverage').innerHTML = '<p class="analytics-empty">Import and select a structured program first.</p>';
+      return;
+    }
+    const selectedTerm = document.getElementById('programFeasibilityTerm')?.value || normalizeTermLabel(currentTerm());
+    await loadScheduleBuilderEffectiveTermRows(selectedTerm).catch(() => []);
+    const rows = programFeasibilityRows();
+    const result = programFeasibilityApi().evaluateProgramFeasibility(program, rows, {
+      selectedTerm,
+      windowType: document.getElementById('programFeasibilityWindow')?.value || 'full',
+      primarySemesterMaxUnits: num(document.getElementById('programFeasibilityPrimaryMax')?.value) || 18,
+      summerMaxUnits: num(document.getElementById('programFeasibilitySummerMax')?.value) || 9,
+      academicPathwayCap: num(document.getElementById('programFeasibilityCap')?.value) || 25000,
+      sectionConfigurationCap: num(document.getElementById('programFeasibilityCap')?.value) || 10000,
+      preferredCampuses: selectedValues('programFeasibilityCampus'),
+      allowedModalities: selectedValues('programFeasibilityModality'),
+      includeFullSections: document.getElementById('programFeasibilityIncludeFull')?.checked === true,
+      includeWaitlistedSections: document.getElementById('programFeasibilityIncludeWaitlisted')?.checked === true,
+      includeUnknownSeatStatus: true
+    });
+    state.programFeasibilityResult = result;
+    renderProgramFeasibilityResult();
+  }
+
+  function renderProgramFeasibilityResult() {
+    const result = state.programFeasibilityResult;
+    if (!result) return;
+    metric('programFeasibilityMetrics', [
+      ['Overall Feasibility', result.overallFeasibility],
+      ['Course Coverage', result.availability.coveragePct],
+      ['Academic Pathways', result.pathwayResult.count],
+      ['Raw CRN Configurations', result.configurationCounts.rawCrnConfigurationCount],
+      ['Meaningful Patterns', result.configurationCounts.meaningfulPatternCount],
+      ['Schedule Flexibility', programFeasibilityApi().flexibilityRating(result.configurationCounts.meaningfulPatternCount)],
+      ['Confidence', result.confidence]
+    ]);
+    const status = document.getElementById('programFeasibilityWindowStatus');
+    if (status) status.innerHTML = `
+      <strong>${escapeAttr(result.reportTitle)}</strong>
+      <dl class="report-context-grid">
+        <div><dt>Program</dt><dd>${escapeAttr(result.program.programName)}</dd></div>
+        <div><dt>Award</dt><dd>${escapeAttr(result.program.awardType)}</dd></div>
+        <div><dt>Catalog Year</dt><dd>${escapeAttr(result.program.catalogYear)}</dd></div>
+        <div><dt>Ending Term</dt><dd>${escapeAttr(result.selectedTerm)}</dd></div>
+        <div><dt>Terms Analyzed</dt><dd>${escapeAttr((result.termsAnalyzed || []).join(', '))}</dd></div>
+        <div><dt>Missing Terms</dt><dd>${escapeAttr((result.termWindow.missingTerms || []).join(', ') || 'None')}</dd></div>
+      </dl>
+    `;
+    table('programFeasibilityCoverage', result.requirementCoverage, ['courseKey', 'termsOffered', 'sections', 'enrollment', 'seats', 'reliability', 'status']);
+    const pathwayRows = result.pathwayResult.pathways.slice(0, 50).flatMap((pathway, index) => (pathway.termAssignments || []).map(item => ({
+      pathway: index + 1,
+      term: item.term,
+      courseKey: item.courseKey,
+      units: item.units,
+      summerUsed: pathway.summerUsed ? 'Yes' : 'No',
+      status: pathway.loadStatus
+    })));
+    table('programFeasibilityPathways', pathwayRows, ['pathway', 'term', 'courseKey', 'units', 'summerUsed', 'status']);
+    table('programFeasibilityCounts', [{
+      exact: result.configurationCounts.exact ? 'Exact' : 'Capped lower bound',
+      rawCrnConfigurationCount: result.configurationCounts.rawCrnConfigurationCount,
+      meaningfulPatternCount: result.configurationCounts.meaningfulPatternCount,
+      configurationsWithoutSummer: result.configurationCounts.configurationsWithoutSummer,
+      configurationsUsingSummer: result.configurationCounts.configurationsUsingSummer,
+      standardLoadConfigurations: result.configurationCounts.standardLoadConfigurations,
+      resilience: result.resilience.resilience,
+      resilienceNote: result.resilience.note
+    }], ['exact', 'rawCrnConfigurationCount', 'meaningfulPatternCount', 'configurationsWithoutSummer', 'configurationsUsingSummer', 'standardLoadConfigurations', 'resilience', 'resilienceNote']);
+    table('programFeasibilityBlockers', result.blockers, ['severity', 'requirement', 'issue', 'effect', 'suggestedAction']);
+    renderMethodologyPanel(document.getElementById('programFeasibilityLegend'), {
+      title: 'Two-Year Program Feasibility Methodology',
+      purpose: 'Tests structured degree/certificate requirements against recent Section Seating history and Schedule Builder conflict checks.',
+      calculationRules: 'Availability is calculated by course option across the selected two-year window. Academic pathways preserve requirement choices, prerequisites, unit limits, and summer usage. Section configurations reuse Schedule Builder CRN conflict checks and meaningful-pattern deduplication.',
+      assumptions: 'Requirements must be imported as reviewed structured JSON. Offering reliability bands are provisional and configurable in the engine.',
+      limitations: result.limitations.join(' '),
+      items: [
+        ['Academic Pathway Configuration', 'A distinct course-choice and term-assignment pathway.'],
+        ['Raw CRN Configuration', 'A conflict-free CRN combination available for a pathway.'],
+        ['Meaningful Pattern', 'Deduplicated student-facing weekly pattern; same course/day/time/modality/campus patterns do not inflate flexibility.'],
+        ['Resilience', 'Diagnostic approximation showing sensitivity to the weakest offered course.']
+      ],
+      version: 'Feasibility foundation v1'
+    });
+  }
+
+  function exportProgramFeasibilityRows() {
+    const result = state.programFeasibilityResult;
+    if (!result) return;
+    const rows = [
+      ...result.requirementCoverage.map(row => ({ section: 'Requirement Coverage', ...row, termsOffered: (row.termsOffered || []).join('; ') })),
+      ...result.pathwayResult.pathways.slice(0, 50).flatMap((pathway, index) => (pathway.termAssignments || []).map(item => ({ section: 'Suggested Pathway', pathway: index + 1, ...item, summerUsed: pathway.summerUsed, loadStatus: pathway.loadStatus }))),
+      ...result.blockers.map(row => ({ section: 'Blocker or Risk', ...row }))
+    ];
+    exportRowsWithoutMethodology(rows, 'two-year-program-feasibility.csv');
   }
 
   function optimizationEngine() {
@@ -21683,6 +22069,8 @@
     [REPORTS.facultyHeatmap]: 'facultyHeatmapReport',
     [REPORTS.scheduleOptimizationLab]: 'scheduleOptimizationLabReport',
     [REPORTS.scheduleBuilder]: 'scheduleBuilderReport',
+    [REPORTS.twoYearProgramFeasibility]: 'twoYearProgramFeasibilityReport',
+    [REPORTS.catalogProgramRequirements]: 'catalogProgramRequirementsReport',
     [REPORTS.workExperience]: 'workExperienceReport'
   };
 
@@ -21703,7 +22091,8 @@
     [REPORTS.studentChoiceOpportunity]: 'studentChoice',
     [REPORTS.recommendationEngine]: 'recommendation',
     [REPORTS.scheduleOptimizationLab]: 'optimization',
-    [REPORTS.scheduleBuilder]: 'scheduleBuilder'
+    [REPORTS.scheduleBuilder]: 'scheduleBuilder',
+    [REPORTS.twoYearProgramFeasibility]: 'programFeasibility'
   };
 
   const METRIC_REPORT_MAP = {
@@ -21722,6 +22111,7 @@
     recommendationMetrics: REPORTS.recommendationEngine,
     optimizationMetrics: REPORTS.scheduleOptimizationLab,
     scheduleBuilderMetrics: REPORTS.scheduleBuilder,
+    programFeasibilityMetrics: REPORTS.twoYearProgramFeasibility,
     modalityMetrics: REPORTS.modality,
     roomFitReportMetrics: REPORTS.roomFit
   };
@@ -23192,6 +23582,8 @@
     setReportDisplay(REPORTS.facultyHeatmap, 'facultyHeatmapReport');
     setReportDisplay(REPORTS.scheduleOptimizationLab, 'scheduleOptimizationLabReport');
     setReportDisplay(REPORTS.scheduleBuilder, 'scheduleBuilderReport');
+    setReportDisplay(REPORTS.twoYearProgramFeasibility, 'twoYearProgramFeasibilityReport');
+    setReportDisplay(REPORTS.catalogProgramRequirements, 'catalogProgramRequirementsReport');
     const utilizationTool = document.getElementById('utilization-tool');
     if (utilizationTool) utilizationTool.style.display = selectedAccessible && selected === REPORTS.utilization ? 'block' : 'none';
     const heatmapTool = document.getElementById('heatmap-tool');
@@ -23268,6 +23660,13 @@
         });
       renderWorkExperienceUploadStatus();
       renderSourceDataHubStatus();
+    }
+    if (selected === REPORTS.catalogProgramRequirements) {
+      refreshProgramRequirementsRepository().catch(err => {
+        state.programRequirementsErrors = [err.message || String(err)];
+        renderProgramRequirementsAdmin();
+      });
+      renderProgramRequirementsAdmin();
     }
     if (selected === REPORTS.utilization) {
       window.COSScheduleApp?.renderUtilizationMap?.();
@@ -23347,6 +23746,24 @@
           state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
           renderScheduleBuilderResults();
         });
+    }
+    if (selected === REPORTS.twoYearProgramFeasibility) {
+      refreshProgramRequirementsRepository()
+        .then(() => {
+          renderProgramFeasibilitySelectors();
+          if (!state.programFeasibilityResult) {
+            metric('programFeasibilityMetrics', [
+              ['Programs Loaded', state.programRequirements.length],
+              ['Academic Pathways', 0],
+              ['Meaningful Patterns', 0]
+            ]);
+            document.getElementById('programFeasibilityCoverage').innerHTML = '<p class="analytics-empty">Select a structured program and run feasibility.</p>';
+            document.getElementById('programFeasibilityPathways').innerHTML = '<p class="analytics-empty">Suggested pathways appear after running feasibility.</p>';
+            document.getElementById('programFeasibilityCounts').innerHTML = '<p class="analytics-empty">Configuration counts appear after running feasibility.</p>';
+            document.getElementById('programFeasibilityBlockers').innerHTML = '<p class="analytics-empty">Blockers and risks appear after running feasibility.</p>';
+          }
+        })
+        .catch(err => console.warn('Program feasibility initialization skipped:', err));
     }
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
@@ -23801,6 +24218,15 @@
     attachBusyClick('dataHubPreviewHistoricalInstitutional', 'Previewing Historical Institutional Results...', () => previewHistoricalInstitutionalImport(), { key: 'dataHubPreviewHistoricalInstitutional', runningLabel: 'Previewing...' });
     attachBusyClick('dataHubCommitHistoricalInstitutional', 'Committing Historical Institutional Results...', () => commitHistoricalInstitutionalImport(), { key: 'dataHubCommitHistoricalInstitutional', runningLabel: 'Committing...' });
     attachBusyClick('dataHubSaveSnapshotBatch', 'Saving enrollment snapshot...', () => saveDataHubSnapshotBatch(), { key: 'dataHubSaveSnapshotBatch', runningLabel: 'Saving...' });
+    document.getElementById('downloadProgramTemplate')?.addEventListener('click', downloadProgramTemplate);
+    attachBusyClick('previewProgramRequirements', 'Previewing program requirements JSON...', () => previewProgramRequirementsJson(), { key: 'previewProgramRequirements', runningLabel: 'Previewing...' });
+    attachBusyClick('saveProgramRequirements', 'Saving structured program requirements...', () => saveProgramRequirementsPreview(), { key: 'saveProgramRequirements', runningLabel: 'Saving...' });
+    document.getElementById('exportProgramRequirements')?.addEventListener('click', exportProgramRequirementsRepository);
+    document.getElementById('clearProgramRequirementsPreview')?.addEventListener('click', clearProgramRequirementsPreview);
+    document.getElementById('programFeasibilityProgram')?.addEventListener('change', renderProgramFeasibilitySelectors);
+    attachBusyClick('refreshProgramFeasibility', 'Refreshing program repository...', () => refreshProgramRequirementsRepository(), { key: 'refreshProgramFeasibility', runningLabel: 'Refreshing...' });
+    attachBusyClick('runProgramFeasibility', 'Evaluating two-year program feasibility...', () => runProgramFeasibility(), { key: 'runProgramFeasibility', runningLabel: 'Evaluating...' });
+    attachBusyClick('exportProgramFeasibility', 'Exporting program feasibility rows...', () => exportProgramFeasibilityRows(), { key: 'exportProgramFeasibility', runningLabel: 'Exporting...' });
     document.getElementById('dashFocusTerm')?.addEventListener('change', () => {
       const value = document.getElementById('dashFocusTerm')?.value || '';
       const parts = termParts(value);

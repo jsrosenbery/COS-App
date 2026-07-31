@@ -29,6 +29,8 @@
     recommendationEngine: 'scheduling-recommendation-engine',
     scheduleOptimizationLab: 'schedule-optimization-lab',
     scheduleBuilder: 'schedule-builder',
+    twoYearProgramFeasibility: 'two-year-program-feasibility',
+    catalogProgramRequirements: 'catalog-program-requirements',
     conflictCheck: 'conflict-check',
     snapshotManager: 'enrollment-snapshot-manager',
     ftesReconciliation: 'ftes-reconciliation',
@@ -81,6 +83,8 @@
     [REPORTS.recommendationEngine]: 'development',
     [REPORTS.scheduleOptimizationLab]: 'development',
     [REPORTS.scheduleBuilder]: 'dean',
+    [REPORTS.twoYearProgramFeasibility]: 'em',
+    [REPORTS.catalogProgramRequirements]: 'admin',
     [REPORTS.facultyHeatmap]: 'dean'
   });
   const REPORT_LABEL = Object.freeze({
@@ -111,6 +115,8 @@
     [REPORTS.recommendationEngine]: 'Schedule Recommendation',
     [REPORTS.scheduleOptimizationLab]: 'Schedule Optimization',
     [REPORTS.scheduleBuilder]: 'Schedule Builder',
+    [REPORTS.twoYearProgramFeasibility]: 'Two-Year Program Feasibility',
+    [REPORTS.catalogProgramRequirements]: 'Catalog & Program Requirements',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
   });
@@ -127,7 +133,9 @@
     REPORTS.conflictCheck,
     REPORTS.facultyHeatmap,
     REPORTS.facultyModality,
+    REPORTS.scheduleBuilder,
     REPORTS.demand,
+    REPORTS.twoYearProgramFeasibility,
     REPORTS.emSnapshot,
     REPORTS.consolidation,
     REPORTS.busyTimeDashboard,
@@ -174,7 +182,8 @@
         REPORTS.roomFit,
         REPORTS.conflictCheck,
         REPORTS.facultyHeatmap,
-        REPORTS.facultyModality
+        REPORTS.facultyModality,
+        REPORTS.scheduleBuilder
       ])
     },
     {
@@ -183,6 +192,7 @@
       accessLabel: 'Enrollment Management Access',
       reports: Object.freeze([
         REPORTS.demand,
+        REPORTS.twoYearProgramFeasibility,
         REPORTS.emSnapshot,
         REPORTS.consolidation,
         REPORTS.busyTimeDashboard,
@@ -200,6 +210,7 @@
       reports: Object.freeze([
         REPORTS.instructionalMethodValidation,
         REPORTS.dataHub,
+        REPORTS.catalogProgramRequirements,
         REPORTS.ftesReconciliation,
         REPORTS.historicalInstitutionalModel,
         REPORTS.archiveInspection,
@@ -260,6 +271,8 @@
     [REPORTS.recommendationEngine]: 'Generate advisory scheduling recommendations and prioritized planning actions.',
     [REPORTS.scheduleOptimizationLab]: 'Test room moves, time shifts, and schedule-placement alternatives without changing source data.',
     [REPORTS.scheduleBuilder]: 'Build anonymous schedule options from selected courses and current term schedule data.',
+    [REPORTS.twoYearProgramFeasibility]: 'Evaluate whether recent course offerings support completion of degrees and certificates within two years.',
+    [REPORTS.catalogProgramRequirements]: 'Import, review, approve, and manage structured degree and certificate requirements.',
     [REPORTS.facultyHeatmap]: 'Compare all, full-time, and part-time faculty schedule patterns.',
     [REPORTS.workExperience]: 'Load and review supplemental Work Experience enrollment and FTES records.'
   });

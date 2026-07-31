@@ -4393,9 +4393,9 @@ test('launcher configuration uses the required responsibility groups and order',
   ]);
   assert.deepEqual(REPORT_WORKFLOW_GROUPS[0].reports, [REPORTS.instructorAvailability]);
   assert.deepEqual(REPORT_WORKFLOW_GROUPS[1].reports, [REPORTS.heatmap, REPORTS.studentPresence, REPORTS.modality, REPORTS.duration]);
-  assert.deepEqual(REPORT_WORKFLOW_GROUPS[2].reports, [REPORTS.dashboard, REPORTS.attrition, REPORTS.utilization, REPORTS.roomFit, REPORTS.conflictCheck, REPORTS.facultyHeatmap, REPORTS.facultyModality]);
-  assert.deepEqual(REPORT_WORKFLOW_GROUPS[3].reports, [REPORTS.demand, REPORTS.emSnapshot, REPORTS.consolidation, REPORTS.busyTimeDashboard, REPORTS.primeTimeAnalysis, REPORTS.supplyDemand, REPORTS.studentChoiceOpportunity, REPORTS.recommendationEngine, REPORTS.scheduleOptimizationLab]);
-  assert.deepEqual(REPORT_WORKFLOW_GROUPS[4].reports, [REPORTS.instructionalMethodValidation, REPORTS.dataHub, REPORTS.ftesReconciliation, REPORTS.historicalInstitutionalModel, REPORTS.archiveInspection, REPORTS.workExperience]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[2].reports, [REPORTS.dashboard, REPORTS.attrition, REPORTS.utilization, REPORTS.roomFit, REPORTS.conflictCheck, REPORTS.facultyHeatmap, REPORTS.facultyModality, REPORTS.scheduleBuilder]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[3].reports, [REPORTS.demand, REPORTS.twoYearProgramFeasibility, REPORTS.emSnapshot, REPORTS.consolidation, REPORTS.busyTimeDashboard, REPORTS.primeTimeAnalysis, REPORTS.supplyDemand, REPORTS.studentChoiceOpportunity, REPORTS.recommendationEngine, REPORTS.scheduleOptimizationLab]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[4].reports, [REPORTS.instructionalMethodValidation, REPORTS.dataHub, REPORTS.catalogProgramRequirements, REPORTS.ftesReconciliation, REPORTS.historicalInstitutionalModel, REPORTS.archiveInspection, REPORTS.workExperience]);
 
   assert.equal(REPORT_ACCESS[REPORTS.instructorAvailability], 'general');
   assert.equal(REPORT_ACCESS[REPORTS.heatmap], 'divchair');
@@ -4847,7 +4847,7 @@ test('anonymous Schedule Builder keeps browser-side engine wiring outside launch
   assert.match(text, /scheduleBuilder: 'schedule-builder'/);
   assert.match(text, /\[REPORTS\.scheduleBuilder\]: 'dean'/);
   assert.match(text, /\[REPORTS\.scheduleBuilder\]: 'Schedule Builder'/);
-  assert.doesNotMatch(deanBlock, /REPORTS\.scheduleBuilder/);
+  assert.match(deanBlock, /REPORTS\.scheduleBuilder/);
   assert.doesNotMatch(developmentBlock, /REPORTS\.scheduleBuilder/);
   assert.match(text, /id="scheduleBuilderReport"/);
   assert.match(text, /id="scheduleBuilderSourceStatus"/);
@@ -4894,6 +4894,35 @@ test('anonymous Schedule Builder keeps browser-side engine wiring outside launch
   assert.match(engine, /dateRangesOverlap/);
   assert.match(engine, /Asynchronous online section has no fixed meeting conflict/);
   assert.match(engine, /Hybrid section: verify meeting dates\/pattern/);
+});
+
+test('two-year program feasibility foundation is registered and uses structured program modules', () => {
+  const root = path.join(__dirname, '..');
+  const text = fs.readFileSync(path.join(root, 'js/enrollment-analytics.js'), 'utf8');
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const reports = fs.readFileSync(path.join(root, 'js/config/reports.js'), 'utf8');
+  const enrollmentBlock = reports.slice(reports.indexOf("key: 'enrollment-management'"), reports.indexOf("key: 'admin'"));
+  const adminBlock = reports.slice(reports.indexOf("key: 'admin'"));
+
+  assert.match(reports, /twoYearProgramFeasibility: 'two-year-program-feasibility'/);
+  assert.match(reports, /catalogProgramRequirements: 'catalog-program-requirements'/);
+  assert.match(reports, /\[REPORTS\.twoYearProgramFeasibility\]: 'em'/);
+  assert.match(reports, /\[REPORTS\.catalogProgramRequirements\]: 'admin'/);
+  assert.ok(enrollmentBlock.indexOf('REPORTS.demand') < enrollmentBlock.indexOf('REPORTS.twoYearProgramFeasibility'));
+  assert.match(adminBlock, /REPORTS\.catalogProgramRequirements/);
+  assert.match(text, /id="twoYearProgramFeasibilityReport"/);
+  assert.match(text, /id="catalogProgramRequirementsReport"/);
+  assert.match(text, /function runProgramFeasibility/);
+  assert.match(text, /function previewProgramRequirementsJson/);
+  assert.match(text, /createIndexedDbRepository/);
+  assert.match(text, /evaluateProgramFeasibility/);
+  assert.match(index, /js\/core\/program-requirements\.js/);
+  assert.match(index, /js\/core\/feasibility-term-window\.js/);
+  assert.match(index, /js\/core\/program-feasibility\.js/);
+  assert.ok(enrollmentBlock.indexOf('REPORTS.demand') < enrollmentBlock.indexOf('REPORTS.twoYearProgramFeasibility'));
+  assert.ok(enrollmentBlock.indexOf('REPORTS.twoYearProgramFeasibility') < enrollmentBlock.indexOf('REPORTS.emSnapshot'));
+  assert.ok(index.indexOf('src="js/core/schedule-builder.js"') < index.indexOf('src="js/core/program-feasibility.js"'));
+  assert.ok(index.indexOf('src="js/core/program-feasibility.js"') < index.indexOf('src="js/enrollment-analytics.js"'));
 });
 
 test('report loading uses shared busy state and separated term caches', () => {
