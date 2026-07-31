@@ -150,7 +150,7 @@
     [REPORTS.recommendationEngine]: 'Schedule Recommendation',
     [REPORTS.scheduleOptimizationLab]: 'Schedule Optimization',
     [REPORTS.scheduleBuilder]: 'Schedule Builder',
-    [REPORTS.twoYearProgramFeasibility]: 'Two-Year Program Feasibility',
+    [REPORTS.twoYearProgramFeasibility]: 'Program Schedule Viability',
     [REPORTS.catalogProgramRequirements]: 'Catalog & Program Requirements',
     [REPORTS.facultyHeatmap]: 'Faculty Schedule Heatmap',
     [REPORTS.workExperience]: 'Work Experience Enrollment'
@@ -306,7 +306,7 @@
     [REPORTS.recommendationEngine]: 'Generate advisory scheduling recommendations and prioritized planning actions.',
     [REPORTS.scheduleOptimizationLab]: 'Test room moves, time shifts, and schedule-placement alternatives without changing source data.',
     [REPORTS.scheduleBuilder]: 'Build anonymous schedule options from selected courses and current term schedule data.',
-    [REPORTS.twoYearProgramFeasibility]: 'Evaluate whether recent course offerings support completion of degrees and certificates within two years.',
+    [REPORTS.twoYearProgramFeasibility]: 'Evaluate whether current and recent schedules support two-year completion of current degrees and certificates.',
     [REPORTS.catalogProgramRequirements]: 'Import, review, approve, and manage structured degree and certificate requirements.',
     [REPORTS.facultyHeatmap]: 'Compare all, full-time, and part-time faculty schedule patterns.',
     [REPORTS.workExperience]: 'Load and review supplemental Work Experience enrollment and FTES records.'
@@ -3476,22 +3476,22 @@
         </div>
         <div id="twoYearProgramFeasibilityReport" class="analytics-view">
           <div class="analytics-report-intro">
-            <h2>Two-Year Program Feasibility</h2>
-            <p>Evaluates whether recent course offerings support completion of reviewed degree and certificate requirements within a selected two-year schedule-history window.</p>
+            <h2>Program Schedule Viability</h2>
+            <p>Evaluate whether recent and currently built course schedules support completion of current degrees and certificates within two years.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
                   <li>Import structured program requirements in Catalog & Program Requirements.</li>
-                  <li>Select a program, catalog year, ending term, and term-window model.</li>
+                  <li>Select a program, ending term, online mode, and term-window model.</li>
                   <li>Run the report against loaded Section Seating / Schedule Data. The Schedule Builder engine is reused for CRN conflict checks.</li>
                 </ul>
               </div>
               <div>
                 <h3>Scope</h3>
                 <ul>
-                  <li>This is a planning feasibility model based on recent scheduling history, not a student-specific education plan.</li>
-                  <li>It does not model transfer credit, substitutions, placement, completed coursework, or guaranteed future schedules.</li>
+                  <li>This is a schedule-development pulse check, not a student-specific education plan.</li>
+                  <li>It does not model transfer credit, substitutions, placement, completed coursework, catalog-right selection, counseling recommendations, or guaranteed graduation.</li>
                   <li>Catalog PDF extraction is intentionally deferred; reviewed JSON records use the same future-ready schema.</li>
                 </ul>
               </div>
@@ -3499,7 +3499,8 @@
           </div>
           <div class="analytics-toolbar">
             <label>Program <select id="programFeasibilityProgram"></select></label>
-            <label>Catalog Year <select id="programFeasibilityCatalogYear"></select></label>
+            <label hidden>Catalog Year <select id="programFeasibilityCatalogYear"></select></label>
+            <span id="programFeasibilityActiveCatalog" class="analytics-note">Active Program Requirements: No approved catalog year loaded</span>
             <label>Ending Term <select id="programFeasibilityTerm"></select></label>
             <label>Window
               <select id="programFeasibilityWindow">
@@ -3512,14 +3513,24 @@
             <label>Enumeration Cap <input id="programFeasibilityCap" type="number" min="100" step="100" value="25000"></label>
             <label>Campus Preference <select id="programFeasibilityCampus" multiple size="4"></select></label>
             <label>Modality Preference <select id="programFeasibilityModality" multiple size="4"></select></label>
+            <label>Online Section Mode
+              <select id="programFeasibilityOnlineMode">
+                <option value="include">Include Online</option>
+                <option value="exclude">Exclude Online</option>
+                <option value="only">Online Only</option>
+              </select>
+            </label>
             <label class="analytics-check"><input id="programFeasibilityIncludeFull" type="checkbox"> Include Full Sections</label>
             <label class="analytics-check"><input id="programFeasibilityIncludeWaitlisted" type="checkbox" checked> Include Waitlisted Sections</label>
             <button id="refreshProgramFeasibility" type="button">Refresh Programs</button>
-            <button id="runProgramFeasibility" type="button">Run Feasibility</button>
-            <button id="exportProgramFeasibility" type="button">Export Feasibility CSV</button>
+            <button id="runProgramFeasibility" type="button">Run Viability</button>
+            <button id="exportProgramFeasibility" type="button">Export Viability CSV</button>
           </div>
           <div id="programFeasibilityMetrics" class="analytics-metrics"></div>
           <div id="programFeasibilityWindowStatus" class="dashboard-scope-panel"></div>
+          <div id="programFeasibilityHealth" class="analytics-table"></div>
+          <div id="programFeasibilityCampusScenarios" class="analytics-table"></div>
+          <div id="programFeasibilityRecommendations" class="analytics-table"></div>
           <div id="programFeasibilityCoverage" class="analytics-table"></div>
           <div id="programFeasibilityPathways" class="analytics-table"></div>
           <div id="programFeasibilityCounts" class="analytics-table"></div>
@@ -8946,22 +8957,24 @@
 
   function renderProgramFeasibilitySelectors() {
     const programs = state.programRequirements || [];
+    const activeCatalogYear = programRequirementsApi().getMostRecentApprovedCatalogYear
+      ? programRequirementsApi().getMostRecentApprovedCatalogYear(programs)
+      : [...new Set(programs.filter(program => program.reviewStatus === 'approved').map(program => program.catalogYear).filter(Boolean))].sort().pop() || '';
+    const activePrograms = activeCatalogYear ? programs.filter(program => program.reviewStatus === 'approved' && program.catalogYear === activeCatalogYear) : [];
+    const activeCatalog = document.getElementById('programFeasibilityActiveCatalog');
+    if (activeCatalog) activeCatalog.textContent = activeCatalogYear ? `Active Program Requirements: ${activeCatalogYear} Catalog` : 'Active Program Requirements: No approved catalog year loaded';
     const programSelect = document.getElementById('programFeasibilityProgram');
     const catalogSelect = document.getElementById('programFeasibilityCatalogYear');
     if (programSelect) {
       const prior = programSelect.value;
-      const options = [...new Map(programs.map(program => [program.programId, program])).values()];
+      const options = [...new Map(activePrograms.map(program => [program.programId, program])).values()];
       programSelect.innerHTML = options.length
         ? options.map(program => `<option value="${escapeAttr(program.programId)}">${escapeAttr(program.programName || program.programId)}</option>`).join('')
-        : '<option value="">No saved programs</option>';
+        : '<option value="">No approved current-catalog programs</option>';
       if (prior && [...programSelect.options].some(option => option.value === prior)) programSelect.value = prior;
     }
     if (catalogSelect) {
-      const selectedProgram = programSelect?.value || '';
-      const prior = catalogSelect.value;
-      const years = [...new Set(programs.filter(program => !selectedProgram || program.programId === selectedProgram).map(program => program.catalogYear).filter(Boolean))];
-      catalogSelect.innerHTML = years.length ? years.map(year => `<option>${escapeAttr(year)}</option>`).join('') : '<option value="">No catalog years</option>';
-      if (prior && [...catalogSelect.options].some(option => option.value === prior)) catalogSelect.value = prior;
+      catalogSelect.innerHTML = activeCatalogYear ? `<option>${escapeAttr(activeCatalogYear)}</option>` : '<option value="">No approved catalog year</option>';
     }
     const termSelect = document.getElementById('programFeasibilityTerm');
     if (termSelect) {
@@ -8987,7 +9000,9 @@
   async function runProgramFeasibility() {
     await refreshProgramRequirementsRepository();
     const programId = document.getElementById('programFeasibilityProgram')?.value || '';
-    const catalogYear = document.getElementById('programFeasibilityCatalogYear')?.value || '';
+    const catalogYear = programRequirementsApi().getMostRecentApprovedCatalogYear
+      ? programRequirementsApi().getMostRecentApprovedCatalogYear(state.programRequirements)
+      : (document.getElementById('programFeasibilityCatalogYear')?.value || '');
     const repo = await programRequirementsRepository();
     const program = await repo.getProgram(programId, catalogYear);
     if (!program) {
@@ -9008,6 +9023,7 @@
       sectionConfigurationCap: num(document.getElementById('programFeasibilityCap')?.value) || 10000,
       preferredCampuses: selectedValues('programFeasibilityCampus'),
       allowedModalities: selectedValues('programFeasibilityModality'),
+      onlineMode: document.getElementById('programFeasibilityOnlineMode')?.value || 'include',
       includeFullSections: document.getElementById('programFeasibilityIncludeFull')?.checked === true,
       includeWaitlistedSections: document.getElementById('programFeasibilityIncludeWaitlisted')?.checked === true,
       includeUnknownSeatStatus: true
@@ -9020,13 +9036,16 @@
     const result = state.programFeasibilityResult;
     if (!result) return;
     metric('programFeasibilityMetrics', [
-      ['Overall Feasibility', result.overallFeasibility],
+      ['Program Schedule Viability', result.viabilitySummary?.overallStatus || result.overallFeasibility],
       ['Course Coverage', result.availability.coveragePct],
       ['Academic Pathways', result.pathwayResult.count],
       ['Raw CRN Configurations', result.configurationCounts.rawCrnConfigurationCount],
       ['Meaningful Patterns', result.configurationCounts.meaningfulPatternCount],
+      ['Single-Campus Completion', result.viabilitySummary?.singleCampusViable ? 'Yes' : 'No'],
+      ['Minimum Physical Campuses', result.viabilitySummary?.minimumPhysicalCampusesRequired ?? 'N/A'],
+      ['Online-Only Completion', result.viabilitySummary?.onlineOnlyViable ? 'Yes' : 'No'],
+      ['Online Dependency', result.viabilitySummary?.onlineDependency || 'None'],
       ['Analysis Scope', result.analysisScope?.fullAwardAnalysis ? 'Full Award' : 'Program Only'],
-      ['Schedule Flexibility', programFeasibilityApi().flexibilityRating(result.configurationCounts.meaningfulPatternCount)],
       ['Confidence', result.confidence]
     ]);
     const status = document.getElementById('programFeasibilityWindowStatus');
@@ -9039,12 +9058,37 @@
         <div><dt>Ending Term</dt><dd>${escapeAttr(result.selectedTerm)}</dd></div>
         <div><dt>Terms Analyzed</dt><dd>${escapeAttr((result.termsAnalyzed || []).join(', '))}</dd></div>
         <div><dt>Missing Terms</dt><dd>${escapeAttr((result.termWindow.missingTerms || []).join(', ') || 'None')}</dd></div>
+        <div><dt>Online Mode</dt><dd>${escapeAttr(document.getElementById('programFeasibilityOnlineMode')?.selectedOptions?.[0]?.textContent || 'Include Online')}</dd></div>
+        <div><dt>Analysis Scope</dt><dd>Current catalog program and major requirements represented in TIMBER</dd></div>
         <div><dt>Structured Units Represented</dt><dd>${escapeAttr(result.analysisScope?.structuredUnitsRepresented ?? 'N/A')}</dd></div>
+        <div><dt>Catalog Program Units</dt><dd>${escapeAttr(result.program.minimumProgramUnits ?? result.analysisScope?.structuredUnitsRepresented ?? 'N/A')}</dd></div>
         <div><dt>Award Total Units Required</dt><dd>${escapeAttr(result.analysisScope?.awardTotalUnitsRequired ?? 'N/A')}</dd></div>
         <div><dt>Unmodeled Units</dt><dd>${escapeAttr(result.analysisScope?.unmodeledUnits ?? 'N/A')}</dd></div>
-        <div><dt>Scope</dt><dd>${escapeAttr(result.analysisScope?.fullAwardAnalysis ? 'Full-award analysis' : 'Program-only analysis')}</dd></div>
+        <div><dt>General Education Included</dt><dd>${result.analysisScope?.fullAwardAnalysis ? 'Yes' : 'No / not yet modeled'}</dd></div>
+        <div><dt>Graduation Requirements Included</dt><dd>${result.analysisScope?.fullAwardAnalysis ? 'Yes' : 'No / not yet modeled'}</dd></div>
+        <div><dt>Full Award Analysis</dt><dd>${escapeAttr(result.analysisScope?.fullAwardAnalysis ? 'Complete' : 'Partial - general education not yet modeled')}</dd></div>
       </dl>
     `;
+    const healthRows = Object.entries(result.programHealth?.components || {}).map(([component, value]) => ({
+      component,
+      value,
+      weight: result.programHealth?.weights?.[component] ?? '',
+      score: result.programHealth?.score
+    }));
+    table('programFeasibilityHealth', healthRows, ['component', 'value', 'weight', 'score']);
+    const scenarioRows = (result.campusScenarios || []).map(scenario => ({
+      scenario: scenario.label,
+      feasible: scenario.feasible ? 'Yes' : 'No',
+      academicPathways: scenario.academicPathwayCount,
+      rawConfigurations: scenario.rawConfigurationCount,
+      meaningfulPatterns: scenario.meaningfulPatternCount,
+      minimumPhysicalCampuses: scenario.minimumPhysicalCampusesRequired ?? 'N/A',
+      mostCommonCampusCombination: (scenario.mostCommonCampusCombination || []).join(' + ') || 'N/A',
+      sameDayTravelRisk: scenario.sameDayCrossCampusRequired ? 'Yes' : 'No',
+      exact: scenario.exact ? 'Exact' : 'Lower bound'
+    }));
+    table('programFeasibilityCampusScenarios', scenarioRows, ['scenario', 'feasible', 'academicPathways', 'rawConfigurations', 'meaningfulPatterns', 'minimumPhysicalCampuses', 'mostCommonCampusCombination', 'sameDayTravelRisk', 'exact']);
+    table('programFeasibilityRecommendations', result.recommendations || [], ['actionType', 'courseKey', 'proposedCampus', 'proposedOnlineMode', 'programsImproved', 'currentViabilityStatus', 'projectedViabilityStatus', 'configurationsBefore', 'configurationsAfter', 'configurationsAdded', 'campusEffect', 'onlineEffect', 'confidence', 'explanation']);
     table('programFeasibilityCoverage', result.requirementCoverage, ['courseKey', 'termsOffered', 'sections', 'enrollment', 'seats', 'reliability', 'status']);
     const pathwayRows = result.pathwayResult.pathways.slice(0, 50).flatMap((pathway, index) => (pathway.termAssignments || []).map(item => ({
       pathway: index + 1,
@@ -9070,8 +9114,8 @@
     }], ['exact', 'rawCrnConfigurationCount', 'meaningfulPatternCount', 'configurationsWithoutSummer', 'configurationsUsingSummer', 'standardLoadConfigurations', 'combinationsVisited', 'combinationsPruned', 'capReached', 'resilience', 'resilienceNote']);
     table('programFeasibilityBlockers', result.blockers, ['severity', 'requirement', 'issue', 'effect', 'suggestedAction']);
     renderMethodologyPanel(document.getElementById('programFeasibilityLegend'), {
-      title: 'Two-Year Program Feasibility Methodology',
-      purpose: 'Tests structured degree/certificate requirements against recent Section Seating history and Schedule Builder conflict checks.',
+      title: 'Program Schedule Viability Methodology',
+      purpose: 'This report is a schedule-development pulse check. It evaluates whether the current and recent schedule provides sufficient course availability, sequencing, campus access, and conflict-free configurations to support two-year completion of current catalog programs.',
       calculationRules: 'Availability is calculated by course option across the selected two-year window. Academic pathways preserve requirement choices, prerequisites, corequisites, chronological term order, unit limits, and summer usage. Section configurations reuse Schedule Builder CRN conflict checks and meaningful-pattern deduplication.',
       assumptions: 'Requirements must be imported as reviewed structured JSON. Offering reliability bands are provisional and configurable in the engine.',
       limitations: result.limitations.join(' '),
@@ -9082,7 +9126,7 @@
         ['Analysis Scope', 'Program-only analysis means the structured JSON does not represent every award unit required for completion.'],
         ['Resilience', 'Diagnostic approximation showing sensitivity to the weakest offered course.']
       ],
-      version: 'Feasibility foundation v1'
+      version: 'Program schedule viability v1'
     });
   }
 
@@ -9091,6 +9135,9 @@
     if (!result) return;
     const rows = [
       { section: 'Analysis Scope', ...result.analysisScope },
+      ...Object.entries(result.programHealth?.components || {}).map(([component, value]) => ({ section: 'Program Health', component, value, weight: result.programHealth?.weights?.[component] ?? '', score: result.programHealth?.score })),
+      ...(result.campusScenarios || []).map(scenario => ({ section: 'Campus Scenario Detail', ...scenario, physicalCampusesAllowed: (scenario.physicalCampusesAllowed || []).join('; '), campusesUsed: (scenario.campusesUsed || []).map(item => item.join(' + ')).join('; '), mostCommonCampusCombination: (scenario.mostCommonCampusCombination || []).join(' + '), coursesPreventingCompletion: (scenario.coursesPreventingCompletion || []).join('; '), coursesForcingCampusTravel: (scenario.coursesForcingCampusTravel || []).join('; ') })),
+      ...(result.recommendations || []).map(row => ({ section: 'Schedule Recommendations', ...row, programsImproved: (row.programsImproved || []).join('; ') })),
       ...result.requirementCoverage.map(row => ({ section: 'Requirement Coverage', ...row, termsOffered: (row.termsOffered || []).join('; ') })),
       ...result.pathwayResult.pathways.slice(0, 50).flatMap((pathway, index) => (pathway.termAssignments || []).map(item => ({ section: 'Suggested Pathway', pathway: index + 1, ...item, summerUsed: pathway.summerUsed, loadStatus: pathway.loadStatus }))),
       { section: 'Configuration Counts', ...result.configurationCounts, topSchedules: undefined, blockers: undefined },

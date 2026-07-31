@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory(root.COSTermUtils);
+  const api = factory(root.COSTermUtils, root.COSCampusClassification);
   root.COSScheduleBuilder = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (termUtils) {
+})(typeof window !== 'undefined' ? window : globalThis, function (termUtils, campusUtils) {
   'use strict';
 
   const DAY_ORDER = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
@@ -110,6 +110,17 @@
     return compact(value) || 'Other/Unknown';
   }
 
+  function normalizeCampus(section = {}) {
+    if (campusUtils?.normalizeCampus) return campusUtils.normalizeCampus(section);
+    const text = canon(section.campus || section.Campus || '');
+    const modality = canon(section.modality || section.Modality || '');
+    if (/ONLINE|ONL|WEB|ASYNC/.test(modality) || ['ONC', 'ONT', 'ONH', 'ONLINE'].includes(text)) return { campus: 'Online', physicalCampus: '', isOnline: true, isPhysical: false, rawCampus: section.campus || section.Campus || '' };
+    if (text === 'COS' || text === 'VISALIA') return { campus: 'Visalia', physicalCampus: 'Visalia', isOnline: false, isPhysical: true, rawCampus: section.campus || section.Campus || '' };
+    if (text === 'HAC' || text === 'HANFORD') return { campus: 'Hanford', physicalCampus: 'Hanford', isOnline: false, isPhysical: true, rawCampus: section.campus || section.Campus || '' };
+    if (text === 'TCC' || text === 'TULARE') return { campus: 'Tulare', physicalCampus: 'Tulare', isOnline: false, isPhysical: true, rawCampus: section.campus || section.Campus || '' };
+    return { campus: 'Other / Unknown', physicalCampus: '', isOnline: false, isPhysical: false, rawCampus: section.campus || section.Campus || '' };
+  }
+
   function displayModality(value) {
     const text = canon(value);
     if (text === 'IN PERSON' || text === 'IN-PERSON') return 'In-Person';
@@ -170,6 +181,7 @@
         const seats = num(row.cap ?? row.sectionCap ?? row.maxEnroll ?? row['Max Enrollment'] ?? row.Capacity);
         const enrollment = num(row.census ?? row.censusEnrollment ?? row.CENSUS_ENROLL ?? row.actual ?? row.actualEnroll ?? row.ACTUAL_ENROLL ?? row.Enrollment);
         const waitlist = num(row.waitlist ?? row.WAITLIST ?? row.waitlistCount ?? row['Waitlist Count']);
+        const campusClassification = normalizeCampus({ ...row, modality, campus: row.campus || row.Campus });
         groups.set(crn, {
           crn,
           term: normalizeTermLabel(row.term || row.Term),
@@ -180,6 +192,8 @@
           section: compact(row.section || row.Section),
           units: num(row.units ?? row.Units ?? row.Credits),
           campus: compact(row.campus || row.Campus),
+          campusClassification,
+          physicalCampus: campusClassification.physicalCampus,
           modality,
           seats,
           enrollment,
@@ -199,6 +213,11 @@
         section.meetings.push(meeting);
       }
       if (!section.campus && meeting.campus) section.campus = meeting.campus;
+      if (!section.physicalCampus && meeting.campus) {
+        const meetingCampus = normalizeCampus({ ...row, campus: meeting.campus, modality: section.modality });
+        section.physicalCampus = meetingCampus.physicalCampus;
+        section.campusClassification = meetingCampus;
+      }
     });
     return [...groups.values()].map(section => {
       if (!section.meetings.length) {
@@ -224,12 +243,39 @@
     return a.startMinutes < b.endMinutes + transitionMinutes && b.startMinutes < a.endMinutes + transitionMinutes;
   }
 
+  function campusTransitionMinutes(leftCampus, rightCampus, preferences = {}) {
+    if (!leftCampus || !rightCampus || leftCampus === rightCampus) return 0;
+    const key = campusUtils?.campusTransitionKey ? campusUtils.campusTransitionKey(leftCampus, rightCampus) : [leftCampus, rightCampus].sort().join('|');
+    const map = preferences.campusTransitionMinutes || campusUtils?.DEFAULT_CAMPUS_TRANSITION_MINUTES || {};
+    return Number(map[key] ?? map[`${leftCampus}|${rightCampus}`] ?? map[`${rightCampus}|${leftCampus}`] ?? 0) || 0;
+  }
+
+  function campusTravelConflicts(aSection, bSection, aMeeting, bMeeting, preferences = {}) {
+    if (!aMeeting.timed || !bMeeting.timed) return false;
+    if (!dateRangesOverlap(aMeeting, bMeeting)) return false;
+    if (!aMeeting.days.some(day => bMeeting.days.includes(day))) return false;
+    const leftCampus = aSection.physicalCampus || normalizeCampus(aSection).physicalCampus;
+    const rightCampus = bSection.physicalCampus || normalizeCampus(bSection).physicalCampus;
+    if (!leftCampus || !rightCampus || leftCampus === rightCampus) return false;
+    const required = campusTransitionMinutes(leftCampus, rightCampus, preferences);
+    if (!required) return false;
+    const gap = aMeeting.endMinutes <= bMeeting.startMinutes
+      ? bMeeting.startMinutes - aMeeting.endMinutes
+      : aMeeting.startMinutes >= bMeeting.endMinutes
+        ? aMeeting.startMinutes - bMeeting.endMinutes
+        : -1;
+    return gap < required;
+  }
+
   function sectionsConflict(a, b, preferences = {}) {
     const transition = Number(preferences.minimumTransitionMinutes || preferences.minimumTransitionTime || 0) || 0;
     for (const left of a.meetings) {
       for (const right of b.meetings) {
         if (meetingConflicts(left, right, transition)) {
           return { conflict: true, reason: `${a.courseKey} ${a.crn} overlaps ${b.courseKey} ${b.crn}` };
+        }
+        if (campusTravelConflicts(a, b, left, right, preferences)) {
+          return { conflict: true, reason: `${a.courseKey} ${a.crn} and ${b.courseKey} ${b.crn} require same-day cross-campus travel without enough transition time.` };
         }
       }
     }
@@ -242,6 +288,13 @@
     const excludedDays = new Set((preferences.excludedDays || []).map(normalizeDay).filter(Boolean));
     const allowedModalities = new Set((preferences.allowedModalities || []).map(canon));
     const campuses = new Set((preferences.preferredCampuses || preferences.campuses || []).map(canon).filter(Boolean));
+    const allowedPhysicalCampuses = new Set((preferences.allowedPhysicalCampuses || []).map(canon).filter(Boolean));
+    const onlineMode = canon(preferences.onlineMode || 'include').toLowerCase();
+    const campusClass = section.campusClassification || normalizeCampus(section);
+    const fullyOnline = campusClass.isOnline || isAsyncOnline(section);
+    if (onlineMode === 'exclude' && fullyOnline) return { eligible: false, reason: 'Online-only section is excluded by online mode.' };
+    if (onlineMode === 'only' && !fullyOnline) return { eligible: false, reason: 'Physical or hybrid section is excluded by online-only mode.' };
+    if (allowedPhysicalCampuses.size && campusClass.isPhysical && !allowedPhysicalCampuses.has(canon(campusClass.physicalCampus))) return { eligible: false, reason: `${campusClass.physicalCampus} campus is outside the allowed scenario.` };
     if (!preferences.includeFullSections && section.full) return { eligible: false, reason: 'Section is full.' };
     if (!preferences.includeWaitlistedSections && section.waitlist > 0) return { eligible: false, reason: 'Section has waitlist activity.' };
     if (!preferences.includeUnknownSeatStatus && !section.seatStatusKnown) return { eligible: false, reason: 'Seat status is unknown.' };
@@ -269,6 +322,10 @@
       });
     });
     return days;
+  }
+
+  function physicalCampusesUsed(sections) {
+    return [...new Set((sections || []).map(section => section.physicalCampus || normalizeCampus(section).physicalCampus).filter(Boolean))];
   }
 
   function totalGapMinutes(sections) {
@@ -320,6 +377,7 @@
     if (preferences.maxUnits != null && summary.totalUnits > Number(preferences.maxUnits)) return 'Schedule exceeds maximum units.';
     if (preferences.maxDaysOnCampus != null && summary.campusDays > Number(preferences.maxDaysOnCampus)) return 'Schedule exceeds maximum days on campus.';
     if (preferences.maxGapMinutes != null && summary.totalWeeklyGapMinutes > Number(preferences.maxGapMinutes)) return 'Schedule exceeds maximum weekly gap time.';
+    if (preferences.maximumPhysicalCampuses != null && physicalCampusesUsed(summary.sections).length > Number(preferences.maximumPhysicalCampuses)) return 'Schedule exceeds maximum physical campuses.';
     return '';
   }
 
@@ -498,6 +556,7 @@
     DAY_LABELS,
     normalizeCourseKey,
     normalizeTermLabel,
+    normalizeCampus,
     normalizeSections,
     sectionEligible,
     sectionsConflict,

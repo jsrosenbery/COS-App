@@ -30,6 +30,21 @@
     return `${canon(programId)}::${canon(catalogYear)}`;
   }
 
+  function catalogYearSortValue(value) {
+    const text = canon(value);
+    const years = [...text.matchAll(/20\d{2}/g)].map(match => Number(match[0]));
+    if (!years.length) return 0;
+    return Math.max(...years);
+  }
+
+  function getMostRecentApprovedCatalogYear(programs = []) {
+    const years = [...new Set((programs || [])
+      .filter(program => program.reviewStatus === 'approved')
+      .map(program => compact(program.catalogYear))
+      .filter(Boolean))];
+    return years.sort((a, b) => catalogYearSortValue(b) - catalogYearSortValue(a) || canon(b).localeCompare(canon(a)))[0] || '';
+  }
+
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
@@ -340,6 +355,8 @@
     STORE_BATCHES,
     STORE_METADATA,
     normalizeCourseKey,
+    catalogYearSortValue,
+    getMostRecentApprovedCatalogYear,
     normalizeProgram,
     validateProgram,
     parseProgramJson,

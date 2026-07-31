@@ -23,7 +23,7 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.equal(REPORT_ACCESS[REPORTS.heatmap], 'divchair');
   assert.equal(REPORT_LABEL[REPORTS.dataHub], 'Source Data Hub');
   assert.equal(REPORT_LABEL[REPORTS.ftesReconciliation], 'FTES Reconciliation');
-  assert.equal(REPORT_LABEL[REPORTS.twoYearProgramFeasibility], 'Two-Year Program Feasibility');
+  assert.equal(REPORT_LABEL[REPORTS.twoYearProgramFeasibility], 'Program Schedule Viability');
   assert.equal(REPORT_LABEL[REPORTS.catalogProgramRequirements], 'Catalog & Program Requirements');
   assert.equal(REPORT_LABEL[REPORTS.demand], 'Enrollment Planning Forecast');
   assert.equal(REPORT_LABEL[REPORTS.duration], 'Course Duration Heatmap');
