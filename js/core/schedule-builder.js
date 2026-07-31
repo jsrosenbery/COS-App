@@ -251,6 +251,7 @@
   }
 
   function campusTravelConflicts(aSection, bSection, aMeeting, bMeeting, preferences = {}) {
+    if (preferences.enableCampusTravelConflictChecking === false) return false;
     if (!aMeeting.timed || !bMeeting.timed) return false;
     if (!dateRangesOverlap(aMeeting, bMeeting)) return false;
     if (!aMeeting.days.some(day => bMeeting.days.includes(day))) return false;
@@ -295,6 +296,7 @@
     if (onlineMode === 'exclude' && fullyOnline) return { eligible: false, reason: 'Online-only section is excluded by online mode.' };
     if (onlineMode === 'only' && !fullyOnline) return { eligible: false, reason: 'Physical or hybrid section is excluded by online-only mode.' };
     if (allowedPhysicalCampuses.size && campusClass.isPhysical && !allowedPhysicalCampuses.has(canon(campusClass.physicalCampus))) return { eligible: false, reason: `${campusClass.physicalCampus} campus is outside the allowed scenario.` };
+    if (allowedPhysicalCampuses.size && !campusClass.isPhysical && !campusClass.isOnline) return { eligible: false, reason: 'Campus is unknown and cannot be used for campus-constrained scenario conclusions.' };
     if (!preferences.includeFullSections && section.full) return { eligible: false, reason: 'Section is full.' };
     if (!preferences.includeWaitlistedSections && section.waitlist > 0) return { eligible: false, reason: 'Section has waitlist activity.' };
     if (!preferences.includeUnknownSeatStatus && !section.seatStatusKnown) return { eligible: false, reason: 'Seat status is unknown.' };
@@ -445,6 +447,7 @@
         const aggregateIssue = scheduleViolatesAggregate(summary, preferences);
         if (!aggregateIssue) {
           viableConfigurationCount += 1;
+          if (typeof preferences.onViableSchedule === 'function') preferences.onViableSchedule(summary);
           if (countMode) {
             if (results.length < maxResults) results.push(summary);
           } else {

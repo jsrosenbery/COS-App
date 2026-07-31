@@ -22,9 +22,11 @@
     reliabilityBands: { high: 0.75, moderate: 0.4 },
     enforceMinimumLoadAwardTypes: ['AA', 'AS', 'BA', 'BS', 'ADT', 'DEGREE'],
     campusTransitionMinutes: campusUtils.DEFAULT_CAMPUS_TRANSITION_MINUTES || {},
+    enableCampusTravelConflictChecking: true,
     healthWeights: { requirementCoverage: 0.2, sequenceViability: 0.15, configurationFlexibility: 0.15, campusAccessibility: 0.15, onlineAccessibility: 0.1, offeringReliability: 0.15, resilience: 0.1 }
   });
   const PHYSICAL_CAMPUSES = campusUtils.PHYSICAL_CAMPUSES || ['Visalia', 'Hanford', 'Tulare'];
+  const portfolioResultCache = new Map();
 
   function normalizeTermLabel(value) {
     if (scheduleBuilder.normalizeTermLabel) return scheduleBuilder.normalizeTermLabel(value);
@@ -54,10 +56,11 @@
       .map(section => ({ ...section, term: normalizeTermLabel(section.term) }))
       .filter(section => terms.includes(section.term));
     const availability = analyzeAvailability(program, sections, terms, config);
+    const unknownCampusDiagnostics = analyzeUnknownCampusData(program, sections);
     const pathwayResult = enumerateAcademicPathways(program, availability, terms, config);
     const counts = countSectionConfigurations(pathwayResult.pathways, rowsInWindow, config, options);
     const analysisScope = analyzeScope(program, pathwayResult);
-    const blockers = [...availability.blockers, ...pathwayResult.blockers, ...counts.blockers, ...analysisScope.blockers];
+    const blockers = [...availability.blockers, ...pathwayResult.blockers, ...counts.blockers, ...analysisScope.blockers, ...unknownCampusDiagnostics.blockers];
     const resilience = analyzeResilience(availability, pathwayResult);
     const feasibility = overallFeasibility(availability, pathwayResult, counts, blockers, analysisScope);
     const campusScenarios = evaluateCampusScenarios(pathwayResult.pathways, rowsInWindow, config, options);
@@ -76,6 +79,7 @@
       pathwayResult,
       configurationCounts: counts,
       campusScenarios,
+      unknownCampusDiagnostics,
       viabilitySummary,
       recommendations,
       programHealth: health,
@@ -86,6 +90,7 @@
       limitations: [
         'This report is a schedule-development pulse check. It evaluates whether the current and recent schedule provides sufficient course availability, sequencing, campus access, and conflict-free configurations to support two-year completion of current catalog programs.',
         'It does not model individual completed coursework, transfer credit, placement, unencoded substitutions, counseling recommendations, or guaranteed student graduation.',
+        'Campus transition minutes are editable planning assumptions used only for schedule viability conflict checks; they are not official travel standards.',
         'Catalog PDF extraction is intentionally deferred; future imports can populate the same structured program model.'
       ]
     };
@@ -116,6 +121,44 @@
       coveragePct: courseRows.length ? courseRows.filter(row => row.sections > 0).length / courseRows.length : 0,
       blockers: []
     };
+  }
+
+  function analyzeUnknownCampusData(program, sections = []) {
+    const courseOptions = collectProgramCourses(program);
+    const requiredKeys = new Set(courseOptions.map(course => normalizeCourseKey(course.courseKey)));
+    const unknownSections = sections.filter(section => {
+      const campusClass = section.campusClassification || scheduleBuilder.normalizeCampus?.(section) || campusUtils.normalizeCampus?.(section) || {};
+      return requiredKeys.has(normalizeCourseKey(section.courseKey)) && !campusClass.isPhysical && !campusClass.isOnline;
+    });
+    const coursesAffected = [...new Set(unknownSections.map(section => normalizeCourseKey(section.courseKey)).filter(Boolean))];
+    const programRequirementsAffected = requirementLabelsForCourses(program, coursesAffected);
+    const blockers = coursesAffected.length ? [{
+      severity: 'Medium',
+      requirement: 'Campus data quality',
+      issue: `${unknownSections.length} required-course section(s) have unknown campus data.`,
+      effect: 'Campus-specific scenario conclusions may be indeterminate for affected requirements.',
+      suggestedAction: 'Correct campus values or verify whether affected sections are physical, online, or excluded.'
+    }] : [];
+    return {
+      sectionsWithUnknownCampus: unknownSections.length,
+      coursesAffected,
+      programRequirementsAffected,
+      configurationsExcludedBecauseOfUnknownCampus: unknownSections.length,
+      indeterminate: coursesAffected.length > 0,
+      blockers
+    };
+  }
+
+  function requirementLabelsForCourses(program, courseKeys = []) {
+    const targets = new Set(courseKeys.map(normalizeCourseKey));
+    const labels = [];
+    function visit(group, inherited = '') {
+      const label = group.label || inherited || 'Requirement';
+      if ((group.courses || []).some(course => targets.has(normalizeCourseKey(course.courseKey)))) labels.push(label);
+      (group.subgroups || []).forEach(subgroup => visit(subgroup, label));
+    }
+    (program.requirementGroups || []).forEach(group => visit(group));
+    return [...new Set(labels)];
   }
 
   function collectProgramCourses(program) {
@@ -386,16 +429,28 @@
     const patterns = new Set();
     const blockers = [];
     const topSchedules = [];
+    const campusEnumeration = emptyCampusEnumeration();
     for (const pathway of pathways) {
       const assignmentsByTerm = groupBy(pathway.termAssignments || [], item => normalizeTermLabel(item.term));
       let pathwayRaw = 1;
       let pathwayPatterns = [''];
+      let pathwayCampusStates = [{ count: 1, campuses: [], sameDayCrossCampus: false, sameTermMultiCampus: false }];
       let blocked = false;
       for (const [term, assignments] of Object.entries(assignmentsByTerm)) {
         const requests = assignments.map(item => ({ course: item.courseKey, required: true }));
         const termRows = (sections || []).filter(row => normalizeTermLabel(row.term || row.Term) === term);
+        const termCampusProfiles = [];
         const result = scheduleBuilder.buildScheduleOptions
-          ? scheduleBuilder.buildScheduleOptions(termRows, requests, { ...options, maxResults: config.topSchedulesRetained, maxVisited: config.sectionConfigurationCap, requireAllRequestedCourses: true, countMode: true })
+          ? scheduleBuilder.buildScheduleOptions(termRows, requests, {
+            ...options,
+            maxResults: config.topSchedulesRetained,
+            maxVisited: config.sectionConfigurationCap,
+            requireAllRequestedCourses: true,
+            countMode: true,
+            campusTransitionMinutes: config.campusTransitionMinutes,
+            enableCampusTravelConflictChecking: config.enableCampusTravelConflictChecking,
+            onViableSchedule: summary => termCampusProfiles.push(campusProfileForSections(summary.sections || []))
+          })
           : { schedules: [], count: { viableConfigurationCount: 0, exact: true, combinationsVisited: 0, combinationsPruned: 0, capReached: false } };
         const viable = result.count?.viableConfigurationCount ?? result.schedules?.length ?? 0;
         combinationsVisited += result.count?.combinationsVisited || result.visited || 0;
@@ -409,6 +464,7 @@
           break;
         }
         pathwayRaw *= viable;
+        pathwayCampusStates = combineCampusStates(pathwayCampusStates, termCampusProfiles.length ? compressCampusProfiles(termCampusProfiles) : [{ count: viable, campuses: [], sameDayCrossCampus: false, sameTermMultiCampus: false }], config.sectionConfigurationCap);
         const termPatterns = (result.schedules || []).map(schedule => `${term}:${meaningfulPatternHash(schedule.sections || [])}`);
         pathwayPatterns = combinePatternHashes(pathwayPatterns, termPatterns, config.sectionConfigurationCap);
         (result.schedules || []).forEach(schedule => {
@@ -423,6 +479,8 @@
       }
       if (!blocked) {
         raw += pathwayRaw;
+        campusEnumeration.scenarioCompatiblePathwayCount += 1;
+        addCampusStatesToEnumeration(campusEnumeration, pathwayCampusStates, config.sectionConfigurationCap);
         if (pathway.summerUsed) usingSummer += pathwayRaw;
         else withoutSummer += pathwayRaw;
         pathwayPatterns.forEach(pattern => { if (pattern) patterns.add(pattern); });
@@ -449,21 +507,25 @@
       combinationsVisited,
       combinationsPruned,
       topSchedules,
+      campusEnumeration: finalizeCampusEnumeration(campusEnumeration, raw, exact, capReached ? config.sectionConfigurationCap : undefined),
       blockers
     };
   }
 
   function evaluateCampusScenarios(pathways, sections, config, options = {}) {
-    const onlineMode = options.onlineMode || 'include';
     const scenarios = [
       { scenarioId: 'all-campuses-online', label: 'All campuses + online', physicalCampusesAllowed: PHYSICAL_CAMPUSES, maximumPhysicalCampuses: null, onlineMode: 'include' },
       { scenarioId: 'physical-only', label: 'Physical campuses only', physicalCampusesAllowed: PHYSICAL_CAMPUSES, maximumPhysicalCampuses: null, onlineMode: 'exclude' },
-      { scenarioId: 'visalia-only', label: 'Visalia only', physicalCampusesAllowed: ['Visalia'], maximumPhysicalCampuses: 1, onlineMode },
-      { scenarioId: 'hanford-only', label: 'Hanford only', physicalCampusesAllowed: ['Hanford'], maximumPhysicalCampuses: 1, onlineMode },
-      { scenarioId: 'tulare-only', label: 'Tulare only', physicalCampusesAllowed: ['Tulare'], maximumPhysicalCampuses: 1, onlineMode },
-      { scenarioId: 'any-single-campus', label: 'Any single physical campus', physicalCampusesAllowed: PHYSICAL_CAMPUSES, maximumPhysicalCampuses: 1, onlineMode },
-      { scenarioId: 'maximum-two-campuses', label: 'Maximum two physical campuses', physicalCampusesAllowed: PHYSICAL_CAMPUSES, maximumPhysicalCampuses: 2, onlineMode },
-      { scenarioId: 'any-number-campuses', label: 'Any number of physical campuses', physicalCampusesAllowed: PHYSICAL_CAMPUSES, maximumPhysicalCampuses: null, onlineMode },
+      { scenarioId: 'visalia-physical-only', label: 'Visalia physical only', physicalCampusesAllowed: ['Visalia'], maximumPhysicalCampuses: 1, onlineMode: 'exclude' },
+      { scenarioId: 'visalia-plus-online', label: 'Visalia + online', physicalCampusesAllowed: ['Visalia'], maximumPhysicalCampuses: 1, onlineMode: 'include' },
+      { scenarioId: 'hanford-physical-only', label: 'Hanford physical only', physicalCampusesAllowed: ['Hanford'], maximumPhysicalCampuses: 1, onlineMode: 'exclude' },
+      { scenarioId: 'hanford-plus-online', label: 'Hanford + online', physicalCampusesAllowed: ['Hanford'], maximumPhysicalCampuses: 1, onlineMode: 'include' },
+      { scenarioId: 'tulare-physical-only', label: 'Tulare physical only', physicalCampusesAllowed: ['Tulare'], maximumPhysicalCampuses: 1, onlineMode: 'exclude' },
+      { scenarioId: 'tulare-plus-online', label: 'Tulare + online', physicalCampusesAllowed: ['Tulare'], maximumPhysicalCampuses: 1, onlineMode: 'include' },
+      { scenarioId: 'any-single-campus', label: 'Any single physical campus', physicalCampusesAllowed: PHYSICAL_CAMPUSES, maximumPhysicalCampuses: 1, onlineMode: 'exclude' },
+      { scenarioId: 'any-single-campus-plus-online', label: 'Any single physical campus + online', physicalCampusesAllowed: PHYSICAL_CAMPUSES, maximumPhysicalCampuses: 1, onlineMode: 'include' },
+      { scenarioId: 'maximum-two-campuses', label: 'Maximum two physical campuses', physicalCampusesAllowed: PHYSICAL_CAMPUSES, maximumPhysicalCampuses: 2, onlineMode: 'exclude' },
+      { scenarioId: 'maximum-two-campuses-plus-online', label: 'Maximum two physical campuses + online', physicalCampusesAllowed: PHYSICAL_CAMPUSES, maximumPhysicalCampuses: 2, onlineMode: 'include' },
       { scenarioId: 'online-only', label: 'Online only', physicalCampusesAllowed: [], maximumPhysicalCampuses: 0, onlineMode: 'only' }
     ];
     return scenarios.map(scenario => campusScenarioResult(scenario, pathways, sections, config, options));
@@ -477,12 +539,13 @@
       maximumPhysicalCampuses: scenario.maximumPhysicalCampuses,
       campusTransitionMinutes: config.campusTransitionMinutes
     });
-    const campusSets = counts.topSchedules.map(schedule => physicalCampusesForSections(schedule.sections || []));
-    const nonEmptySets = campusSets.filter(set => set.length);
-    const comboCounts = countBy(nonEmptySets, set => set.join(' + '));
+    const aggregate = counts.campusEnumeration || emptyCampusEnumeration();
+    const comboCounts = aggregate.configurationsByCampusCombination || {};
     const mostCommonCombo = Object.entries(comboCounts).sort((a, b) => b[1] - a[1])[0]?.[0]?.split(' + ').filter(Boolean) || [];
-    const burden = campusBurden(counts.topSchedules);
     const coursesPreventingCompletion = scenarioCoursesPreventingCompletion(counts);
+    const sameDayExists = aggregate.sameDayCrossCampusConfigurationCount > 0;
+    const sameDayAvoidable = aggregate.configurationsWithoutSameDayTravel > 0;
+    const sameDayUnavoidable = counts.rawCrnConfigurationCount > 0 && aggregate.sameDayCrossCampusConfigurationCount === counts.rawCrnConfigurationCount;
     return {
       scenarioId: scenario.scenarioId,
       label: scenario.label,
@@ -490,20 +553,128 @@
       maximumPhysicalCampuses: scenario.maximumPhysicalCampuses,
       onlineMode: scenario.onlineMode,
       feasible: counts.rawCrnConfigurationCount > 0,
-      academicPathwayCount: counts.rawCrnConfigurationCount > 0 ? pathways.length : 0,
+      totalAcademicPathways: pathways.length,
+      scenarioCompatiblePathwayCount: aggregate.scenarioCompatiblePathwayCount || 0,
+      scenarioBlockedPathwayCount: Math.max(0, pathways.length - (aggregate.scenarioCompatiblePathwayCount || 0)),
+      academicPathwayCount: aggregate.scenarioCompatiblePathwayCount || 0,
       rawConfigurationCount: counts.rawCrnConfigurationCount,
       meaningfulPatternCount: counts.meaningfulPatternCount,
-      minimumPhysicalCampusesRequired: nonEmptySets.length ? Math.min(...nonEmptySets.map(set => set.length)) : counts.rawCrnConfigurationCount > 0 ? 0 : null,
-      campusesUsed: nonEmptySets,
+      minimumPhysicalCampusesRequired: aggregate.minimumPhysicalCampusCount,
+      maximumPhysicalCampusesUsed: aggregate.maximumPhysicalCampusCount,
+      configurationsByCampusCount: aggregate.configurationsByCampusCount,
+      configurationsByCampusCombination: aggregate.configurationsByCampusCombination,
+      campusesUsed: Object.keys(comboCounts).map(key => key.split(' + ').filter(Boolean)),
       mostCommonCampusCombination: mostCommonCombo,
       coursesPreventingCompletion,
-      coursesForcingCampusTravel: burden.campusCombination.length > 1 ? burden.campusCombination : [],
-      sameDayCrossCampusRequired: burden.burdenLevel === 'critical',
-      crossCampusTerms: burden.termsUsingMultipleCampuses,
+      coursesForcingCampusTravel: coursesForcingCampusTravel(pathways, sections, scenario),
+      sameDayCrossCampusConfigurationsExist: sameDayExists,
+      sameDayCrossCampusCanBeAvoided: sameDayAvoidable,
+      sameDayCrossCampusUnavoidable: sameDayUnavoidable,
+      sameDayCrossCampusRequired: sameDayUnavoidable,
+      multipleCampusesRequiredWithinOneTerm: counts.rawCrnConfigurationCount > 0 && aggregate.sameTermMultiCampusConfigurationCount === counts.rawCrnConfigurationCount,
+      campusesUsedOnlyInSeparateTerms: aggregate.crossTermOnlyMultiCampusConfigurationCount > 0,
+      crossCampusTerms: [],
       exact: counts.exact,
       lowerBound: counts.lowerBound ? counts.rawCrnConfigurationCount : undefined,
       cappedAt: counts.cappedAt,
-      campusBurden: burden
+      campusBurden: {
+        minimumCampusCount: aggregate.minimumPhysicalCampusCount,
+        campusCombination: mostCommonCombo,
+        sameDayCrossCampusConflicts: sameDayExists ? ['At least one viable configuration uses multiple physical campuses on the same day.'] : [],
+        burdenLevel: sameDayUnavoidable ? 'critical' : sameDayExists ? 'moderate' : aggregate.multiCampusConfigurations ? 'low' : 'none'
+      }
+    };
+  }
+
+  function emptyCampusEnumeration() {
+    return {
+      viableConfigurationCount: 0,
+      scenarioCompatiblePathwayCount: 0,
+      minimumPhysicalCampusCount: null,
+      maximumPhysicalCampusCount: null,
+      configurationsByCampusCount: {},
+      configurationsByCampusCombination: {},
+      noPhysicalCampusConfigurations: 0,
+      singleCampusConfigurations: 0,
+      multiCampusConfigurations: 0,
+      sameDayCrossCampusConfigurationCount: 0,
+      sameTermMultiCampusConfigurationCount: 0,
+      crossTermOnlyMultiCampusConfigurationCount: 0,
+      configurationsWithoutSameDayTravel: 0,
+      exact: true,
+      lowerBound: false
+    };
+  }
+
+  function campusProfileForSections(sections = []) {
+    const campuses = physicalCampusesForSections(sections);
+    return {
+      count: 1,
+      campuses,
+      sameDayCrossCampus: sameDayCampusConflicts(sections).length > 0,
+      sameTermMultiCampus: campuses.length > 1
+    };
+  }
+
+  function compressCampusProfiles(profiles = []) {
+    const map = new Map();
+    profiles.forEach(profile => {
+      const key = [profile.campuses.join('+'), profile.sameDayCrossCampus ? 'same-day' : 'no-same-day', profile.sameTermMultiCampus ? 'same-term-multi' : 'same-term-single'].join('|');
+      const existing = map.get(key) || { ...profile, count: 0 };
+      existing.count += profile.count || 1;
+      map.set(key, existing);
+    });
+    return [...map.values()];
+  }
+
+  function combineCampusStates(states = [], profiles = [], cap = Infinity) {
+    const map = new Map();
+    for (const state of states) {
+      for (const profile of profiles) {
+        const campuses = [...new Set([...(state.campuses || []), ...(profile.campuses || [])])].sort();
+        const combined = {
+          count: Math.min(cap, (state.count || 0) * (profile.count || 0)),
+          campuses,
+          sameDayCrossCampus: Boolean(state.sameDayCrossCampus || profile.sameDayCrossCampus),
+          sameTermMultiCampus: Boolean(state.sameTermMultiCampus || profile.sameTermMultiCampus)
+        };
+        const key = [campuses.join('+'), combined.sameDayCrossCampus ? 1 : 0, combined.sameTermMultiCampus ? 1 : 0].join('|');
+        const existing = map.get(key) || { ...combined, count: 0 };
+        existing.count = Math.min(cap, existing.count + combined.count);
+        map.set(key, existing);
+      }
+    }
+    return [...map.values()];
+  }
+
+  function addCampusStatesToEnumeration(aggregate, states = [], cap = Infinity) {
+    states.forEach(state => {
+      const count = Number(state.count || 0);
+      const campuses = [...new Set(state.campuses || [])].sort();
+      const campusCount = campuses.length;
+      const combo = campuses.join(' + ') || 'No physical campus';
+      aggregate.viableConfigurationCount = Math.min(cap, aggregate.viableConfigurationCount + count);
+      aggregate.minimumPhysicalCampusCount = aggregate.minimumPhysicalCampusCount == null ? campusCount : Math.min(aggregate.minimumPhysicalCampusCount, campusCount);
+      aggregate.maximumPhysicalCampusCount = aggregate.maximumPhysicalCampusCount == null ? campusCount : Math.max(aggregate.maximumPhysicalCampusCount, campusCount);
+      aggregate.configurationsByCampusCount[String(campusCount)] = (aggregate.configurationsByCampusCount[String(campusCount)] || 0) + count;
+      aggregate.configurationsByCampusCombination[combo] = (aggregate.configurationsByCampusCombination[combo] || 0) + count;
+      if (campusCount === 0) aggregate.noPhysicalCampusConfigurations += count;
+      if (campusCount === 1) aggregate.singleCampusConfigurations += count;
+      if (campusCount > 1) aggregate.multiCampusConfigurations += count;
+      if (state.sameDayCrossCampus) aggregate.sameDayCrossCampusConfigurationCount += count;
+      else aggregate.configurationsWithoutSameDayTravel += count;
+      if (state.sameTermMultiCampus) aggregate.sameTermMultiCampusConfigurationCount += count;
+      if (campusCount > 1 && !state.sameTermMultiCampus) aggregate.crossTermOnlyMultiCampusConfigurationCount += count;
+    });
+  }
+
+  function finalizeCampusEnumeration(aggregate, total, exact, cappedAt) {
+    return {
+      ...aggregate,
+      viableConfigurationCount: total,
+      exact,
+      lowerBound: !exact,
+      cappedAt
     };
   }
 
@@ -556,15 +727,47 @@
     return [...new Set((counts.blockers || []).flatMap(blocker => String(blocker.requirement || blocker.issue || '').match(/[A-Z]{2,5}\s+\w+/g) || []))];
   }
 
+  function coursesForcingCampusTravel(pathways = [], sections = [], scenario = {}) {
+    if (!scenario.physicalCampusesAllowed || scenario.maximumPhysicalCampuses !== 1) return [];
+    const allowed = new Set((scenario.physicalCampusesAllowed || []).map(String));
+    const normalized = scheduleBuilder.normalizeSections ? scheduleBuilder.normalizeSections(sections) : [];
+    const byCourse = groupBy(normalized, section => normalizeCourseKey(section.courseKey));
+    const details = [];
+    const seen = new Set();
+    (pathways || []).forEach(pathway => (pathway.courses || []).forEach(course => {
+      const key = normalizeCourseKey(course.courseKey);
+      if (seen.has(key)) return;
+      const courseSections = byCourse[key] || [];
+      const physical = courseSections.filter(section => section.physicalCampus);
+      const online = courseSections.filter(section => !section.physicalCampus && (section.campusClassification?.isOnline || scheduleBuilder.normalizeCampus?.(section)?.isOnline));
+      const offeredCampuses = [...new Set(physical.map(section => section.physicalCampus))].sort();
+      const campusCompatible = offeredCampuses.some(campus => allowed.has(campus));
+      const onlineCompatible = scenario.onlineMode !== 'exclude' && online.length > 0;
+      if (courseSections.length && !campusCompatible && !onlineCompatible) {
+        seen.add(key);
+        details.push({
+          courseKey: key,
+          requirementGroup: (course.groups || pathway.groups || []).join('; ') || 'Program requirement',
+          termsOffered: [...new Set(courseSections.map(section => normalizeTermLabel(section.term)).filter(Boolean))].sort(compareTerms).join('; '),
+          campusesOffered: offeredCampuses.join('; ') || 'No known physical campus',
+          onlineAvailability: online.length ? 'Available online' : 'No online section in selected window',
+          alternativeSatisfiesRequirement: false
+        });
+      }
+    }));
+    return details;
+  }
+
   function scenarioById(scenarios, id) {
     return (scenarios || []).find(scenario => scenario.scenarioId === id) || {};
   }
 
   function summarizeViability(availability, pathwayResult, counts, blockers, resilience, scenarios, analysisScope) {
-    const visalia = scenarioById(scenarios, 'visalia-only');
-    const hanford = scenarioById(scenarios, 'hanford-only');
-    const tulare = scenarioById(scenarios, 'tulare-only');
+    const visalia = scenarioById(scenarios, 'visalia-physical-only');
+    const hanford = scenarioById(scenarios, 'hanford-physical-only');
+    const tulare = scenarioById(scenarios, 'tulare-physical-only');
     const anySingle = scenarioById(scenarios, 'any-single-campus');
+    const anySingleOnline = scenarioById(scenarios, 'any-single-campus-plus-online');
     const onlineOnly = scenarioById(scenarios, 'online-only');
     const physicalOnly = scenarioById(scenarios, 'physical-only');
     const includeOnline = scenarioById(scenarios, 'all-campuses-online');
@@ -585,6 +788,8 @@
       sectionConfigurationCount: counts.rawCrnConfigurationCount,
       meaningfulPatternCount: counts.meaningfulPatternCount,
       singleCampusViable: Boolean(anySingle.feasible),
+      completeEntirelyAtOnePhysicalCampus: Boolean(anySingle.feasible),
+      completeWithoutMultipleCampusesWhenOnlineAllowed: Boolean(anySingleOnline.feasible),
       minimumPhysicalCampusesRequired,
       onlineOnlyViable: Boolean(onlineOnly.feasible),
       onlineDependency,
@@ -592,7 +797,8 @@
       visaliaOnlyViable: Boolean(visalia.feasible),
       hanfordOnlyViable: Boolean(hanford.feasible),
       tulareOnlyViable: Boolean(tulare.feasible),
-      sameDayTravelRisk: (scenarios || []).some(scenario => scenario.sameDayCrossCampusRequired),
+      sameDayTravelRisk: (scenarios || []).some(scenario => scenario.sameDayCrossCampusConfigurationsExist),
+      sameDayTravelUnavoidable: (scenarios || []).some(scenario => scenario.sameDayCrossCampusUnavoidable),
       primaryBlockers: blockers.slice(0, 5),
       confidence: counts.exact && analysisScope.fullAwardAnalysis ? 'high' : counts.rawCrnConfigurationCount > 0 ? 'medium' : 'low',
       resilience: resilience.resilience
@@ -626,10 +832,10 @@
       const course = (String(blocker.issue || blocker.requirement || '').match(/[A-Z]{2,5}\s+\w+/) || [blocker.requirement || ''])[0];
       recommendations.push(recommendation('add-course-offering', course, program, summary, counts, `Offer ${course || 'the missing requirement'} in the two-year window to remove a blocking requirement.`));
     });
-    ['visalia-only', 'hanford-only', 'tulare-only'].forEach(id => {
+    ['visalia-physical-only', 'hanford-physical-only', 'tulare-physical-only'].forEach(id => {
       const scenario = scenarioById(scenarios, id);
       if (!scenario.feasible) {
-        const campus = scenario.label.replace(' only', '');
+        const campus = scenario.physicalCampusesAllowed?.[0] || scenario.label.replace(' physical only', '');
         recommendations.push(recommendation('add-campus-offering', scenario.coursesPreventingCompletion[0] || '', program, summary, counts, `Add or rotate a required course at ${campus} to improve single-campus completion.`, campus));
       }
     });
@@ -646,11 +852,14 @@
       proposedCampus: campus,
       proposedOnlineMode: onlineMode,
       programsImproved: [program.programName || program.programId],
+      simulated: false,
       currentViabilityStatus: summary.overallStatus,
-      projectedViabilityStatus: summary.overallStatus === 'not-viable' ? 'moderate-risk' : summary.overallStatus,
-      configurationsBefore: counts.rawCrnConfigurationCount,
-      configurationsAfter: counts.rawCrnConfigurationCount,
-      configurationsAdded: 0,
+      projectedViabilityStatus: '',
+      configurationsBefore: '',
+      configurationsAfter: '',
+      configurationsAdded: '',
+      meaningfulPatternsBefore: '',
+      meaningfulPatternsAfter: '',
       campusEffect: campus ? `Potential ${campus} access improvement` : '',
       onlineEffect: onlineMode ? 'Potential online-completion improvement' : '',
       confidence: 'low',
@@ -681,8 +890,128 @@
       configurationsAfter: after.configurationCounts.rawCrnConfigurationCount,
       configurationsAdded: after.configurationCounts.rawCrnConfigurationCount - before.configurationCounts.rawCrnConfigurationCount,
       meaningfulPatternsBefore: before.configurationCounts.meaningfulPatternCount,
-      meaningfulPatternsAfter: after.configurationCounts.meaningfulPatternCount
+      meaningfulPatternsAfter: after.configurationCounts.meaningfulPatternCount,
+      programsImproved: after.configurationCounts.rawCrnConfigurationCount > before.configurationCounts.rawCrnConfigurationCount ? [program.programName || program.programId] : [],
+      singleCampusChanges: before.viabilitySummary.singleCampusViable !== after.viabilitySummary.singleCampusViable ? [`Single-campus viability changed from ${before.viabilitySummary.singleCampusViable ? 'Yes' : 'No'} to ${after.viabilitySummary.singleCampusViable ? 'Yes' : 'No'}.`] : [],
+      onlineViabilityChanges: before.viabilitySummary.onlineOnlyViable !== after.viabilitySummary.onlineOnlyViable ? [`Online-only viability changed from ${before.viabilitySummary.onlineOnlyViable ? 'Yes' : 'No'} to ${after.viabilitySummary.onlineOnlyViable ? 'Yes' : 'No'}.`] : [],
+      exact: before.configurationCounts.exact && after.configurationCounts.exact,
+      lowerBound: before.configurationCounts.lowerBound || after.configurationCounts.lowerBound,
+      assumptions: ['Simulation is non-mutating and uses the current schedule-builder constraints and campus transition assumptions.']
     };
+  }
+
+  function evaluateProgramPortfolio(programs = [], sectionRows = [], options = {}) {
+    const { approvedYear, activePrograms } = activePortfolioPrograms(programs);
+    const programResults = activePrograms.map(program => evaluateProgramFeasibility(program, sectionRows, options));
+    return summarizePortfolioResult(approvedYear, programResults);
+  }
+
+  async function evaluateProgramPortfolioAsync(programs = [], sectionRows = [], options = {}) {
+    const { approvedYear, activePrograms } = activePortfolioPrograms(programs);
+    const cache = options.cache || portfolioResultCache;
+    const version = options.scheduleVersion || `${sectionRows.length}:${options.selectedTerm || ''}:${options.windowType || ''}:${JSON.stringify(options.campusTransitionMinutes || {})}:${options.enableCampusTravelConflictChecking !== false}`;
+    const programResults = [];
+    const cap = Number(options.portfolioProgramCap || activePrograms.length) || activePrograms.length;
+    for (let index = 0; index < activePrograms.length && index < cap; index += 1) {
+      if (typeof options.shouldCancel === 'function' && options.shouldCancel()) break;
+      const program = activePrograms[index];
+      const key = [approvedYear, program.programId, program.catalogYear, version].join('|');
+      let result = cache.get(key);
+      if (!result) {
+        result = evaluateProgramFeasibility(program, sectionRows, options);
+        cache.set(key, result);
+      }
+      programResults.push(result);
+      if (typeof options.onProgress === 'function') options.onProgress({ evaluated: index + 1, total: activePrograms.length, program });
+      if ((index + 1) % Number(options.portfolioYieldEvery || 3) === 0) await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    const summary = summarizePortfolioResult(approvedYear, programResults);
+    summary.programsRequested = activePrograms.length;
+    summary.cancelled = programResults.length < activePrograms.length && typeof options.shouldCancel === 'function' && options.shouldCancel();
+    summary.cappedAt = activePrograms.length > cap ? cap : undefined;
+    return summary;
+  }
+
+  function activePortfolioPrograms(programs = []) {
+    const approvedYear = programRequirements.getMostRecentApprovedCatalogYear
+      ? programRequirements.getMostRecentApprovedCatalogYear(programs)
+      : [...new Set((programs || []).filter(program => String(program.reviewStatus || '').toLowerCase() === 'approved').map(program => program.catalogYear).filter(Boolean))].sort().pop();
+    const activePrograms = (programs || []).filter(program => String(program.reviewStatus || '').toLowerCase() === 'approved' && String(program.catalogYear || '') === String(approvedYear || ''));
+    return { approvedYear: approvedYear || '', activePrograms };
+  }
+
+  function summarizePortfolioResult(approvedYear, programResults = []) {
+    const statusCount = status => programResults.filter(result => result.viabilitySummary?.overallStatus === status).length;
+    const sharedCourseBlockers = sharedBlockerAnalysis(programResults);
+    return {
+      activeCatalogYear: approvedYear || '',
+      programsEvaluated: programResults.length,
+      healthyPrograms: statusCount('healthy'),
+      moderateRiskPrograms: statusCount('moderate-risk'),
+      highRiskPrograms: statusCount('high-risk'),
+      notViablePrograms: statusCount('not-viable'),
+      insufficientDataPrograms: statusCount('insufficient-data'),
+      singleCampusViablePrograms: programResults.filter(result => result.viabilitySummary?.singleCampusViable).length,
+      multiCampusRequiredPrograms: programResults.filter(result => Number(result.viabilitySummary?.minimumPhysicalCampusesRequired || 0) > 1).length,
+      onlineOnlyViablePrograms: programResults.filter(result => result.viabilitySummary?.onlineOnlyViable).length,
+      onlineDependentPrograms: programResults.filter(result => result.viabilitySummary?.onlineDependency === 'Required').length,
+      campusResultIndeterminatePrograms: programResults.filter(result => result.unknownCampusDiagnostics?.indeterminate).length,
+      programResults,
+      sharedCourseBlockers,
+      sharedTimeConflicts: [],
+      priorityRecommendations: sharedCourseBlockers.slice(0, 10).map((blocker, index) => ({
+        priority: index + 1,
+        proposedChange: blocker.recommendedAction,
+        programsImproved: blocker.programsAffected,
+        configurationsAdded: '',
+        campusAccessImprovement: blocker.campusesOffered || '',
+        onlineAccessImprovement: blocker.onlineAvailability || '',
+        confidence: blocker.confidence
+      }))
+    };
+  }
+
+  function sharedBlockerAnalysis(programResults = []) {
+    const byCourse = new Map();
+    programResults.forEach(result => {
+      (result.blockers || []).forEach(blocker => {
+        const courses = [blocker.requirement, blocker.issue, blocker.effect, blocker.suggestedAction].map(value => String(value || '')).join(' ').match(/[A-Z]{2,5}\s+\w+/g) || [];
+        courses.forEach(course => {
+          const key = normalizeCourseKey(course);
+          const entry = byCourse.get(key) || {
+            course: key,
+            programs: new Set(),
+            requirementGroups: new Set(),
+            termsOffered: new Set(),
+            campusesOffered: new Set(),
+            onlineAvailability: 'Unknown',
+            currentSectionCount: 0,
+            severity: blocker.severity || 'Medium',
+            confidence: 'medium'
+          };
+          entry.programs.add(result.program?.programName || result.program?.programId || 'Program');
+          entry.requirementGroups.add(blocker.requirement || 'Requirement');
+          const coverage = (result.requirementCoverage || []).find(row => row.courseKey === key);
+          (coverage?.termsOffered || []).forEach(term => entry.termsOffered.add(term));
+          Object.keys(coverage?.campusMix || {}).forEach(campus => entry.campusesOffered.add(campus));
+          entry.currentSectionCount += Number(coverage?.sections || 0);
+          byCourse.set(key, entry);
+        });
+      });
+    });
+    return [...byCourse.values()].map(entry => ({
+      course: entry.course,
+      programsAffected: entry.programs.size,
+      programNames: [...entry.programs].join('; '),
+      requirementGroupsAffected: [...entry.requirementGroups].join('; '),
+      termsOffered: [...entry.termsOffered].join('; ') || 'Not offered in selected window',
+      campusesOffered: [...entry.campusesOffered].join('; ') || 'Unknown',
+      onlineAvailability: entry.onlineAvailability,
+      currentSectionCount: entry.currentSectionCount,
+      recommendedAction: `Add or rotate ${entry.course} in a term/campus pattern that restores the most blocked program pathways.`,
+      severity: entry.severity,
+      confidence: entry.confidence
+    })).sort((a, b) => b.programsAffected - a.programsAffected || b.currentSectionCount - a.currentSectionCount);
   }
 
   function analyzeScope(program, pathwayResult) {
@@ -805,6 +1134,8 @@
     assignTerms,
     countSectionConfigurations,
     evaluateCampusScenarios,
+    evaluateProgramPortfolio,
+    evaluateProgramPortfolioAsync,
     simulateScheduleChange,
     meaningfulPatternHash,
     flexibilityRating

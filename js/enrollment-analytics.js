@@ -411,6 +411,7 @@
     programRequirementsPreview: [],
     programRequirementsErrors: [],
     programFeasibilityResult: null,
+    programFeasibilityPortfolioResult: null,
     scheduleTermCache: {},
     scheduleTermMetadataCache: {},
     scheduleTermLoading: {},
@@ -3522,10 +3523,18 @@
             </label>
             <label class="analytics-check"><input id="programFeasibilityIncludeFull" type="checkbox"> Include Full Sections</label>
             <label class="analytics-check"><input id="programFeasibilityIncludeWaitlisted" type="checkbox" checked> Include Waitlisted Sections</label>
+            <label class="analytics-check"><input id="programFeasibilityTravelCheck" type="checkbox" checked> Check Same-Day Campus Travel</label>
+            <label>Visalia-Hanford Minutes <input id="programFeasibilityTravelVisaliaHanford" type="number" min="0" step="5" value="60"></label>
+            <label>Visalia-Tulare Minutes <input id="programFeasibilityTravelVisaliaTulare" type="number" min="0" step="5" value="45"></label>
+            <label>Hanford-Tulare Minutes <input id="programFeasibilityTravelHanfordTulare" type="number" min="0" step="5" value="75"></label>
             <button id="refreshProgramFeasibility" type="button">Refresh Programs</button>
             <button id="runProgramFeasibility" type="button">Run Viability</button>
             <button id="exportProgramFeasibility" type="button">Export Viability CSV</button>
           </div>
+          <div id="programFeasibilityPortfolioMetrics" class="analytics-metrics"></div>
+          <div id="programFeasibilityPortfolioRisks" class="analytics-table"></div>
+          <div id="programFeasibilitySharedBlockers" class="analytics-table"></div>
+          <div id="programFeasibilityPortfolioRecommendations" class="analytics-table"></div>
           <div id="programFeasibilityMetrics" class="analytics-metrics"></div>
           <div id="programFeasibilityWindowStatus" class="dashboard-scope-panel"></div>
           <div id="programFeasibilityHealth" class="analytics-table"></div>
@@ -8950,6 +8959,45 @@
     return scheduleBuilderAllRows().map(normalize).filter(row => normalizeTermLabel(row.term || row.Term));
   }
 
+  function parseProgramFeasibilityJson(value, fallback = {}) {
+    try { return value ? JSON.parse(value) : fallback; }
+    catch (err) { return fallback; }
+  }
+
+  function programFeasibilityTransitionOptions() {
+    const key = 'cos.programFeasibility.travelAssumptions';
+    const storage = typeof localStorage !== 'undefined' ? localStorage : null;
+    const saved = parseProgramFeasibilityJson(storage?.getItem(key), {});
+    const values = {
+      enableCampusTravelConflictChecking: document.getElementById('programFeasibilityTravelCheck')?.checked !== false,
+      campusTransitionMinutes: {
+        'Hanford|Visalia': num(document.getElementById('programFeasibilityTravelVisaliaHanford')?.value ?? saved.visaliaHanford ?? 60) || 0,
+        'Tulare|Visalia': num(document.getElementById('programFeasibilityTravelVisaliaTulare')?.value ?? saved.visaliaTulare ?? 45) || 0,
+        'Hanford|Tulare': num(document.getElementById('programFeasibilityTravelHanfordTulare')?.value ?? saved.hanfordTulare ?? 75) || 0
+      }
+    };
+    try {
+      storage?.setItem(key, JSON.stringify({
+        enabled: values.enableCampusTravelConflictChecking,
+        visaliaHanford: values.campusTransitionMinutes['Hanford|Visalia'],
+        visaliaTulare: values.campusTransitionMinutes['Tulare|Visalia'],
+        hanfordTulare: values.campusTransitionMinutes['Hanford|Tulare']
+      }));
+    } catch (err) { /* localStorage may be unavailable in smoke tests */ }
+    return values;
+  }
+
+  function restoreProgramFeasibilityTransitionOptions() {
+    const storage = typeof localStorage !== 'undefined' ? localStorage : null;
+    const saved = parseProgramFeasibilityJson(storage?.getItem('cos.programFeasibility.travelAssumptions'), {});
+    const check = document.getElementById('programFeasibilityTravelCheck');
+    if (check && Object.prototype.hasOwnProperty.call(saved, 'enabled')) check.checked = saved.enabled !== false;
+    const set = (id, value) => { const el = document.getElementById(id); if (el && value != null) el.value = value; };
+    set('programFeasibilityTravelVisaliaHanford', saved.visaliaHanford);
+    set('programFeasibilityTravelVisaliaTulare', saved.visaliaTulare);
+    set('programFeasibilityTravelHanfordTulare', saved.hanfordTulare);
+  }
+
   function selectedValues(id) {
     const node = document.getElementById(id);
     return Array.from(node?.selectedOptions || []).map(option => option.value || option.textContent || '').filter(Boolean);
@@ -8985,6 +9033,7 @@
     }
     setSimpleOptions('programFeasibilityCampus', [...new Set(programFeasibilityRows().map(row => canon(row.campus || row.Campus)).filter(Boolean))]);
     setSimpleOptions('programFeasibilityModality', ['In-Person', 'Hybrid', 'Online', 'Asynchronous Online', 'Synchronous Online']);
+    restoreProgramFeasibilityTransitionOptions();
   }
 
   function setSimpleOptions(id, values = []) {
@@ -9014,7 +9063,7 @@
     const selectedTerm = document.getElementById('programFeasibilityTerm')?.value || normalizeTermLabel(currentTerm());
     await loadScheduleBuilderEffectiveTermRows(selectedTerm).catch(() => []);
     const rows = programFeasibilityRows();
-    const result = programFeasibilityApi().evaluateProgramFeasibility(program, rows, {
+    const sharedOptions = {
       selectedTerm,
       windowType: document.getElementById('programFeasibilityWindow')?.value || 'full',
       primarySemesterMaxUnits: num(document.getElementById('programFeasibilityPrimaryMax')?.value) || 18,
@@ -9026,15 +9075,65 @@
       onlineMode: document.getElementById('programFeasibilityOnlineMode')?.value || 'include',
       includeFullSections: document.getElementById('programFeasibilityIncludeFull')?.checked === true,
       includeWaitlistedSections: document.getElementById('programFeasibilityIncludeWaitlisted')?.checked === true,
-      includeUnknownSeatStatus: true
-    });
+      includeUnknownSeatStatus: true,
+      ...programFeasibilityTransitionOptions()
+    };
+    const portfolioPrograms = (state.programRequirements || []).filter(item => String(item.catalogYear || '') === String(catalogYear || '') && String(item.reviewStatus || '').toLowerCase() === 'approved');
+    const portfolioStatus = document.getElementById('programFeasibilityPortfolioMetrics');
+    if (portfolioStatus) portfolioStatus.innerHTML = '<div class="analytics-note">Programs evaluated: 0 of ' + portfolioPrograms.length + '</div>';
+    state.programFeasibilityPortfolioResult = programFeasibilityApi().evaluateProgramPortfolioAsync
+      ? await programFeasibilityApi().evaluateProgramPortfolioAsync(portfolioPrograms, rows, {
+        ...sharedOptions,
+        scheduleVersion: `${rows.length}:${selectedTerm}:${state.scheduleBuilderSourceStatus || ''}`,
+        onProgress: progress => {
+          const node = document.getElementById('programFeasibilityPortfolioMetrics');
+          if (node) node.innerHTML = '<div class="analytics-note">Programs evaluated: ' + progress.evaluated + ' of ' + progress.total + '</div>';
+        }
+      })
+      : programFeasibilityApi().evaluateProgramPortfolio
+        ? programFeasibilityApi().evaluateProgramPortfolio(portfolioPrograms, rows, sharedOptions)
+        : null;
+    const result = programFeasibilityApi().evaluateProgramFeasibility(program, rows, sharedOptions);
     state.programFeasibilityResult = result;
     renderProgramFeasibilityResult();
+  }
+
+  function renderProgramFeasibilityPortfolio() {
+    const portfolio = state.programFeasibilityPortfolioResult;
+    if (!portfolio) return;
+    metric('programFeasibilityPortfolioMetrics', [
+      ['Program Portfolio Summary', portfolio.activeCatalogYear || 'N/A'],
+      ['Programs Evaluated', portfolio.programsEvaluated],
+      ['Healthy', portfolio.healthyPrograms],
+      ['Moderate Risk', portfolio.moderateRiskPrograms],
+      ['High Risk', portfolio.highRiskPrograms],
+      ['Not Viable', portfolio.notViablePrograms],
+      ['Insufficient Data', portfolio.insufficientDataPrograms],
+      ['Single Physical Campus Available', portfolio.singleCampusViablePrograms],
+      ['Multiple Physical Campuses Required', portfolio.multiCampusRequiredPrograms],
+      ['Online Required', portfolio.onlineDependentPrograms],
+      ['Online-Only Completion Available', portfolio.onlineOnlyViablePrograms],
+      ['Campus Result Indeterminate', portfolio.campusResultIndeterminatePrograms]
+    ]);
+    const riskRows = (portfolio.programResults || []).map(result => ({
+      program: result.program?.programName || result.program?.programId || '',
+      award: result.program?.awardType || '',
+      status: result.viabilitySummary?.overallStatus || result.overallFeasibility,
+      configurations: result.configurationCounts?.rawCrnConfigurationCount ?? 0,
+      singleCampus: result.viabilitySummary?.singleCampusViable ? 'Yes' : 'No',
+      minimumCampuses: result.viabilitySummary?.minimumPhysicalCampusesRequired ?? 'N/A',
+      primaryBlocker: (result.blockers || [])[0]?.issue || '',
+      confidence: result.confidence
+    })).sort((a, b) => String(a.status).localeCompare(String(b.status)) || Number(a.configurations) - Number(b.configurations)).slice(0, 50);
+    table('programFeasibilityPortfolioRisks', riskRows, ['program', 'award', 'status', 'configurations', 'singleCampus', 'minimumCampuses', 'primaryBlocker', 'confidence']);
+    table('programFeasibilitySharedBlockers', portfolio.sharedCourseBlockers || [], ['course', 'programsAffected', 'requirementGroupsAffected', 'termsOffered', 'campusesOffered', 'onlineAvailability', 'currentSectionCount', 'recommendedAction', 'confidence']);
+    table('programFeasibilityPortfolioRecommendations', portfolio.priorityRecommendations || [], ['priority', 'proposedChange', 'programsImproved', 'configurationsAdded', 'campusAccessImprovement', 'onlineAccessImprovement', 'confidence']);
   }
 
   function renderProgramFeasibilityResult() {
     const result = state.programFeasibilityResult;
     if (!result) return;
+    renderProgramFeasibilityPortfolio();
     metric('programFeasibilityMetrics', [
       ['Program Schedule Viability', result.viabilitySummary?.overallStatus || result.overallFeasibility],
       ['Course Coverage', result.availability.coveragePct],
@@ -9042,6 +9141,7 @@
       ['Raw CRN Configurations', result.configurationCounts.rawCrnConfigurationCount],
       ['Meaningful Patterns', result.configurationCounts.meaningfulPatternCount],
       ['Single-Campus Completion', result.viabilitySummary?.singleCampusViable ? 'Yes' : 'No'],
+      ['Single Campus + Online', result.viabilitySummary?.completeWithoutMultipleCampusesWhenOnlineAllowed ? 'Yes' : 'No'],
       ['Minimum Physical Campuses', result.viabilitySummary?.minimumPhysicalCampusesRequired ?? 'N/A'],
       ['Online-Only Completion', result.viabilitySummary?.onlineOnlyViable ? 'Yes' : 'No'],
       ['Online Dependency', result.viabilitySummary?.onlineDependency || 'None'],
@@ -9059,6 +9159,8 @@
         <div><dt>Terms Analyzed</dt><dd>${escapeAttr((result.termsAnalyzed || []).join(', '))}</dd></div>
         <div><dt>Missing Terms</dt><dd>${escapeAttr((result.termWindow.missingTerms || []).join(', ') || 'None')}</dd></div>
         <div><dt>Online Mode</dt><dd>${escapeAttr(document.getElementById('programFeasibilityOnlineMode')?.selectedOptions?.[0]?.textContent || 'Include Online')}</dd></div>
+        <div><dt>Travel Check</dt><dd>${result.configurationCounts?.campusEnumeration?.exact === false ? 'Enabled; lower-bound enumeration' : (document.getElementById('programFeasibilityTravelCheck')?.checked === false ? 'Disabled' : 'Enabled')}</dd></div>
+        <div><dt>Travel Assumptions</dt><dd>${escapeAttr(JSON.stringify(programFeasibilityTransitionOptions().campusTransitionMinutes))}</dd></div>
         <div><dt>Analysis Scope</dt><dd>Current catalog program and major requirements represented in TIMBER</dd></div>
         <div><dt>Structured Units Represented</dt><dd>${escapeAttr(result.analysisScope?.structuredUnitsRepresented ?? 'N/A')}</dd></div>
         <div><dt>Catalog Program Units</dt><dd>${escapeAttr(result.program.minimumProgramUnits ?? result.analysisScope?.structuredUnitsRepresented ?? 'N/A')}</dd></div>
@@ -9080,15 +9182,19 @@
       scenario: scenario.label,
       feasible: scenario.feasible ? 'Yes' : 'No',
       academicPathways: scenario.academicPathwayCount,
+      blockedPathways: scenario.scenarioBlockedPathwayCount,
       rawConfigurations: scenario.rawConfigurationCount,
       meaningfulPatterns: scenario.meaningfulPatternCount,
       minimumPhysicalCampuses: scenario.minimumPhysicalCampusesRequired ?? 'N/A',
+      maximumPhysicalCampuses: scenario.maximumPhysicalCampusesUsed ?? 'N/A',
       mostCommonCampusCombination: (scenario.mostCommonCampusCombination || []).join(' + ') || 'N/A',
-      sameDayTravelRisk: scenario.sameDayCrossCampusRequired ? 'Yes' : 'No',
+      sameDayTravelExists: scenario.sameDayCrossCampusConfigurationsExist ? 'Yes' : 'No',
+      sameDayTravelAvoidable: scenario.sameDayCrossCampusCanBeAvoided ? 'Yes' : 'No',
+      sameDayTravelUnavoidable: scenario.sameDayCrossCampusUnavoidable ? 'Yes' : 'No',
       exact: scenario.exact ? 'Exact' : 'Lower bound'
     }));
-    table('programFeasibilityCampusScenarios', scenarioRows, ['scenario', 'feasible', 'academicPathways', 'rawConfigurations', 'meaningfulPatterns', 'minimumPhysicalCampuses', 'mostCommonCampusCombination', 'sameDayTravelRisk', 'exact']);
-    table('programFeasibilityRecommendations', result.recommendations || [], ['actionType', 'courseKey', 'proposedCampus', 'proposedOnlineMode', 'programsImproved', 'currentViabilityStatus', 'projectedViabilityStatus', 'configurationsBefore', 'configurationsAfter', 'configurationsAdded', 'campusEffect', 'onlineEffect', 'confidence', 'explanation']);
+    table('programFeasibilityCampusScenarios', scenarioRows, ['scenario', 'feasible', 'academicPathways', 'blockedPathways', 'rawConfigurations', 'meaningfulPatterns', 'minimumPhysicalCampuses', 'maximumPhysicalCampuses', 'mostCommonCampusCombination', 'sameDayTravelExists', 'sameDayTravelAvoidable', 'sameDayTravelUnavoidable', 'exact']);
+    table('programFeasibilityRecommendations', result.recommendations || [], ['actionType', 'courseKey', 'proposedCampus', 'proposedOnlineMode', 'simulated', 'programsImproved', 'currentViabilityStatus', 'projectedViabilityStatus', 'configurationsBefore', 'configurationsAfter', 'configurationsAdded', 'campusEffect', 'onlineEffect', 'confidence', 'explanation']);
     table('programFeasibilityCoverage', result.requirementCoverage, ['courseKey', 'termsOffered', 'sections', 'enrollment', 'seats', 'reliability', 'status']);
     const pathwayRows = result.pathwayResult.pathways.slice(0, 50).flatMap((pathway, index) => (pathway.termAssignments || []).map(item => ({
       pathway: index + 1,
@@ -9108,21 +9214,25 @@
       standardLoadConfigurations: result.configurationCounts.standardLoadConfigurations,
       combinationsVisited: result.configurationCounts.combinationsVisited,
       combinationsPruned: result.configurationCounts.combinationsPruned,
+      minimumPhysicalCampuses: result.configurationCounts.campusEnumeration?.minimumPhysicalCampusCount ?? 'N/A',
+      sameDayTravelUnavoidable: result.viabilitySummary?.sameDayTravelUnavoidable ? 'Yes' : 'No',
+      unknownCampusImpact: result.unknownCampusDiagnostics?.indeterminate ? 'Indeterminate campus conclusions possible' : 'None detected',
       capReached: result.configurationCounts.capReached ? 'Yes' : 'No',
       resilience: result.resilience.resilience,
       resilienceNote: result.resilience.note
-    }], ['exact', 'rawCrnConfigurationCount', 'meaningfulPatternCount', 'configurationsWithoutSummer', 'configurationsUsingSummer', 'standardLoadConfigurations', 'combinationsVisited', 'combinationsPruned', 'capReached', 'resilience', 'resilienceNote']);
+    }], ['exact', 'rawCrnConfigurationCount', 'meaningfulPatternCount', 'configurationsWithoutSummer', 'configurationsUsingSummer', 'standardLoadConfigurations', 'combinationsVisited', 'combinationsPruned', 'minimumPhysicalCampuses', 'sameDayTravelUnavoidable', 'unknownCampusImpact', 'capReached', 'resilience', 'resilienceNote']);
     table('programFeasibilityBlockers', result.blockers, ['severity', 'requirement', 'issue', 'effect', 'suggestedAction']);
     renderMethodologyPanel(document.getElementById('programFeasibilityLegend'), {
       title: 'Program Schedule Viability Methodology',
       purpose: 'This report is a schedule-development pulse check. It evaluates whether the current and recent schedule provides sufficient course availability, sequencing, campus access, and conflict-free configurations to support two-year completion of current catalog programs.',
       calculationRules: 'Availability is calculated by course option across the selected two-year window. Academic pathways preserve requirement choices, prerequisites, corequisites, chronological term order, unit limits, and summer usage. Section configurations reuse Schedule Builder CRN conflict checks and meaningful-pattern deduplication.',
-      assumptions: 'Requirements must be imported as reviewed structured JSON. Offering reliability bands are provisional and configurable in the engine.',
+      assumptions: 'Requirements must be imported as reviewed structured JSON. Offering reliability bands and campus transition minutes are provisional planning assumptions, not official standards.',
       limitations: result.limitations.join(' '),
       items: [
         ['Academic Pathway Configuration', 'A distinct course-choice and term-assignment pathway.'],
         ['Raw CRN Configuration', 'A conflict-free CRN combination available for a pathway. Counts are independent of the number of example schedules retained for display.'],
         ['Meaningful Pattern', 'Deduplicated student-facing weekly pattern; same course/day/time/modality/campus patterns do not inflate flexibility.'],
+        ['Same-Day Cross-Campus Travel Unavoidable', 'Every viable configuration has same-day activity at more than one physical campus. If at least one viable configuration avoids it, the report says it can be avoided.'],
         ['Analysis Scope', 'Program-only analysis means the structured JSON does not represent every award unit required for completion.'],
         ['Resilience', 'Diagnostic approximation showing sensitivity to the weakest offered course.']
       ],
@@ -9133,10 +9243,15 @@
   function exportProgramFeasibilityRows() {
     const result = state.programFeasibilityResult;
     if (!result) return;
+    const portfolio = state.programFeasibilityPortfolioResult;
     const rows = [
+      ...(portfolio ? [{ section: 'Program Portfolio Summary', activeCatalogYear: portfolio.activeCatalogYear, programsEvaluated: portfolio.programsEvaluated, healthyPrograms: portfolio.healthyPrograms, moderateRiskPrograms: portfolio.moderateRiskPrograms, highRiskPrograms: portfolio.highRiskPrograms, notViablePrograms: portfolio.notViablePrograms, insufficientDataPrograms: portfolio.insufficientDataPrograms, singleCampusViablePrograms: portfolio.singleCampusViablePrograms, multiCampusRequiredPrograms: portfolio.multiCampusRequiredPrograms, onlineDependentPrograms: portfolio.onlineDependentPrograms, onlineOnlyViablePrograms: portfolio.onlineOnlyViablePrograms, campusResultIndeterminatePrograms: portfolio.campusResultIndeterminatePrograms }] : []),
+      ...((portfolio?.programResults || []).map(item => ({ section: 'Program Portfolio Detail', program: item.program?.programName || item.program?.programId, award: item.program?.awardType, catalogYear: item.program?.catalogYear, status: item.viabilitySummary?.overallStatus, coverage: item.availability?.coveragePct, academicPathways: item.pathwayResult?.count, configurations: item.configurationCounts?.rawCrnConfigurationCount, meaningfulPatterns: item.configurationCounts?.meaningfulPatternCount, singlePhysicalCampusFeasible: item.viabilitySummary?.singleCampusViable, singleCampusPlusOnlineFeasible: item.viabilitySummary?.completeWithoutMultipleCampusesWhenOnlineAllowed, minimumPhysicalCampuses: item.viabilitySummary?.minimumPhysicalCampusesRequired, onlineOnlyFeasible: item.viabilitySummary?.onlineOnlyViable, onlineDependency: item.viabilitySummary?.onlineDependency, sameDayTravelUnavoidable: item.viabilitySummary?.sameDayTravelUnavoidable, unknownCampusImpact: item.unknownCampusDiagnostics?.indeterminate, primaryBlocker: (item.blockers || [])[0]?.issue || '', confidence: item.confidence }))),
+      ...((portfolio?.sharedCourseBlockers || []).map(item => ({ section: 'Shared Blockers', ...item }))),
+      ...((portfolio?.priorityRecommendations || []).map(item => ({ section: 'Simulated Recommendations', ...item }))),
       { section: 'Analysis Scope', ...result.analysisScope },
       ...Object.entries(result.programHealth?.components || {}).map(([component, value]) => ({ section: 'Program Health', component, value, weight: result.programHealth?.weights?.[component] ?? '', score: result.programHealth?.score })),
-      ...(result.campusScenarios || []).map(scenario => ({ section: 'Campus Scenario Detail', ...scenario, physicalCampusesAllowed: (scenario.physicalCampusesAllowed || []).join('; '), campusesUsed: (scenario.campusesUsed || []).map(item => item.join(' + ')).join('; '), mostCommonCampusCombination: (scenario.mostCommonCampusCombination || []).join(' + '), coursesPreventingCompletion: (scenario.coursesPreventingCompletion || []).join('; '), coursesForcingCampusTravel: (scenario.coursesForcingCampusTravel || []).join('; ') })),
+      ...(result.campusScenarios || []).map(scenario => ({ section: 'Campus Scenario Detail', ...scenario, physicalCampusesAllowed: (scenario.physicalCampusesAllowed || []).join('; '), campusesUsed: (scenario.campusesUsed || []).map(item => item.join(' + ')).join('; '), mostCommonCampusCombination: (scenario.mostCommonCampusCombination || []).join(' + '), coursesPreventingCompletion: (scenario.coursesPreventingCompletion || []).join('; '), coursesForcingCampusTravel: (scenario.coursesForcingCampusTravel || []).map(item => item.courseKey || item).join('; '), configurationsByCampusCount: JSON.stringify(scenario.configurationsByCampusCount || {}), configurationsByCampusCombination: JSON.stringify(scenario.configurationsByCampusCombination || {}) })),
       ...(result.recommendations || []).map(row => ({ section: 'Schedule Recommendations', ...row, programsImproved: (row.programsImproved || []).join('; ') })),
       ...result.requirementCoverage.map(row => ({ section: 'Requirement Coverage', ...row, termsOffered: (row.termsOffered || []).join('; ') })),
       ...result.pathwayResult.pathways.slice(0, 50).flatMap((pathway, index) => (pathway.termAssignments || []).map(item => ({ section: 'Suggested Pathway', pathway: index + 1, ...item, summerUsed: pathway.summerUsed, loadStatus: pathway.loadStatus }))),

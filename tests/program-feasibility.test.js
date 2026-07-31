@@ -298,11 +298,151 @@ test('campus scenarios distinguish Visalia Hanford Tulare and minimum campus req
   const result = feasibility.evaluateProgramFeasibility(program, rows, { selectedTerm: 'FALL 2026' });
   const scenario = id => result.campusScenarios.find(item => item.scenarioId === id);
 
-  assert.equal(scenario('visalia-only').feasible, true);
-  assert.equal(scenario('hanford-only').feasible, false);
-  assert.equal(scenario('tulare-only').feasible, false);
+  assert.equal(scenario('visalia-physical-only').feasible, true);
+  assert.equal(scenario('hanford-physical-only').feasible, false);
+  assert.equal(scenario('tulare-physical-only').feasible, false);
   assert.equal(scenario('maximum-two-campuses').feasible, true);
   assert.equal(result.viabilitySummary.singleCampusViable, true);
+});
+
+test('retained example limits do not determine minimum physical campus aggregates', () => {
+  const program = COSProgramRequirements.normalizeProgram({
+    programId: 'GLOBAL-MIN-CERT',
+    catalogYear: '2026-2027',
+    programName: 'Global Minimum Certificate',
+    awardType: 'Certificate',
+    totalUnitsRequired: 6,
+    reviewStatus: 'approved',
+    source: { sourceType: 'manual' },
+    requirementGroups: [{ label: 'Core', rule: 'all', courses: [
+      { courseKey: 'BUS 001', units: 3 },
+      { courseKey: 'MATH 010', units: 3 }
+    ] }]
+  });
+  const rows = [
+    section({ crn: '85001', subject: 'BUS', course: '001', campus: 'HAC', start: '08:00', end: '09:00' }),
+    section({ crn: '85002', subject: 'BUS', course: '001', campus: 'COS', start: '08:00', end: '09:00' }),
+    section({ crn: '85003', subject: 'MATH', course: '010', campus: 'TCC', start: '10:30', end: '11:30' }),
+    section({ crn: '85004', subject: 'MATH', course: '010', campus: 'COS', start: '10:30', end: '11:30' })
+  ];
+  const result = feasibility.evaluateProgramFeasibility(program, rows, { selectedTerm: 'FALL 2026', topSchedulesRetained: 1 });
+
+  assert.equal(result.configurationCounts.topSchedules.length, 1);
+  assert.equal(result.configurationCounts.campusEnumeration.minimumPhysicalCampusCount, 1);
+  assert.equal(result.viabilitySummary.minimumPhysicalCampusesRequired, 1);
+});
+
+test('scenario-compatible pathway count excludes pathways blocked by a scenario', () => {
+  const program = COSProgramRequirements.normalizeProgram({
+    programId: 'SCENARIO-PATH-CERT',
+    catalogYear: '2026-2027',
+    programName: 'Scenario Path Certificate',
+    awardType: 'Certificate',
+    totalUnitsRequired: 3,
+    reviewStatus: 'approved',
+    source: { sourceType: 'manual' },
+    requirementGroups: [{ label: 'Choice', rule: 'or', courses: [
+      { courseKey: 'BUS 001', units: 3 },
+      { courseKey: 'MATH 010', units: 3 }
+    ] }]
+  });
+  const rows = [
+    section({ crn: '85101', subject: 'BUS', course: '001', campus: 'COS' }),
+    section({ crn: '85102', subject: 'MATH', course: '010', campus: 'HAC' })
+  ];
+  const result = feasibility.evaluateProgramFeasibility(program, rows, { selectedTerm: 'FALL 2026' });
+  const visalia = result.campusScenarios.find(item => item.scenarioId === 'visalia-physical-only');
+
+  assert.equal(result.pathwayResult.count, 2);
+  assert.equal(visalia.scenarioCompatiblePathwayCount, 1);
+  assert.equal(visalia.scenarioBlockedPathwayCount, 1);
+});
+
+test('physical-only and physical-plus-online scenarios are separate and online does not count as physical campus', () => {
+  const program = COSProgramRequirements.normalizeProgram({
+    programId: 'PLUS-ONLINE-CERT',
+    catalogYear: '2026-2027',
+    programName: 'Plus Online Certificate',
+    awardType: 'Certificate',
+    totalUnitsRequired: 6,
+    reviewStatus: 'approved',
+    source: { sourceType: 'manual' },
+    requirementGroups: [{ label: 'Core', rule: 'all', courses: [
+      { courseKey: 'BUS 001', units: 3 },
+      { courseKey: 'MATH 010', units: 3 }
+    ] }]
+  });
+  const rows = [
+    section({ crn: '85201', subject: 'BUS', course: '001', campus: 'COS' }),
+    section({ crn: '85202', subject: 'MATH', course: '010', campus: 'ONC', modality: 'Online', days: '', start: '', end: '' })
+  ];
+  const result = feasibility.evaluateProgramFeasibility(program, rows, { selectedTerm: 'FALL 2026' });
+  const physical = result.campusScenarios.find(item => item.scenarioId === 'visalia-physical-only');
+  const plusOnline = result.campusScenarios.find(item => item.scenarioId === 'visalia-plus-online');
+
+  assert.equal(physical.feasible, false);
+  assert.equal(plusOnline.feasible, true);
+  assert.equal(plusOnline.minimumPhysicalCampusesRequired, 1);
+  assert.equal(result.viabilitySummary.completeWithoutMultipleCampusesWhenOnlineAllowed, true);
+});
+
+test('same-day cross-campus travel is avoidable unless every viable configuration has it', () => {
+  const program = COSProgramRequirements.normalizeProgram({
+    programId: 'TRAVEL-CERT',
+    catalogYear: '2026-2027',
+    programName: 'Travel Certificate',
+    awardType: 'Certificate',
+    totalUnitsRequired: 6,
+    reviewStatus: 'approved',
+    source: { sourceType: 'manual' },
+    requirementGroups: [{ label: 'Core', rule: 'all', courses: [
+      { courseKey: 'BUS 001', units: 3 },
+      { courseKey: 'MATH 010', units: 3 }
+    ] }]
+  });
+  const rows = [
+    section({ crn: '85301', subject: 'BUS', course: '001', campus: 'COS', start: '08:00', end: '09:00' }),
+    section({ crn: '85302', subject: 'BUS', course: '001', campus: 'HAC', start: '08:00', end: '09:00' }),
+    section({ crn: '85303', subject: 'MATH', course: '010', campus: 'COS', start: '14:00', end: '15:00' })
+  ];
+  const mixed = feasibility.evaluateProgramFeasibility(program, rows, { selectedTerm: 'FALL 2026' });
+  const allCampuses = mixed.campusScenarios.find(item => item.scenarioId === 'all-campuses-online');
+  const unavoidable = feasibility.evaluateProgramFeasibility(program, rows.slice(1), { selectedTerm: 'FALL 2026' }).campusScenarios.find(item => item.scenarioId === 'all-campuses-online');
+
+  assert.equal(allCampuses.sameDayCrossCampusConfigurationsExist, true);
+  assert.equal(allCampuses.sameDayCrossCampusCanBeAvoided, true);
+  assert.equal(allCampuses.sameDayCrossCampusUnavoidable, false);
+  assert.equal(unavoidable.sameDayCrossCampusUnavoidable, true);
+});
+
+test('unknown campus data creates indeterminate campus diagnostics for required courses', () => {
+  const program = COSProgramRequirements.normalizeProgram({
+    programId: 'UNKNOWN-CAMPUS-CERT',
+    catalogYear: '2026-2027',
+    programName: 'Unknown Campus Certificate',
+    awardType: 'Certificate',
+    totalUnitsRequired: 3,
+    reviewStatus: 'approved',
+    source: { sourceType: 'manual' },
+    requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 001', units: 3 }] }]
+  });
+  const result = feasibility.evaluateProgramFeasibility(program, [section({ crn: '85401', subject: 'BUS', course: '001', campus: 'ZZZ' })], { selectedTerm: 'FALL 2026' });
+
+  assert.equal(result.unknownCampusDiagnostics.sectionsWithUnknownCampus, 1);
+  assert.equal(result.unknownCampusDiagnostics.indeterminate, true);
+  assert.match(result.blockers.map(blocker => blocker.issue).join(' '), /unknown campus/i);
+});
+
+test('campus transition assumptions can be edited and disabled', () => {
+  const rows = [
+    section({ crn: '85501', subject: 'BUS', course: '001', campus: 'COS', start: '09:00', end: '10:00' }),
+    section({ crn: '85502', subject: 'MATH', course: '010', campus: 'HAC', start: '10:15', end: '11:15' })
+  ];
+  const blocked = COSScheduleBuilder.buildScheduleOptions(rows, [{ course: 'BUS 001' }, { course: 'MATH 010' }], { countMode: true, requireAllRequestedCourses: true, campusTransitionMinutes: { 'Hanford|Visalia': 60 } });
+  const disabled = COSScheduleBuilder.buildScheduleOptions(rows, [{ course: 'BUS 001' }, { course: 'MATH 010' }], { countMode: true, requireAllRequestedCourses: true, enableCampusTravelConflictChecking: false, campusTransitionMinutes: { 'Hanford|Visalia': 60 } });
+
+  assert.equal(blocked.count.viableConfigurationCount, 0);
+  assert.equal(disabled.count.viableConfigurationCount, 1);
 });
 
 test('online section does not count as physical campus and online modes recalculate counts', () => {
@@ -373,10 +513,66 @@ test('recommendations and simulation are non-destructive schedule-development di
   const sim = feasibility.simulateScheduleChange(program, rows, { action: 'add-section', section: section({ crn: '84002', subject: 'BUS', course: '127', start: '11:00', end: '12:00' }) }, { selectedTerm: 'FALL 2026' });
 
   assert.ok(before.recommendations.some(item => item.actionType === 'add-course-offering'));
+  assert.equal(before.recommendations[0].simulated, false);
+  assert.equal(before.recommendations[0].configurationsAdded, '');
   assert.equal(sim.sourceRowsMutated, false);
   assert.equal(rows.length, 1);
   assert.equal(sim.configurationsBefore, 0);
   assert.ok(sim.configurationsAfter > sim.configurationsBefore);
+  assert.equal(sim.exact, true);
+});
+
+test('portfolio evaluation uses only newest approved catalog year and aggregates shared blockers', () => {
+  const programs = [
+    COSProgramRequirements.normalizeProgram({ programId: 'OLD', catalogYear: '2025-2026', programName: 'Old Approved', awardType: 'Certificate', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 001', units: 3 }] }] }),
+    COSProgramRequirements.normalizeProgram({ programId: 'DRAFT', catalogYear: '2027-2028', programName: 'Future Draft', awardType: 'Certificate', reviewStatus: 'draft', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 001', units: 3 }] }] }),
+    COSProgramRequirements.normalizeProgram({ programId: 'A', catalogYear: '2026-2027', programName: 'Program A', awardType: 'Certificate', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 127', units: 3 }] }] }),
+    COSProgramRequirements.normalizeProgram({ programId: 'B', catalogYear: '2026-2027', programName: 'Program B', awardType: 'Certificate', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 127', units: 3 }] }] })
+  ];
+  const portfolio = feasibility.evaluateProgramPortfolio(programs, [section({ subject: 'BUS', course: '001' })], { selectedTerm: 'FALL 2026' });
+  const blocker = portfolio.sharedCourseBlockers.find(item => item.course === 'BUS 127');
+
+  assert.equal(portfolio.activeCatalogYear, '2026-2027');
+  assert.equal(portfolio.programsEvaluated, 2);
+  assert.equal(blocker.programsAffected, 2);
+  assert.equal(portfolio.priorityRecommendations[0].programsImproved, 2);
+});
+
+test('portfolio async evaluation reports progress and reuses cached program results', async () => {
+  const programs = [
+    COSProgramRequirements.normalizeProgram({ programId: 'A', catalogYear: '2026-2027', programName: 'Program A', awardType: 'Certificate', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 001', units: 3 }] }] }),
+    COSProgramRequirements.normalizeProgram({ programId: 'B', catalogYear: '2026-2027', programName: 'Program B', awardType: 'Certificate', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'MATH 010', units: 3 }] }] })
+  ];
+  const rows = [
+    section({ subject: 'BUS', course: '001' }),
+    section({ subject: 'MATH', course: '010' })
+  ];
+  const cache = new Map();
+  const progress = [];
+  const first = await feasibility.evaluateProgramPortfolioAsync(programs, rows, { selectedTerm: 'FALL 2026', cache, onProgress: item => progress.push(item.evaluated) });
+  const second = await feasibility.evaluateProgramPortfolioAsync(programs, rows, { selectedTerm: 'FALL 2026', cache });
+
+  assert.deepEqual(progress, [1, 2]);
+  assert.equal(first.programsEvaluated, 2);
+  assert.equal(second.programsEvaluated, 2);
+  assert.equal(cache.size, 2);
+});
+
+test('simulated added section improves portfolio programs without mutating source data', () => {
+  const program = COSProgramRequirements.normalizeProgram({
+    programId: 'PORT-SIM',
+    catalogYear: '2026-2027',
+    programName: 'Portfolio Simulation',
+    awardType: 'Certificate',
+    reviewStatus: 'approved',
+    requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 127', units: 3 }] }]
+  });
+  const rows = [];
+  const sim = feasibility.simulateScheduleChange(program, rows, { action: 'add-section', section: section({ crn: '85601', subject: 'BUS', course: '127' }) }, { selectedTerm: 'FALL 2026' });
+
+  assert.equal(rows.length, 0);
+  assert.deepEqual(sim.programsImproved, ['Portfolio Simulation']);
+  assert.ok(sim.configurationsAdded > 0);
 });
 
 test('feasibility engine reports missing required courses as blockers', () => {
