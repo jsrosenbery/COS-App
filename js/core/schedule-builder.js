@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(root.COSTermUtils);
   root.COSScheduleBuilder = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis, function () {
+})(typeof window !== 'undefined' ? window : globalThis, function (termUtils) {
   'use strict';
 
   const DAY_ORDER = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
@@ -34,6 +34,14 @@
 
   function normalizeCourseKey(value) {
     return canon(value).replace(/\s+/g, ' ');
+  }
+
+  function normalizeTermLabel(value) {
+    if (termUtils?.normalizeTermLabel) return termUtils.normalizeTermLabel(value);
+    const text = canon(value);
+    const year = (text.match(/\b(20\d{2})\b/) || [])[1];
+    const season = (text.match(/\b(FALL|SPRING|SUMMER|WINTER)\b/) || [])[1];
+    return year && season ? `${season} ${year}` : text;
   }
 
   function minutesFromTime(value) {
@@ -164,7 +172,7 @@
         const waitlist = num(row.waitlist ?? row.WAITLIST ?? row.waitlistCount ?? row['Waitlist Count']);
         groups.set(crn, {
           crn,
-          term: compact(row.term || row.Term),
+          term: normalizeTermLabel(row.term || row.Term),
           courseKey,
           subject: compact(row.subject || row.Subject || row.discipline || row.Discipline),
           course: compact(row.course || row.Course || row.courseNumber),
@@ -360,15 +368,31 @@
     const results = [];
     const partials = [];
     const maxVisited = Number(preferences.maxVisited || 25000) || 25000;
+    const countMode = preferences.countMode === true || preferences.countOnly === true;
     let visited = 0;
+    let combinationsVisited = 0;
+    let combinationsPruned = 0;
+    let capReached = false;
+    let viableConfigurationCount = 0;
 
     function visit(index, selected, selectedCourses) {
       visited += 1;
-      if (visited > maxVisited || results.length >= maxResults * 8) return;
+      if (visited > maxVisited || (!countMode && results.length >= maxResults * 8)) {
+        capReached = true;
+        return;
+      }
       if (index >= coursesToSearch.length) {
+        combinationsVisited += 1;
         const summary = summarizeSchedule(selected, normalizedRequests, preferences);
         const aggregateIssue = scheduleViolatesAggregate(summary, preferences);
-        if (!aggregateIssue) results.push(summary);
+        if (!aggregateIssue) {
+          viableConfigurationCount += 1;
+          if (countMode) {
+            if (results.length < maxResults) results.push(summary);
+          } else {
+            results.push(summary);
+          }
+        }
         else partials.push({ ...summary, warnings: [...summary.warnings, aggregateIssue], complete: false });
         return;
       }
@@ -378,6 +402,8 @@
         if (!allowSameCourse && selectedCourses.has(section.courseKey)) return;
         const conflict = selected.map(other => sectionsConflict(section, other, preferences)).find(item => item.conflict);
         if (conflict) {
+          combinationsVisited += 1;
+          combinationsPruned += 1;
           partials.push({ ...summarizeSchedule(selected, normalizedRequests, preferences), complete: false, warnings: [conflict.reason] });
           return;
         }
@@ -386,7 +412,7 @@
     }
 
     if (!normalizedRequests.length) {
-      return { schedules: [], partialSchedules: [], availability, diagnostics: ['Add at least one desired course.'], maxResults, pruned: false, dataPrivacy: 'Anonymous browser-side calculation only.' };
+      return { schedules: [], partialSchedules: [], availability, diagnostics: ['Add at least one desired course.'], maxResults, pruned: false, count: emptyCountStats(maxResults), dataPrivacy: 'Anonymous browser-side calculation only.' };
     }
     if (unavailable.length && requireAll) {
       return {
@@ -396,6 +422,7 @@
         diagnostics: unavailable.map(item => `${item.label || item.course} has no sections in the selected term.`),
         maxResults,
         pruned: false,
+        count: emptyCountStats(maxResults),
         dataPrivacy: 'Anonymous browser-side calculation only.'
       };
     }
@@ -408,15 +435,42 @@
         scoreExplanation: `Ranked by ${rankingLabel(preferences.ranking || 'best')}: ${rankingExplanation(summary, preferences.ranking || 'best')}`
       };
     }).sort((a, b) => b.score - a.score).slice(0, maxResults);
+    const pruned = capReached || visited > maxVisited || (!countMode && results.length >= maxResults * 8);
+    const count = {
+      viableConfigurationCount,
+      retainedScheduleCount: ranked.length,
+      combinationsVisited,
+      combinationsPruned,
+      exact: !pruned,
+      lowerBound: pruned,
+      capReached: pruned,
+      cappedAt: pruned ? maxVisited : undefined,
+      maxResults
+    };
     return {
       schedules: ranked,
       partialSchedules: partials.slice(0, maxResults),
       availability,
       diagnostics: ranked.length ? [] : ['No conflict-free schedule satisfies every selected requirement.'],
       maxResults,
-      pruned: visited > maxVisited || results.length >= maxResults * 8,
+      pruned,
       visited,
+      count,
       dataPrivacy: 'Anonymous browser-side calculation only.'
+    };
+  }
+
+  function emptyCountStats(maxResults) {
+    return {
+      viableConfigurationCount: 0,
+      retainedScheduleCount: 0,
+      combinationsVisited: 0,
+      combinationsPruned: 0,
+      exact: true,
+      lowerBound: false,
+      capReached: false,
+      cappedAt: undefined,
+      maxResults
     };
   }
 
@@ -443,6 +497,7 @@
     DAY_ORDER,
     DAY_LABELS,
     normalizeCourseKey,
+    normalizeTermLabel,
     normalizeSections,
     sectionEligible,
     sectionsConflict,

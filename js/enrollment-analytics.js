@@ -9025,6 +9025,7 @@
       ['Academic Pathways', result.pathwayResult.count],
       ['Raw CRN Configurations', result.configurationCounts.rawCrnConfigurationCount],
       ['Meaningful Patterns', result.configurationCounts.meaningfulPatternCount],
+      ['Analysis Scope', result.analysisScope?.fullAwardAnalysis ? 'Full Award' : 'Program Only'],
       ['Schedule Flexibility', programFeasibilityApi().flexibilityRating(result.configurationCounts.meaningfulPatternCount)],
       ['Confidence', result.confidence]
     ]);
@@ -9038,6 +9039,10 @@
         <div><dt>Ending Term</dt><dd>${escapeAttr(result.selectedTerm)}</dd></div>
         <div><dt>Terms Analyzed</dt><dd>${escapeAttr((result.termsAnalyzed || []).join(', '))}</dd></div>
         <div><dt>Missing Terms</dt><dd>${escapeAttr((result.termWindow.missingTerms || []).join(', ') || 'None')}</dd></div>
+        <div><dt>Structured Units Represented</dt><dd>${escapeAttr(result.analysisScope?.structuredUnitsRepresented ?? 'N/A')}</dd></div>
+        <div><dt>Award Total Units Required</dt><dd>${escapeAttr(result.analysisScope?.awardTotalUnitsRequired ?? 'N/A')}</dd></div>
+        <div><dt>Unmodeled Units</dt><dd>${escapeAttr(result.analysisScope?.unmodeledUnits ?? 'N/A')}</dd></div>
+        <div><dt>Scope</dt><dd>${escapeAttr(result.analysisScope?.fullAwardAnalysis ? 'Full-award analysis' : 'Program-only analysis')}</dd></div>
       </dl>
     `;
     table('programFeasibilityCoverage', result.requirementCoverage, ['courseKey', 'termsOffered', 'sections', 'enrollment', 'seats', 'reliability', 'status']);
@@ -9057,20 +9062,24 @@
       configurationsWithoutSummer: result.configurationCounts.configurationsWithoutSummer,
       configurationsUsingSummer: result.configurationCounts.configurationsUsingSummer,
       standardLoadConfigurations: result.configurationCounts.standardLoadConfigurations,
+      combinationsVisited: result.configurationCounts.combinationsVisited,
+      combinationsPruned: result.configurationCounts.combinationsPruned,
+      capReached: result.configurationCounts.capReached ? 'Yes' : 'No',
       resilience: result.resilience.resilience,
       resilienceNote: result.resilience.note
-    }], ['exact', 'rawCrnConfigurationCount', 'meaningfulPatternCount', 'configurationsWithoutSummer', 'configurationsUsingSummer', 'standardLoadConfigurations', 'resilience', 'resilienceNote']);
+    }], ['exact', 'rawCrnConfigurationCount', 'meaningfulPatternCount', 'configurationsWithoutSummer', 'configurationsUsingSummer', 'standardLoadConfigurations', 'combinationsVisited', 'combinationsPruned', 'capReached', 'resilience', 'resilienceNote']);
     table('programFeasibilityBlockers', result.blockers, ['severity', 'requirement', 'issue', 'effect', 'suggestedAction']);
     renderMethodologyPanel(document.getElementById('programFeasibilityLegend'), {
       title: 'Two-Year Program Feasibility Methodology',
       purpose: 'Tests structured degree/certificate requirements against recent Section Seating history and Schedule Builder conflict checks.',
-      calculationRules: 'Availability is calculated by course option across the selected two-year window. Academic pathways preserve requirement choices, prerequisites, unit limits, and summer usage. Section configurations reuse Schedule Builder CRN conflict checks and meaningful-pattern deduplication.',
+      calculationRules: 'Availability is calculated by course option across the selected two-year window. Academic pathways preserve requirement choices, prerequisites, corequisites, chronological term order, unit limits, and summer usage. Section configurations reuse Schedule Builder CRN conflict checks and meaningful-pattern deduplication.',
       assumptions: 'Requirements must be imported as reviewed structured JSON. Offering reliability bands are provisional and configurable in the engine.',
       limitations: result.limitations.join(' '),
       items: [
         ['Academic Pathway Configuration', 'A distinct course-choice and term-assignment pathway.'],
-        ['Raw CRN Configuration', 'A conflict-free CRN combination available for a pathway.'],
+        ['Raw CRN Configuration', 'A conflict-free CRN combination available for a pathway. Counts are independent of the number of example schedules retained for display.'],
         ['Meaningful Pattern', 'Deduplicated student-facing weekly pattern; same course/day/time/modality/campus patterns do not inflate flexibility.'],
+        ['Analysis Scope', 'Program-only analysis means the structured JSON does not represent every award unit required for completion.'],
         ['Resilience', 'Diagnostic approximation showing sensitivity to the weakest offered course.']
       ],
       version: 'Feasibility foundation v1'
@@ -9081,8 +9090,10 @@
     const result = state.programFeasibilityResult;
     if (!result) return;
     const rows = [
+      { section: 'Analysis Scope', ...result.analysisScope },
       ...result.requirementCoverage.map(row => ({ section: 'Requirement Coverage', ...row, termsOffered: (row.termsOffered || []).join('; ') })),
       ...result.pathwayResult.pathways.slice(0, 50).flatMap((pathway, index) => (pathway.termAssignments || []).map(item => ({ section: 'Suggested Pathway', pathway: index + 1, ...item, summerUsed: pathway.summerUsed, loadStatus: pathway.loadStatus }))),
+      { section: 'Configuration Counts', ...result.configurationCounts, topSchedules: undefined, blockers: undefined },
       ...result.blockers.map(row => ({ section: 'Blocker or Risk', ...row }))
     ];
     exportRowsWithoutMethodology(rows, 'two-year-program-feasibility.csv');

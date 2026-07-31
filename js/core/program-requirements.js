@@ -147,6 +147,8 @@
 
   function createMemoryRepository(initialPrograms = []) {
     const programs = new Map();
+    const batches = new Map();
+    const metadata = new Map();
     initialPrograms.map(normalizeProgram).forEach(program => programs.set(program.key, program));
     return {
       async initialize() {},
@@ -163,11 +165,27 @@
       async savePrograms(records = []) {
         for (const program of records) await this.saveProgram(program);
       },
+      async saveImportBatch(batch = {}) {
+        const id = compact(batch.id) || `batch-${Date.now()}`;
+        const record = { ...clone(batch), id, savedAt: compact(batch.savedAt) || new Date().toISOString() };
+        batches.set(id, record);
+        return clone(record);
+      },
+      async getImportBatches() { return [...batches.values()].map(clone); },
+      async setMetadata(key, value) {
+        const metadataKey = compact(key);
+        if (!metadataKey) return;
+        metadata.set(metadataKey, { key: metadataKey, value: clone(value), updatedAt: new Date().toISOString() });
+      },
+      async getMetadata(key) {
+        const record = metadata.get(compact(key));
+        return record ? clone(record.value) : null;
+      },
       async deleteProgram(programId, catalogYear = '') {
         if (catalogYear) programs.delete(programKey(programId, catalogYear));
         else [...programs.keys()].filter(key => key.startsWith(`${canon(programId)}::`)).forEach(key => programs.delete(key));
       },
-      async clearAll() { programs.clear(); }
+      async clearAll() { programs.clear(); batches.clear(); metadata.clear(); }
     };
   }
 
@@ -192,9 +210,9 @@
       return dbPromise;
     }
 
-    async function store(mode = 'readonly') {
+    async function store(mode = 'readonly', storeName = STORE_PROGRAMS) {
       const db = await openDb();
-      return db.transaction(STORE_PROGRAMS, mode).objectStore(STORE_PROGRAMS);
+      return db.transaction(storeName, mode).objectStore(storeName);
     }
 
     function requestPromise(request) {
@@ -208,7 +226,10 @@
       async initialize() { await openDb(); },
       async getPrograms() { return (await requestPromise((await store()).getAll())).map(clone); },
       async getProgram(programId, catalogYear = '') {
-        if (catalogYear) return clone(await requestPromise((await store()).get(programKey(programId, catalogYear))));
+        if (catalogYear) {
+          const record = await requestPromise((await store()).get(programKey(programId, catalogYear)));
+          return record ? clone(record) : null;
+        }
         const matches = (await this.getPrograms()).filter(program => canon(program.programId) === canon(programId));
         return matches[0] || null;
       },
@@ -220,6 +241,24 @@
       async savePrograms(programs = []) {
         for (const program of programs) await this.saveProgram(program);
       },
+      async saveImportBatch(batch = {}) {
+        const id = compact(batch.id) || `batch-${Date.now()}`;
+        const record = { ...clone(batch), id, savedAt: compact(batch.savedAt) || new Date().toISOString() };
+        await requestPromise((await store('readwrite', STORE_BATCHES)).put(record));
+        return clone(record);
+      },
+      async getImportBatches() {
+        return (await requestPromise((await store('readonly', STORE_BATCHES)).getAll())).map(clone);
+      },
+      async setMetadata(key, value) {
+        const metadataKey = compact(key);
+        if (!metadataKey) return;
+        await requestPromise((await store('readwrite', STORE_METADATA)).put({ key: metadataKey, value: clone(value), updatedAt: new Date().toISOString() }));
+      },
+      async getMetadata(key) {
+        const record = await requestPromise((await store('readonly', STORE_METADATA)).get(compact(key)));
+        return record ? clone(record.value) : null;
+      },
       async deleteProgram(programId, catalogYear = '') {
         if (catalogYear) {
           await requestPromise((await store('readwrite')).delete(programKey(programId, catalogYear)));
@@ -228,7 +267,11 @@
         const matches = (await this.getPrograms()).filter(program => canon(program.programId) === canon(programId));
         for (const program of matches) await requestPromise((await store('readwrite')).delete(program.key));
       },
-      async clearAll() { await requestPromise((await store('readwrite')).clear()); }
+      async clearAll() {
+        await requestPromise((await store('readwrite')).clear());
+        await requestPromise((await store('readwrite', STORE_BATCHES)).clear());
+        await requestPromise((await store('readwrite', STORE_METADATA)).clear());
+      }
     };
   }
 

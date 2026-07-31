@@ -1,13 +1,15 @@
 (function (root, factory) {
-  const api = factory(root.COSScheduleBuilder, root.COSProgramRequirements, root.COSFeasibilityTermWindow);
+  const api = factory(root.COSScheduleBuilder, root.COSProgramRequirements, root.COSFeasibilityTermWindow, root.COSTermUtils);
   root.COSProgramFeasibility = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (scheduleBuilder, programRequirements, termWindowUtils) {
+})(typeof window !== 'undefined' ? window : globalThis, function (scheduleBuilder, programRequirements, termWindowUtils, termUtils) {
   'use strict';
 
   scheduleBuilder = scheduleBuilder || {};
   programRequirements = programRequirements || {};
   termWindowUtils = termWindowUtils || {};
+  termUtils = termUtils || {};
+
   const DEFAULT_CONFIG = Object.freeze({
     primarySemesterMinUnits: 12,
     primarySemesterTargetUnits: 15,
@@ -16,8 +18,18 @@
     academicPathwayCap: 25000,
     sectionConfigurationCap: 10000,
     topSchedulesRetained: 50,
-    reliabilityBands: { high: 0.75, moderate: 0.4 }
+    reliabilityBands: { high: 0.75, moderate: 0.4 },
+    enforceMinimumLoadAwardTypes: ['AA', 'AS', 'BA', 'BS', 'ADT', 'DEGREE']
   });
+
+  function normalizeTermLabel(value) {
+    if (scheduleBuilder.normalizeTermLabel) return scheduleBuilder.normalizeTermLabel(value);
+    if (termUtils.normalizeTermLabel) return termUtils.normalizeTermLabel(value);
+    const text = String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    const year = (text.match(/\b(20\d{2})\b/) || [])[1];
+    const season = (text.match(/\b(FALL|SPRING|SUMMER|WINTER)\b/) || [])[1];
+    return year && season ? `${season} ${year}` : text;
+  }
 
   function normalizeCourseKey(value) {
     if (programRequirements.normalizeCourseKey) return programRequirements.normalizeCourseKey(value);
@@ -27,25 +39,30 @@
 
   function evaluateProgramFeasibility(program, sectionRows = [], options = {}) {
     const config = { ...DEFAULT_CONFIG, ...(options || {}) };
-    const selectedTerm = options.selectedTerm || options.endingTerm || '';
+    const selectedTerm = normalizeTermLabel(options.selectedTerm || options.endingTerm || '');
+    const normalizedRows = (sectionRows || []).map(row => ({ ...row, term: normalizeTermLabel(row.term || row.Term), Term: normalizeTermLabel(row.term || row.Term) }));
     const window = termWindowUtils.determineFeasibilityTermWindow
-      ? termWindowUtils.determineFeasibilityTermWindow(selectedTerm, sectionRows)
+      ? termWindowUtils.determineFeasibilityTermWindow(selectedTerm, normalizedRows)
       : { selectedTerm, standardTerms: [], fullTerms: [], termsAvailableInRepository: [], missingTerms: [] };
-    const terms = options.windowType === 'standard' ? window.standardTerms : window.fullTerms;
-    const rowsInWindow = (sectionRows || []).filter(row => terms.includes(row.term || row.Term));
-    const sections = (scheduleBuilder.normalizeSections ? scheduleBuilder.normalizeSections(rowsInWindow) : []).filter(section => terms.includes(section.term));
+    const terms = (options.windowType === 'standard' ? window.standardTerms : window.fullTerms).map(normalizeTermLabel);
+    const rowsInWindow = normalizedRows.filter(row => terms.includes(normalizeTermLabel(row.term || row.Term)));
+    const sections = (scheduleBuilder.normalizeSections ? scheduleBuilder.normalizeSections(rowsInWindow) : [])
+      .map(section => ({ ...section, term: normalizeTermLabel(section.term) }))
+      .filter(section => terms.includes(section.term));
     const availability = analyzeAvailability(program, sections, terms, config);
     const pathwayResult = enumerateAcademicPathways(program, availability, terms, config);
     const counts = countSectionConfigurations(pathwayResult.pathways, rowsInWindow, config, options);
-    const blockers = [...availability.blockers, ...pathwayResult.blockers, ...counts.blockers];
-    const resilience = analyzeResilience(availability, pathwayResult, sections, config, options);
-    const feasibility = overallFeasibility(availability, pathwayResult, counts, blockers);
+    const analysisScope = analyzeScope(program, pathwayResult);
+    const blockers = [...availability.blockers, ...pathwayResult.blockers, ...counts.blockers, ...analysisScope.blockers];
+    const resilience = analyzeResilience(availability, pathwayResult);
+    const feasibility = overallFeasibility(availability, pathwayResult, counts, blockers, analysisScope);
     return {
       reportTitle: 'Two-Year Completion Feasibility Based on Recent Scheduling History',
       program,
       selectedTerm: window.selectedTerm || selectedTerm,
       termsAnalyzed: terms,
       termWindow: window,
+      analysisScope,
       availability,
       requirementCoverage: availability.courseRows,
       pathwayResult,
@@ -67,7 +84,7 @@
     const courseRows = courseOptions.map(course => {
       const keys = new Set([course.courseKey, ...(course.equivalentCourseKeys || [])].map(normalizeCourseKey));
       const matching = sections.filter(section => keys.has(normalizeCourseKey(section.courseKey)));
-      const termsOffered = [...new Set(matching.map(section => section.term).filter(Boolean))];
+      const termsOffered = [...new Set(matching.map(section => normalizeTermLabel(section.term)).filter(Boolean))].sort(compareTerms);
       const reliabilityRatio = terms.length ? termsOffered.length / terms.length : 0;
       const reliability = !matching.length ? 'None' : reliabilityRatio >= config.reliabilityBands.high ? 'High' : reliabilityRatio >= config.reliabilityBands.moderate ? 'Moderate' : 'Low';
       return {
@@ -82,17 +99,10 @@
         status: matching.length ? 'Available in selected window' : 'Not offered in selected window'
       };
     });
-    const blockers = courseRows.filter(row => row.reliability === 'None').map(row => ({
-      severity: 'High',
-      requirement: row.courseKey,
-      issue: `${row.courseKey} was not offered in the selected two-year window.`,
-      effect: 'A pathway requiring this course is blocked unless an alternative satisfies the group.',
-      suggestedAction: 'Review rotation history or schedule a section in the next two-year cycle.'
-    }));
     return {
       courseRows,
       coveragePct: courseRows.length ? courseRows.filter(row => row.sections > 0).length / courseRows.length : 0,
-      blockers
+      blockers: []
     };
   }
 
@@ -117,28 +127,20 @@
     let capped = false;
     let pathways = [{ courses: [], groups: [], units: 0 }];
     for (const group of program.requirementGroups || []) {
-      const groupChoices = groupPathways(group, availability, config);
-      if (!groupChoices.length) {
-        blockers.push({
-          severity: 'High',
-          requirement: group.label,
-          issue: 'No available course selection can satisfy this requirement group.',
-          effect: 'No complete academic pathway can be constructed from recent schedule history.',
-          suggestedAction: 'Review requirements or add missing course offerings.'
-        });
-      }
-      pathways = combinePathwaySets(pathways, groupChoices, config.academicPathwayCap);
-      if (pathways.capped) {
+      const groupResult = groupPathways(group, availability, config);
+      if (!groupResult.choices.length) blockers.push(groupBlocker(group, groupResult.missingCourseKeys));
+      const combined = combinePathwaySets(pathways, groupResult.choices, config.academicPathwayCap);
+      if (combined.capped) {
         capped = true;
         exact = false;
-        pathways = pathways.items;
+        pathways = combined.items;
         break;
       }
-      pathways = pathways.items || pathways;
+      pathways = combined.items;
     }
     const sequenced = [];
     for (const pathway of pathways) {
-      const assignment = assignTerms(pathway.courses, terms, config, availability);
+      const assignment = assignTerms(pathway.courses, terms, config, availability, program);
       if (assignment.valid) sequenced.push({ ...pathway, termAssignments: assignment.termAssignments, summerUsed: assignment.summerUsed, loadStatus: assignment.loadStatus });
       else blockers.push(...assignment.blockers);
       if (sequenced.length >= config.academicPathwayCap) {
@@ -152,24 +154,44 @@
       cappedAt: capped ? config.academicPathwayCap : undefined,
       pathways: sequenced.slice(0, config.academicPathwayCap),
       count: sequenced.length,
-      lowerBound: sequenced.length,
-      blockers
+      lowerBound: capped,
+      capReached: capped,
+      blockers: dedupeBlockers(blockers)
     };
   }
 
   function groupPathways(group, availability, config) {
+    const missingCourseKeys = [];
     const courseChoices = (group.courses || []).map(course => ({
       courses: [{ ...course, courseKey: normalizeCourseKey(course.courseKey) }],
       groups: [group.label],
       units: Number(course.units || 0)
-    })).filter(choice => hasCoverage(choice.courses[0].courseKey, availability));
-    const subgroupChoices = (group.subgroups || []).map(subgroup => groupPathways(subgroup, availability, config));
-    if (group.rule === 'all') return cartesian([...courseChoices.map(choice => [choice]), ...subgroupChoices], config.academicPathwayCap);
-    if (group.rule === 'or') return [...courseChoices, ...subgroupChoices.flat()].slice(0, config.academicPathwayCap);
-    if (group.rule === 'choose-count') return combinations(courseChoices, Number(group.chooseCount || 1), config.academicPathwayCap);
-    if (group.rule === 'choose-units') return combinationsByUnits(courseChoices, Number(group.unitsRequired || 0), config.academicPathwayCap);
-    if (group.rule === 'one-from-each-list') return cartesian(subgroupChoices, config.academicPathwayCap);
-    return courseChoices;
+    })).filter(choice => {
+      const covered = hasCoverage(choice.courses[0].courseKey, availability);
+      if (!covered) missingCourseKeys.push(choice.courses[0].courseKey);
+      return covered;
+    });
+    const subgroupResults = (group.subgroups || []).map(subgroup => groupPathways(subgroup, availability, config));
+    const subgroupChoices = subgroupResults.map(result => result.choices);
+    subgroupResults.forEach(result => missingCourseKeys.push(...result.missingCourseKeys));
+    let choices;
+    if (group.rule === 'all') choices = cartesian([...courseChoices.map(choice => [choice]), ...subgroupChoices], config.academicPathwayCap);
+    else if (group.rule === 'or') choices = [...courseChoices, ...subgroupChoices.flat()].slice(0, config.academicPathwayCap);
+    else if (group.rule === 'choose-count') choices = combinations(courseChoices, Number(group.chooseCount || 1), config.academicPathwayCap);
+    else if (group.rule === 'choose-units') choices = combinationsByUnits(courseChoices, Number(group.unitsRequired || 0), config.academicPathwayCap);
+    else if (group.rule === 'one-from-each-list') choices = cartesian(subgroupChoices, config.academicPathwayCap);
+    else choices = courseChoices;
+    return { choices, missingCourseKeys: [...new Set(missingCourseKeys)] };
+  }
+
+  function groupBlocker(group, missingCourseKeys = []) {
+    return {
+      severity: 'High',
+      requirement: group.label,
+      issue: `No available course selection can satisfy this requirement group${missingCourseKeys.length ? ` (${missingCourseKeys.join(', ')})` : ''}.`,
+      effect: 'No complete academic pathway can be constructed from recent schedule history for this group.',
+      suggestedAction: 'Review requirements or add missing course offerings.'
+    };
   }
 
   function hasCoverage(courseKey, availability) {
@@ -180,6 +202,7 @@
     if (!lists.length) return [];
     let results = [{ courses: [], groups: [], units: 0 }];
     for (const list of lists) {
+      if (!list.length) return [];
       const next = [];
       for (const left of results) {
         for (const right of list) {
@@ -197,9 +220,7 @@
       output.push(selected.reduce(mergePathways, { courses: [], groups: [], units: 0 }));
       return output;
     }
-    for (let index = start; index < items.length && output.length < cap; index += 1) {
-      combinations(items, count, cap, index + 1, [...selected, items[index]], output);
-    }
+    for (let index = start; index < items.length && output.length < cap; index += 1) combinations(items, count, cap, index + 1, [...selected, items[index]], output);
     return output;
   }
 
@@ -227,6 +248,7 @@
 
   function combinePathwaySets(leftSet, rightSet, cap) {
     const items = [];
+    if (!rightSet.length) return { items, capped: false };
     for (const left of leftSet) {
       for (const right of rightSet) {
         items.push(mergePathways(left, right));
@@ -236,91 +258,204 @@
     return { items, capped: false };
   }
 
-  function assignTerms(courses, terms, config, availability = {}) {
-    const termLoads = Object.fromEntries(terms.map(term => [term, 0]));
-    const offeredTermsByCourse = Object.fromEntries((availability.courseRows || []).map(row => [row.courseKey, new Set(row.termsOffered || [])]));
-    const termAssignments = [];
-    const assigned = new Set();
-    const blockers = [];
-    let safety = courses.length * courses.length + 1;
-    while (assigned.size < courses.length && safety > 0) {
-      safety -= 1;
-      let progressed = false;
-      for (const course of courses) {
-        if (assigned.has(course.courseKey)) continue;
-        const prereqs = (course.prerequisiteCourseKeys || []).map(normalizeCourseKey).filter(key => courses.some(item => item.courseKey === key));
-        if (!prereqs.every(key => assigned.has(key))) continue;
-        const termsOffered = offeredTermsByCourse[course.courseKey] || new Set(terms);
-        const term = terms.find(candidate => {
-          const max = /SUMMER/.test(candidate) ? config.summerMaxUnits : config.primarySemesterMaxUnits;
-          return termsOffered.has(candidate) && termLoads[candidate] + Number(course.units || 0) <= max;
-        });
-        if (!term) {
-          blockers.push({ severity: 'High', requirement: course.courseKey, issue: 'No term has enough remaining unit capacity.', effect: 'Pathway exceeds configured load limits.', suggestedAction: 'Increase unit limit or add summer/off-cycle offering.' });
-          continue;
-        }
-        termLoads[term] += Number(course.units || 0);
-        termAssignments.push({ term, courseKey: course.courseKey, units: Number(course.units || 0) });
-        assigned.add(course.courseKey);
-        progressed = true;
-      }
-      if (!progressed) break;
+  function assignTerms(courses, terms, config, availability = {}, program = {}) {
+    const canonicalTerms = terms.map(normalizeTermLabel);
+    const termLoads = Object.fromEntries(canonicalTerms.map(term => [term, 0]));
+    const offeredTermsByCourse = Object.fromEntries((availability.courseRows || []).map(row => [row.courseKey, new Set((row.termsOffered || []).map(normalizeTermLabel))]));
+    const courseMap = new Map(courses.map(course => [normalizeCourseKey(course.courseKey), { ...course, courseKey: normalizeCourseKey(course.courseKey) }]));
+    const cycle = detectPrerequisiteCycle(courseMap);
+    if (cycle.length) {
+      return {
+        valid: false,
+        termAssignments: [],
+        summerUsed: false,
+        loadStatus: 'Prerequisite cycle detected',
+        blockers: [{ severity: 'High', requirement: cycle.join(' -> '), issue: 'Circular prerequisite sequence detected.', effect: 'The pathway cannot be chronologically ordered.', suggestedAction: 'Review encoded prerequisites/corequisites for this program.' }]
+      };
     }
-    const unassigned = courses.filter(course => !assigned.has(course.courseKey));
-    unassigned.forEach(course => blockers.push({ severity: 'High', requirement: course.courseKey, issue: 'Prerequisite sequence could not be resolved.', effect: 'A required sequence may be circular or missing explicit prerequisite coverage.', suggestedAction: 'Review encoded prerequisites and course offering order.' }));
+    const ordered = topologicalSort(courseMap);
+    const termAssignments = [];
+    const assignedTermIndex = new Map();
+    const blockers = [];
+    for (const course of ordered) {
+      const prereqs = (course.prerequisiteCourseKeys || []).map(normalizeCourseKey).filter(key => courseMap.has(key));
+      const coreqs = (course.corequisiteCourseKeys || []).map(normalizeCourseKey).filter(key => courseMap.has(key));
+      const earliestIndex = Math.max(
+        0,
+        ...prereqs.map(key => (assignedTermIndex.has(key) ? assignedTermIndex.get(key) + 1 : Infinity)),
+        ...coreqs.map(key => (assignedTermIndex.has(key) ? assignedTermIndex.get(key) : 0))
+      );
+      const termsOffered = offeredTermsByCourse[course.courseKey] || new Set(canonicalTerms);
+      const termIndex = canonicalTerms.findIndex((candidate, index) => {
+        if (index < earliestIndex || !termsOffered.has(candidate)) return false;
+        const max = /SUMMER/.test(candidate) ? config.summerMaxUnits : config.primarySemesterMaxUnits;
+        return termLoads[candidate] + Number(course.units || 0) <= max;
+      });
+      if (termIndex < 0) {
+        blockers.push({ severity: 'High', requirement: course.courseKey, issue: sequenceIssue(course, prereqs, coreqs, canonicalTerms, termsOffered, assignedTermIndex), effect: 'The pathway cannot be completed in chronological order within the selected window.', suggestedAction: 'Move prerequisite offerings earlier or add additional sections in a later term.' });
+        continue;
+      }
+      const term = canonicalTerms[termIndex];
+      termLoads[term] += Number(course.units || 0);
+      termAssignments.push({ term, courseKey: course.courseKey, units: Number(course.units || 0) });
+      assignedTermIndex.set(course.courseKey, termIndex);
+    }
+    const valid = blockers.length === 0 && termAssignments.length === courses.length;
     const summerUsed = termAssignments.some(item => /SUMMER/.test(item.term));
-    const underloaded = Object.entries(termLoads).some(([term, units]) => !/SUMMER/.test(term) && units > 0 && units < config.primarySemesterMinUnits);
-    return { valid: unassigned.length === 0, termAssignments, summerUsed, loadStatus: underloaded ? 'Underloaded term present' : 'Within configured load limits', blockers };
+    const underloaded = enforceMinimumLoad(program, config) && Object.entries(termLoads).some(([term, units]) => !/SUMMER/.test(term) && units > 0 && units < config.primarySemesterMinUnits);
+    return { valid, termAssignments, summerUsed, loadStatus: underloaded ? 'Underloaded term present' : 'Within configured load limits', blockers };
+  }
+
+  function sequenceIssue(course, prereqs, coreqs, terms, termsOffered, assignedTermIndex) {
+    const offered = [...termsOffered].join(', ') || 'none';
+    const prereqText = prereqs.length ? ` Prerequisites must be earlier: ${prereqs.join(', ')}.` : '';
+    const coreqText = coreqs.length ? ` Corequisites must be same term or earlier: ${coreqs.join(', ')}.` : '';
+    const assigned = [...assignedTermIndex.entries()].map(([key, index]) => `${key}=${terms[index]}`).join('; ');
+    return `${course.courseKey} cannot be assigned to a valid term. Offered terms: ${offered}.${prereqText}${coreqText}${assigned ? ` Assigned so far: ${assigned}.` : ''}`;
+  }
+
+  function detectPrerequisiteCycle(courseMap) {
+    const visiting = new Set();
+    const visited = new Set();
+    const stack = [];
+    function visit(key) {
+      if (visiting.has(key)) return stack.slice(stack.indexOf(key)).concat(key);
+      if (visited.has(key)) return [];
+      visiting.add(key);
+      stack.push(key);
+      const course = courseMap.get(key) || {};
+      for (const dep of [...(course.prerequisiteCourseKeys || []), ...(course.corequisiteCourseKeys || [])].map(normalizeCourseKey)) {
+        if (!courseMap.has(dep)) continue;
+        const cycle = visit(dep);
+        if (cycle.length) return cycle;
+      }
+      stack.pop();
+      visiting.delete(key);
+      visited.add(key);
+      return [];
+    }
+    for (const key of courseMap.keys()) {
+      const cycle = visit(key);
+      if (cycle.length) return cycle;
+    }
+    return [];
+  }
+
+  function topologicalSort(courseMap) {
+    const visited = new Set();
+    const ordered = [];
+    function visit(key) {
+      if (visited.has(key)) return;
+      visited.add(key);
+      const course = courseMap.get(key) || {};
+      [...(course.prerequisiteCourseKeys || []), ...(course.corequisiteCourseKeys || [])].map(normalizeCourseKey).filter(dep => courseMap.has(dep)).forEach(visit);
+      ordered.push(course);
+    }
+    [...courseMap.keys()].forEach(visit);
+    return ordered;
+  }
+
+  function enforceMinimumLoad(program, config) {
+    const award = String(program.awardType || '').trim().toUpperCase();
+    return (config.enforceMinimumLoadAwardTypes || []).some(item => award.includes(String(item).toUpperCase()));
   }
 
   function countSectionConfigurations(pathways, sections, config, options = {}) {
     let raw = 0;
+    let usingSummer = 0;
+    let withoutSummer = 0;
+    let exact = true;
+    let combinationsVisited = 0;
+    let combinationsPruned = 0;
+    let capReached = false;
     const patterns = new Set();
     const blockers = [];
     const topSchedules = [];
     for (const pathway of pathways) {
-      const assignmentsByTerm = groupBy(pathway.termAssignments || [], item => item.term);
+      const assignmentsByTerm = groupBy(pathway.termAssignments || [], item => normalizeTermLabel(item.term));
       let pathwayRaw = 1;
       let pathwayPatterns = [''];
       let blocked = false;
       for (const [term, assignments] of Object.entries(assignmentsByTerm)) {
         const requests = assignments.map(item => ({ course: item.courseKey, required: true }));
-        const termRows = (sections || []).filter(row => (row.term || row.Term) === term);
+        const termRows = (sections || []).filter(row => normalizeTermLabel(row.term || row.Term) === term);
         const result = scheduleBuilder.buildScheduleOptions
-          ? scheduleBuilder.buildScheduleOptions(termRows, requests, { ...options, maxResults: config.topSchedulesRetained, maxVisited: config.sectionConfigurationCap, requireAllRequestedCourses: true })
-          : { schedules: [] };
-        if (!result.schedules.length) {
+          ? scheduleBuilder.buildScheduleOptions(termRows, requests, { ...options, maxResults: config.topSchedulesRetained, maxVisited: config.sectionConfigurationCap, requireAllRequestedCourses: true, countMode: true })
+          : { schedules: [], count: { viableConfigurationCount: 0, exact: true, combinationsVisited: 0, combinationsPruned: 0, capReached: false } };
+        const viable = result.count?.viableConfigurationCount ?? result.schedules?.length ?? 0;
+        combinationsVisited += result.count?.combinationsVisited || result.visited || 0;
+        combinationsPruned += result.count?.combinationsPruned || 0;
+        if (!result.count?.exact || result.count?.capReached) {
+          exact = false;
+          capReached = true;
+        }
+        if (!viable) {
           blocked = true;
           break;
         }
-        pathwayRaw *= result.schedules.length;
-        const termPatterns = result.schedules.map(schedule => `${term}:${meaningfulPatternHash(schedule.sections || [])}`);
+        pathwayRaw *= viable;
+        const termPatterns = (result.schedules || []).map(schedule => `${term}:${meaningfulPatternHash(schedule.sections || [])}`);
         pathwayPatterns = combinePatternHashes(pathwayPatterns, termPatterns, config.sectionConfigurationCap);
-        result.schedules.forEach(schedule => {
+        (result.schedules || []).forEach(schedule => {
           if (topSchedules.length < config.topSchedulesRetained) topSchedules.push({ ...schedule, term });
         });
-        if (result.pruned || pathwayRaw >= config.sectionConfigurationCap) break;
+        if (pathwayRaw >= config.sectionConfigurationCap) {
+          exact = false;
+          capReached = true;
+          pathwayRaw = config.sectionConfigurationCap;
+          break;
+        }
       }
       if (!blocked) {
         raw += pathwayRaw;
-        pathwayPatterns.forEach(pattern => {
-          if (pattern) patterns.add(pattern);
-        });
+        if (pathway.summerUsed) usingSummer += pathwayRaw;
+        else withoutSummer += pathwayRaw;
+        pathwayPatterns.forEach(pattern => { if (pattern) patterns.add(pattern); });
       }
-      if (raw >= config.sectionConfigurationCap) break;
+      if (raw >= config.sectionConfigurationCap) {
+        exact = false;
+        capReached = true;
+        raw = config.sectionConfigurationCap;
+        break;
+      }
     }
     if (!raw && pathways.length) blockers.push({ severity: 'High', requirement: 'Section schedules', issue: 'No conflict-free CRN configurations were found.', effect: 'Academic requirements may be covered historically but not simultaneously schedulable.', suggestedAction: 'Review day/time overlaps or add alternative sections.' });
     return {
-      exact: raw < config.sectionConfigurationCap,
+      exact,
       count: raw,
-      lowerBound: raw,
-      cappedAt: raw >= config.sectionConfigurationCap ? config.sectionConfigurationCap : undefined,
+      lowerBound: !exact,
+      capReached,
+      cappedAt: capReached ? config.sectionConfigurationCap : undefined,
       rawCrnConfigurationCount: raw,
       meaningfulPatternCount: patterns.size,
-      configurationsUsingSummer: pathways.filter(pathway => pathway.summerUsed).length,
-      configurationsWithoutSummer: pathways.filter(pathway => !pathway.summerUsed).length,
+      configurationsUsingSummer: usingSummer,
+      configurationsWithoutSummer: withoutSummer,
       standardLoadConfigurations: pathways.filter(pathway => pathway.loadStatus === 'Within configured load limits').length,
+      combinationsVisited,
+      combinationsPruned,
       topSchedules,
+      blockers
+    };
+  }
+
+  function analyzeScope(program, pathwayResult) {
+    const structuredUnitsRepresented = Math.max(0, ...((pathwayResult.pathways || []).map(pathway => Number(pathway.units || 0))), 0);
+    const awardTotalUnitsRequired = Number(program.totalUnitsRequired || program.minimumProgramUnits || structuredUnitsRepresented || 0);
+    const unmodeledUnits = Math.max(0, awardTotalUnitsRequired - structuredUnitsRepresented);
+    const fullAwardAnalysis = awardTotalUnitsRequired > 0 && structuredUnitsRepresented >= awardTotalUnitsRequired;
+    const blockers = fullAwardAnalysis || !awardTotalUnitsRequired ? [] : [{
+      severity: 'Medium',
+      requirement: 'Analysis scope',
+      issue: `Only ${structuredUnitsRepresented} of ${awardTotalUnitsRequired} award units are represented in structured requirements.`,
+      effect: 'The report can evaluate program-major requirements but should not be read as full degree completion feasibility.',
+      suggestedAction: 'Add GE, elective, or remaining award requirements before using this as a full-award feasibility finding.'
+    }];
+    return {
+      structuredUnitsRepresented,
+      awardTotalUnitsRequired,
+      unmodeledUnits,
+      programOnlyAnalysis: !fullAwardAnalysis,
+      fullAwardAnalysis,
       blockers
     };
   }
@@ -335,6 +470,7 @@
   }
 
   function combinePatternHashes(left, right, cap) {
+    if (!right.length) return left;
     const output = [];
     for (const a of left) {
       for (const b of right) {
@@ -373,8 +509,9 @@
     return { None: 0, Low: 1, Moderate: 2, High: 3 }[label] || 0;
   }
 
-  function overallFeasibility(availability, pathwayResult, counts, blockers) {
+  function overallFeasibility(availability, pathwayResult, counts, blockers, analysisScope) {
     if (!availability.courseRows.length || blockers.some(blocker => blocker.severity === 'High') && !counts.rawCrnConfigurationCount) return { label: 'Not Feasible', confidence: 'Low' };
+    if (analysisScope.programOnlyAnalysis) return { label: 'Program Requirements Feasible - Partial Scope', confidence: counts.exact ? 'Moderate' : 'Low' };
     if (availability.coveragePct >= 0.95 && counts.meaningfulPatternCount >= 10) return { label: 'Moderate', confidence: 'Moderate' };
     if (availability.coveragePct >= 0.75 && counts.meaningfulPatternCount > 0) return { label: 'Fragile', confidence: 'Low' };
     return { label: 'Not Feasible', confidence: 'Low' };
@@ -388,6 +525,21 @@
     }, {});
   }
 
+  function compareTerms(a, b) {
+    if (termUtils.termSortValue) return termUtils.termSortValue(a) - termUtils.termSortValue(b);
+    return String(a).localeCompare(String(b));
+  }
+
+  function dedupeBlockers(blockers) {
+    const seen = new Set();
+    return blockers.filter(blocker => {
+      const key = [blocker.severity, blocker.requirement, blocker.issue].join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   function flexibilityRating(count) {
     if (count <= 0) return 'Not Feasible';
     if (count <= 2) return 'Extremely Fragile';
@@ -398,9 +550,12 @@
 
   return Object.freeze({
     DEFAULT_CONFIG,
+    normalizeTermLabel,
     evaluateProgramFeasibility,
     analyzeAvailability,
     enumerateAcademicPathways,
+    assignTerms,
+    countSectionConfigurations,
     meaningfulPatternHash,
     flexibilityRating
   });
