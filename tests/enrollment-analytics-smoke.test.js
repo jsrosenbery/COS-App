@@ -4948,6 +4948,7 @@ test('two-year program feasibility foundation is registered and uses structured 
   assert.match(text, /evaluateProgram\(\{/);
   assert.match(text, /evaluatePortfolioAsync\(\{/);
   assert.match(index, /js\/core\/program-requirements\.js/);
+  assert.match(index, /js\/core\/catalog-review-workflow\.js/);
   assert.match(index, /js\/core\/feasibility-term-window\.js/);
   assert.match(index, /js\/core\/program-feasibility\.js/);
   assert.match(index, /js\/core\/academic-planning-platform\.js/);
@@ -4957,6 +4958,8 @@ test('two-year program feasibility foundation is registered and uses structured 
   assert.match(text, /Development Status/);
   assert.match(text, /restricted to System Administrators/);
   assert.ok(index.indexOf('src="js/core/schedule-builder.js"') < index.indexOf('src="js/core/program-feasibility.js"'));
+  assert.ok(index.indexOf('src="js/core/catalog-extraction.js"') < index.indexOf('src="js/core/catalog-review-workflow.js"'));
+  assert.ok(index.indexOf('src="js/core/catalog-review-workflow.js"') < index.indexOf('src="js/enrollment-analytics.js"'));
   assert.ok(index.indexOf('src="js/core/program-feasibility.js"') < index.indexOf('src="js/core/academic-planning-platform.js"'));
   assert.ok(index.indexOf('src="js/core/academic-planning-platform.js"') < index.indexOf('src="js/enrollment-analytics.js"'));
 });

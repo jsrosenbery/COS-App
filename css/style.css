@@ -457,6 +457,29 @@ button:hover,
   margin-bottom: 0;
 }
 
+.catalog-program-detail-grid {
+  margin: 10px 0;
+}
+
+.catalog-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.catalog-source-preview {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 10px;
+  border: 1px solid #d7e2ea;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+}
+
 .collapsible-section-controls {
   display: flex;
   flex-wrap: wrap;

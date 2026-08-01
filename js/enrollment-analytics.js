@@ -2713,7 +2713,7 @@
           </section>
           <section class="collapsible-section" data-collapsible-id="catalog-inventory" data-collapsible-title="Program Inventory"><div class="collapsible-section-body"><div id="catalogProgramInventory" class="analytics-table"></div></div></section>
           <section class="collapsible-section" data-collapsible-id="catalog-review-queue" data-collapsible-title="Review Queue"><div class="collapsible-section-body"><div id="catalogReviewQueue" class="analytics-table"></div></div></section>
-          <section class="collapsible-section" data-collapsible-id="catalog-program-detail" data-collapsible-title="Program Detail"><div class="collapsible-section-body"><div id="catalogRequirementReview" class="analytics-table"></div><div id="programRequirementsPreview" class="analytics-table"></div></div></section>
+          <section class="collapsible-section" data-collapsible-id="catalog-program-detail" data-collapsible-title="Program Detail"><div class="collapsible-section-body"><div id="catalogProgramDetailStatus"></div><div id="catalogProgramDetailSummary"></div><div id="catalogRequirementReview" class="analytics-table"></div><div id="programRequirementsPreview" class="analytics-table"></div></div></section>
           <section class="collapsible-section" data-collapsible-id="catalog-revision-history" data-collapsible-title="Revision History"><div class="collapsible-section-body"><div id="programRequirementsRepositoryTable" class="analytics-table"></div><div id="programRequirementsRevisionHistory" class="analytics-table"></div></div></section>
           <section class="collapsible-section" data-collapsible-id="catalog-diagnostics" data-collapsible-title="Diagnostics"><div class="collapsible-section-body"><div id="programRequirementsDiagnostics" class="analytics-table"></div><div id="programRequirementsLegend" class="analytics-legend"></div></div></section>
         </div>
@@ -8942,7 +8942,102 @@
 
   function catalogSelectedDetail() {
     const details = state.catalogRequirementDetails || [];
-    return details.find(detail => detail.candidateId === state.selectedCatalogCandidateId) || details[0] || null;
+    if (!state.selectedCatalogCandidateId) return null;
+    return details.find(detail => window.COSCatalogReviewWorkflow?.detailMatchesCandidate?.(detail, state.selectedCatalogCandidateId)
+      || detail.candidateId === state.selectedCatalogCandidateId) || null;
+  }
+
+  function catalogSelectedCandidate() {
+    return (state.catalogProgramCandidates || []).find(candidate => candidate.candidateId === state.selectedCatalogCandidateId) || null;
+  }
+
+  function catalogReviewSelection() {
+    return window.COSCatalogReviewWorkflow?.resolveCatalogReviewSelection?.(state, state.selectedCatalogCandidateId, state.selectedProgramRevisionId)
+      || { ok: false, error: 'Catalog review workflow module is not loaded.' };
+  }
+
+  function catalogCourseRows(program = {}) {
+    return (program.requirementGroups || []).flatMap(group => (group.courses || []).map(course => ({
+      group: group.label,
+      course: course.courseKey,
+      units: course.units ?? '',
+      prerequisites: (course.prerequisiteCourseKeys || []).join('; ') || 'None',
+      corequisites: (course.corequisiteCourseKeys || []).join('; ') || 'None',
+      equivalents: (course.equivalentCourseKeys || []).join('; ') || 'None',
+      page: course.sourceEvidence?.[0]?.pageNumber || group.pageNumber || ''
+    })));
+  }
+
+  function renderCatalogProgramDetailPrompt(message = 'Select a program from the Review Queue to inspect its extracted requirements.', warning = false) {
+    const status = document.getElementById('catalogProgramDetailStatus');
+    const summary = document.getElementById('catalogProgramDetailSummary');
+    if (status) status.innerHTML = `<p class="analytics-empty${warning ? ' analytics-row-warning' : ''}">${escapeAttr(message)}</p>`;
+    if (summary) summary.innerHTML = '';
+    table('catalogRequirementReview', [], ['program', 'requirementGroup', 'originalText', 'parsedRule', 'courses', 'units', 'page', 'confidence']);
+    table('programRequirementsPreview', [], ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType']);
+  }
+
+  function renderCatalogProgramDetail() {
+    const selection = catalogReviewSelection();
+    if (!state.selectedCatalogCandidateId && !state.selectedProgramRevisionId) {
+      renderCatalogProgramDetailPrompt();
+      return;
+    }
+    if (!selection.ok) {
+      renderCatalogProgramDetailPrompt(selection.error, true);
+      return;
+    }
+    const status = document.getElementById('catalogProgramDetailStatus');
+    const summary = document.getElementById('catalogProgramDetailSummary');
+    const detail = selection.detail || catalogSelectedDetail();
+    const candidate = selection.candidate || catalogSelectedCandidate();
+    const program = selection.program || detail?.program || {};
+    const validation = detail ? catalogValidationSummary(detail) : { valid: false, warnings: ['No parsed requirement detail has been saved for this candidate yet.'] };
+    const sourceText = program.source?.originalText || (detail?.requirementEvidence || []).map(item => item.text).join('\n') || '';
+    const sourcePreview = sourceText ? escapeAttr(sourceText).slice(0, 4000) : 'No original source text is available for this record.';
+    const sourcePages = detail?.pageRange?.pages?.join(', ')
+      || program.source?.pageNumbers?.join(', ')
+      || candidate?.pageRange?.pages?.join(', ')
+      || `${candidate?.likelyStartPage || ''}-${candidate?.likelyEndPage || ''}`.replace(/^-|-$/g, '')
+      || 'N/A';
+    const unit = detail?.unitReconciliation || {};
+    const requirementGroups = program.requirementGroups || [];
+    const courseRows = catalogCourseRows(program);
+    if (status) status.innerHTML = `
+      <div class="analytics-row-info" tabindex="-1" id="catalogProgramDetailHeading">
+        <strong>${escapeAttr(program.programName || candidate?.programName || 'Selected Program')}</strong>
+        <span>${escapeAttr(program.awardType || candidate?.awardType || 'Award N/A')} | Catalog ${escapeAttr(program.catalogYear || candidate?.catalogYear || 'N/A')} | Pages ${escapeAttr(sourcePages)}</span>
+      </div>
+    `;
+    if (summary) summary.innerHTML = `
+      <div class="report-context-grid catalog-program-detail-grid">
+        <div><dt>Candidate ID</dt><dd>${escapeAttr(selection.candidateId || 'N/A')}</dd></div>
+        <div><dt>Revision ID</dt><dd>${escapeAttr(selection.revisionId || 'N/A')}</dd></div>
+        <div><dt>Extraction Status</dt><dd>${escapeAttr(detail?.extractionStatus || candidate?.extractionStatus || 'N/A')}</dd></div>
+        <div><dt>Review Status</dt><dd>${escapeAttr(program.reviewStatus || candidate?.reviewStatus || 'N/A')}</dd></div>
+        <div><dt>Requirement Groups</dt><dd>${requirementGroups.length}</dd></div>
+        <div><dt>Courses Parsed</dt><dd>${courseRows.length}</dd></div>
+        <div><dt>Stated Units</dt><dd>${escapeAttr(program.totalUnitsRequired ?? 'N/A')}</dd></div>
+        <div><dt>Parsed Units</dt><dd>${escapeAttr(unit.parsedUnits ?? unit.calculatedUnits ?? 'N/A')}</dd></div>
+        <div><dt>Unit Reconciliation</dt><dd>${escapeAttr(unit.status || 'N/A')}</dd></div>
+        <div><dt>Validation</dt><dd>${validation.valid ? 'Ready' : 'Needs Review'}</dd></div>
+      </div>
+      <div class="catalog-review-actions">${selection.candidateId ? `<button type="button" data-catalog-action="approve" data-candidate-id="${escapeAttr(selection.candidateId)}">Approve Candidate</button>` : '<span class="analytics-empty">No review actions available for this record.</span>'}</div>
+      ${(validation.warnings || []).length ? `<div class="analytics-row-warning"><strong>Warnings</strong><ul>${validation.warnings.map(warning => `<li>${escapeAttr(warning)}</li>`).join('')}</ul></div>` : '<p class="analytics-empty">No review warnings.</p>'}
+      <details open><summary>Original Source Text</summary><pre class="catalog-source-preview">${sourcePreview}</pre></details>
+      ${courseRows.length ? `<h4>Parsed Courses</h4><div class="analytics-table"><table><thead><tr><th>Group</th><th>Course</th><th>Units</th><th>Prerequisites</th><th>Corequisites</th><th>Equivalents</th><th>Page</th></tr></thead><tbody>${courseRows.map(row => `<tr><td>${escapeAttr(row.group)}</td><td>${escapeAttr(row.course)}</td><td>${escapeAttr(row.units)}</td><td>${escapeAttr(row.prerequisites)}</td><td>${escapeAttr(row.corequisites)}</td><td>${escapeAttr(row.equivalents)}</td><td>${escapeAttr(row.page)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="analytics-empty">No parsed courses are available for this selected program.</p>'}
+    `;
+    table('catalogRequirementReview', requirementGroups.map(group => ({
+      program: program.programName,
+      requirementGroup: group.label,
+      originalText: group.sourceText,
+      parsedRule: group.rule,
+      courses: (group.courses || []).map(course => course.courseKey).join('; '),
+      units: group.unitsRequired || (group.courses || []).reduce((sum, course) => sum + (Number(course.units) || 0), 0),
+      page: group.pageNumber,
+      confidence: 'Needs admin review'
+    })), ['program', 'requirementGroup', 'originalText', 'parsedRule', 'courses', 'units', 'page', 'confidence']);
+    table('programRequirementsPreview', programRequirementRows([program]), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType']);
   }
 
   function catalogValidationSummary(detail = null) {
@@ -9028,7 +9123,6 @@
     if (errors) errors.innerHTML = state.programRequirementsErrors.length
       ? `<strong>Validation Errors</strong><ul>${state.programRequirementsErrors.map(error => `<li>${escapeAttr(error)}</li>`).join('')}</ul>`
       : '<p class="analytics-empty">No validation errors.</p>';
-    table('programRequirementsPreview', programRequirementRows(state.programRequirementsPreview), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType']);
     table('programRequirementsRepositoryTable', programRequirementRows(state.programRequirements), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType', 'importedAt']);
     const pdfStatus = document.getElementById('catalogPdfStatus');
     if (pdfStatus) {
@@ -9099,18 +9193,7 @@
       { key: 'status', label: 'Status' },
       { label: 'Actions', html: row => `<button type="button" data-catalog-action="open-review" data-candidate-id="${escapeAttr(row.candidateId)}">Open Review</button> <button type="button" data-catalog-action="approve" data-candidate-id="${escapeAttr(row.candidateId)}">Approve</button>` }
     ]);
-    const selectedDetail = catalogSelectedDetail();
-    const detailPrograms = selectedDetail?.program ? [selectedDetail.program] : (state.programRequirementsPreview || []).filter(program => program.source?.sourceType === 'catalog-pdf');
-    table('catalogRequirementReview', detailPrograms.flatMap(program => (program.requirementGroups || []).map(group => ({
-      program: program.programName,
-      requirementGroup: group.label,
-      originalText: group.sourceText,
-      parsedRule: group.rule,
-      courses: (group.courses || []).map(course => course.courseKey).join('; '),
-      units: group.unitsRequired || (group.courses || []).reduce((sum, course) => sum + (Number(course.units) || 0), 0),
-      page: group.pageNumber,
-      confidence: 'Needs admin review'
-    }))), ['program', 'requirementGroup', 'originalText', 'parsedRule', 'courses', 'units', 'page', 'confidence']);
+    renderCatalogProgramDetail();
     catalogActionTable('programRequirementsRevisionHistory', (state.programRequirementRevisions || []).map(revision => ({
       revisionId: revision.revisionId,
       status: revision.status || revision.programSnapshot?.reviewStatus,
@@ -9392,6 +9475,53 @@ BUS 180 2 units`)
     await refreshProgramRequirementsRepository();
   }
 
+  function revealCatalogProgramDetail() {
+    const report = document.getElementById('catalogProgramRequirementsReport');
+    const section = report?.querySelector?.('[data-collapsible-id="catalog-program-detail"]')?.closest?.('.collapsible-section')
+      || report?.querySelector?.('[data-collapsible-id="catalog-program-detail"]');
+    if (!section) return;
+    window.COSUtils?.setCollapsibleOpen?.(section, true);
+    const body = section.querySelector?.('.collapsible-section-body');
+    if (body) body.hidden = false;
+    section.classList?.remove('is-collapsed');
+    section.dataset.collapsibleOpen = 'true';
+    const target = section.querySelector?.('#catalogProgramDetailHeading')
+      || section.querySelector?.('.collapsible-section-toggle')
+      || section;
+    target.setAttribute?.('tabindex', target.getAttribute?.('tabindex') || '-1');
+    setTimeout(() => {
+      try { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (err) { section.scrollIntoView?.(); }
+      try { target.focus?.({ preventScroll: true }); } catch (err) { target.focus?.(); }
+    }, 0);
+  }
+
+  async function openCatalogProgramReview(candidateId = '', revisionId = '') {
+    if (!candidateId && !revisionId) {
+      state.programRequirementsErrors = ['Select a program from the Review Queue to inspect its extracted requirements.'];
+      renderProgramRequirementsAdmin();
+      revealCatalogProgramDetail();
+      return;
+    }
+    const repo = await programRequirementsRepository();
+    if (candidateId && !state.catalogRequirementDetails.some(detail => window.COSCatalogReviewWorkflow?.detailMatchesCandidate?.(detail, candidateId) || detail.candidateId === candidateId)) {
+      const detail = await repo.getCatalogRequirementDetail?.(candidateId);
+      if (detail) state.catalogRequirementDetails = [...state.catalogRequirementDetails.filter(item => item.candidateId !== candidateId), detail];
+    }
+    if (!state.catalogProgramCandidates.length && repo.getCatalogProgramCandidates) {
+      state.catalogProgramCandidates = await repo.getCatalogProgramCandidates();
+    }
+    if (!state.catalogReviewDecisions.length && repo.getCatalogReviewDecisions) {
+      state.catalogReviewDecisions = await repo.getCatalogReviewDecisions();
+    }
+    if (!state.programRequirementRevisions.length && repo.getProgramRequirementRevisions) {
+      state.programRequirementRevisions = await repo.getProgramRequirementRevisions();
+    }
+    const selection = window.COSCatalogReviewWorkflow?.applyCatalogReviewSelection?.(state, candidateId, revisionId);
+    state.programRequirementsErrors = selection?.ok ? [] : [selection?.error || 'Catalog review record could not be found.'];
+    renderProgramRequirementsAdmin();
+    revealCatalogProgramDetail();
+  }
+
   async function approveCatalogCandidate(candidateId = '') {
     const extractor = catalogExtractionApi();
     const repo = await programRequirementsRepository();
@@ -9503,6 +9633,8 @@ BUS 180 2 units`)
   function clearProgramRequirementsPreview() {
     state.programRequirementsPreview = [];
     state.catalogRequirementDetails = [];
+    state.selectedCatalogCandidateId = '';
+    state.selectedProgramRevisionId = '';
     state.programRequirementsErrors = [];
     renderProgramRequirementsAdmin();
   }
@@ -25057,7 +25189,7 @@ BUS 180 2 units`)
       const candidateId = button.dataset.candidateId || '';
       const revisionId = button.dataset.revisionId || '';
       const task = action === 'open-review'
-        ? Promise.resolve().then(() => { state.selectedCatalogCandidateId = candidateId; renderProgramRequirementsAdmin(); })
+        ? openCatalogProgramReview(candidateId, revisionId)
         : action === 'approve'
           ? approveCatalogCandidate(candidateId)
           : action === 'publish'
