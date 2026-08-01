@@ -16,7 +16,7 @@
   const STORE_PROGRAM_REVISIONS = 'programRequirementRevisions';
   const DB_VERSION = 3;
   const VALID_GROUP_RULES = new Set(['all', 'choose-count', 'choose-units', 'one-from-each-list', 'or', 'elective']);
-  const VALID_REVIEW_STATUSES = new Set(['draft', 'needs-review', 'approved', 'retired']);
+  const VALID_REVIEW_STATUSES = new Set(['draft', 'needs-review', 'approved', 'published', 'archived', 'retired']);
   const VALID_SOURCE_TYPES = new Set(['manual', 'json', 'csv', 'catalog-pdf']);
 
   function compact(value) {
@@ -50,6 +50,14 @@
     return years.sort((a, b) => catalogYearSortValue(b) - catalogYearSortValue(a) || canon(b).localeCompare(canon(a)))[0] || '';
   }
 
+  function getMostRecentPublishedCatalogYear(programs = []) {
+    const years = [...new Set((programs || [])
+      .filter(program => program.reviewStatus === 'published' && program.isActiveRevision !== false)
+      .map(program => compact(program.catalogYear))
+      .filter(Boolean))];
+    return years.sort((a, b) => catalogYearSortValue(b) - catalogYearSortValue(a) || canon(b).localeCompare(canon(a)))[0] || '';
+  }
+
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
@@ -69,7 +77,12 @@
       source: normalizeSource(program.source),
       reviewStatus: VALID_REVIEW_STATUSES.has(program.reviewStatus) ? program.reviewStatus : 'draft',
       reviewedBy: compact(program.reviewedBy),
-      reviewedAt: compact(program.reviewedAt)
+      reviewedAt: compact(program.reviewedAt),
+      revisionId: compact(program.revisionId),
+      activeRevisionId: compact(program.activeRevisionId || program.revisionId),
+      isActiveRevision: program.isActiveRevision !== false,
+      publishedAt: compact(program.publishedAt),
+      archivedAt: compact(program.archivedAt)
     };
     normalized.key = programKey(normalized.programId, normalized.catalogYear);
     return normalized;
@@ -484,6 +497,7 @@
     normalizeCourseKey,
     catalogYearSortValue,
     getMostRecentApprovedCatalogYear,
+    getMostRecentPublishedCatalogYear,
     normalizeProgram,
     validateProgram,
     parseProgramJson,

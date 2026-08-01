@@ -8486,8 +8486,11 @@
   }
 
   function scheduleBuilderEngine() {
+    if (window.COSAcademicPlanningPlatform?.buildStudentSchedule) return window.COSAcademicPlanningPlatform;
     if (!window.COSScheduleBuilder) throw new Error('Schedule Builder engine is not loaded.');
-    return window.COSScheduleBuilder;
+    return {
+      buildStudentSchedule: (rows, requests, preferences) => window.COSScheduleBuilder.buildScheduleOptions(rows, requests, preferences)
+    };
   }
 
   function scheduleBuilderCurrentRows() {
@@ -8817,7 +8820,7 @@
   async function runScheduleBuilder() {
     updateScheduleBuilderSourceStatus();
     await loadScheduleBuilderEffectiveTermRows();
-    const results = scheduleBuilderEngine().buildScheduleOptions(scheduleBuilderSourceRows(), state.scheduleBuilderRequests, scheduleBuilderPreferences());
+    const results = scheduleBuilderEngine().buildStudentSchedule(scheduleBuilderSourceRows(), state.scheduleBuilderRequests, scheduleBuilderPreferences());
     state.scheduleBuilderResults = results;
     state.scheduleBuilderRan = true;
     renderScheduleBuilderResults();
@@ -8863,8 +8866,14 @@
   }
 
   function programFeasibilityApi() {
+    if (window.COSAcademicPlanningPlatform?.evaluateProgram) return window.COSAcademicPlanningPlatform;
     if (!window.COSProgramFeasibility) throw new Error('Program Feasibility module is not loaded.');
-    return window.COSProgramFeasibility;
+    return {
+      ...window.COSProgramFeasibility,
+      evaluateProgram: window.COSProgramFeasibility.evaluateProgramFeasibility,
+      evaluatePortfolio: window.COSProgramFeasibility.evaluateProgramPortfolio,
+      evaluatePortfolioAsync: window.COSProgramFeasibility.evaluateProgramPortfolioAsync
+    };
   }
 
   async function programRequirementsRepository() {
@@ -9334,6 +9343,7 @@ BUS 180 2 units`)
       includeFullSections: document.getElementById('programFeasibilityIncludeFull')?.checked === true,
       includeWaitlistedSections: document.getElementById('programFeasibilityIncludeWaitlisted')?.checked === true,
       includeUnknownSeatStatus: true,
+      includeLegacyApproved: true,
       ...programFeasibilityTransitionOptions()
     };
     const portfolioPrograms = (state.programRequirements || []).filter(item => String(item.catalogYear || '') === String(catalogYear || '') && String(item.reviewStatus || '').toLowerCase() === 'approved');
