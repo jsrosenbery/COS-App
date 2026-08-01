@@ -30,10 +30,94 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.deepEqual(REPORT_WORKFLOW_GROUPS.map(group => group.label), ['Public Reports', 'Division Chair / Administrative Assistant', 'Dean', 'Enrollment Management', 'System Administrator']);
   assert.deepEqual(REPORT_WORKFLOW_GROUPS[0].reports, [REPORTS.instructorAvailability]);
   assert.equal(REPORT_WORKFLOW_GROUPS[3].reports.includes(REPORTS.twoYearProgramFeasibility), false);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[4].reports, [
+    REPORTS.instructionalMethodValidation,
+    REPORTS.dataHub,
+    REPORTS.catalogProgramRequirements,
+    REPORTS.twoYearProgramFeasibility,
+    REPORTS.ftesReconciliation,
+    REPORTS.historicalInstitutionalModel,
+    REPORTS.archiveInspection,
+    REPORTS.workExperience
+  ]);
   assert.ok(REPORT_WORKFLOW_GROUPS[4].reports.includes(REPORTS.twoYearProgramFeasibility));
   assert.equal(REPORT_WORKFLOW_GROUPS[4].reports.indexOf(REPORTS.twoYearProgramFeasibility), REPORT_WORKFLOW_GROUPS[4].reports.indexOf(REPORTS.catalogProgramRequirements) + 1);
+  assert.ok(REPORT_ORDER.includes(REPORTS.catalogProgramRequirements));
+  assert.equal(REPORT_ORDER.indexOf(REPORTS.twoYearProgramFeasibility), REPORT_ORDER.indexOf(REPORTS.catalogProgramRequirements) + 1);
   assert.equal(REPORT_DESCRIPTIONS[REPORTS.emSnapshot], 'Review current enrollment, confirmed FTES, estimated FTES, and historically predicted FTES.');
   assert.ok(REPORT_ORDER.indexOf(REPORTS.instructorAvailability) < REPORT_ORDER.indexOf(REPORTS.heatmap));
+});
+
+test('launcher runtime config renders and activates Catalog & Program Requirements for Admin only', () => {
+  const {
+    REPORTS,
+    REPORT_ACCESS,
+    REPORT_ORDER,
+    REPORT_LABEL,
+    REPORT_WORKFLOW_GROUPS,
+    ROLE_LEVEL
+  } = config.reports;
+  const reportViewIds = {
+    [REPORTS.dashboard]: 'dashboardReport',
+    [REPORTS.catalogProgramRequirements]: 'catalogProgramRequirementsReport',
+    [REPORTS.twoYearProgramFeasibility]: 'twoYearProgramFeasibilityReport'
+  };
+  const canAccess = (report, role = 'general') => {
+    const required = REPORT_ACCESS[report] || 'general';
+    return (ROLE_LEVEL[role] || ROLE_LEVEL.general) >= (ROLE_LEVEL[required] || ROLE_LEVEL.general);
+  };
+  const renderLauncherCards = (role = 'general') => REPORT_WORKFLOW_GROUPS.flatMap(group => group.reports
+    .filter(report => REPORT_ORDER.includes(report))
+    .map(report => {
+      const locked = !canAccess(report, role);
+      return {
+        groupKey: group.key,
+        reportTarget: report,
+        reportId: locked ? null : report,
+        title: locked ? 'Locked Report' : REPORT_LABEL[report],
+        disabled: locked
+      };
+    }));
+  const activate = (role, report) => {
+    const views = {
+      dashboardReport: { hidden: false },
+      catalogProgramRequirementsReport: { hidden: true },
+      twoYearProgramFeasibilityReport: { hidden: true }
+    };
+    if (!canAccess(report, role)) {
+      return { requestedAccessFor: report, views };
+    }
+    Object.values(views).forEach(view => { view.hidden = true; });
+    views[reportViewIds[report]].hidden = false;
+    return { selectedReport: report, views };
+  };
+
+  const publicCards = renderLauncherCards('general');
+  assert.equal(publicCards.filter(card => card.reportId === REPORTS.catalogProgramRequirements).length, 0);
+  assert.equal(publicCards.find(card => card.reportTarget === REPORTS.catalogProgramRequirements)?.title, 'Locked Report');
+
+  const enrollmentManagementCards = renderLauncherCards('development');
+  assert.equal(enrollmentManagementCards.filter(card => card.reportId === REPORTS.catalogProgramRequirements).length, 0);
+  const blockedActivation = activate('development', REPORTS.catalogProgramRequirements);
+  assert.equal(blockedActivation.requestedAccessFor, REPORTS.catalogProgramRequirements);
+  assert.equal(blockedActivation.views.catalogProgramRequirementsReport.hidden, true);
+
+  const adminCards = renderLauncherCards('admin');
+  const catalogCards = adminCards.filter(card => card.reportId === REPORTS.catalogProgramRequirements);
+  assert.equal(catalogCards.length, 1);
+  assert.equal(catalogCards[0].title, 'Catalog & Program Requirements');
+  assert.equal(catalogCards[0].groupKey, 'admin');
+  assert.equal(catalogCards[0].reportId, 'catalog-program-requirements');
+  assert.equal(catalogCards[0].disabled, false);
+
+  const programIndex = adminCards.findIndex(card => card.reportId === REPORTS.twoYearProgramFeasibility);
+  const catalogIndex = adminCards.findIndex(card => card.reportId === REPORTS.catalogProgramRequirements);
+  assert.equal(programIndex, catalogIndex + 1);
+
+  const activated = activate('admin', REPORTS.catalogProgramRequirements);
+  assert.equal(activated.selectedReport, REPORTS.catalogProgramRequirements);
+  assert.equal(activated.views.catalogProgramRequirementsReport.hidden, false);
+  assert.equal(activated.views.dashboardReport.hidden, true);
 });
 
 test('centralized campus config preserves default campus behavior', () => {

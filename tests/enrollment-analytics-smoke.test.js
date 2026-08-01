@@ -4914,6 +4914,9 @@ test('two-year program feasibility foundation is registered and uses structured 
   assert.doesNotMatch(enrollmentBlock, /REPORTS\.twoYearProgramFeasibility/);
   assert.match(text, /id="twoYearProgramFeasibilityReport"/);
   assert.match(text, /id="catalogProgramRequirementsReport"/);
+  assert.match(text, /data-report-id="\$\{report\}"/);
+  assert.match(text, /button\.setAttribute\('data-report-id', report\)/);
+  assert.match(text, /const targetReport = targetButton\.dataset\.reportTarget \|\| targetButton\.dataset\.reportId/);
   assert.match(text, /function runProgramFeasibility/);
   assert.match(text, /function previewProgramRequirementsJson/);
   assert.match(text, /id="catalogPdfFile"/);

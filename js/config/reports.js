@@ -135,6 +135,7 @@
     REPORTS.facultyModality,
     REPORTS.scheduleBuilder,
     REPORTS.demand,
+    REPORTS.catalogProgramRequirements,
     REPORTS.twoYearProgramFeasibility,
     REPORTS.emSnapshot,
     REPORTS.consolidation,

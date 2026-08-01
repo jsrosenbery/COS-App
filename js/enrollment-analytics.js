@@ -170,6 +170,7 @@
     REPORTS.facultyModality,
     REPORTS.scheduleBuilder,
     REPORTS.demand,
+    REPORTS.catalogProgramRequirements,
     REPORTS.twoYearProgramFeasibility,
     REPORTS.emSnapshot,
     REPORTS.consolidation,
@@ -2178,7 +2179,7 @@
     const status = reportAccessStatus(report);
     const ariaLabel = locked ? `Locked report. ${status}.` : `${label}. ${description}. ${status}.`;
     return `
-            <button type="button" class="em-report-button${locked ? ' is-locked' : ''}" data-report-target="${report}" data-report-group="${groupKey}" data-required-role="${REPORT_ACCESS[report] || 'general'}" aria-label="${escapeAttr(ariaLabel)}"${locked ? ' aria-disabled="true" disabled' : ' aria-disabled="false"'}>
+            <button type="button" class="em-report-button${locked ? ' is-locked' : ''}" data-report-target="${report}"${locked ? '' : ` data-report-id="${report}"`} data-report-group="${groupKey}" data-required-role="${REPORT_ACCESS[report] || 'general'}" aria-label="${escapeAttr(ariaLabel)}"${locked ? ' aria-disabled="true" disabled' : ' aria-disabled="false"'}>
               <span class="em-report-button-label">${escapeAttr(label)}</span>
               <small>${escapeAttr(description)}</small>
               <span class="em-report-button-status">${escapeAttr(status)}</span>
@@ -24236,14 +24237,19 @@ BUS 180 2 units`)
       option.disabled = locked;
       option.textContent = lockedReportLabel(report);
     });
-    document.querySelectorAll('.em-report-button[data-report-target]').forEach(button => {
-      const report = button.dataset.reportTarget || '';
+    document.querySelectorAll('.em-report-button[data-report-target], .em-report-button[data-report-id]').forEach(button => {
+      const report = button.dataset.reportTarget || button.dataset.reportId || '';
       const locked = !canAccess(report);
       const labelText = locked ? 'Locked Report' : (REPORT_LABEL[report] || report);
       const noteText = locked ? 'Report name and description available after unlock.' : (REPORT_DESCRIPTIONS[report] || reportSubtitleForGroup(button.dataset.reportGroup) || reportSubtitleForReport(report));
       const statusText = reportAccessStatus(report);
       button.classList.toggle('is-active', report === selected);
       button.classList.toggle('is-locked', locked);
+      if (locked) {
+        button.removeAttribute('data-report-id');
+      } else {
+        button.setAttribute('data-report-id', report);
+      }
       button.setAttribute('aria-current', report === selected ? 'page' : 'false');
       button.setAttribute('aria-disabled', locked ? 'true' : 'false');
       button.disabled = locked;
@@ -25475,9 +25481,9 @@ BUS 180 2 units`)
         requestReportAccess(unlockButton.dataset.unlockReport);
         return;
       }
-      const targetButton = event.target.closest('[data-report-target],[data-scroll-target]');
+      const targetButton = event.target.closest('[data-report-target],[data-report-id],[data-scroll-target]');
       if (targetButton) {
-        const targetReport = targetButton.dataset.reportTarget;
+        const targetReport = targetButton.dataset.reportTarget || targetButton.dataset.reportId;
         const reportSelect = document.getElementById('emReportSelect');
         if (targetReport && reportSelect) {
           reportSelect.value = targetReport;
