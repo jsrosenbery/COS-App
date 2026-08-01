@@ -8,11 +8,24 @@
   programRequirements = programRequirements || {};
   scheduleBuilder = scheduleBuilder || {};
 
-  const PILOT_PROGRAM_NAMES = [
-    'Business Administration for Transfer 2.0',
-    'Business',
-    'Business Certificate of Achievement'
-  ];
+  const CATALOG_EXTRACTION_VERSION = 'catalog-pilot-2026-2027-v2';
+  const CATALOG_AWARD_TYPES = Object.freeze([
+    'AS-T',
+    'AA-T',
+    'AS',
+    'AA',
+    'Certificate of Achievement',
+    'Skill Certificate',
+    'Certificate of Competency',
+    'Certificate of Completion',
+    'Other Credential'
+  ]);
+  const PILOT_PROGRAM_TARGETS = Object.freeze([
+    { programName: 'Business Administration for Transfer 2.0', awardType: 'AS-T' },
+    { programName: 'Business', awardType: 'AS' },
+    { programName: 'Business', awardType: 'Certificate of Achievement' },
+    { programName: 'Business Financial Recordkeeping', awardType: 'Certificate of Achievement' }
+  ]);
 
   function compact(value) {
     return String(value ?? '').replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -36,6 +49,14 @@
       hash = Math.imul(hash, 16777619);
     }
     return (hash >>> 0).toString(16);
+  }
+
+  function delayFrame() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  function throwIfCancelled(signal) {
+    if (signal?.aborted) throw Object.assign(new Error('Catalog extraction cancelled.'), { name: 'AbortError', cancelled: true });
   }
 
   function normalizeCatalogCourseKey(value) {
@@ -72,12 +93,98 @@
       pageCount: Number(source.pageCount || 0),
       importedAt: compact(source.importedAt) || new Date().toISOString(),
       status: compact(source.status) || 'uploaded',
-      sourceFingerprint
+      sourceFingerprint,
+      extractionVersion: compact(source.extractionVersion) || CATALOG_EXTRACTION_VERSION,
+      warnings: Array.isArray(source.warnings) ? source.warnings.map(compact).filter(Boolean) : []
     };
   }
 
   function pageTextRecord(pageNumber, text) {
     return { pageNumber: Number(pageNumber) || 0, text: String(text ?? '').replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ').trim() };
+  }
+
+  async function ingestCatalogPdf(file, options = {}) {
+    const started = Date.now();
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+    const signal = options.signal;
+    const filename = compact(file?.name || options.filename || 'catalog.pdf');
+    const warnings = [];
+    if (!file && !options.pageTexts) throw new Error('Select a catalog PDF before extraction.');
+    if (file && !/\.pdf$/i.test(filename)) throw new Error('Catalog source must be a PDF file.');
+    throwIfCancelled(signal);
+    onProgress({ state: 'Reading PDF', pagesProcessed: 0, pageCount: 0 });
+    let pageTexts = [];
+    let pageCount = 0;
+    let sourceFingerprint = '';
+    if (options.pageTexts) {
+      const inputPages = options.pageTexts || [];
+      const chunkSize = Number(options.chunkSize || 10) || 10;
+      pageCount = Number(options.pageCount || inputPages.length);
+      for (let index = 0; index < inputPages.length; index += 1) {
+        throwIfCancelled(signal);
+        const page = inputPages[index];
+        pageTexts.push(pageTextRecord(page.pageNumber || index + 1, page.text));
+        if ((index + 1) % chunkSize === 0) {
+          onProgress({ state: 'Extracting page text', pagesProcessed: index + 1, pageCount });
+          await delayFrame();
+        }
+      }
+      sourceFingerprint = fingerprint({ filename, pageCount, pages: pageTexts.map(page => [page.pageNumber, page.text.length, fingerprint(page.text)]) });
+    } else if (typeof file.text === 'function' && /\.txt$/i.test(filename)) {
+      const text = await file.text();
+      pageTexts = text.split(/\f/g).map((page, index) => pageTextRecord(index + 1, page));
+      pageCount = pageTexts.length;
+      sourceFingerprint = fingerprint({ filename, pageCount, text });
+    } else {
+      const pdfjs = options.pdfjsLib || (typeof root !== 'undefined' ? root.pdfjsLib : null);
+      if (!pdfjs?.getDocument) {
+        return {
+          state: 'Extraction failed',
+          filename,
+          catalogYear: compact(options.catalogYear),
+          pageCount: 0,
+          pagesExtracted: 0,
+          pagesWithNoText: 0,
+          sourceFingerprint: '',
+          durationMs: Date.now() - started,
+          warnings: ['Browser PDF text extraction is unavailable because pdfjsLib is not loaded.'],
+          pageTexts: []
+        };
+      }
+      const buffer = await file.arrayBuffer();
+      sourceFingerprint = fingerprint({ filename, byteLength: buffer.byteLength, sample: Array.from(new Uint8Array(buffer.slice(0, Math.min(buffer.byteLength, 4096)))) });
+      onProgress({ state: 'Extracting page text', pagesProcessed: 0, pageCount: 0 });
+      const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+      pageCount = Number(pdf.numPages || 0);
+      const chunkSize = Number(options.chunkSize || 10) || 10;
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        throwIfCancelled(signal);
+        const page = await pdf.getPage(pageNumber);
+        const content = await page.getTextContent();
+        const text = (content.items || []).map(item => item.str || '').join(' ');
+        pageTexts.push(pageTextRecord(pageNumber, text));
+        if (pageNumber % chunkSize === 0) {
+          onProgress({ state: 'Extracting page text', pagesProcessed: pageNumber, pageCount });
+          await delayFrame();
+        }
+      }
+    }
+    throwIfCancelled(signal);
+    onProgress({ state: 'Indexing pages', pagesProcessed: pageTexts.length, pageCount });
+    const pagesWithNoText = pageTexts.filter(page => !compact(page.text)).length;
+    const state = pagesWithNoText && pagesWithNoText < pageTexts.length ? 'Partial extraction' : pageTexts.length ? 'Ready for inventory extraction' : 'Extraction failed';
+    return {
+      state,
+      filename,
+      catalogYear: compact(options.catalogYear),
+      pageCount,
+      pagesExtracted: pageTexts.length,
+      pagesWithNoText,
+      sourceFingerprint,
+      durationMs: Date.now() - started,
+      warnings,
+      pageTexts
+    };
   }
 
   function extractProgramInventory(pageTexts = [], source = {}) {
@@ -87,35 +194,52 @@
     (pageTexts || []).forEach(page => {
       const lines = String(page.text || '').split(/\r?\n/).map(compact).filter(Boolean);
       lines.forEach((line, index) => {
-        const match = line.match(/^(.+?),?\s+(AS-T|AA-T|Certificate of Achievement|Skill Certificate|Noncredit Certificate|AS|AA|BS|BA)\b/i);
-        if (!match) return;
-        const programName = compact(match[1].replace(/\s+Program$/i, ''));
-        const awardType = compact(match[2]);
+        const contextLines = lines.slice(index, Math.min(lines.length, index + 4));
+        const heading = parseAwardHeading(contextLines.join(' '));
+        if (!heading) return;
+        const { programName, awardType, originalAwardText, ambiguousAwardType } = heading;
         const key = canon(`${programName}|${awardType}|${catalogYear}`);
         const context = lines.slice(Math.max(0, index - 2), index + 8).join(' | ');
-        const likelyRequirementPage = /Program|Required|Core|Units/i.test(context);
+        const likelyRequirementPage = /Program|Required|Core|Units|List A|List B|Electives/i.test(context);
+        const evidenceType = likelyRequirementPage ? 'detailed-page' : /contents/i.test(context) ? 'table-of-contents' : 'award-list';
         if (seen.has(key)) {
           const existing = seen.get(key);
-          existing.sourceEvidence.push(createEvidence(page.pageNumber, line, 'inventory-heading', likelyRequirementPage ? 0.86 : 0.78, context));
-          if (likelyRequirementPage && !/Program|Required|Core|Units/i.test(existing.sourceEvidence[0]?.boundingContext || '')) {
+          existing.sourceEvidence.push(createEvidence(page.pageNumber, line, evidenceType, likelyRequirementPage ? 0.9 : 0.78, context));
+          if (evidenceType === 'table-of-contents') existing.tocEvidence.push(existing.sourceEvidence[existing.sourceEvidence.length - 1]);
+          else if (evidenceType === 'detailed-page') existing.detailedPageEvidence.push(existing.sourceEvidence[existing.sourceEvidence.length - 1]);
+          else existing.awardListEvidence.push(existing.sourceEvidence[existing.sourceEvidence.length - 1]);
+          if (likelyRequirementPage && !existing.detailedSourceFound) {
             existing.likelyStartPage = Number(page.pageNumber || existing.likelyStartPage || 0);
-            existing.likelyEndPage = Number(page.pageNumber || existing.likelyStartPage || 0) + 2;
-            existing.confidence = 0.86;
+            const range = detectProgramPageRange(existing, pageTexts);
+            existing.likelyEndPage = range.endPage;
+            existing.pageRange = range;
+            existing.confidence = 0.9;
+            existing.detailedSourceFound = true;
           }
           return;
         }
+        const range = likelyRequirementPage ? detectProgramPageRange({ likelyStartPage: page.pageNumber }, pageTexts) : { startPage: Number(page.pageNumber || 0), endPage: Number(page.pageNumber || 0), pages: [Number(page.pageNumber || 0)], boundaryConfidence: 0.45, boundaryWarnings: ['Detailed award page not confirmed.'] };
+        const evidence = createEvidence(page.pageNumber, line, evidenceType, likelyRequirementPage ? 0.9 : 0.78, context);
         const candidate = {
           candidateId: `candidate-${fingerprint(key)}`,
           catalogYear,
           programName,
           awardType,
+          awardTypeEnum: CATALOG_AWARD_TYPES.includes(awardType) ? awardType : 'Other Credential',
+          originalAwardText,
+          ambiguousAwardType,
           areaOfStudy: inferAreaOfStudy(lines, index),
           likelyStartPage: Number(page.pageNumber || 0),
-          likelyEndPage: Number(page.pageNumber || 0) + 2,
+          likelyEndPage: range.endPage,
+          pageRange: range,
           sourceText: line,
-          sourceEvidence: [createEvidence(page.pageNumber, line, 'inventory-heading', likelyRequirementPage ? 0.86 : 0.78, context)],
-          confidence: likelyRequirementPage ? 0.86 : 0.78,
-          warnings: [],
+          sourceEvidence: [evidence],
+          tocEvidence: evidenceType === 'table-of-contents' ? [evidence] : [],
+          awardListEvidence: evidenceType === 'award-list' ? [evidence] : [],
+          detailedPageEvidence: evidenceType === 'detailed-page' ? [evidence] : [],
+          detailedSourceFound: evidenceType === 'detailed-page',
+          confidence: likelyRequirementPage ? 0.9 : 0.78,
+          warnings: ambiguousAwardType ? ['Ambiguous award type.'] : [],
           extractionStatus: 'detected',
           reviewStatus: 'needs-review'
         };
@@ -133,27 +257,98 @@
     return '';
   }
 
+  function parseAwardHeading(text = '') {
+    const source = compact(text).replace(/\uFFFD/g, '-').replace(/[–—]/g, '-');
+    const patterns = [
+      { re: /Associate\s+(?:in|of)\s+Science\s+in\s+(.+?)\s*\(?\s*AS-?T\s*\)?/i, awardType: 'AS-T', prefix: 'Associate in Science in ' },
+      { re: /Associate\s+(?:in|of)\s+Arts?\s+in\s+(.+?)\s*\(?\s*AA-?T\s*\)?/i, awardType: 'AA-T', prefix: 'Associate in Arts in ' },
+      { re: /Associate\s+(?:in|of)\s+Science\s+in\s+(.+?)\s*\(?\s*AS\s*\)?/i, awardType: 'AS', prefix: 'Associate of Science in ' },
+      { re: /Associate\s+(?:in|of)\s+Arts?\s+in\s+(.+?)\s*\(?\s*AA\s*\)?/i, awardType: 'AA', prefix: 'Associate of Arts in ' },
+      { re: /Certificate\s+of\s+Achievement\s+in\s+(.+)/i, awardType: 'Certificate of Achievement', prefix: 'Certificate of Achievement in ' },
+      { re: /Skill\s+Certificate\s+in\s+(.+)/i, awardType: 'Skill Certificate', prefix: 'Skill Certificate in ' },
+      { re: /Certificate\s+of\s+Competency\s+in\s+(.+)/i, awardType: 'Certificate of Competency', prefix: 'Certificate of Competency in ' },
+      { re: /Certificate\s+of\s+Completion\s+in\s+(.+)/i, awardType: 'Certificate of Completion', prefix: 'Certificate of Completion in ' },
+      { re: /^(.+?)\s+(AS-T|AA-T|Certificate of Achievement|Skill Certificate|Noncredit Certificate|AS|AA)\b/i, legacy: true }
+    ];
+    for (const pattern of patterns) {
+      const match = source.match(pattern.re);
+      if (!match) continue;
+      const rawProgram = compact(match[1])
+        .replace(/\s*\((?:AS-?T|AA-?T|AS|AA)\)\s*$/i, '')
+        .replace(/\s+(?:Program(?:\s+total|:)?|Required Core|List [A-Z]|BUS|ACCT|ECON|MATH|STAT)\b.*$/i, '');
+      const awardType = pattern.legacy ? normalizeAwardType(match[2]) : pattern.awardType;
+      return {
+        programName: rawProgram,
+        awardType,
+        originalAwardText: pattern.legacy ? source : `${pattern.prefix}${rawProgram}`,
+        ambiguousAwardType: awardType === 'Other Credential'
+      };
+    }
+    return null;
+  }
+
+  function normalizeAwardType(value = '') {
+    const text = canon(value).replace(/\s+/g, ' ');
+    if (/AS\s*-?\s*T/.test(text)) return 'AS-T';
+    if (/AA\s*-?\s*T/.test(text)) return 'AA-T';
+    if (text === 'AS') return 'AS';
+    if (text === 'AA') return 'AA';
+    if (/CERTIFICATE OF ACHIEVEMENT/.test(text)) return 'Certificate of Achievement';
+    if (/SKILL CERTIFICATE/.test(text)) return 'Skill Certificate';
+    if (/COMPETENCY/.test(text)) return 'Certificate of Competency';
+    if (/COMPLETION/.test(text)) return 'Certificate of Completion';
+    return 'Other Credential';
+  }
+
+  function detectProgramPageRange(candidate = {}, pageTexts = []) {
+    const startPage = Number(candidate.likelyStartPage || candidate.startPage || 0);
+    const sortedPages = [...(pageTexts || [])].sort((a, b) => Number(a.pageNumber) - Number(b.pageNumber));
+    const startIndex = sortedPages.findIndex(page => Number(page.pageNumber) === startPage);
+    if (startIndex < 0) return { startPage, endPage: startPage, pages: [startPage].filter(Boolean), boundaryConfidence: 0.25, boundaryWarnings: ['Detailed source page not found in extracted text.'] };
+    const pages = [];
+    const warnings = [];
+    for (let index = startIndex; index < sortedPages.length; index += 1) {
+      const page = sortedPages[index];
+      if (index > startIndex && firstAwardHeadingOnPage(page)) break;
+      pages.push(Number(page.pageNumber));
+      if (index > startIndex + 5) {
+        warnings.push('Program range exceeded six pages; boundary may need review.');
+        break;
+      }
+    }
+    return {
+      startPage,
+      endPage: pages[pages.length - 1] || startPage,
+      pages,
+      boundaryConfidence: warnings.length ? 0.62 : pages.length ? 0.82 : 0.25,
+      boundaryWarnings: warnings
+    };
+  }
+
+  function firstAwardHeadingOnPage(page = {}) {
+    const lines = String(page.text || '').split(/\r?\n/).map(compact).filter(Boolean).slice(0, 8);
+    return lines.some((line, index) => Boolean(parseAwardHeading(lines.slice(index, index + 3).join(' '))));
+  }
+
   function selectPilotCandidates(candidates = []) {
     const pilots = [];
-    PILOT_PROGRAM_NAMES.forEach(name => {
-      const target = canon(name);
+    PILOT_PROGRAM_TARGETS.forEach(targetSpec => {
+      const target = canon(targetSpec.programName);
       const match = candidates.find(candidate => {
-        const label = canon(`${candidate.programName} ${candidate.awardType}`);
-        return canon(candidate.programName) === target || label === target;
+        return canon(candidate.programName) === target && candidate.awardType === targetSpec.awardType;
       }) || candidates.find(candidate => {
         const label = canon(`${candidate.programName} ${candidate.awardType}`);
-        return !pilots.some(pilot => pilot.candidateId === candidate.candidateId) && (canon(candidate.programName).includes(target) || label.includes(target));
+        return !pilots.some(pilot => pilot.candidateId === candidate.candidateId) && candidate.awardType === targetSpec.awardType && (canon(candidate.programName).includes(target) || label.includes(target));
       });
       if (match) pilots.push(match);
     });
-    const skill = candidates.find(candidate => /SKILL CERTIFICATE/i.test(candidate.awardType));
-    if (skill && !pilots.some(candidate => candidate.candidateId === skill.candidateId)) pilots.push(skill);
     return pilots.slice(0, 4);
   }
 
   function parseRequirementDetail(candidate = {}, pageTexts = [], options = {}) {
     const sourcePages = (pageTexts || []).filter(page => Number(page.pageNumber) >= Number(candidate.likelyStartPage || 0) && Number(page.pageNumber) <= Number(candidate.likelyEndPage || candidate.likelyStartPage || 0));
     const text = sourcePages.map(page => page.text).join('\n');
+    const requirementRows = parseRequirementTableRows(sourcePages);
     const lines = text.split(/\r?\n/).map(compact).filter(Boolean);
     const warnings = [];
     const groups = [];
@@ -207,9 +402,13 @@
       },
       reviewStatus: 'needs-review'
     }) : {};
+    const unitReconciliation = reconcileUnits(program);
     return {
       candidateId: candidate.candidateId,
       program,
+      pageRange: candidate.pageRange || detectProgramPageRange(candidate, pageTexts),
+      requirementRows,
+      unitReconciliation,
       requirementEvidence: groups.flatMap(group => [
         createEvidence(group.pageNumber, group.sourceText || group.label, 'requirement-group', 0.7),
         ...(group.courses || []).flatMap(course => course.sourceEvidence || [])
@@ -217,6 +416,68 @@
       confidence: confidenceFromWarnings(warnings, groups),
       warnings,
       extractionStatus: 'needs-review'
+    };
+  }
+
+  function parseRequirementTableRows(pages = []) {
+    const rows = [];
+    (pages || []).forEach(page => {
+      const headingPath = [];
+      String(page.text || '').split(/\r?\n/).map(compact).filter(Boolean).forEach((line, index) => {
+        if (/^(Required Core|List [A-Z]|Electives|Additional Requirements|Select|Choose|One of the following)/i.test(line)) {
+          headingPath.length = 0;
+          headingPath.push(line);
+          return;
+        }
+        const courseMatch = line.match(/\b([A-Z]{2,6})\s+([A-Z]?\d{1,4}[A-Z]?|C\d{4}[A-Z]?)\b/);
+        if (!courseMatch) {
+          if (/units?|or\b/i.test(line)) rows.push({ pageNumber: page.pageNumber, rowIndex: index, headingPath: [...headingPath], courseCodeText: '', courseTitleText: '', unitsText: '', notesText: '', rawText: line, confidence: 0.35 });
+          return;
+        }
+        const units = (line.match(/(\d+(?:\.\d+)?)\s*(?:units?|unit\b)/i) || [])[1] || '';
+        const afterCode = compact(line.slice(line.indexOf(courseMatch[0]) + courseMatch[0].length));
+        rows.push({
+          pageNumber: page.pageNumber,
+          rowIndex: index,
+          headingPath: [...headingPath],
+          courseCodeText: courseMatch[0],
+          courseTitleText: compact(afterCode.replace(/(\d+(?:\.\d+)?)\s*(?:units?|unit\b).*/i, '')),
+          unitsText: units,
+          notesText: /\*/.test(line) ? 'Footnote marker' : '',
+          rawText: line,
+          confidence: units ? 0.78 : 0.48
+        });
+      });
+    });
+    return rows;
+  }
+
+  function reconcileUnits(program = {}) {
+    const groups = program.requirementGroups || [];
+    const groupRange = group => {
+      const courseUnits = (group.courses || []).map(course => Number(course.units || 0)).filter(Number.isFinite);
+      if (group.rule === 'or' || group.rule === 'choose-count') {
+        const count = group.rule === 'choose-count' ? Number(group.chooseCount || 1) : 1;
+        const sorted = [...courseUnits].sort((a, b) => a - b);
+        return { min: sorted.slice(0, count).reduce((a, b) => a + b, 0), max: sorted.slice(-count).reduce((a, b) => a + b, 0) };
+      }
+      if (group.rule === 'choose-units') {
+        const units = Number(group.unitsRequired || 0);
+        return { min: units, max: Math.max(units, courseUnits.reduce((a, b) => a + b, 0)) };
+      }
+      return { min: courseUnits.reduce((a, b) => a + b, 0), max: courseUnits.reduce((a, b) => a + b, 0) };
+    };
+    const ranges = groups.map(groupRange);
+    const parsedMinimumUnits = ranges.reduce((sum, range) => sum + range.min, 0);
+    const parsedMaximumUnits = ranges.reduce((sum, range) => sum + range.max, 0);
+    const stated = Number(program.totalUnitsRequired || program.minimumProgramUnits || 0);
+    const variance = stated ? parsedMinimumUnits - stated : 0;
+    return {
+      catalogStatedUnits: stated,
+      parsedMinimumUnits,
+      parsedMaximumUnits,
+      variance,
+      status: !stated ? 'Missing catalog stated units' : Math.abs(variance) <= 0.01 ? 'Reconciled' : 'Variance requires review'
     };
   }
 
@@ -274,6 +535,14 @@
     return rows;
   }
 
+  function buildCourseDescriptionIndex(courseDescriptionPages = [], courseKeys = []) {
+    const desired = new Set((courseKeys || []).flatMap(equivalentCourseKeys).map(normalizeCatalogCourseKey));
+    return extractPrerequisites(courseDescriptionPages).filter(row => !desired.size || desired.has(row.courseKey) || equivalentCourseKeys(row.courseKey).some(key => desired.has(key))).map(row => ({
+      ...row,
+      hiddenPrerequisiteDependency: (row.prerequisiteCourseKeys || []).length > 0
+    }));
+  }
+
   function extractCourseListAfter(line, labelPattern) {
     if (!labelPattern.test(line)) return [];
     const after = (line.split(labelPattern)[1] || '').split(/Prerequisite(?:s)?:|Corequisite(?:s)?:|Recommended Preparation:/i)[0] || '';
@@ -285,15 +554,24 @@
     const program = detail.program || {};
     if (!candidate.catalogYear || program.catalogYear !== candidate.catalogYear) warnings.push('Catalog year mismatch.');
     if (!program.requirementGroups?.length) warnings.push('No requirement groups parsed.');
+    if (!candidate.detailedSourceFound && !(detail.pageRange?.boundaryConfidence >= 0.75)) warnings.push('No detailed source page confirmed.');
     if (!program.totalUnitsRequired) warnings.push('Missing stated program-unit total.');
+    if (detail.unitReconciliation?.status === 'Variance requires review') warnings.push('Unit variance beyond tolerance.');
     (program.requirementGroups || []).forEach(group => {
       if (!group.sourceText && !group.pageNumber) warnings.push(`Missing page reference for ${group.label}.`);
       if (group.rule === 'choose-units' && !group.unitsRequired) warnings.push(`Missing choose-units value for ${group.label}.`);
     });
-    return { valid: warnings.length === 0, warnings };
+    const highSeverity = warnings.filter(warning => /Ambiguous|Missing|unmatched|cycle|variance|No detailed/i.test(warning));
+    return { valid: warnings.length === 0 && highSeverity.length === 0, warnings };
   }
 
-  function approveExtractedProgram(detail = {}, reviewer = '') {
+  function approveExtractedProgram(detail = {}, reviewer = '', options = {}) {
+    const validation = validateExtractionCandidate({ catalogYear: detail.program?.catalogYear, detailedSourceFound: detail.pageRange?.boundaryConfidence >= 0.75 }, detail);
+    if (!validation.valid && !compact(options.overrideReason)) {
+      const error = new Error('Program extraction cannot be approved until review blockers are resolved or an administrator override reason is supplied.');
+      error.validation = validation;
+      throw error;
+    }
     const program = programRequirements.normalizeProgram ? programRequirements.normalizeProgram({
       ...(detail.program || {}),
       reviewStatus: 'approved',
@@ -307,8 +585,30 @@
         decision: 'approved',
         reviewedBy: compact(reviewer),
         reviewedAt: new Date().toISOString(),
+        overrideReason: compact(options.overrideReason),
         sourceEvidencePreserved: true
-      }
+      },
+      revision: createProgramRequirementRevision(program, {
+        createdBy: compact(reviewer),
+        sourceFingerprint: detail.sourceFingerprint || detail.program?.source?.sourceFingerprint || '',
+        previousRevisionId: options.previousRevisionId,
+        changeSummary: options.changeSummary || 'Approved catalog extraction pilot record.'
+      })
+    };
+  }
+
+  function createProgramRequirementRevision(program = {}, options = {}) {
+    return {
+      revisionId: `revision-${fingerprint({ programId: program.programId, catalogYear: program.catalogYear, createdAt: Date.now(), sourceFingerprint: options.sourceFingerprint })}`,
+      programId: program.programId,
+      catalogYear: program.catalogYear,
+      createdAt: new Date().toISOString(),
+      createdBy: compact(options.createdBy),
+      sourceFingerprint: compact(options.sourceFingerprint),
+      extractionVersion: CATALOG_EXTRACTION_VERSION,
+      previousRevisionId: compact(options.previousRevisionId),
+      changeSummary: compact(options.changeSummary),
+      programSnapshot: JSON.parse(JSON.stringify(program))
     };
   }
 
@@ -357,18 +657,27 @@
   }
 
   return Object.freeze({
+    CATALOG_EXTRACTION_VERSION,
+    CATALOG_AWARD_TYPES,
     normalizeCatalogSource,
     normalizeCatalogCourseKey,
     equivalentCourseKeys,
     createEvidence,
     pageTextRecord,
+    ingestCatalogPdf,
     extractProgramInventory,
+    parseAwardHeading,
+    detectProgramPageRange,
     selectPilotCandidates,
+    parseRequirementTableRows,
     parseRequirementDetail,
+    reconcileUnits,
     reconcileCourseKeys,
     extractPrerequisites,
+    buildCourseDescriptionIndex,
     validateExtractionCandidate,
     approveExtractedProgram,
+    createProgramRequirementRevision,
     createMemoryCatalogRepository,
     fingerprint
   });

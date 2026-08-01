@@ -16,7 +16,7 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.equal(REPORTS.twoYearProgramFeasibility, 'two-year-program-feasibility');
   assert.equal(REPORTS.catalogProgramRequirements, 'catalog-program-requirements');
   assert.equal(REPORT_ACCESS[REPORTS.scheduleBuilder], 'dean');
-  assert.equal(REPORT_ACCESS[REPORTS.twoYearProgramFeasibility], 'em');
+  assert.equal(REPORT_ACCESS[REPORTS.twoYearProgramFeasibility], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.catalogProgramRequirements], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.dataHub], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.ftesReconciliation], 'admin');
@@ -29,6 +29,9 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.equal(REPORT_LABEL[REPORTS.duration], 'Course Duration Heatmap');
   assert.deepEqual(REPORT_WORKFLOW_GROUPS.map(group => group.label), ['Public Reports', 'Division Chair / Administrative Assistant', 'Dean', 'Enrollment Management', 'System Administrator']);
   assert.deepEqual(REPORT_WORKFLOW_GROUPS[0].reports, [REPORTS.instructorAvailability]);
+  assert.equal(REPORT_WORKFLOW_GROUPS[3].reports.includes(REPORTS.twoYearProgramFeasibility), false);
+  assert.ok(REPORT_WORKFLOW_GROUPS[4].reports.includes(REPORTS.twoYearProgramFeasibility));
+  assert.equal(REPORT_WORKFLOW_GROUPS[4].reports.indexOf(REPORTS.twoYearProgramFeasibility), REPORT_WORKFLOW_GROUPS[4].reports.indexOf(REPORTS.catalogProgramRequirements) + 1);
   assert.equal(REPORT_DESCRIPTIONS[REPORTS.emSnapshot], 'Review current enrollment, confirmed FTES, estimated FTES, and historically predicted FTES.');
   assert.ok(REPORT_ORDER.indexOf(REPORTS.instructorAvailability) < REPORT_ORDER.indexOf(REPORTS.heatmap));
 });

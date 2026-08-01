@@ -13,7 +13,8 @@
   const STORE_CATALOG_CANDIDATES = 'catalogProgramCandidates';
   const STORE_CATALOG_DETAILS = 'catalogRequirementDetails';
   const STORE_CATALOG_DECISIONS = 'catalogReviewDecisions';
-  const DB_VERSION = 2;
+  const STORE_PROGRAM_REVISIONS = 'programRequirementRevisions';
+  const DB_VERSION = 3;
   const VALID_GROUP_RULES = new Set(['all', 'choose-count', 'choose-units', 'one-from-each-list', 'or', 'elective']);
   const VALID_REVIEW_STATUSES = new Set(['draft', 'needs-review', 'approved', 'retired']);
   const VALID_SOURCE_TYPES = new Set(['manual', 'json', 'csv', 'catalog-pdf']);
@@ -185,6 +186,7 @@
     const catalogCandidates = new Map();
     const catalogDetails = new Map();
     const catalogDecisions = new Map();
+    const revisions = new Map();
     initialPrograms.map(normalizeProgram).forEach(program => programs.set(program.key, program));
     return {
       async initialize() {},
@@ -249,11 +251,20 @@
         return clone(record);
       },
       async getCatalogReviewDecisions() { return [...catalogDecisions.values()].map(clone); },
+      async saveProgramRequirementRevision(revision = {}) {
+        const id = compact(revision.revisionId) || `revision-${Date.now()}-${revisions.size}`;
+        const record = { ...clone(revision), revisionId: id, savedAt: compact(revision.savedAt) || new Date().toISOString() };
+        revisions.set(id, record);
+        return clone(record);
+      },
+      async getProgramRequirementRevisions(programId = '', catalogYear = '') {
+        return [...revisions.values()].filter(record => (!programId || record.programId === programId) && (!catalogYear || record.catalogYear === catalogYear)).map(clone);
+      },
       async deleteProgram(programId, catalogYear = '') {
         if (catalogYear) programs.delete(programKey(programId, catalogYear));
         else [...programs.keys()].filter(key => key.startsWith(`${canon(programId)}::`)).forEach(key => programs.delete(key));
       },
-      async clearAll() { programs.clear(); batches.clear(); metadata.clear(); catalogSources.clear(); catalogCandidates.clear(); catalogDetails.clear(); catalogDecisions.clear(); }
+      async clearAll() { programs.clear(); batches.clear(); metadata.clear(); catalogSources.clear(); catalogCandidates.clear(); catalogDetails.clear(); catalogDecisions.clear(); revisions.clear(); }
     };
   }
 
@@ -275,6 +286,7 @@
           if (!db.objectStoreNames.contains(STORE_CATALOG_CANDIDATES)) db.createObjectStore(STORE_CATALOG_CANDIDATES, { keyPath: 'candidateId' });
           if (!db.objectStoreNames.contains(STORE_CATALOG_DETAILS)) db.createObjectStore(STORE_CATALOG_DETAILS, { keyPath: 'candidateId' });
           if (!db.objectStoreNames.contains(STORE_CATALOG_DECISIONS)) db.createObjectStore(STORE_CATALOG_DECISIONS, { keyPath: 'id' });
+          if (!db.objectStoreNames.contains(STORE_PROGRAM_REVISIONS)) db.createObjectStore(STORE_PROGRAM_REVISIONS, { keyPath: 'revisionId' });
         };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error || new Error('Program requirements database failed to open.'));
@@ -369,6 +381,16 @@
       async getCatalogReviewDecisions() {
         return (await requestPromise((await store('readonly', STORE_CATALOG_DECISIONS)).getAll())).map(clone);
       },
+      async saveProgramRequirementRevision(revision = {}) {
+        const id = compact(revision.revisionId) || `revision-${Date.now()}`;
+        const record = { ...clone(revision), revisionId: id, savedAt: compact(revision.savedAt) || new Date().toISOString() };
+        await requestPromise((await store('readwrite', STORE_PROGRAM_REVISIONS)).put(record));
+        return clone(record);
+      },
+      async getProgramRequirementRevisions(programId = '', catalogYear = '') {
+        const records = (await requestPromise((await store('readonly', STORE_PROGRAM_REVISIONS)).getAll())).map(clone);
+        return records.filter(record => (!programId || record.programId === programId) && (!catalogYear || record.catalogYear === catalogYear));
+      },
       async deleteProgram(programId, catalogYear = '') {
         if (catalogYear) {
           await requestPromise((await store('readwrite')).delete(programKey(programId, catalogYear)));
@@ -385,6 +407,7 @@
         await requestPromise((await store('readwrite', STORE_CATALOG_CANDIDATES)).clear());
         await requestPromise((await store('readwrite', STORE_CATALOG_DETAILS)).clear());
         await requestPromise((await store('readwrite', STORE_CATALOG_DECISIONS)).clear());
+        await requestPromise((await store('readwrite', STORE_PROGRAM_REVISIONS)).clear());
       }
     };
   }
@@ -457,6 +480,7 @@
     STORE_CATALOG_CANDIDATES,
     STORE_CATALOG_DETAILS,
     STORE_CATALOG_DECISIONS,
+    STORE_PROGRAM_REVISIONS,
     normalizeCourseKey,
     catalogYearSortValue,
     getMostRecentApprovedCatalogYear,

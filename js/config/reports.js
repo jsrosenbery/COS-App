@@ -83,7 +83,7 @@
     [REPORTS.recommendationEngine]: 'development',
     [REPORTS.scheduleOptimizationLab]: 'development',
     [REPORTS.scheduleBuilder]: 'dean',
-    [REPORTS.twoYearProgramFeasibility]: 'em',
+    [REPORTS.twoYearProgramFeasibility]: 'admin',
     [REPORTS.catalogProgramRequirements]: 'admin',
     [REPORTS.facultyHeatmap]: 'dean'
   });
@@ -192,7 +192,6 @@
       accessLabel: 'Enrollment Management Access',
       reports: Object.freeze([
         REPORTS.demand,
-        REPORTS.twoYearProgramFeasibility,
         REPORTS.emSnapshot,
         REPORTS.consolidation,
         REPORTS.busyTimeDashboard,
@@ -211,6 +210,7 @@
         REPORTS.instructionalMethodValidation,
         REPORTS.dataHub,
         REPORTS.catalogProgramRequirements,
+        REPORTS.twoYearProgramFeasibility,
         REPORTS.ftesReconciliation,
         REPORTS.historicalInstitutionalModel,
         REPORTS.archiveInspection,

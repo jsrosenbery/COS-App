@@ -34,14 +34,14 @@ function section(overrides = {}) {
 const pilotPages = [
   page(10, `
 Business
-Business Administration for Transfer 2.0 AS-T
-Business AS
-Business Certificate of Achievement
-Business Office Skill Certificate
-Business Administration for Transfer 2.0 AS-T
+Associate in Science in Business Administration for Transfer 2.0 (AS-T)
+Associate of Science in Business (AS)
+Certificate of Achievement in Business
+Certificate of Achievement in Business Financial Recordkeeping
+Associate in Science in Business Administration for Transfer 2.0 (AS-T)
   `),
   page(11, `
-Business Administration for Transfer 2.0 AS-T
+Associate in Science in Business Administration for Transfer 2.0 (AS-T)
 Program: 27 units
 Required Core
 BUS 20 Business Law 3 units
@@ -54,7 +54,7 @@ ACCT 1 Financial Accounting 3 units
 ACCT 2 Managerial Accounting 3 units *
   `),
   page(12, `
-Business AS
+Associate of Science in Business (AS)
 Program total 18 units
 Required Core
 BUS 20 Business Law 3 units
@@ -62,18 +62,21 @@ ECON 1 Principles of Economics 3 units
 BUS 18 or BUS 19 3 units
   `),
   page(13, `
-Business Certificate of Achievement
+Certificate of Achievement in Business
 Program total 12 units
 Required Core
 BUS 20 Business Law 3 units
 ACCT 1 Financial Accounting 3 units
+MKT 1 Marketing 3 units
+MGMT 1 Management 3 units
   `),
   page(14, `
-Business Office Skill Certificate
+Certificate of Achievement in Business Financial Recordkeeping
 Program total 9 units
 Required Core
 BUS 20 Business Law 3 units
 ACCT 1 Financial Accounting 3 units
+BUS 180 Business Finance Applications 3 units
   `)
 ];
 
@@ -86,9 +89,42 @@ test('catalog inventory detects pilot awards, dedupes headings, and retains page
   assert.equal(pilots.length, 4);
   assert.ok(pilots.some(candidate => candidate.awardType === 'AS-T'));
   assert.ok(pilots.some(candidate => candidate.awardType === 'AS'));
-  assert.ok(pilots.some(candidate => candidate.awardType === 'Certificate of Achievement'));
-  assert.ok(pilots.some(candidate => candidate.awardType === 'Skill Certificate'));
+  assert.ok(pilots.some(candidate => candidate.programName === 'Business' && candidate.awardType === 'Certificate of Achievement'));
+  assert.ok(pilots.some(candidate => candidate.programName === 'Business Financial Recordkeeping' && candidate.awardType === 'Certificate of Achievement'));
   assert.ok(pilots.every(candidate => candidate.sourceEvidence?.[0]?.pageNumber));
+  assert.ok(pilots.every(candidate => candidate.pageRange?.startPage && candidate.pageRange?.endPage));
+});
+
+test('catalog PDF ingestion supports 717-page progress and cancellation without external services', async () => {
+  const pages = Array.from({ length: 717 }, (_, index) => page(index + 1, index === 234
+    ? 'Associate in Science in Business Administration for Transfer 2.0 (AS-T)\nProgram total 27 units\nBUS 20 3 units'
+    : `Catalog page ${index + 1}`));
+  const progress = [];
+  const result = await catalog.ingestCatalogPdf(null, {
+    filename: 'College of the Sequoias 2026-2027 Catalog.pdf',
+    catalogYear: '2026-2027',
+    pageCount: 717,
+    pageTexts: pages,
+    chunkSize: 100,
+    onProgress: update => progress.push(update)
+  });
+
+  assert.equal(result.pageCount, 717);
+  assert.equal(result.pagesExtracted, 717);
+  assert.equal(result.state, 'Ready for inventory extraction');
+  assert.ok(progress.some(update => update.pagesProcessed === 700));
+
+  const controller = new AbortController();
+  const cancelled = catalog.ingestCatalogPdf(null, {
+    filename: 'College of the Sequoias 2026-2027 Catalog.pdf',
+    pageTexts: pages,
+    chunkSize: 1,
+    signal: controller.signal,
+    onProgress: update => {
+      if (update.pagesProcessed >= 2) controller.abort();
+    }
+  });
+  await assert.rejects(cancelled, /Catalog extraction cancelled/);
 });
 
 test('catalog requirement parser separates all-required, choose-one, choose-units, and review warnings', () => {
@@ -148,6 +184,38 @@ test('prerequisite extraction keeps prerequisites, corequisites, and recommended
   assert.deepEqual(rows[0].recommendedPreparationCourseKeys, ['ENGL 1']);
 });
 
+test('approval blocks unresolved parser warnings and records approved revisions', async () => {
+  const repo = COSProgramRequirements.createMemoryRepository();
+  const warningCandidate = {
+    candidateId: 'candidate-warning-approval',
+    catalogYear: '2026-2027',
+    programName: 'Warning Certificate',
+    awardType: 'Certificate of Achievement',
+    likelyStartPage: 20,
+    likelyEndPage: 20,
+    detailedSourceFound: true,
+    pageRange: { startPage: 20, endPage: 20, pages: [20], boundaryConfidence: 0.82 }
+  };
+  const warningDetail = catalog.parseRequirementDetail(warningCandidate, [page(20, `
+Certificate of Achievement in Warning Certificate
+Program total 6 units
+Required Core
+BUS 20 or BUS 21
+  `)]);
+  warningDetail.pageRange = warningCandidate.pageRange;
+
+  assert.throws(() => catalog.approveExtractedProgram(warningDetail, 'Reviewer'), /cannot be approved/);
+
+  const candidate = catalog.extractProgramInventory(pilotPages, { catalogYear: '2026-2027' })
+    .find(item => item.programName === 'Business' && item.awardType === 'Certificate of Achievement');
+  const detail = catalog.parseRequirementDetail(candidate, pilotPages, { filename: 'COS Catalog.pdf' });
+  const approved = catalog.approveExtractedProgram(detail, 'Reviewer');
+  await repo.savePrograms([approved.program]);
+  await repo.saveProgramRequirementRevision(approved.revision);
+
+  assert.equal((await repo.getProgramRequirementRevisions(approved.program.programId, approved.program.catalogYear)).length, 1);
+});
+
 test('catalog review workflow keeps extracted records out of feasibility until approved', async () => {
   const repo = COSProgramRequirements.createMemoryRepository();
   const candidate = catalog.extractProgramInventory(pilotPages, { catalogYear: '2026-2027' })
@@ -176,7 +244,9 @@ test('approved catalog pilot records can run through program feasibility', () =>
   const approved = catalog.approveExtractedProgram(detail, 'Reviewer').program;
   const rows = [
     section({ subject: 'BUS', course: '20' }),
-    section({ crn: '10002', subject: 'ACCT', course: '1', start: '10:30', end: '11:30' })
+    section({ crn: '10002', subject: 'ACCT', course: '1', start: '10:30', end: '11:30' }),
+    section({ crn: '10003', subject: 'MKT', course: '1', start: '12:00', end: '13:00' }),
+    section({ crn: '10004', subject: 'MGMT', course: '1', start: '13:30', end: '14:30' })
   ];
   const result = feasibility.evaluateProgramFeasibility(approved, rows, { selectedTerm: 'FALL 2026' });
 

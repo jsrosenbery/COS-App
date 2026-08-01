@@ -90,7 +90,7 @@
     [REPORTS.recommendationEngine]: 'development',
     [REPORTS.scheduleOptimizationLab]: 'development',
     [REPORTS.scheduleBuilder]: 'dean',
-    [REPORTS.twoYearProgramFeasibility]: 'em',
+    [REPORTS.twoYearProgramFeasibility]: 'admin',
     [REPORTS.catalogProgramRequirements]: 'admin',
     [REPORTS.facultyHeatmap]: 'dean'
   };
@@ -227,7 +227,6 @@
       accessLabel: 'Enrollment Management Access',
       reports: [
         REPORTS.demand,
-        REPORTS.twoYearProgramFeasibility,
         REPORTS.emSnapshot,
         REPORTS.consolidation,
         REPORTS.busyTimeDashboard,
@@ -246,6 +245,7 @@
         REPORTS.instructionalMethodValidation,
         REPORTS.dataHub,
         REPORTS.catalogProgramRequirements,
+        REPORTS.twoYearProgramFeasibility,
         REPORTS.ftesReconciliation,
         REPORTS.historicalInstitutionalModel,
         REPORTS.archiveInspection,
@@ -414,6 +414,9 @@
     catalogProgramCandidates: [],
     catalogRequirementDetails: [],
     catalogReviewDecisions: [],
+    catalogPdfExtraction: null,
+    catalogPdfAbortController: null,
+    catalogPageTexts: [],
     programFeasibilityResult: null,
     programFeasibilityPortfolioResult: null,
     programFeasibilityAbortController: null,
@@ -2676,9 +2679,13 @@
             <button id="saveProgramRequirements" type="button">Save Preview Records</button>
             <button id="exportProgramRequirements" type="button">Export Repository Backup</button>
             <button id="clearProgramRequirementsPreview" type="button">Clear Preview</button>
+            <label>Catalog PDF <input id="catalogPdfFile" type="file" accept="application/pdf,.pdf"></label>
+            <button id="extractCatalogPdf" type="button">Extract Catalog PDF</button>
+            <button id="cancelCatalogPdfExtraction" type="button">Cancel PDF Extraction</button>
             <button id="loadCatalogPilotPreview" type="button">Load 2026-2027 Catalog Pilot Preview</button>
             <button id="approveCatalogPilotPrograms" type="button">Approve Reviewed Pilot Programs</button>
           </div>
+          <div id="catalogPdfStatus" class="dashboard-scope-panel"></div>
           <div id="programRequirementsStatus" class="dashboard-scope-panel"></div>
           <div id="programRequirementsErrors" class="analytics-warning-list"></div>
           <div id="catalogSourceStatus" class="dashboard-scope-panel"></div>
@@ -3490,6 +3497,10 @@
           <div class="analytics-report-intro">
             <h2>Program Schedule Viability</h2>
             <p>Evaluate whether recent and currently built course schedules support completion of current degrees and certificates within two years.</p>
+            <div class="analytics-warning-list">
+              <strong>Development Status</strong>
+              <p>This report is restricted to System Administrators while catalog extraction, requirement validation, and institutional portfolio analysis are being tested.</p>
+            </div>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -3504,7 +3515,7 @@
                 <ul>
                   <li>This is a schedule-development pulse check, not a student-specific education plan.</li>
                   <li>It does not model transfer credit, substitutions, placement, completed coursework, catalog-right selection, counseling recommendations, or guaranteed graduation.</li>
-                  <li>Catalog PDF extraction is intentionally deferred; reviewed JSON records use the same future-ready schema.</li>
+                  <li>Catalog-derived records must be reviewed and approved in the System Administrator tools before they are available here.</li>
                 </ul>
               </div>
             </div>
@@ -8907,6 +8918,24 @@
       : '<p class="analytics-empty">No validation errors.</p>';
     table('programRequirementsPreview', programRequirementRows(state.programRequirementsPreview), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType']);
     table('programRequirementsRepositoryTable', programRequirementRows(state.programRequirements), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType', 'importedAt']);
+    const pdfStatus = document.getElementById('catalogPdfStatus');
+    if (pdfStatus) {
+      const extraction = state.catalogPdfExtraction || {};
+      pdfStatus.innerHTML = `
+        <strong>Catalog PDF Ingestion</strong>
+        <dl class="report-context-grid">
+          <div><dt>Status</dt><dd>${escapeAttr(extraction.state || 'No PDF loaded')}</dd></div>
+          <div><dt>Filename</dt><dd>${escapeAttr(extraction.filename || 'N/A')}</dd></div>
+          <div><dt>Catalog Year</dt><dd>${escapeAttr(extraction.catalogYear || 'N/A')}</dd></div>
+          <div><dt>PDF Page Count</dt><dd>${extraction.pageCount || 0}</dd></div>
+          <div><dt>Pages Extracted</dt><dd>${extraction.pagesExtracted || 0}</dd></div>
+          <div><dt>Pages With No Text</dt><dd>${extraction.pagesWithNoText || 0}</dd></div>
+          <div><dt>Source Fingerprint</dt><dd>${escapeAttr(extraction.sourceFingerprint || 'N/A')}</dd></div>
+          <div><dt>Duration</dt><dd>${extraction.durationMs ? `${Math.round(extraction.durationMs)} ms` : 'N/A'}</dd></div>
+        </dl>
+        ${(extraction.warnings || []).length ? `<ul>${extraction.warnings.map(warning => `<li>${escapeAttr(warning)}</li>`).join('')}</ul>` : '<p class="analytics-empty">No PDF ingestion warnings.</p>'}
+      `;
+    }
     const sourceStatus = document.getElementById('catalogSourceStatus');
     if (sourceStatus) sourceStatus.innerHTML = `
       <strong>Catalog Extraction Preview</strong>
@@ -8922,10 +8951,11 @@
       awardType: candidate.awardType,
       areaOfStudy: candidate.areaOfStudy,
       sourcePages: `${candidate.likelyStartPage || ''}-${candidate.likelyEndPage || ''}`,
+      pageRange: candidate.pageRange?.pages?.join(', ') || '',
       confidence: candidate.confidence,
       warnings: (candidate.warnings || []).join('; '),
       reviewStatus: candidate.extractionStatus || candidate.reviewStatus
-    })), ['program', 'awardType', 'areaOfStudy', 'sourcePages', 'confidence', 'warnings', 'reviewStatus']);
+    })), ['program', 'awardType', 'areaOfStudy', 'sourcePages', 'pageRange', 'confidence', 'warnings', 'reviewStatus']);
     table('catalogRequirementReview', (state.programRequirementsPreview || []).filter(program => program.source?.sourceType === 'catalog-pdf').flatMap(program => (program.requirementGroups || []).map(group => ({
       program: program.programName,
       requirementGroup: group.label,
@@ -8945,9 +8975,9 @@
       items: [
         ['Persistence', 'Browser IndexedDB object store academicPrograms.'],
         ['Replacement Rule', 'Saving preview records replaces matching programId + catalogYear records.'],
-        ['Future PDF Phase', 'PDF extraction can populate the same structured schema later.']
+        ['Catalog PDF Pilot', 'PDF extraction is a browser-only pilot. If pdfjsLib is not available, the tool reports that extraction is unavailable instead of guessing. Extracted records remain preview-only until reviewed and approved.']
       ],
-      version: 'Program requirements foundation v1'
+      version: 'Program requirements catalog pilot v2'
     });
   }
 
@@ -8989,16 +9019,84 @@
     await refreshProgramRequirementsRepository();
   }
 
+  async function extractCatalogPdfFile() {
+    const input = document.getElementById('catalogPdfFile');
+    const file = input?.files?.[0];
+    if (!file) {
+      state.programRequirementsErrors = ['Choose the 2026-2027 catalog PDF before extraction.'];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    const extractor = catalogExtractionApi();
+    const repo = await programRequirementsRepository();
+    state.catalogPdfAbortController = new AbortController();
+    state.catalogPdfExtraction = { state: 'Reading PDF', filename: file.name, catalogYear: '2026-2027' };
+    renderProgramRequirementsAdmin();
+    try {
+      const extraction = await extractor.ingestCatalogPdf(file, {
+        catalogYear: '2026-2027',
+        signal: state.catalogPdfAbortController.signal,
+        onProgress: progress => {
+          state.catalogPdfExtraction = { ...(state.catalogPdfExtraction || {}), ...progress, filename: file.name, catalogYear: '2026-2027' };
+          renderProgramRequirementsAdmin();
+        }
+      });
+      state.catalogPdfExtraction = extraction;
+      state.catalogPageTexts = extraction.pageTexts || [];
+      if (extraction.state === 'Extraction failed') {
+        state.programRequirementsErrors = extraction.warnings || ['Catalog PDF extraction failed.'];
+        renderProgramRequirementsAdmin();
+        return;
+      }
+      const source = extractor.normalizeCatalogSource({
+        catalogYear: '2026-2027',
+        catalogTitle: 'College of the Sequoias 2026-2027 Catalog',
+        filename: extraction.filename,
+        pageCount: extraction.pageCount,
+        sourceFingerprint: extraction.sourceFingerprint,
+        status: extraction.state,
+        warnings: extraction.warnings
+      });
+      await repo.saveCatalogSource(source);
+      const inventory = extractor.extractProgramInventory(state.catalogPageTexts, source).map(candidate => ({ ...candidate, catalogSourceId: source.catalogSourceId }));
+      await repo.saveCatalogProgramCandidates(inventory);
+      const pilots = extractor.selectPilotCandidates(inventory);
+      const details = pilots.map(candidate => extractor.parseRequirementDetail(candidate, state.catalogPageTexts, { filename: source.filename, catalogTitle: source.catalogTitle }));
+      for (const detail of details) await repo.saveCatalogRequirementDetail(detail);
+      state.catalogProgramCandidates = inventory;
+      state.catalogRequirementDetails = details;
+      state.programRequirementsPreview = details.map(detail => detail.program);
+      state.programRequirementsErrors = [
+        ...(extraction.warnings || []),
+        ...(pilots.length < 4 ? [`Detected ${pilots.length} of 4 required Business pilot records. Review catalog headings and page ranges before approval.`] : []),
+        ...details.flatMap(detail => detail.warnings || [])
+      ];
+      await refreshProgramRequirementsRepository();
+    } catch (err) {
+      state.catalogPdfExtraction = { ...(state.catalogPdfExtraction || {}), state: err.cancelled || err.name === 'AbortError' ? 'Extraction cancelled' : 'Extraction failed', warnings: [err.message || 'Catalog PDF extraction failed.'] };
+      state.programRequirementsErrors = [err.message || 'Catalog PDF extraction failed.'];
+      renderProgramRequirementsAdmin();
+    } finally {
+      state.catalogPdfAbortController = null;
+    }
+  }
+
+  function cancelCatalogPdfExtraction() {
+    if (state.catalogPdfAbortController) state.catalogPdfAbortController.abort();
+    state.catalogPdfExtraction = { ...(state.catalogPdfExtraction || {}), state: 'Extraction cancelled' };
+    renderProgramRequirementsAdmin();
+  }
+
   function cosCatalogPilotPages() {
     const extractor = catalogExtractionApi();
     return [
-      extractor.pageTextRecord(140, `Business
-Business Administration for Transfer 2.0 AS-T
-Business AS
-Business Certificate of Achievement
-Business Office Technology Skill Certificate`),
-      extractor.pageTextRecord(235, `Business Administration for Transfer 2.0, AS-T
-Program total 26 units
+      extractor.pageTextRecord(140, `Table of Contents
+Associate in Science in Business Administration for Transfer 2.0 (AS-T)
+Associate of Science in Business (AS)
+Certificate of Achievement in Business
+Certificate of Achievement in Business Financial Recordkeeping`),
+      extractor.pageTextRecord(235, `Associate in Science in Business Administration for Transfer 2.0 (AS-T)
+Program total 27 units
 Required Core
 BUS 20 3 units
 ECON 1 3 units
@@ -9007,11 +9105,12 @@ ACCT 1 4 units
 Choose one course from the following
 MATH 21 4 units
 STAT C1000 4 units
-Select 6 units from the following
+Select 10 units from the following
 BUS 127 3 units
 MKT 1 3 units
-MGMT 1 3 units`),
-      extractor.pageTextRecord(236, `Business, AS
+MGMT 1 3 units
+BUS 21 4 units`),
+      extractor.pageTextRecord(236, `Associate of Science in Business (AS)
 Program total 24 units
 Required Core
 BUS 20 3 units
@@ -9024,7 +9123,7 @@ Select 6 units of business electives
 BUS 127 3 units
 MKT 1 3 units
 MGMT 1 3 units`),
-      extractor.pageTextRecord(238, `Business Certificate of Achievement
+      extractor.pageTextRecord(238, `Certificate of Achievement in Business
 Program total 18 units
 Required Core
 BUS 20 3 units
@@ -9034,12 +9133,13 @@ MGMT 1 3 units
 Select 5 units from the following
 BUS 127 3 units
 BUS 180 2 units`),
-      extractor.pageTextRecord(239, `Business Office Technology Skill Certificate
-Program total 9 units
+      extractor.pageTextRecord(239, `Certificate of Achievement in Business Financial Recordkeeping
+Program total 12 units
 Required Core
 BUS 20 3 units
 BUS 127 3 units
-COMP 1 3 units`)
+ACCT 1 4 units
+BUS 180 2 units`)
     ];
   }
 
@@ -9050,7 +9150,7 @@ COMP 1 3 units`)
       catalogYear: '2026-2027',
       catalogTitle: 'College of the Sequoias 2026-2027 Catalog',
       filename: 'College of the Sequoias 2026-2027 Catalog.pdf',
-      pageCount: 700,
+      pageCount: 717,
       status: 'needs-review'
     });
     await repo.saveCatalogSource(source);
@@ -9060,6 +9160,7 @@ COMP 1 3 units`)
     await repo.saveCatalogProgramCandidates(pilots);
     const details = pilots.map(candidate => extractor.parseRequirementDetail(candidate, pages, { filename: source.filename, catalogTitle: source.catalogTitle }));
     for (const detail of details) await repo.saveCatalogRequirementDetail(detail);
+    state.catalogRequirementDetails = details;
     state.programRequirementsPreview = details.map(detail => detail.program);
     state.programRequirementsErrors = details.flatMap(detail => detail.warnings || []);
     await refreshProgramRequirementsRepository();
@@ -9068,16 +9169,30 @@ COMP 1 3 units`)
   async function approveCatalogPilotPrograms() {
     const extractor = catalogExtractionApi();
     const repo = await programRequirementsRepository();
-    const catalogPrograms = (state.programRequirementsPreview || []).filter(program => program.source?.sourceType === 'catalog-pdf');
-    if (!catalogPrograms.length) {
+    let details = (state.catalogRequirementDetails || []).filter(detail => detail?.program?.source?.sourceType === 'catalog-pdf');
+    if (!details.length && state.catalogProgramCandidates?.length && repo.getCatalogRequirementDetail) {
+      details = (await Promise.all(state.catalogProgramCandidates.map(candidate => repo.getCatalogRequirementDetail(candidate.candidateId)))).filter(Boolean);
+    }
+    if (!details.length) {
       state.programRequirementsErrors = ['Load and review the catalog pilot preview before approving pilot programs.'];
       renderProgramRequirementsAdmin();
       return;
     }
-    const approved = catalogPrograms.map(program => extractor.approveExtractedProgram({ program }, 'TIMBER Admin Review'));
+    let approved = [];
+    try {
+      approved = details.map(detail => extractor.approveExtractedProgram(detail, 'TIMBER Admin Review'));
+    } catch (err) {
+      state.programRequirementsErrors = err.validation?.warnings || [err.message || 'Catalog pilot approval failed.'];
+      renderProgramRequirementsAdmin();
+      return;
+    }
     await repo.savePrograms(approved.map(item => item.program));
     for (const item of approved) await repo.saveCatalogReviewDecision(item.reviewDecision);
+    for (const item of approved) {
+      if (item.revision && repo.saveProgramRequirementRevision) await repo.saveProgramRequirementRevision(item.revision);
+    }
     state.programRequirementsPreview = [];
+    state.catalogRequirementDetails = [];
     state.programRequirementsErrors = [];
     await refreshProgramRequirementsRepository();
   }
@@ -9093,6 +9208,7 @@ COMP 1 3 units`)
 
   function clearProgramRequirementsPreview() {
     state.programRequirementsPreview = [];
+    state.catalogRequirementDetails = [];
     state.programRequirementsErrors = [];
     renderProgramRequirementsAdmin();
   }
@@ -24552,6 +24668,8 @@ COMP 1 3 units`)
     attachBusyClick('saveProgramRequirements', 'Saving structured program requirements...', () => saveProgramRequirementsPreview(), { key: 'saveProgramRequirements', runningLabel: 'Saving...' });
     document.getElementById('exportProgramRequirements')?.addEventListener('click', exportProgramRequirementsRepository);
     document.getElementById('clearProgramRequirementsPreview')?.addEventListener('click', clearProgramRequirementsPreview);
+    attachBusyClick('extractCatalogPdf', 'Extracting catalog PDF...', () => extractCatalogPdfFile(), { key: 'extractCatalogPdf', runningLabel: 'Extracting...' });
+    document.getElementById('cancelCatalogPdfExtraction')?.addEventListener('click', cancelCatalogPdfExtraction);
     attachBusyClick('loadCatalogPilotPreview', 'Loading catalog pilot preview...', () => loadCatalogPilotPreview(), { key: 'loadCatalogPilotPreview', runningLabel: 'Loading...' });
     attachBusyClick('approveCatalogPilotPrograms', 'Approving catalog pilot programs...', () => approveCatalogPilotPrograms(), { key: 'approveCatalogPilotPrograms', runningLabel: 'Approving...' });
     document.getElementById('programFeasibilityProgram')?.addEventListener('change', renderProgramFeasibilitySelectors);
