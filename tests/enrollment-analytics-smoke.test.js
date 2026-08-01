@@ -4921,7 +4921,9 @@ test('two-year program feasibility foundation is registered and uses structured 
   assert.match(text, /Detected \$\{pilots\.length\} of 4 required Business pilot records/);
   assert.match(text, /Catalog PDF Pilot/);
   assert.match(text, /createIndexedDbRepository/);
-  assert.match(text, /evaluateProgramFeasibility/);
+  assert.match(text, /COSAcademicPlanningPlatform/);
+  assert.match(text, /evaluateProgram\(\{/);
+  assert.match(text, /evaluatePortfolioAsync\(\{/);
   assert.match(index, /js\/core\/program-requirements\.js/);
   assert.match(index, /js\/core\/feasibility-term-window\.js/);
   assert.match(index, /js\/core\/program-feasibility\.js/);

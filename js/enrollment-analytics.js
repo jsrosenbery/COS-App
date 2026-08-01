@@ -3545,6 +3545,7 @@
             </label>
             <label class="analytics-check"><input id="programFeasibilityIncludeFull" type="checkbox"> Include Full Sections</label>
             <label class="analytics-check"><input id="programFeasibilityIncludeWaitlisted" type="checkbox" checked> Include Waitlisted Sections</label>
+            <label class="analytics-check"><input id="programFeasibilityIncludeApprovedPilot" type="checkbox"> Include Approved Pilot Records <span class="analytics-note">(temporary; Published is default)</span></label>
             <label class="analytics-check"><input id="programFeasibilityTravelCheck" type="checkbox" checked> Check Same-Day Campus Travel</label>
             <label>Visalia-Hanford Minutes <input id="programFeasibilityTravelVisaliaHanford" type="number" min="0" step="5" value="60"></label>
             <label>Visalia-Tulare Minutes <input id="programFeasibilityTravelVisaliaTulare" type="number" min="0" step="5" value="45"></label>
@@ -8487,10 +8488,7 @@
 
   function scheduleBuilderEngine() {
     if (window.COSAcademicPlanningPlatform?.buildStudentSchedule) return window.COSAcademicPlanningPlatform;
-    if (!window.COSScheduleBuilder) throw new Error('Schedule Builder engine is not loaded.');
-    return {
-      buildStudentSchedule: (rows, requests, preferences) => window.COSScheduleBuilder.buildScheduleOptions(rows, requests, preferences)
-    };
+    throw new Error('Academic Planning Platform is not loaded.');
   }
 
   function scheduleBuilderCurrentRows() {
@@ -8867,13 +8865,7 @@
 
   function programFeasibilityApi() {
     if (window.COSAcademicPlanningPlatform?.evaluateProgram) return window.COSAcademicPlanningPlatform;
-    if (!window.COSProgramFeasibility) throw new Error('Program Feasibility module is not loaded.');
-    return {
-      ...window.COSProgramFeasibility,
-      evaluateProgram: window.COSProgramFeasibility.evaluateProgramFeasibility,
-      evaluatePortfolio: window.COSProgramFeasibility.evaluateProgramPortfolio,
-      evaluatePortfolioAsync: window.COSProgramFeasibility.evaluateProgramPortfolioAsync
-    };
+    throw new Error('Academic Planning Platform is not loaded.');
   }
 
   async function programRequirementsRepository() {
@@ -9272,12 +9264,16 @@ BUS 180 2 units`)
 
   function renderProgramFeasibilitySelectors() {
     const programs = state.programRequirements || [];
-    const activeCatalogYear = programRequirementsApi().getMostRecentApprovedCatalogYear
+    const includeApprovedPilot = document.getElementById('programFeasibilityIncludeApprovedPilot')?.checked === true;
+    const activeCatalogYear = includeApprovedPilot && programRequirementsApi().getMostRecentApprovedCatalogYear
       ? programRequirementsApi().getMostRecentApprovedCatalogYear(programs)
-      : [...new Set(programs.filter(program => program.reviewStatus === 'approved').map(program => program.catalogYear).filter(Boolean))].sort().pop() || '';
-    const activePrograms = activeCatalogYear ? programs.filter(program => program.reviewStatus === 'approved' && program.catalogYear === activeCatalogYear) : [];
+      : programRequirementsApi().getMostRecentPublishedCatalogYear
+        ? programRequirementsApi().getMostRecentPublishedCatalogYear(programs)
+        : [...new Set(programs.filter(program => program.reviewStatus === 'published').map(program => program.catalogYear).filter(Boolean))].sort().pop() || '';
+    const eligibleStatuses = includeApprovedPilot ? new Set(['published', 'approved']) : new Set(['published']);
+    const activePrograms = activeCatalogYear ? programs.filter(program => eligibleStatuses.has(String(program.reviewStatus || '').toLowerCase()) && program.catalogYear === activeCatalogYear) : [];
     const activeCatalog = document.getElementById('programFeasibilityActiveCatalog');
-    if (activeCatalog) activeCatalog.textContent = activeCatalogYear ? `Active Program Requirements: ${activeCatalogYear} Catalog` : 'Active Program Requirements: No approved catalog year loaded';
+    if (activeCatalog) activeCatalog.textContent = activeCatalogYear ? `Active Published Program Requirements: ${activeCatalogYear} Catalog${includeApprovedPilot ? ' (including approved pilot records)' : ''}` : 'Active Program Requirements: No published catalog year loaded';
     const programSelect = document.getElementById('programFeasibilityProgram');
     const catalogSelect = document.getElementById('programFeasibilityCatalogYear');
     if (programSelect) {
@@ -9285,11 +9281,11 @@ BUS 180 2 units`)
       const options = [...new Map(activePrograms.map(program => [program.programId, program])).values()];
       programSelect.innerHTML = options.length
         ? options.map(program => `<option value="${escapeAttr(program.programId)}">${escapeAttr(program.programName || program.programId)}</option>`).join('')
-        : '<option value="">No approved current-catalog programs</option>';
+        : '<option value="">No published current-catalog programs</option>';
       if (prior && [...programSelect.options].some(option => option.value === prior)) programSelect.value = prior;
     }
     if (catalogSelect) {
-      catalogSelect.innerHTML = activeCatalogYear ? `<option>${escapeAttr(activeCatalogYear)}</option>` : '<option value="">No approved catalog year</option>';
+      catalogSelect.innerHTML = activeCatalogYear ? `<option>${escapeAttr(activeCatalogYear)}</option>` : '<option value="">No published catalog year</option>';
     }
     const termSelect = document.getElementById('programFeasibilityTerm');
     if (termSelect) {
@@ -9316,9 +9312,13 @@ BUS 180 2 units`)
   async function runProgramFeasibility() {
     await refreshProgramRequirementsRepository();
     const programId = document.getElementById('programFeasibilityProgram')?.value || '';
-    const catalogYear = programRequirementsApi().getMostRecentApprovedCatalogYear
-      ? programRequirementsApi().getMostRecentApprovedCatalogYear(state.programRequirements)
-      : (document.getElementById('programFeasibilityCatalogYear')?.value || '');
+    const includeApprovedPilot = document.getElementById('programFeasibilityIncludeApprovedPilot')?.checked === true;
+    const catalogYear = document.getElementById('programFeasibilityCatalogYear')?.value
+      || (includeApprovedPilot && programRequirementsApi().getMostRecentApprovedCatalogYear
+        ? programRequirementsApi().getMostRecentApprovedCatalogYear(state.programRequirements)
+        : programRequirementsApi().getMostRecentPublishedCatalogYear
+          ? programRequirementsApi().getMostRecentPublishedCatalogYear(state.programRequirements)
+          : '');
     const repo = await programRequirementsRepository();
     const program = await repo.getProgram(programId, catalogYear);
     if (!program) {
@@ -9343,15 +9343,27 @@ BUS 180 2 units`)
       includeFullSections: document.getElementById('programFeasibilityIncludeFull')?.checked === true,
       includeWaitlistedSections: document.getElementById('programFeasibilityIncludeWaitlisted')?.checked === true,
       includeUnknownSeatStatus: true,
-      includeLegacyApproved: true,
+      includeLegacyApproved: includeApprovedPilot,
       ...programFeasibilityTransitionOptions()
     };
-    const portfolioPrograms = (state.programRequirements || []).filter(item => String(item.catalogYear || '') === String(catalogYear || '') && String(item.reviewStatus || '').toLowerCase() === 'approved');
+    const eligibleStatuses = includeApprovedPilot ? new Set(['published', 'approved']) : new Set(['published']);
+    const portfolioPrograms = (state.programRequirements || []).filter(item => String(item.catalogYear || '') === String(catalogYear || '') && eligibleStatuses.has(String(item.reviewStatus || '').toLowerCase()));
     state.programFeasibilityAbortController = typeof AbortController !== 'undefined' ? new AbortController() : { signal: { aborted: false }, abort() { this.signal.aborted = true; } };
     const portfolioStatus = document.getElementById('programFeasibilityPortfolioMetrics');
     if (portfolioStatus) portfolioStatus.innerHTML = '<div class="analytics-note">Programs evaluated: 0 of ' + portfolioPrograms.length + '</div>';
-    state.programFeasibilityPortfolioResult = programFeasibilityApi().evaluateProgramPortfolioAsync
-      ? await programFeasibilityApi().evaluateProgramPortfolioAsync(portfolioPrograms, rows, {
+    state.programFeasibilityPortfolioResult = programFeasibilityApi().evaluatePortfolioAsync
+      ? await programFeasibilityApi().evaluatePortfolioAsync({
+        analysisType: 'portfolio',
+        programs: portfolioPrograms,
+        sectionRows: rows,
+        selectedTerm,
+        termWindowType: sharedOptions.windowType,
+        constraints: sharedOptions,
+        limits: sharedOptions,
+        sourceVersions: {
+          scheduleFingerprint: programFeasibilityApi().scheduleFingerprint ? programFeasibilityApi().scheduleFingerprint(rows) : `${rows.length}:${selectedTerm}:${state.scheduleBuilderSourceStatus || ''}`
+        }
+      }, null, {
         ...sharedOptions,
         scheduleVersion: programFeasibilityApi().scheduleFingerprint ? programFeasibilityApi().scheduleFingerprint(rows) : `${rows.length}:${selectedTerm}:${state.scheduleBuilderSourceStatus || ''}`,
         shouldCancel: () => state.programFeasibilityAbortController?.signal?.aborted === true,
@@ -9360,10 +9372,18 @@ BUS 180 2 units`)
           if (node) node.innerHTML = '<div class="analytics-note">Programs evaluated: ' + progress.evaluated + ' of ' + progress.total + '</div>';
         }
       })
-      : programFeasibilityApi().evaluateProgramPortfolio
-        ? programFeasibilityApi().evaluateProgramPortfolio(portfolioPrograms, rows, sharedOptions)
+      : programFeasibilityApi().evaluatePortfolio
+        ? programFeasibilityApi().evaluatePortfolio(portfolioPrograms, rows, sharedOptions)
         : null;
-    const result = programFeasibilityApi().evaluateProgramFeasibility(program, rows, sharedOptions);
+    const result = programFeasibilityApi().evaluateProgram({
+      analysisType: 'program',
+      program,
+      sectionRows: rows,
+      selectedTerm,
+      termWindowType: sharedOptions.windowType,
+      constraints: sharedOptions,
+      limits: sharedOptions
+    });
     state.programFeasibilityAbortController = null;
     state.programFeasibilityResult = result;
     renderProgramFeasibilityResult();
@@ -9414,6 +9434,7 @@ BUS 180 2 units`)
     if (!result) return;
     renderProgramFeasibilityPortfolio();
     metric('programFeasibilityMetrics', [
+      ['Planning Engine', result.planningEngine === 'academic-planning-platform' ? 'Academic Planning Platform' : (result.planningEngine || 'Unknown')],
       ['Program Schedule Viability', result.viabilitySummary?.overallStatus || result.overallFeasibility],
       ['Course Coverage', result.availability.coveragePct],
       ['Academic Pathways', result.pathwayResult.count],
@@ -9433,6 +9454,7 @@ BUS 180 2 units`)
       <strong>${escapeAttr(result.reportTitle)}</strong>
       <dl class="report-context-grid">
         <div><dt>Program</dt><dd>${escapeAttr(result.program.programName)}</dd></div>
+        <div><dt>Planning Engine</dt><dd>${escapeAttr(result.planningEngine === 'academic-planning-platform' ? 'Academic Planning Platform' : (result.planningEngine || 'Unknown'))}</dd></div>
         <div><dt>Award</dt><dd>${escapeAttr(result.program.awardType)}</dd></div>
         <div><dt>Catalog Year</dt><dd>${escapeAttr(result.program.catalogYear)}</dd></div>
         <div><dt>Ending Term</dt><dd>${escapeAttr(result.selectedTerm)}</dd></div>
@@ -9526,6 +9548,7 @@ BUS 180 2 units`)
     const portfolio = state.programFeasibilityPortfolioResult;
     const rows = [
       ...(portfolio ? [{ section: 'Program Portfolio Summary', activeCatalogYear: portfolio.activeCatalogYear, programsEvaluated: portfolio.programsEvaluated, healthyPrograms: portfolio.healthyPrograms, moderateRiskPrograms: portfolio.moderateRiskPrograms, highRiskPrograms: portfolio.highRiskPrograms, notViablePrograms: portfolio.notViablePrograms, insufficientDataPrograms: portfolio.insufficientDataPrograms, singleCampusViablePrograms: portfolio.singleCampusViablePrograms, multiCampusRequiredPrograms: portfolio.multiCampusRequiredPrograms, onlineDependentPrograms: portfolio.onlineDependentPrograms, onlineOnlyViablePrograms: portfolio.onlineOnlyViablePrograms, campusResultIndeterminatePrograms: portfolio.campusResultIndeterminatePrograms }] : []),
+      { section: 'Technical Diagnostics', planningEngine: result.planningEngine === 'academic-planning-platform' ? 'Academic Planning Platform' : (result.planningEngine || 'Unknown'), scheduleFingerprint: result.planningSolveResult?.scheduleFingerprint || '', catalogRevisionFingerprint: result.planningSolveResult?.catalogRevisionFingerprint || '', analysisOptionsFingerprint: result.planningSolveResult?.analysisOptionsFingerprint || '' },
       ...((portfolio?.programResults || []).map(item => ({ section: 'Program Portfolio Detail', program: item.program?.programName || item.program?.programId, award: item.program?.awardType, catalogYear: item.program?.catalogYear, status: item.viabilitySummary?.overallStatus, coverage: item.availability?.coveragePct, academicPathways: item.pathwayResult?.count, configurations: item.configurationCounts?.rawCrnConfigurationCount, meaningfulPatterns: item.configurationCounts?.meaningfulPatternCount, singlePhysicalCampusFeasible: item.viabilitySummary?.singleCampusViable, singleCampusPlusOnlineFeasible: item.viabilitySummary?.completeWithoutMultipleCampusesWhenOnlineAllowed, minimumPhysicalCampuses: item.viabilitySummary?.minimumPhysicalCampusesRequired, onlineOnlyFeasible: item.viabilitySummary?.onlineOnlyViable, onlineDependency: item.viabilitySummary?.onlineDependency, sameDayTravelUnavoidable: item.viabilitySummary?.sameDayTravelUnavoidable, unknownCampusImpact: item.unknownCampusDiagnostics?.indeterminate, primaryBlocker: (item.blockers || [])[0]?.issue || '', confidence: item.confidence }))),
       ...((portfolio?.sharedCourseBlockers || []).map(item => ({ section: 'Shared Blockers', ...item }))),
       ...((portfolio?.sharedTimeConflicts || []).map(item => ({ section: 'Shared Time Conflicts', ...item, courseKeys: (item.courseKeys || []).join('; '), programsAffected: (item.programsAffected || []).join('; '), termsAffected: (item.termsAffected || []).join('; '), campusesAffected: (item.campusesAffected || []).join('; '), currentSectionCrns: (item.currentSectionCrns || []).join('; ') }))),
@@ -24683,6 +24706,7 @@ BUS 180 2 units`)
     attachBusyClick('loadCatalogPilotPreview', 'Loading catalog pilot preview...', () => loadCatalogPilotPreview(), { key: 'loadCatalogPilotPreview', runningLabel: 'Loading...' });
     attachBusyClick('approveCatalogPilotPrograms', 'Approving catalog pilot programs...', () => approveCatalogPilotPrograms(), { key: 'approveCatalogPilotPrograms', runningLabel: 'Approving...' });
     document.getElementById('programFeasibilityProgram')?.addEventListener('change', renderProgramFeasibilitySelectors);
+    document.getElementById('programFeasibilityIncludeApprovedPilot')?.addEventListener('change', renderProgramFeasibilitySelectors);
     attachBusyClick('refreshProgramFeasibility', 'Refreshing program repository...', () => refreshProgramRequirementsRepository(), { key: 'refreshProgramFeasibility', runningLabel: 'Refreshing...' });
     attachBusyClick('runProgramFeasibility', 'Evaluating two-year program feasibility...', () => runProgramFeasibility(), { key: 'runProgramFeasibility', runningLabel: 'Evaluating...' });
     document.getElementById('cancelProgramPortfolio')?.addEventListener('click', cancelProgramPortfolioAnalysis);

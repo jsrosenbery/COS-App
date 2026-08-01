@@ -163,7 +163,7 @@ test('Validation diagnostics and independent confidence buckets are available', 
     revisions: [{ programId: 'OLD', catalogYear: '2026-2027', revisionId: 'stale' }]
   });
 
-  assert.deepEqual(Object.keys(result.planningConfidence), ['extraction', 'reconciliation', 'scheduling', 'portfolio', 'recommendations']);
+  assert.deepEqual(Object.keys(result.planningConfidence), ['extraction', 'reconciliation', 'scheduling', 'portfolio', 'recommendation']);
   assert.equal(diagnostics.ambiguousRequirements.length, 1);
   assert.equal(diagnostics.unmatchedCourses.length, 1);
   assert.equal(diagnostics.staleCatalogRevisions.length, 1);

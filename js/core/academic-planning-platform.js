@@ -18,6 +18,8 @@
     'student-education-plans',
     'ai-assisted-schedule-recommendations'
   ]);
+  const PLANNING_ENGINE = 'academic-planning-platform';
+  const planningResultCache = new Map();
 
   function compact(value) {
     return String(value ?? '').replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -226,9 +228,12 @@
     const scheduleFingerprint = programFeasibility.scheduleFingerprint
       ? programFeasibility.scheduleFingerprint(input.sectionRows || input.rows || [])
       : shortHash(input.sectionRows || input.rows || []);
-    const analysisSettingsFingerprint = programFeasibility.analysisOptionsFingerprint
-      ? programFeasibility.analysisOptionsFingerprint(input.options || {})
-      : shortHash(input.options || {});
+    const analysisSettingsFingerprint = shortHash({
+      legacyFingerprint: programFeasibility.analysisOptionsFingerprint
+        ? programFeasibility.analysisOptionsFingerprint(input.options || {})
+        : shortHash(input.options || {}),
+      includeLegacyApproved: input.options?.includeLegacyApproved === true
+    });
     const campusConstraintsFingerprint = shortHash({
       campusTransitionMinutes: input.options?.campusTransitionMinutes || {},
       allowedPhysicalCampuses: input.options?.allowedPhysicalCampuses || [],
@@ -249,72 +254,306 @@
     };
   }
 
-  function evaluateProgram(program, sectionRows = [], options = {}) {
-    const result = programFeasibility.evaluateProgramFeasibility
-      ? programFeasibility.evaluateProgramFeasibility(program, sectionRows, options)
-      : {};
-    return attachPlanningMetadata(result, { program, sectionRows, options, analysisType: 'program' });
+  function normalizeTerm(value) {
+    if (programFeasibility.normalizeTermLabel) return programFeasibility.normalizeTermLabel(value);
+    if (scheduleBuilder.normalizeTermLabel) return scheduleBuilder.normalizeTermLabel(value);
+    return compact(value).toUpperCase();
   }
 
-  function evaluatePortfolio(programs = [], sectionRows = [], options = {}) {
-    const scopedPrograms = activeCatalogPrograms(programs, options);
-    const solverPrograms = legacySolverPrograms(scopedPrograms);
-    const result = programFeasibility.evaluateProgramPortfolio
-      ? programFeasibility.evaluateProgramPortfolio(solverPrograms, sectionRows, { ...options, includeLegacyApproved: true })
-      : { programResults: [] };
-    const recommendations = generateRecommendationObjects(result, scopedPrograms, sectionRows, options);
-    return attachPlanningMetadata({ ...result, scoredRecommendations: recommendations }, { programs: scopedPrograms, sectionRows, options, analysisType: 'portfolio' });
+  function normalizeCourseKey(value) {
+    if (scheduleBuilder.normalizeCourseKey) return scheduleBuilder.normalizeCourseKey(value);
+    if (programRequirements.normalizeCourseKey) return programRequirements.normalizeCourseKey(value);
+    return compact(value).toUpperCase();
   }
 
-  async function evaluatePortfolioAsync(programs = [], sectionRows = [], options = {}) {
-    const scopedPrograms = activeCatalogPrograms(programs, options);
-    const solverPrograms = legacySolverPrograms(scopedPrograms);
-    const result = programFeasibility.evaluateProgramPortfolioAsync
-      ? await programFeasibility.evaluateProgramPortfolioAsync(solverPrograms, sectionRows, { ...options, includeLegacyApproved: true })
-      : evaluatePortfolio(scopedPrograms, sectionRows, options);
-    const recommendations = generateRecommendationObjects(result, scopedPrograms, sectionRows, options);
-    return attachPlanningMetadata({ ...result, scoredRecommendations: recommendations }, { programs: scopedPrograms, sectionRows, options, analysisType: 'portfolio' });
+  function normalizeCampus(value) {
+    if (scheduleBuilder.normalizeCampus) return scheduleBuilder.normalizeCampus(value);
+    return compact(value).toUpperCase();
   }
 
-  function buildStudentSchedule(sectionRows = [], requests = [], preferences = {}) {
-    const result = scheduleBuilder.buildScheduleOptions ? scheduleBuilder.buildScheduleOptions(sectionRows, requests, preferences) : { schedules: [] };
+  function normalizeOnlineMode(value) {
+    const mode = compact(value).toLowerCase();
+    return ['include', 'exclude', 'only'].includes(mode) ? mode : 'include';
+  }
+
+  function normalizeMinutes(value) {
+    if (value == null || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function normalizeSolveRequest(input = {}, sectionRowsArg, optionsArg) {
+    if (Array.isArray(input) || input?.programId || sectionRowsArg) {
+      return normalizeSolveRequest({
+        analysisType: input?.programId ? 'program' : 'manual-schedule',
+        program: input?.programId ? input : undefined,
+        sectionRows: sectionRowsArg || [],
+        constraints: optionsArg || {},
+        limits: optionsArg || {},
+        selectedTerm: optionsArg?.selectedTerm || optionsArg?.endingTerm || ''
+      });
+    }
+    const constraints = input.constraints || input.options || {};
+    const limits = input.limits || input.options || {};
+    const requestedCourses = (input.requestedCourses || input.requests || []).map(course => ({
+      ...course,
+      courseKey: normalizeCourseKey(course.courseKey || course.course || course.query || course),
+      course: compact(course.course || course.query || course.courseKey || course),
+      required: course.required !== false && !course.optional
+    }));
     return {
-      ...result,
-      planningEngine: 'academic-planning-platform',
-      cacheKey: planningCacheKey({ rows: sectionRows, options: preferences }).key
+      analysisType: compact(input.analysisType) || 'manual-schedule',
+      selectedTerm: normalizeTerm(input.selectedTerm || input.endingTerm || constraints.selectedTerm || constraints.endingTerm),
+      termWindowType: compact(input.termWindowType || input.windowType || constraints.windowType || 'full') === 'standard' ? 'standard' : 'full',
+      sectionRows: clone(input.sectionRows || input.rows || []),
+      programs: (input.programs || []).map(normalizeCatalogProgram),
+      program: input.program ? normalizeCatalogProgram(input.program) : undefined,
+      requestedCourses,
+      constraints: {
+        onlineMode: normalizeOnlineMode(constraints.onlineMode),
+        allowedPhysicalCampuses: (constraints.allowedPhysicalCampuses || []).map(normalizeCampus).filter(Boolean),
+        preferredCampuses: (constraints.preferredCampuses || constraints.campuses || []).map(normalizeCampus).filter(Boolean),
+        maximumPhysicalCampuses: normalizeMinutes(constraints.maximumPhysicalCampuses),
+        allowedModalities: (constraints.allowedModalities || []).map(compact).filter(Boolean),
+        allowedDays: (constraints.allowedDays || []).map(compact).filter(Boolean),
+        excludedDays: (constraints.excludedDays || []).map(compact).filter(Boolean),
+        earliestStartMinutes: normalizeMinutes(constraints.earliestStartMinutes),
+        latestEndMinutes: normalizeMinutes(constraints.latestEndMinutes),
+        earliestStart: constraints.earliestStart,
+        latestEnd: constraints.latestEnd,
+        includeFullSections: constraints.includeFullSections === true,
+        includeWaitlistedSections: constraints.includeWaitlistedSections !== false,
+        includeUnknownSeatStatus: constraints.includeUnknownSeatStatus !== false,
+        includeLegacyApproved: constraints.includeLegacyApproved === true,
+        campusTransitionMinutes: clone(constraints.campusTransitionMinutes || {}),
+        enableCampusTravelConflictChecking: constraints.enableCampusTravelConflictChecking !== false,
+        primarySemesterMinUnits: normalizeMinutes(constraints.primarySemesterMinUnits),
+        primarySemesterMaxUnits: normalizeMinutes(constraints.primarySemesterMaxUnits),
+        summerMaxUnits: normalizeMinutes(constraints.summerMaxUnits)
+      },
+      limits: {
+        maxVisited: normalizeMinutes(limits.maxVisited),
+        maxResults: normalizeMinutes(limits.maxResults || limits.topSchedulesRetained),
+        pathwayCap: normalizeMinutes(limits.pathwayCap || limits.academicPathwayCap),
+        configurationCap: normalizeMinutes(limits.configurationCap || limits.sectionConfigurationCap),
+        meaningfulPatternCap: normalizeMinutes(limits.meaningfulPatternCap)
+      },
+      sourceVersions: clone(input.sourceVersions || {})
     };
   }
 
+  function compactLegacyOptions(options = {}) {
+    return Object.fromEntries(
+      Object.entries(options).filter(([, value]) => value !== null && value !== undefined && value !== '')
+    );
+  }
+
+  function legacyOptionsFromSolveRequest(request, extra = {}) {
+    return compactLegacyOptions({
+      ...request.constraints,
+      ...extra,
+      selectedTerm: request.selectedTerm,
+      endingTerm: request.selectedTerm,
+      windowType: request.termWindowType,
+      academicPathwayCap: request.limits.pathwayCap ?? extra.academicPathwayCap,
+      sectionConfigurationCap: request.limits.configurationCap ?? extra.sectionConfigurationCap,
+      meaningfulPatternCap: request.limits.meaningfulPatternCap ?? extra.meaningfulPatternCap,
+      maxVisited: request.limits.maxVisited ?? extra.maxVisited,
+      maxResults: request.limits.maxResults ?? extra.maxResults
+    });
+  }
+
+  function solveResultEnvelope(raw = {}, request = {}, startedAt = Date.now(), extra = {}) {
+    const cache = planningCacheKey({ program: request.program, programs: request.programs, sectionRows: request.sectionRows, options: legacyOptionsFromSolveRequest(request) });
+    const counts = raw.configurationCounts || raw.count || {};
+    const meaningful = counts.meaningfulPatternCount;
+    return {
+      planningEngine: PLANNING_ENGINE,
+      analysisType: request.analysisType,
+      exact: extra.exact ?? counts.exact ?? raw.exact ?? true,
+      lowerBound: extra.lowerBound ?? counts.lowerBound ?? raw.lowerBound ?? false,
+      cappedAt: counts.cappedAt ?? raw.cappedAt,
+      scheduleFingerprint: request.sourceVersions.scheduleFingerprint || cache.scheduleFingerprint,
+      catalogRevisionFingerprint: request.sourceVersions.catalogRevisionFingerprint || cache.catalogRevisionFingerprint,
+      analysisOptionsFingerprint: cache.analysisSettingsFingerprint,
+      programsEvaluated: raw.programsEvaluated,
+      academicPathwayCount: raw.pathwayResult?.count,
+      rawConfigurationCount: counts.rawCrnConfigurationCount ?? counts.viableConfigurationCount,
+      meaningfulPatternCount: typeof meaningful === 'object' ? meaningful.count : meaningful,
+      topSchedules: counts.topSchedules || raw.schedules,
+      campusSummary: raw.campusScenarios || raw.campusSummary,
+      blockers: raw.blockers || raw.sharedCourseBlockers || [],
+      recommendations: raw.scoredRecommendations || raw.recommendations || raw.candidateRecommendations || [],
+      confidence: {
+        extraction: raw.planningConfidence?.extraction ?? raw.requirementsSourceConfidence?.programDetection ?? null,
+        reconciliation: raw.planningConfidence?.reconciliation ?? raw.requirementsSourceConfidence?.courseReconciliation ?? null,
+        scheduling: raw.planningConfidence?.scheduling ?? raw.confidence ?? null,
+        portfolio: raw.planningConfidence?.portfolio ?? null,
+        recommendation: raw.planningConfidence?.recommendations ?? null
+      },
+      diagnostics: {
+        combinationsVisited: counts.combinationsVisited,
+        combinationsPruned: counts.combinationsPruned,
+        elapsedMilliseconds: Date.now() - startedAt,
+        warnings: [...(raw.diagnostics || []), ...(raw.warnings || [])].filter(Boolean)
+      },
+      simulationFingerprint: extra.simulationFingerprint,
+      raw
+    };
+  }
+
+  function attachSolveResult(raw = {}, request = {}, startedAt = Date.now(), extra = {}) {
+    const solveResult = solveResultEnvelope(raw, request, startedAt, extra);
+    return {
+      ...raw,
+      planningEngine: PLANNING_ENGINE,
+      cache: planningCacheKey({ program: request.program, programs: request.programs, sectionRows: request.sectionRows, options: legacyOptionsFromSolveRequest(request) }),
+      planningSolveRequest: request,
+      planningSolveResult: solveResult,
+      planningConfidence: solveResult.confidence
+    };
+  }
+
+  function cacheKeyForRequest(request) {
+    return planningCacheKey({ program: request.program, programs: request.programs, sectionRows: request.sectionRows, options: legacyOptionsFromSolveRequest(request) }).key;
+  }
+
+  function getCachedResult(keyOrRequest) {
+    const key = typeof keyOrRequest === 'string' ? keyOrRequest : cacheKeyForRequest(normalizeSolveRequest(keyOrRequest));
+    const entry = planningResultCache.get(key);
+    return entry ? clone(entry) : null;
+  }
+
+  function setCachedResult(keyOrRequest, result) {
+    if (!result || result.cancelled || result.failed || result.partial === true) return null;
+    const key = typeof keyOrRequest === 'string' ? keyOrRequest : cacheKeyForRequest(normalizeSolveRequest(keyOrRequest));
+    const record = clone(result);
+    planningResultCache.set(key, record);
+    return clone(record);
+  }
+
+  function invalidateByScheduleFingerprint(fingerprint) {
+    const needle = compact(fingerprint);
+    for (const [key, value] of planningResultCache.entries()) {
+      if (key.includes(needle) || value?.planningSolveResult?.scheduleFingerprint === needle) planningResultCache.delete(key);
+    }
+  }
+
+  function invalidateByCatalogRevision(fingerprint) {
+    const needle = compact(fingerprint);
+    for (const [key, value] of planningResultCache.entries()) {
+      if (key.includes(needle) || value?.planningSolveResult?.catalogRevisionFingerprint === needle) planningResultCache.delete(key);
+    }
+  }
+
+  function clearPlanningCache() {
+    planningResultCache.clear();
+  }
+
+  function evaluateProgram(program, sectionRows = [], options = {}) {
+    const startedAt = Date.now();
+    const request = program?.analysisType ? normalizeSolveRequest(program) : normalizeSolveRequest({ analysisType: 'program', program, sectionRows, constraints: options, limits: options, selectedTerm: options.selectedTerm || options.endingTerm });
+    const legacyOptions = legacyOptionsFromSolveRequest(request, options);
+    const result = programFeasibility.evaluateProgramFeasibility
+      ? programFeasibility.evaluateProgramFeasibility(request.program, request.sectionRows, legacyOptions)
+      : {};
+    return attachSolveResult(attachPlanningMetadata(result, { program: request.program, sectionRows: request.sectionRows, options: legacyOptions, analysisType: 'program' }), request, startedAt);
+  }
+
+  function evaluatePortfolio(programs = [], sectionRows = [], options = {}) {
+    const startedAt = Date.now();
+    const request = programs?.analysisType ? normalizeSolveRequest(programs) : normalizeSolveRequest({ analysisType: 'portfolio', programs, sectionRows, constraints: options, limits: options, selectedTerm: options.selectedTerm || options.endingTerm });
+    const legacyOptions = legacyOptionsFromSolveRequest(request, options);
+    const cached = getCachedResult(request);
+    if (cached) return cached;
+    const scopedPrograms = activeCatalogPrograms(request.programs, legacyOptions);
+    const solverPrograms = legacySolverPrograms(scopedPrograms);
+    const result = programFeasibility.evaluateProgramPortfolio
+      ? programFeasibility.evaluateProgramPortfolio(solverPrograms, request.sectionRows, { ...legacyOptions, includeLegacyApproved: true })
+      : { programResults: [] };
+    const recommendations = generateRecommendationObjects(result, scopedPrograms, request.sectionRows, legacyOptions);
+    const finalResult = attachSolveResult(attachPlanningMetadata({ ...result, scoredRecommendations: recommendations }, { programs: scopedPrograms, sectionRows: request.sectionRows, options: legacyOptions, analysisType: 'portfolio' }), { ...request, programs: scopedPrograms }, startedAt);
+    setCachedResult(request, finalResult);
+    return finalResult;
+  }
+
+  async function evaluatePortfolioAsync(programs = [], sectionRows = [], options = {}) {
+    const startedAt = Date.now();
+    const request = programs?.analysisType ? normalizeSolveRequest(programs) : normalizeSolveRequest({ analysisType: 'portfolio', programs, sectionRows, constraints: options, limits: options, selectedTerm: options.selectedTerm || options.endingTerm });
+    const legacyOptions = legacyOptionsFromSolveRequest(request, options);
+    const cached = getCachedResult(request);
+    if (cached) return cached;
+    const scopedPrograms = activeCatalogPrograms(request.programs, legacyOptions);
+    const solverPrograms = legacySolverPrograms(scopedPrograms);
+    const result = programFeasibility.evaluateProgramPortfolioAsync
+      ? await programFeasibility.evaluateProgramPortfolioAsync(solverPrograms, request.sectionRows, { ...legacyOptions, includeLegacyApproved: true })
+      : evaluatePortfolio({ ...request, programs: scopedPrograms });
+    const recommendations = generateRecommendationObjects(result, scopedPrograms, request.sectionRows, legacyOptions);
+    const finalResult = attachSolveResult(attachPlanningMetadata({ ...result, scoredRecommendations: recommendations }, { programs: scopedPrograms, sectionRows: request.sectionRows, options: legacyOptions, analysisType: 'portfolio' }), { ...request, programs: scopedPrograms }, startedAt);
+    if (!legacyOptions.shouldCancel || !legacyOptions.shouldCancel()) setCachedResult(request, finalResult);
+    return finalResult;
+  }
+
+  function buildStudentSchedule(sectionRows = [], requests = [], preferences = {}) {
+    const startedAt = Date.now();
+    const request = sectionRows?.analysisType ? normalizeSolveRequest(sectionRows) : normalizeSolveRequest({ analysisType: 'manual-schedule', sectionRows, requestedCourses: requests, constraints: preferences, limits: preferences, selectedTerm: preferences.selectedTerm || preferences.endingTerm });
+    const legacyOptions = legacyOptionsFromSolveRequest(request, preferences);
+    const result = scheduleBuilder.buildScheduleOptions ? scheduleBuilder.buildScheduleOptions(request.sectionRows, request.requestedCourses, legacyOptions) : { schedules: [] };
+    return attachSolveResult({ ...result, cacheKey: cacheKeyForRequest(request) }, request, startedAt);
+  }
+
   function simulateScheduleChange(target = {}, sectionRows = [], change = {}, options = {}) {
-    if (target?.programId && programFeasibility.simulateScheduleChange) {
-      return normalizeSimulationResult(programFeasibility.simulateScheduleChange(target, sectionRows, change, options), change, options);
+    const startedAt = Date.now();
+    const request = target?.analysisType ? normalizeSolveRequest(target) : normalizeSolveRequest({
+      analysisType: 'simulation',
+      program: target?.programId ? target : undefined,
+      programs: Array.isArray(target) ? target : [],
+      sectionRows,
+      constraints: options,
+      limits: options,
+      selectedTerm: options.selectedTerm || options.endingTerm,
+      requestedCourses: options.requests || options.requestedCourses || []
+    });
+    const legacyOptions = legacyOptionsFromSolveRequest(request, options);
+    const simulationFingerprint = shortHash({
+      scheduleFingerprint: planningCacheKey({ sectionRows: request.sectionRows, options: legacyOptions }).scheduleFingerprint,
+      catalogRevisionFingerprint: planningCacheKey({ program: request.program, programs: request.programs, sectionRows: request.sectionRows, options: legacyOptions }).catalogRevisionFingerprint,
+      constraints: request.constraints,
+      change
+    });
+    if (request.program?.programId && programFeasibility.simulateScheduleChange) {
+      const result = normalizeSimulationResult(programFeasibility.simulateScheduleChange(request.program, request.sectionRows, change, legacyOptions), change, legacyOptions, simulationFingerprint);
+      return attachSolveResult(result, request, startedAt, { simulationFingerprint, exact: result.exact, lowerBound: result.lowerBound });
     }
-    if (Array.isArray(target) && programFeasibility.simulatePortfolioRecommendation) {
-      return normalizeSimulationResult(programFeasibility.simulatePortfolioRecommendation(legacySolverPrograms(activeCatalogPrograms(target, options)), sectionRows, change, { ...options, includeLegacyApproved: true }), change, options);
+    if (request.programs?.length && programFeasibility.simulatePortfolioRecommendation) {
+      const result = normalizeSimulationResult(programFeasibility.simulatePortfolioRecommendation(legacySolverPrograms(activeCatalogPrograms(request.programs, legacyOptions)), request.sectionRows, change, { ...legacyOptions, includeLegacyApproved: true }), change, legacyOptions, simulationFingerprint);
+      return attachSolveResult(result, request, startedAt, { simulationFingerprint, exact: result.exact, lowerBound: result.lowerBound });
     }
-    const before = buildStudentSchedule(sectionRows, options.requests || [], options.preferences || {});
-    const rowsAfter = applyScheduleChange(sectionRows, change);
-    const after = buildStudentSchedule(rowsAfter, options.requests || [], options.preferences || {});
-    return normalizeSimulationResult({
+    const before = buildStudentSchedule(request.sectionRows, request.requestedCourses, legacyOptions);
+    const rowsAfter = applyScheduleChange(request.sectionRows, change);
+    const after = buildStudentSchedule(rowsAfter, request.requestedCourses, legacyOptions);
+    const result = normalizeSimulationResult({
       before,
       after,
-      configurationsBefore: before.counts?.viableConfigurationCount ?? before.schedules?.length ?? 0,
-      configurationsAfter: after.counts?.viableConfigurationCount ?? after.schedules?.length ?? 0,
-      configurationsAdded: (after.counts?.viableConfigurationCount ?? after.schedules?.length ?? 0) - (before.counts?.viableConfigurationCount ?? before.schedules?.length ?? 0),
+      configurationsBefore: before.count?.viableConfigurationCount ?? before.schedules?.length ?? 0,
+      configurationsAfter: after.count?.viableConfigurationCount ?? after.schedules?.length ?? 0,
+      configurationsAdded: (after.count?.viableConfigurationCount ?? after.schedules?.length ?? 0) - (before.count?.viableConfigurationCount ?? before.schedules?.length ?? 0),
       sourceRowsMutated: false
-    }, change, options);
+    }, change, legacyOptions, simulationFingerprint);
+    return attachSolveResult(result, request, startedAt, { simulationFingerprint, exact: result.exact, lowerBound: result.lowerBound });
   }
 
   function evaluateCampusScenario(programOrPrograms, sectionRows = [], scenario = {}, options = {}) {
+    const startedAt = Date.now();
     const mergedOptions = { ...options, ...scenario };
-    if (Array.isArray(programOrPrograms)) return evaluatePortfolio(programOrPrograms, sectionRows, mergedOptions);
+    if (Array.isArray(programOrPrograms)) return evaluatePortfolio({ analysisType: 'campus-scenario', programs: programOrPrograms, sectionRows, constraints: mergedOptions, limits: mergedOptions, selectedTerm: mergedOptions.selectedTerm || mergedOptions.endingTerm });
     const result = evaluateProgram(programOrPrograms, sectionRows, mergedOptions);
-    return {
+    return attachSolveResult({
       scenario,
       result,
       campusScenarios: result.campusScenarios || [],
       confidence: { scheduling: result.confidence || '', portfolio: result.planningConfidence?.portfolio || '' }
-    };
+    }, normalizeSolveRequest({ analysisType: 'campus-scenario', program: programOrPrograms, sectionRows, constraints: mergedOptions, limits: mergedOptions, selectedTerm: mergedOptions.selectedTerm || mergedOptions.endingTerm }), startedAt);
   }
 
   function applyScheduleChange(sectionRows = [], change = {}) {
@@ -359,20 +598,33 @@
     return rows.map((row, index) => {
       const change = recommendationToChange(row, options);
       const simulation = change ? simulateScheduleChange(programs, sectionRows, change, options) : null;
-      const configurationsAdded = Number(simulation?.configurationsAdded || row.configurationsAdded || 0);
+      const configurationsAdded = simulation ? Number(simulation.configurationsAdded || 0) : null;
       const programsImproved = simulation?.programsImproved || toList(row.programsImproved || row.affectedPrograms);
-      const impactScore = Math.max(0, configurationsAdded) + programsImproved.length * 10 + Number(row.blockerFrequency || 0) * 5;
+      const impactScore = simulation ? Math.max(0, configurationsAdded || 0) + programsImproved.length * 10 + Number(row.blockerFrequency || 0) * 5 : null;
       return {
         recommendationId: `planning-rec-${shortHash({ row, index, change })}`,
+        status: simulation ? 'simulated' : 'candidate',
+        actionType: row.proposedCourse ? 'add-section' : 'portfolio-action',
         recommendationType: row.proposedCourse ? 'course-offering' : 'portfolio-action',
         title: row.proposedChange || row.recommendedAction || 'Review schedule option',
+        proposedChangeObject: change,
         proposedChange: row.proposedChange || row.recommendedAction || '',
         impactScore,
+        programsAffected: programsImproved,
         programsImproved,
         estimatedConfigurationsAdded: configurationsAdded,
+        configurationsBefore: simulation?.configurationsBefore,
+        configurationsAfter: simulation?.configurationsAfter,
+        configurationsAdded: simulation?.configurationsAdded,
+        meaningfulPatternsBefore: simulation?.meaningfulPatternsBefore,
+        meaningfulPatternsAfter: simulation?.meaningfulPatternsAfter,
+        singleCampusProgramsBefore: simulation?.singleCampusProgramsBefore,
+        singleCampusProgramsAfter: simulation?.singleCampusProgramsAfter,
         campusImprovements: simulation?.singleCampusChanges || toList(row.campusAccessImprovement),
         singleCampusImprovements: Number(simulation?.singleCampusProgramsAfter || 0) - Number(simulation?.singleCampusProgramsBefore || 0),
         confidence: row.confidence || (simulation?.exact ? 'medium' : 'low'),
+        evidence: [row].filter(Boolean),
+        assumptions: simulation?.assumptions || [],
         supportingEvidence: {
           sourceRecommendation: row,
           simulationSummary: simulation ? {
@@ -411,12 +663,13 @@
     };
   }
 
-  function normalizeSimulationResult(result = {}, change = {}, options = {}) {
+  function normalizeSimulationResult(result = {}, change = {}, options = {}, simulationFingerprint = '') {
     return {
       ...result,
       simulated: true,
       sourceRowsMutated: false,
-      deterministicFingerprint: shortHash({ change, options, configurationsAdded: result.configurationsAdded, programsImproved: result.programsImproved || [] }),
+      deterministicFingerprint: simulationFingerprint || shortHash({ change, options, configurationsAdded: result.configurationsAdded, programsImproved: result.programsImproved || [] }),
+      simulationFingerprint: simulationFingerprint || shortHash({ change, options, configurationsAdded: result.configurationsAdded, programsImproved: result.programsImproved || [] }),
       confidence: {
         scheduling: result.exact === false ? 'low' : 'medium',
         portfolio: result.programsEvaluated ? 'medium' : '',
@@ -462,10 +715,20 @@
     normalizeRequirementRule,
     normalizeCourse,
     normalizeEvidenceList,
+    normalizeSolveRequest,
+    normalizeCourseKey,
+    normalizeTerm,
+    normalizeCampus,
+    normalizeOnlineMode,
     createCatalogRevision,
     transitionCatalogReview,
     activeCatalogPrograms,
     planningCacheKey,
+    getCachedResult,
+    setCachedResult,
+    invalidateByScheduleFingerprint,
+    invalidateByCatalogRevision,
+    clearPlanningCache,
     evaluateProgram,
     evaluateProgramFeasibility: evaluateProgram,
     evaluatePortfolio,
@@ -479,6 +742,15 @@
     evaluateCampusScenario,
     generateRecommendationObjects,
     validationDiagnostics,
+    normalizeSections: rows => scheduleBuilder.normalizeSections ? scheduleBuilder.normalizeSections(rows) : [],
+    sectionEligible: (section, preferences) => scheduleBuilder.sectionEligible ? scheduleBuilder.sectionEligible(section, preferences) : { eligible: true, reasons: [] },
+    sectionsConflict: (a, b, preferences) => scheduleBuilder.sectionsConflict ? scheduleBuilder.sectionsConflict(a, b, preferences) : { conflict: false },
+    countScheduleConfigurations: (rows, requests, preferences = {}) => buildStudentSchedule(rows, requests, { ...preferences, countMode: true }).count,
+    buildScheduleExamples: (rows, requests, preferences = {}) => buildStudentSchedule(rows, requests, preferences).schedules || [],
+    normalizeProgramRequirements: normalizeCatalogProgram,
+    enumerateAcademicPathways: (program, options) => programFeasibility.enumerateAcademicPathways ? programFeasibility.enumerateAcademicPathways(program, options) : [],
+    assignPathwayTerms: (pathway, terms, options) => programFeasibility.assignTerms ? programFeasibility.assignTerms(pathway, terms, options) : [],
+    evaluateProgramCoverage: (program, rows, options) => programFeasibility.analyzeAvailability ? programFeasibility.analyzeAvailability(program, rows, options) : {},
     scheduleFingerprint: rows => programFeasibility.scheduleFingerprint ? programFeasibility.scheduleFingerprint(rows) : shortHash(rows || []),
     programRequirementsFingerprint: program => programFeasibility.programRequirementsFingerprint ? programFeasibility.programRequirementsFingerprint(program) : shortHash(program || {}),
     analysisOptionsFingerprint: options => programFeasibility.analysisOptionsFingerprint ? programFeasibility.analysisOptionsFingerprint(options) : shortHash(options || {})

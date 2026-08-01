@@ -14,7 +14,9 @@
   const STORE_CATALOG_DETAILS = 'catalogRequirementDetails';
   const STORE_CATALOG_DECISIONS = 'catalogReviewDecisions';
   const STORE_PROGRAM_REVISIONS = 'programRequirementRevisions';
-  const DB_VERSION = 3;
+  const STORE_PROGRAM_ACTIVE_POINTERS = 'programActiveRevisionPointers';
+  const STORE_PROGRAM_REVIEW_HISTORY = 'programReviewHistory';
+  const DB_VERSION = 4;
   const VALID_GROUP_RULES = new Set(['all', 'choose-count', 'choose-units', 'one-from-each-list', 'or', 'elective']);
   const VALID_REVIEW_STATUSES = new Set(['draft', 'needs-review', 'approved', 'published', 'archived', 'retired']);
   const VALID_SOURCE_TYPES = new Set(['manual', 'json', 'csv', 'catalog-pdf']);
@@ -62,6 +64,85 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function shortHash(value) {
+    const text = JSON.stringify(value ?? null);
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16);
+  }
+
+  function sourceFingerprint(program = {}) {
+    return shortHash({
+      programId: program.programId,
+      catalogYear: program.catalogYear,
+      programName: program.programName,
+      awardType: program.awardType,
+      requirementGroups: program.requirementGroups,
+      source: program.source
+    });
+  }
+
+  function revisionRecord(program = {}, metadata = {}) {
+    const normalized = normalizeProgram(program);
+    const revisionId = compact(metadata.revisionId || normalized.revisionId) || `revision-${shortHash({ program: normalized, createdAt: metadata.createdAt || Date.now() })}`;
+    const record = {
+      revisionId,
+      programId: normalized.programId,
+      catalogYear: normalized.catalogYear,
+      previousRevisionId: compact(metadata.previousRevisionId || normalized.previousRevisionId),
+      status: normalized.reviewStatus,
+      isActive: metadata.isActive === true || normalized.isActiveRevision !== false,
+      sourceFingerprint: compact(metadata.sourceFingerprint) || sourceFingerprint(normalized),
+      extractionVersion: compact(metadata.extractionVersion || normalized.source?.extractionVersion),
+      createdAt: compact(metadata.createdAt) || new Date().toISOString(),
+      createdBy: compact(metadata.createdBy),
+      reason: compact(metadata.reason),
+      programSnapshot: { ...normalized, revisionId, activeRevisionId: revisionId }
+    };
+    return record;
+  }
+
+  function activePointerRecord(revision = {}) {
+    return {
+      key: programKey(revision.programId, revision.catalogYear),
+      programId: revision.programId,
+      catalogYear: revision.catalogYear,
+      activeRevisionId: revision.revisionId,
+      status: revision.status,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  function revisionContentFingerprint(revision = {}) {
+    const snapshot = revision.programSnapshot || revision.program || revision;
+    const normalizedSnapshot = normalizeProgram(snapshot);
+    const comparableSnapshot = {
+      ...normalizedSnapshot,
+      revisionId: '',
+      previousRevisionId: '',
+      activeRevisionId: '',
+      isActiveRevision: true,
+      reviewedAt: '',
+      publishedAt: '',
+      archivedAt: ''
+    };
+    return shortHash({
+      programId: revision.programId || snapshot.programId,
+      catalogYear: revision.catalogYear || snapshot.catalogYear,
+      status: revision.status || snapshot.reviewStatus,
+      sourceFingerprint: revision.sourceFingerprint || sourceFingerprint(normalizedSnapshot),
+      programSnapshot: comparableSnapshot
+    });
+  }
+
+  function matchingRevision(records = [], record = {}) {
+    const fingerprint = revisionContentFingerprint(record);
+    return records.find(existing => revisionContentFingerprint(existing) === fingerprint) || null;
+  }
+
   function normalizeProgram(program = {}) {
     const normalized = {
       programId: compact(program.programId),
@@ -79,6 +160,7 @@
       reviewedBy: compact(program.reviewedBy),
       reviewedAt: compact(program.reviewedAt),
       revisionId: compact(program.revisionId),
+      previousRevisionId: compact(program.previousRevisionId),
       activeRevisionId: compact(program.activeRevisionId || program.revisionId),
       isActiveRevision: program.isActiveRevision !== false,
       publishedAt: compact(program.publishedAt),
@@ -200,7 +282,20 @@
     const catalogDetails = new Map();
     const catalogDecisions = new Map();
     const revisions = new Map();
-    initialPrograms.map(normalizeProgram).forEach(program => programs.set(program.key, program));
+    const activePointers = new Map();
+    const reviewHistory = new Map();
+    function saveRevisionRecord(record) {
+      revisions.set(record.revisionId, clone(record));
+      const historyKey = `${programKey(record.programId, record.catalogYear)}::${record.revisionId}`;
+      reviewHistory.set(historyKey, { ...record, id: historyKey });
+      if (record.status === 'published' || record.isActive) activePointers.set(programKey(record.programId, record.catalogYear), activePointerRecord(record));
+    }
+    initialPrograms.map(normalizeProgram).forEach(program => {
+      const revision = revisionRecord(program, { reason: 'Migrated legacy program record.' });
+      const snapshot = { ...revision.programSnapshot, isActiveRevision: true, activeRevisionId: revision.revisionId };
+      programs.set(snapshot.key, snapshot);
+      saveRevisionRecord(revision);
+    });
     return {
       async initialize() {},
       async getPrograms() { return [...programs.values()].map(clone); },
@@ -211,7 +306,14 @@
       async saveProgram(program) {
         const result = validateProgram(program);
         if (!result.valid) throw new Error(result.errors.join(' '));
-        programs.set(result.program.key, result.program);
+        const prior = programs.get(result.program.key);
+        const revision = revisionRecord(result.program, {
+          previousRevisionId: prior?.activeRevisionId || prior?.revisionId,
+          reason: result.program.reviewStatus === 'published' ? 'Published program revision.' : 'Saved program edit.'
+        });
+        const snapshot = { ...revision.programSnapshot, isActiveRevision: true, activeRevisionId: revision.revisionId };
+        programs.set(snapshot.key, snapshot);
+        saveRevisionRecord(revision);
       },
       async savePrograms(records = []) {
         for (const program of records) await this.saveProgram(program);
@@ -265,19 +367,58 @@
       },
       async getCatalogReviewDecisions() { return [...catalogDecisions.values()].map(clone); },
       async saveProgramRequirementRevision(revision = {}) {
-        const id = compact(revision.revisionId) || `revision-${Date.now()}-${revisions.size}`;
-        const record = { ...clone(revision), revisionId: id, savedAt: compact(revision.savedAt) || new Date().toISOString() };
-        revisions.set(id, record);
+        const record = revision.programSnapshot ? clone(revision) : revisionRecord(revision.program || revision.programSnapshot || revision, revision);
+        const existing = matchingRevision([...revisions.values()], record);
+        if (existing) return clone(existing);
+        const id = compact(record.revisionId) || `revision-${Date.now()}-${revisions.size}`;
+        record.revisionId = id;
+        record.savedAt = compact(record.savedAt) || new Date().toISOString();
+        saveRevisionRecord(record);
         return clone(record);
       },
       async getProgramRequirementRevisions(programId = '', catalogYear = '') {
         return [...revisions.values()].filter(record => (!programId || record.programId === programId) && (!catalogYear || record.catalogYear === catalogYear)).map(clone);
       },
+      async getProgramActiveRevisionPointers() { return [...activePointers.values()].map(clone); },
+      async getProgramReviewHistory(programId = '', catalogYear = '') {
+        return [...reviewHistory.values()].filter(record => (!programId || record.programId === programId) && (!catalogYear || record.catalogYear === catalogYear)).map(clone);
+      },
+      async publishProgramRevision(revisionId, metadata = {}) {
+        const revision = revisions.get(compact(revisionId));
+        if (!revision) return null;
+        const published = { ...clone(revision), status: 'published', isActive: true, publishedAt: new Date().toISOString(), reason: compact(metadata.reason || revision.reason || 'Published revision.') };
+        published.programSnapshot = { ...published.programSnapshot, reviewStatus: 'published', publishedAt: published.publishedAt, isActiveRevision: true, activeRevisionId: published.revisionId };
+        saveRevisionRecord(published);
+        programs.set(published.programSnapshot.key, published.programSnapshot);
+        return clone(published);
+      },
+      async archiveProgramRevision(revisionId, metadata = {}) {
+        const revision = revisions.get(compact(revisionId));
+        if (!revision) return null;
+        const archived = { ...clone(revision), status: 'archived', isActive: false, archivedAt: new Date().toISOString(), reason: compact(metadata.reason || revision.reason || 'Archived revision.') };
+        archived.programSnapshot = { ...archived.programSnapshot, reviewStatus: 'archived', archivedAt: archived.archivedAt, isActiveRevision: false };
+        saveRevisionRecord(archived);
+        return clone(archived);
+      },
+      async rollbackProgramRevision(revisionId, metadata = {}) {
+        const revision = revisions.get(compact(revisionId));
+        if (!revision) return null;
+        const draft = revisionRecord({ ...revision.programSnapshot, reviewStatus: 'draft' }, {
+          previousRevisionId: revision.revisionId,
+          createdBy: metadata.createdBy,
+          reason: compact(metadata.reason || 'Rollback created as new draft.')
+        });
+        draft.status = 'draft';
+        draft.programSnapshot.reviewStatus = 'draft';
+        saveRevisionRecord(draft);
+        programs.set(draft.programSnapshot.key, draft.programSnapshot);
+        return clone(draft);
+      },
       async deleteProgram(programId, catalogYear = '') {
         if (catalogYear) programs.delete(programKey(programId, catalogYear));
         else [...programs.keys()].filter(key => key.startsWith(`${canon(programId)}::`)).forEach(key => programs.delete(key));
       },
-      async clearAll() { programs.clear(); batches.clear(); metadata.clear(); catalogSources.clear(); catalogCandidates.clear(); catalogDetails.clear(); catalogDecisions.clear(); revisions.clear(); }
+      async clearAll() { programs.clear(); batches.clear(); metadata.clear(); catalogSources.clear(); catalogCandidates.clear(); catalogDetails.clear(); catalogDecisions.clear(); revisions.clear(); activePointers.clear(); reviewHistory.clear(); }
     };
   }
 
@@ -300,6 +441,8 @@
           if (!db.objectStoreNames.contains(STORE_CATALOG_DETAILS)) db.createObjectStore(STORE_CATALOG_DETAILS, { keyPath: 'candidateId' });
           if (!db.objectStoreNames.contains(STORE_CATALOG_DECISIONS)) db.createObjectStore(STORE_CATALOG_DECISIONS, { keyPath: 'id' });
           if (!db.objectStoreNames.contains(STORE_PROGRAM_REVISIONS)) db.createObjectStore(STORE_PROGRAM_REVISIONS, { keyPath: 'revisionId' });
+          if (!db.objectStoreNames.contains(STORE_PROGRAM_ACTIVE_POINTERS)) db.createObjectStore(STORE_PROGRAM_ACTIVE_POINTERS, { keyPath: 'key' });
+          if (!db.objectStoreNames.contains(STORE_PROGRAM_REVIEW_HISTORY)) db.createObjectStore(STORE_PROGRAM_REVIEW_HISTORY, { keyPath: 'id' });
         };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error || new Error('Program requirements database failed to open.'));
@@ -320,7 +463,10 @@
     }
 
     return {
-      async initialize() { await openDb(); },
+      async initialize() {
+        await openDb();
+        await this.migrateLegacyProgramsToRevisions();
+      },
       async getPrograms() { return (await requestPromise((await store()).getAll())).map(clone); },
       async getProgram(programId, catalogYear = '') {
         if (catalogYear) {
@@ -333,7 +479,14 @@
       async saveProgram(program) {
         const result = validateProgram(program);
         if (!result.valid) throw new Error(result.errors.join(' '));
-        await requestPromise((await store('readwrite')).put(result.program));
+        const prior = await requestPromise((await store()).get(result.program.key));
+        const revision = revisionRecord(result.program, {
+          previousRevisionId: prior?.activeRevisionId || prior?.revisionId,
+          reason: result.program.reviewStatus === 'published' ? 'Published program revision.' : 'Saved program edit.'
+        });
+        const snapshot = { ...revision.programSnapshot, isActiveRevision: true, activeRevisionId: revision.revisionId };
+        await requestPromise((await store('readwrite')).put(snapshot));
+        await this.saveProgramRequirementRevision(revision);
       },
       async savePrograms(programs = []) {
         for (const program of programs) await this.saveProgram(program);
@@ -395,14 +548,66 @@
         return (await requestPromise((await store('readonly', STORE_CATALOG_DECISIONS)).getAll())).map(clone);
       },
       async saveProgramRequirementRevision(revision = {}) {
-        const id = compact(revision.revisionId) || `revision-${Date.now()}`;
-        const record = { ...clone(revision), revisionId: id, savedAt: compact(revision.savedAt) || new Date().toISOString() };
+        const record = revision.programSnapshot ? clone(revision) : revisionRecord(revision.program || revision.programSnapshot || revision, revision);
+        const existing = matchingRevision(await requestPromise((await store('readonly', STORE_PROGRAM_REVISIONS)).getAll()), record);
+        if (existing) return clone(existing);
+        const id = compact(record.revisionId) || `revision-${Date.now()}`;
+        record.revisionId = id;
+        record.savedAt = compact(record.savedAt) || new Date().toISOString();
         await requestPromise((await store('readwrite', STORE_PROGRAM_REVISIONS)).put(record));
+        await requestPromise((await store('readwrite', STORE_PROGRAM_REVIEW_HISTORY)).put({ ...record, id: `${programKey(record.programId, record.catalogYear)}::${record.revisionId}` }));
+        if (record.status === 'published' || record.isActive) await requestPromise((await store('readwrite', STORE_PROGRAM_ACTIVE_POINTERS)).put(activePointerRecord(record)));
         return clone(record);
       },
       async getProgramRequirementRevisions(programId = '', catalogYear = '') {
         const records = (await requestPromise((await store('readonly', STORE_PROGRAM_REVISIONS)).getAll())).map(clone);
         return records.filter(record => (!programId || record.programId === programId) && (!catalogYear || record.catalogYear === catalogYear));
+      },
+      async getProgramActiveRevisionPointers() {
+        return (await requestPromise((await store('readonly', STORE_PROGRAM_ACTIVE_POINTERS)).getAll())).map(clone);
+      },
+      async getProgramReviewHistory(programId = '', catalogYear = '') {
+        const records = (await requestPromise((await store('readonly', STORE_PROGRAM_REVIEW_HISTORY)).getAll())).map(clone);
+        return records.filter(record => (!programId || record.programId === programId) && (!catalogYear || record.catalogYear === catalogYear));
+      },
+      async publishProgramRevision(revisionId, metadata = {}) {
+        const revision = await requestPromise((await store('readonly', STORE_PROGRAM_REVISIONS)).get(compact(revisionId)));
+        if (!revision) return null;
+        const published = { ...clone(revision), status: 'published', isActive: true, publishedAt: new Date().toISOString(), reason: compact(metadata.reason || revision.reason || 'Published revision.') };
+        published.programSnapshot = { ...published.programSnapshot, reviewStatus: 'published', publishedAt: published.publishedAt, isActiveRevision: true, activeRevisionId: published.revisionId };
+        await this.saveProgramRequirementRevision(published);
+        await requestPromise((await store('readwrite')).put(published.programSnapshot));
+        return clone(published);
+      },
+      async archiveProgramRevision(revisionId, metadata = {}) {
+        const revision = await requestPromise((await store('readonly', STORE_PROGRAM_REVISIONS)).get(compact(revisionId)));
+        if (!revision) return null;
+        const archived = { ...clone(revision), status: 'archived', isActive: false, archivedAt: new Date().toISOString(), reason: compact(metadata.reason || revision.reason || 'Archived revision.') };
+        archived.programSnapshot = { ...archived.programSnapshot, reviewStatus: 'archived', archivedAt: archived.archivedAt, isActiveRevision: false };
+        await this.saveProgramRequirementRevision(archived);
+        return clone(archived);
+      },
+      async rollbackProgramRevision(revisionId, metadata = {}) {
+        const revision = await requestPromise((await store('readonly', STORE_PROGRAM_REVISIONS)).get(compact(revisionId)));
+        if (!revision) return null;
+        const draft = revisionRecord({ ...revision.programSnapshot, reviewStatus: 'draft' }, {
+          previousRevisionId: revision.revisionId,
+          createdBy: metadata.createdBy,
+          reason: compact(metadata.reason || 'Rollback created as new draft.')
+        });
+        draft.status = 'draft';
+        draft.programSnapshot.reviewStatus = 'draft';
+        await this.saveProgramRequirementRevision(draft);
+        await requestPromise((await store('readwrite')).put(draft.programSnapshot));
+        return clone(draft);
+      },
+      async migrateLegacyProgramsToRevisions() {
+        const records = await this.getPrograms();
+        for (const program of records) {
+          const existing = await this.getProgramRequirementRevisions(program.programId, program.catalogYear);
+          if (existing.length) continue;
+          await this.saveProgramRequirementRevision(revisionRecord(program, { reason: 'Migrated legacy program record.' }));
+        }
       },
       async deleteProgram(programId, catalogYear = '') {
         if (catalogYear) {
@@ -421,6 +626,8 @@
         await requestPromise((await store('readwrite', STORE_CATALOG_DETAILS)).clear());
         await requestPromise((await store('readwrite', STORE_CATALOG_DECISIONS)).clear());
         await requestPromise((await store('readwrite', STORE_PROGRAM_REVISIONS)).clear());
+        await requestPromise((await store('readwrite', STORE_PROGRAM_ACTIVE_POINTERS)).clear());
+        await requestPromise((await store('readwrite', STORE_PROGRAM_REVIEW_HISTORY)).clear());
       }
     };
   }
@@ -494,6 +701,8 @@
     STORE_CATALOG_DETAILS,
     STORE_CATALOG_DECISIONS,
     STORE_PROGRAM_REVISIONS,
+    STORE_PROGRAM_ACTIVE_POINTERS,
+    STORE_PROGRAM_REVIEW_HISTORY,
     normalizeCourseKey,
     catalogYearSortValue,
     getMostRecentApprovedCatalogYear,
