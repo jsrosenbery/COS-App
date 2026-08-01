@@ -411,9 +411,15 @@
     programRequirementsPreview: [],
     programRequirementsErrors: [],
     catalogSources: [],
+    catalogPages: [],
     catalogProgramCandidates: [],
     catalogRequirementDetails: [],
     catalogReviewDecisions: [],
+    programRequirementRevisions: [],
+    programActiveRevisionPointers: [],
+    programReviewHistory: [],
+    selectedCatalogCandidateId: '',
+    selectedProgramRevisionId: '',
     catalogPdfExtraction: null,
     catalogPdfAbortController: null,
     catalogPageTexts: [],
@@ -2651,7 +2657,7 @@
         <div id="catalogProgramRequirementsReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Catalog & Program Requirements</h2>
-            <p>Admin utility for importing, reviewing, approving, and backing up structured degree and certificate requirements. Catalog extraction is a controlled preview workflow; extracted records must be reviewed and approved before use.</p>
+            <p>Upload, extract, review, approve, publish, and manage current catalog program requirements. Published revisions become available to Program Schedule Viability.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>Program Model</h3>
@@ -2672,28 +2678,43 @@
               </div>
             </div>
           </div>
-          <div class="analytics-toolbar">
-            <button id="downloadProgramTemplate" type="button">Download JSON Template</button>
-            <label>Program JSON <input id="programRequirementsJson" type="file" accept=".json,application/json"></label>
-            <button id="previewProgramRequirements" type="button">Preview JSON</button>
-            <button id="saveProgramRequirements" type="button">Save Preview Records</button>
-            <button id="exportProgramRequirements" type="button">Export Repository Backup</button>
-            <button id="clearProgramRequirementsPreview" type="button">Clear Preview</button>
-            <label>Catalog PDF <input id="catalogPdfFile" type="file" accept="application/pdf,.pdf"></label>
-            <button id="extractCatalogPdf" type="button">Extract Catalog PDF</button>
-            <button id="cancelCatalogPdfExtraction" type="button">Cancel PDF Extraction</button>
-            <button id="loadCatalogPilotPreview" type="button">Load 2026-2027 Catalog Pilot Preview</button>
-            <button id="approveCatalogPilotPrograms" type="button">Approve Reviewed Pilot Programs</button>
-          </div>
-          <div id="catalogPdfStatus" class="dashboard-scope-panel"></div>
-          <div id="programRequirementsStatus" class="dashboard-scope-panel"></div>
-          <div id="programRequirementsErrors" class="analytics-warning-list"></div>
-          <div id="catalogSourceStatus" class="dashboard-scope-panel"></div>
-          <div id="catalogProgramInventory" class="analytics-table"></div>
-          <div id="catalogRequirementReview" class="analytics-table"></div>
-          <div id="programRequirementsPreview" class="analytics-table"></div>
-          <div id="programRequirementsRepositoryTable" class="analytics-table"></div>
-          <div id="programRequirementsLegend" class="analytics-legend"></div>
+          <section class="collapsible-section" data-collapsible-id="catalog-source" data-collapsible-title="Catalog Source">
+            <div class="collapsible-section-body">
+              <div class="analytics-toolbar catalog-upload-toolbar">
+                <label>Catalog Year <input id="catalogPdfYear" type="text" value="2026-2027" aria-label="Catalog year"></label>
+                <label>Catalog Title <input id="catalogPdfTitle" type="text" value="College of the Sequoias 2026-2027 Catalog" aria-label="Catalog title"></label>
+                <label>Upload Catalog PDF <input id="catalogPdfFile" type="file" accept="application/pdf,.pdf" aria-label="Upload catalog PDF"></label>
+                <button id="extractCatalogPdf" type="button">Upload / Extract PDF</button>
+                <button id="cancelCatalogPdfExtraction" type="button">Cancel Extraction</button>
+                <button id="exportProgramRequirements" type="button">Export Catalog Backup</button>
+                <label>Import Catalog Backup <input id="importCatalogBackupFile" type="file" accept=".json,application/json" aria-label="Import catalog backup"></label>
+                <button id="importCatalogBackup" type="button">Restore Backup</button>
+                <button id="clearProgramRequirementsPreview" type="button">Clear Draft Extraction</button>
+              </div>
+              <div id="catalogPdfDropZone" class="dashboard-scope-panel" role="button" tabindex="0" aria-label="Drop catalog PDF here or use the file picker">Drop catalog PDF here or choose a file above. PDF files are processed locally in this browser.</div>
+              <div id="catalogPdfStatus" class="dashboard-scope-panel" aria-live="polite"></div>
+              <div id="programRequirementsStatus" class="dashboard-scope-panel"></div>
+              <div id="programRequirementsErrors" class="analytics-warning-list"></div>
+            </div>
+          </section>
+          <section class="collapsible-section" data-collapsible-id="catalog-extraction" data-collapsible-title="Extraction">
+            <div class="collapsible-section-body">
+              <div id="catalogSourceStatus" class="dashboard-scope-panel"></div>
+              <div class="analytics-toolbar">
+                <button id="loadCatalogPilotPreview" type="button">Load 2026-2027 Catalog Pilot Preview</button>
+                <button id="approveCatalogPilotPrograms" type="button">Approve Reviewed Pilot Programs</button>
+                <button id="downloadProgramTemplate" type="button">Download JSON Template</button>
+                <label>Program JSON <input id="programRequirementsJson" type="file" accept=".json,application/json"></label>
+                <button id="previewProgramRequirements" type="button">Preview JSON</button>
+                <button id="saveProgramRequirements" type="button">Save Preview Records</button>
+              </div>
+            </div>
+          </section>
+          <section class="collapsible-section" data-collapsible-id="catalog-inventory" data-collapsible-title="Program Inventory"><div class="collapsible-section-body"><div id="catalogProgramInventory" class="analytics-table"></div></div></section>
+          <section class="collapsible-section" data-collapsible-id="catalog-review-queue" data-collapsible-title="Review Queue"><div class="collapsible-section-body"><div id="catalogReviewQueue" class="analytics-table"></div></div></section>
+          <section class="collapsible-section" data-collapsible-id="catalog-program-detail" data-collapsible-title="Program Detail"><div class="collapsible-section-body"><div id="catalogRequirementReview" class="analytics-table"></div><div id="programRequirementsPreview" class="analytics-table"></div></div></section>
+          <section class="collapsible-section" data-collapsible-id="catalog-revision-history" data-collapsible-title="Revision History"><div class="collapsible-section-body"><div id="programRequirementsRepositoryTable" class="analytics-table"></div><div id="programRequirementsRevisionHistory" class="analytics-table"></div></div></section>
+          <section class="collapsible-section" data-collapsible-id="catalog-diagnostics" data-collapsible-title="Diagnostics"><div class="collapsible-section-body"><div id="programRequirementsDiagnostics" class="analytics-table"></div><div id="programRequirementsLegend" class="analytics-legend"></div></div></section>
         </div>
         <div id="roomFitReport" class="analytics-view">
           <div class="analytics-report-intro">
@@ -8880,8 +8901,15 @@
     const repo = await programRequirementsRepository();
     state.programRequirements = await repo.getPrograms();
     state.catalogSources = repo.getCatalogSources ? await repo.getCatalogSources() : [];
+    state.catalogPages = repo.getCatalogPages ? await repo.getCatalogPages() : [];
     state.catalogProgramCandidates = repo.getCatalogProgramCandidates ? await repo.getCatalogProgramCandidates() : [];
+    state.catalogRequirementDetails = repo.getCatalogRequirementDetail
+      ? (await Promise.all((state.catalogProgramCandidates || []).map(candidate => repo.getCatalogRequirementDetail(candidate.candidateId)))).filter(Boolean)
+      : state.catalogRequirementDetails;
     state.catalogReviewDecisions = repo.getCatalogReviewDecisions ? await repo.getCatalogReviewDecisions() : [];
+    state.programRequirementRevisions = repo.getProgramRequirementRevisions ? await repo.getProgramRequirementRevisions() : [];
+    state.programActiveRevisionPointers = repo.getProgramActiveRevisionPointers ? await repo.getProgramActiveRevisionPointers() : [];
+    state.programReviewHistory = repo.getProgramReviewHistory ? await repo.getProgramReviewHistory() : [];
     renderProgramRequirementsAdmin();
     renderProgramFeasibilitySelectors();
     return state.programRequirements;
@@ -8900,6 +8928,67 @@
     }));
   }
 
+  function catalogActionTable(id, rows = [], columns = []) {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.innerHTML = rows.length ? `
+      <table>
+        <thead><tr>${columns.map(column => `<th>${escapeAttr(column.label)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${column.html ? column.html(row) : escapeAttr(row[column.key])}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>
+    ` : '<p class="analytics-empty">No rows match the selected criteria.</p>';
+  }
+
+  function catalogSelectedDetail() {
+    const details = state.catalogRequirementDetails || [];
+    return details.find(detail => detail.candidateId === state.selectedCatalogCandidateId) || details[0] || null;
+  }
+
+  function catalogValidationSummary(detail = null) {
+    if (!detail) return { valid: false, warnings: ['No candidate selected.'] };
+    try {
+      return catalogExtractionApi().validateExtractionCandidate({
+        catalogYear: detail.program?.catalogYear,
+        detailedSourceFound: detail.pageRange?.boundaryConfidence >= 0.75
+      }, detail);
+    } catch (err) {
+      return { valid: false, warnings: [err.message || 'Validation failed.'] };
+    }
+  }
+
+  function catalogDiagnosticsRows() {
+    const diagnostics = window.COSAcademicPlanningPlatform?.validationDiagnostics?.({
+      programs: state.programRequirements,
+      catalogRequirementDetails: state.catalogRequirementDetails,
+      revisions: state.programRequirementRevisions
+    }) || {};
+    const rows = [];
+    (state.catalogRequirementDetails || []).forEach(detail => {
+      const validation = catalogValidationSummary(detail);
+      (validation.warnings || []).forEach(warning => rows.push({
+        severity: /Ambiguous|Missing|unmatched|cycle|variance|No detailed/i.test(warning) ? 'High' : 'Medium',
+        program: detail.program?.programName || '',
+        catalogYear: detail.program?.catalogYear || '',
+        revision: detail.program?.revisionId || '',
+        issue: warning,
+        sourcePage: detail.pageRange?.pages?.join(', ') || '',
+        suggestedAction: 'Open Review and resolve or document an administrator override.'
+      }));
+    });
+    Object.entries(diagnostics).forEach(([issueType, values]) => {
+      (Array.isArray(values) ? values : []).forEach(item => rows.push({
+        severity: item.severity || 'Medium',
+        program: item.programName || item.program || item.programId || '',
+        catalogYear: item.catalogYear || '',
+        revision: item.revisionId || '',
+        issue: item.issue || item.warning || issueType,
+        sourcePage: item.sourcePage || item.pageNumber || '',
+        suggestedAction: item.suggestedAction || issueType
+      }));
+    });
+    return rows;
+  }
+
   function renderProgramRequirementsAdmin() {
     const status = document.getElementById('programRequirementsStatus');
     if (status) {
@@ -8908,8 +8997,12 @@
         <dl class="report-context-grid">
           <div><dt>Saved Programs</dt><dd>${state.programRequirements.length}</dd></div>
           <div><dt>Preview Records</dt><dd>${state.programRequirementsPreview.length}</dd></div>
+          <div><dt>Catalog Sources</dt><dd>${state.catalogSources.length}</dd></div>
+          <div><dt>Catalog Pages</dt><dd>${state.catalogPages.length}</dd></div>
+          <div><dt>Catalog Candidates</dt><dd>${state.catalogProgramCandidates.length}</dd></div>
           <div><dt>Validation Errors</dt><dd>${state.programRequirementsErrors.length}</dd></div>
-          <div><dt>Storage</dt><dd>IndexedDB: timber-program-requirements / academicPrograms</dd></div>
+          <div><dt>Published Programs</dt><dd>${state.programRequirements.filter(program => program.reviewStatus === 'published').length}</dd></div>
+          <div><dt>Storage</dt><dd>IndexedDB: timber-program-requirements / catalog and program revision stores</dd></div>
         </dl>
       `;
     }
@@ -8922,6 +9015,7 @@
     const pdfStatus = document.getElementById('catalogPdfStatus');
     if (pdfStatus) {
       const extraction = state.catalogPdfExtraction || {};
+      const progressPct = extraction.pageCount ? Math.round(((extraction.pagesProcessed || extraction.pagesExtracted || 0) / extraction.pageCount) * 100) : 0;
       pdfStatus.innerHTML = `
         <strong>Catalog PDF Ingestion</strong>
         <dl class="report-context-grid">
@@ -8929,7 +9023,8 @@
           <div><dt>Filename</dt><dd>${escapeAttr(extraction.filename || 'N/A')}</dd></div>
           <div><dt>Catalog Year</dt><dd>${escapeAttr(extraction.catalogYear || 'N/A')}</dd></div>
           <div><dt>PDF Page Count</dt><dd>${extraction.pageCount || 0}</dd></div>
-          <div><dt>Pages Extracted</dt><dd>${extraction.pagesExtracted || 0}</dd></div>
+          <div><dt>Pages Extracted</dt><dd>${extraction.pagesExtracted || extraction.pagesProcessed || 0}</dd></div>
+          <div><dt>Progress</dt><dd>${progressPct}%</dd></div>
           <div><dt>Pages With No Text</dt><dd>${extraction.pagesWithNoText || 0}</dd></div>
           <div><dt>Source Fingerprint</dt><dd>${escapeAttr(extraction.sourceFingerprint || 'N/A')}</dd></div>
           <div><dt>Duration</dt><dd>${extraction.durationMs ? `${Math.round(extraction.durationMs)} ms` : 'N/A'}</dd></div>
@@ -8938,11 +9033,22 @@
       `;
     }
     const sourceStatus = document.getElementById('catalogSourceStatus');
+    const latestSource = [...(state.catalogSources || [])].sort((a, b) => String(b.importedAt || b.savedAt || '').localeCompare(String(a.importedAt || a.savedAt || '')))[0] || {};
+    const pilotCount = catalogExtractionApi().selectPilotCandidates ? catalogExtractionApi().selectPilotCandidates(state.catalogProgramCandidates).length : 0;
     if (sourceStatus) sourceStatus.innerHTML = `
-      <strong>Catalog Extraction Preview</strong>
+      <strong>Catalog Source & Extraction</strong>
       <dl class="report-context-grid">
+        <div><dt>Catalog Year</dt><dd>${escapeAttr(latestSource.catalogYear || 'N/A')}</dd></div>
+        <div><dt>Catalog Title</dt><dd>${escapeAttr(latestSource.catalogTitle || 'N/A')}</dd></div>
+        <div><dt>Filename</dt><dd>${escapeAttr(latestSource.filename || 'N/A')}</dd></div>
+        <div><dt>Page Count</dt><dd>${latestSource.pageCount || 0}</dd></div>
+        <div><dt>Source Fingerprint</dt><dd>${escapeAttr(latestSource.sourceFingerprint || 'N/A')}</dd></div>
+        <div><dt>Uploaded Date</dt><dd>${escapeAttr(latestSource.importedAt || latestSource.savedAt || 'N/A')}</dd></div>
+        <div><dt>Extraction Status</dt><dd>${escapeAttr(latestSource.status || 'N/A')}</dd></div>
         <div><dt>Catalog Sources</dt><dd>${state.catalogSources.length}</dd></div>
         <div><dt>Detected Candidates</dt><dd>${state.catalogProgramCandidates.length}</dd></div>
+        <div><dt>Pilot Programs Detected</dt><dd>${pilotCount} of 4</dd></div>
+        <div><dt>Programs Published</dt><dd>${state.programRequirements.filter(program => program.reviewStatus === 'published').length}</dd></div>
         <div><dt>Review Decisions</dt><dd>${state.catalogReviewDecisions.length}</dd></div>
         <div><dt>Approval Rule</dt><dd>Explicit admin approval required before Program Schedule Viability use</dd></div>
       </dl>
@@ -8957,7 +9063,24 @@
       warnings: (candidate.warnings || []).join('; '),
       reviewStatus: candidate.extractionStatus || candidate.reviewStatus
     })), ['program', 'awardType', 'areaOfStudy', 'sourcePages', 'pageRange', 'confidence', 'warnings', 'reviewStatus']);
-    table('catalogRequirementReview', (state.programRequirementsPreview || []).filter(program => program.source?.sourceType === 'catalog-pdf').flatMap(program => (program.requirementGroups || []).map(group => ({
+    catalogActionTable('catalogReviewQueue', (state.catalogProgramCandidates || []).map(candidate => ({
+      candidateId: candidate.candidateId,
+      program: candidate.programName,
+      award: candidate.awardType,
+      pages: candidate.pageRange?.pages?.join(', ') || `${candidate.likelyStartPage || ''}-${candidate.likelyEndPage || ''}`,
+      warnings: (candidate.warnings || []).join('; ') || 'None',
+      status: candidate.reviewStatus || candidate.extractionStatus || 'Detected'
+    })), [
+      { key: 'program', label: 'Program' },
+      { key: 'award', label: 'Award' },
+      { key: 'pages', label: 'Pages' },
+      { key: 'warnings', label: 'Warnings' },
+      { key: 'status', label: 'Status' },
+      { label: 'Actions', html: row => `<button type="button" data-catalog-action="open-review" data-candidate-id="${escapeAttr(row.candidateId)}">Open Review</button> <button type="button" data-catalog-action="approve" data-candidate-id="${escapeAttr(row.candidateId)}">Approve</button>` }
+    ]);
+    const selectedDetail = catalogSelectedDetail();
+    const detailPrograms = selectedDetail?.program ? [selectedDetail.program] : (state.programRequirementsPreview || []).filter(program => program.source?.sourceType === 'catalog-pdf');
+    table('catalogRequirementReview', detailPrograms.flatMap(program => (program.requirementGroups || []).map(group => ({
       program: program.programName,
       requirementGroup: group.label,
       originalText: group.sourceText,
@@ -8967,6 +9090,27 @@
       page: group.pageNumber,
       confidence: 'Needs admin review'
     }))), ['program', 'requirementGroup', 'originalText', 'parsedRule', 'courses', 'units', 'page', 'confidence']);
+    catalogActionTable('programRequirementsRevisionHistory', (state.programRequirementRevisions || []).map(revision => ({
+      revisionId: revision.revisionId,
+      status: revision.status || revision.programSnapshot?.reviewStatus,
+      createdAt: revision.createdAt || revision.savedAt,
+      createdBy: revision.createdBy || '',
+      previousRevisionId: revision.previousRevisionId || '',
+      sourceFingerprint: revision.sourceFingerprint || '',
+      active: state.programActiveRevisionPointers.some(pointer => pointer.activeRevisionId === revision.revisionId) ? 'Yes' : '',
+      reason: revision.reason || revision.changeSummary || ''
+    })), [
+      { key: 'revisionId', label: 'Revision ID' },
+      { key: 'status', label: 'Status' },
+      { key: 'createdAt', label: 'Created' },
+      { key: 'createdBy', label: 'Created By' },
+      { key: 'previousRevisionId', label: 'Previous Revision' },
+      { key: 'sourceFingerprint', label: 'Source Fingerprint' },
+      { key: 'active', label: 'Active' },
+      { key: 'reason', label: 'Reason' },
+      { label: 'Actions', html: row => `<button type="button" data-catalog-action="publish" data-revision-id="${escapeAttr(row.revisionId)}">Publish</button> <button type="button" data-catalog-action="archive" data-revision-id="${escapeAttr(row.revisionId)}">Archive</button> <button type="button" data-catalog-action="rollback" data-revision-id="${escapeAttr(row.revisionId)}">Rollback Draft</button>` }
+    ]);
+    table('programRequirementsDiagnostics', catalogDiagnosticsRows(), ['severity', 'program', 'catalogYear', 'revision', 'issue', 'sourcePage', 'suggestedAction']);
     renderMethodologyPanel(document.getElementById('programRequirementsLegend'), {
       title: 'Catalog & Program Requirements Methodology',
       purpose: 'Stores reviewed structured program requirements for feasibility analysis.',
@@ -8980,6 +9124,7 @@
       ],
       version: 'Program requirements catalog pilot v2'
     });
+    window.COSUtils?.applyCollapsibleSections?.(document.getElementById('catalogProgramRequirementsReport'));
   }
 
   function downloadProgramTemplate() {
@@ -9024,21 +9169,31 @@
     const input = document.getElementById('catalogPdfFile');
     const file = input?.files?.[0];
     if (!file) {
-      state.programRequirementsErrors = ['Choose the 2026-2027 catalog PDF before extraction.'];
+      state.programRequirementsErrors = ['Choose a catalog PDF before extraction.'];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    if (!/\.pdf$/i.test(file.name || '') && file.type !== 'application/pdf') {
+      state.programRequirementsErrors = ['Catalog source must be a PDF file.'];
       renderProgramRequirementsAdmin();
       return;
     }
     const extractor = catalogExtractionApi();
     const repo = await programRequirementsRepository();
+    if (window.pdfjsLib?.GlobalWorkerOptions && !window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    const catalogYear = document.getElementById('catalogPdfYear')?.value || '2026-2027';
+    const catalogTitle = document.getElementById('catalogPdfTitle')?.value || `College of the Sequoias ${catalogYear} Catalog`;
     state.catalogPdfAbortController = new AbortController();
-    state.catalogPdfExtraction = { state: 'Reading PDF', filename: file.name, catalogYear: '2026-2027' };
+    state.catalogPdfExtraction = { state: 'Reading PDF', filename: file.name, catalogYear, fileSize: file.size };
     renderProgramRequirementsAdmin();
     try {
       const extraction = await extractor.ingestCatalogPdf(file, {
-        catalogYear: '2026-2027',
+        catalogYear,
         signal: state.catalogPdfAbortController.signal,
         onProgress: progress => {
-          state.catalogPdfExtraction = { ...(state.catalogPdfExtraction || {}), ...progress, filename: file.name, catalogYear: '2026-2027' };
+          state.catalogPdfExtraction = { ...(state.catalogPdfExtraction || {}), ...progress, filename: file.name, catalogYear };
           renderProgramRequirementsAdmin();
         }
       });
@@ -9049,18 +9204,27 @@
         renderProgramRequirementsAdmin();
         return;
       }
+      const existingSources = repo.getCatalogSources ? await repo.getCatalogSources() : [];
+      const duplicate = existingSources.find(source => source.sourceFingerprint && source.sourceFingerprint === extraction.sourceFingerprint);
+      const sameYearDifferent = existingSources.find(source => source.catalogYear === catalogYear && source.sourceFingerprint && source.sourceFingerprint !== extraction.sourceFingerprint);
       const source = extractor.normalizeCatalogSource({
-        catalogYear: '2026-2027',
-        catalogTitle: 'College of the Sequoias 2026-2027 Catalog',
+        catalogYear,
+        catalogTitle,
         filename: extraction.filename,
         pageCount: extraction.pageCount,
         sourceFingerprint: extraction.sourceFingerprint,
-        status: extraction.state,
-        warnings: extraction.warnings
+        status: extraction.state === 'Ready for inventory extraction' ? 'ready-for-review' : extraction.state,
+        warnings: [
+          ...(extraction.warnings || []),
+          ...(duplicate ? ['A catalog with the same source fingerprint is already loaded.'] : []),
+          ...(sameYearDifferent ? ['A different catalog source already exists for this catalog year. Existing Published revisions will not be overwritten.'] : [])
+        ]
       });
       await repo.saveCatalogSource(source);
+      if (repo.saveCatalogPages) await repo.saveCatalogPages(source.catalogSourceId, state.catalogPageTexts);
       const inventory = extractor.extractProgramInventory(state.catalogPageTexts, source).map(candidate => ({ ...candidate, catalogSourceId: source.catalogSourceId }));
       await repo.saveCatalogProgramCandidates(inventory);
+      state.catalogPdfExtraction = { ...extraction, state: 'Ready for Review', programsDetected: inventory.length };
       const pilots = extractor.selectPilotCandidates(inventory);
       const details = pilots.map(candidate => extractor.parseRequirementDetail(candidate, state.catalogPageTexts, { filename: source.filename, catalogTitle: source.catalogTitle }));
       for (const detail of details) await repo.saveCatalogRequirementDetail(detail);
@@ -9198,13 +9362,112 @@ BUS 180 2 units`)
     await refreshProgramRequirementsRepository();
   }
 
-  function exportProgramRequirementsRepository() {
-    const blob = new Blob([JSON.stringify({ programs: state.programRequirements }, null, 2)], { type: 'application/json;charset=utf-8;' });
+  async function approveCatalogCandidate(candidateId = '') {
+    const extractor = catalogExtractionApi();
+    const repo = await programRequirementsRepository();
+    const detail = state.catalogRequirementDetails.find(item => item.candidateId === candidateId)
+      || await repo.getCatalogRequirementDetail?.(candidateId);
+    if (!detail) {
+      state.programRequirementsErrors = ['Open or extract a catalog candidate before approval.'];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    let approved;
+    try {
+      approved = extractor.approveExtractedProgram(detail, 'TIMBER Admin Review');
+    } catch (err) {
+      const overrideReason = window.prompt?.(`${err.message || 'Approval blocked.'}\nEnter an administrator override reason to approve anyway, or Cancel.`) || '';
+      if (!overrideReason) {
+        state.programRequirementsErrors = err.validation?.warnings || [err.message || 'Catalog approval blocked.'];
+        renderProgramRequirementsAdmin();
+        return;
+      }
+      approved = extractor.approveExtractedProgram(detail, 'TIMBER Admin Override', { overrideReason });
+    }
+    await repo.savePrograms([approved.program]);
+    await repo.saveCatalogReviewDecision?.(approved.reviewDecision);
+    if (approved.revision && repo.saveProgramRequirementRevision) await repo.saveProgramRequirementRevision(approved.revision);
+    state.selectedCatalogCandidateId = candidateId;
+    state.programRequirementsErrors = [];
+    await refreshProgramRequirementsRepository();
+  }
+
+  async function publishCatalogRevision(revisionId = '') {
+    if (!revisionId) return;
+    if (window.confirm && !window.confirm('Publish this reviewed program revision for Program Schedule Viability?')) return;
+    const repo = await programRequirementsRepository();
+    const published = await repo.publishProgramRevision?.(revisionId, { reason: 'Published from Catalog & Program Requirements.' });
+    if (!published) state.programRequirementsErrors = ['Revision could not be published.'];
+    window.COSAcademicPlanningPlatform?.clearPlanningCache?.();
+    await refreshProgramRequirementsRepository();
+  }
+
+  async function archiveCatalogRevision(revisionId = '') {
+    if (!revisionId) return;
+    const repo = await programRequirementsRepository();
+    await repo.archiveProgramRevision?.(revisionId, { reason: 'Archived from Catalog & Program Requirements.' });
+    window.COSAcademicPlanningPlatform?.clearPlanningCache?.();
+    await refreshProgramRequirementsRepository();
+  }
+
+  async function rollbackCatalogRevision(revisionId = '') {
+    if (!revisionId) return;
+    const repo = await programRequirementsRepository();
+    await repo.rollbackProgramRevision?.(revisionId, { createdBy: 'TIMBER Admin Review', reason: 'Rollback created as new draft from Catalog & Program Requirements.' });
+    await refreshProgramRequirementsRepository();
+  }
+
+  async function exportProgramRequirementsRepository() {
+    const repo = await programRequirementsRepository();
+    const backup = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      catalogSources: repo.getCatalogSources ? await repo.getCatalogSources() : state.catalogSources,
+      catalogPages: repo.getCatalogPages ? await repo.getCatalogPages() : state.catalogPages,
+      catalogProgramCandidates: repo.getCatalogProgramCandidates ? await repo.getCatalogProgramCandidates() : state.catalogProgramCandidates,
+      catalogRequirementDetails: state.catalogRequirementDetails,
+      catalogReviewDecisions: repo.getCatalogReviewDecisions ? await repo.getCatalogReviewDecisions() : state.catalogReviewDecisions,
+      programs: repo.getPrograms ? await repo.getPrograms() : state.programRequirements,
+      programRequirementRevisions: repo.getProgramRequirementRevisions ? await repo.getProgramRequirementRevisions() : state.programRequirementRevisions,
+      programActiveRevisionPointers: repo.getProgramActiveRevisionPointers ? await repo.getProgramActiveRevisionPointers() : state.programActiveRevisionPointers,
+      programReviewHistory: repo.getProgramReviewHistory ? await repo.getProgramReviewHistory() : state.programReviewHistory,
+      diagnosticsMetadata: { validationRows: catalogDiagnosticsRows() }
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'timber-program-requirements-backup.json';
     link.click();
     URL.revokeObjectURL(link.href);
+  }
+
+  async function importProgramRequirementsBackup() {
+    const file = document.getElementById('importCatalogBackupFile')?.files?.[0];
+    if (!file) {
+      state.programRequirementsErrors = ['Choose a catalog backup JSON file to restore.'];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    const parsed = JSON.parse(await readTextFile(file));
+    if (parsed.schemaVersion !== 1) {
+      state.programRequirementsErrors = ['Catalog backup schema version is not supported.'];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    if (window.confirm && !window.confirm('Restore catalog backup data? Existing matching records may be replaced.')) return;
+    const repo = await programRequirementsRepository();
+    for (const source of parsed.catalogSources || []) await repo.saveCatalogSource?.(source);
+    for (const source of parsed.catalogSources || []) {
+      const pages = (parsed.catalogPages || []).filter(page => page.catalogSourceId === source.catalogSourceId);
+      if (pages.length) await repo.saveCatalogPages?.(source.catalogSourceId, pages);
+    }
+    await repo.saveCatalogProgramCandidates?.(parsed.catalogProgramCandidates || []);
+    for (const detail of parsed.catalogRequirementDetails || []) await repo.saveCatalogRequirementDetail?.(detail);
+    for (const decision of parsed.catalogReviewDecisions || []) await repo.saveCatalogReviewDecision?.(decision);
+    await repo.savePrograms?.(parsed.programs || []);
+    for (const revision of parsed.programRequirementRevisions || []) await repo.saveProgramRequirementRevision?.(revision);
+    state.programRequirementsErrors = [];
+    await refreshProgramRequirementsRepository();
   }
 
   function clearProgramRequirementsPreview() {
@@ -9324,7 +9587,13 @@ BUS 180 2 units`)
     if (!program) {
       state.programFeasibilityResult = null;
       metric('programFeasibilityMetrics', [['Programs Loaded', state.programRequirements.length], ['Configuration Count', 0], ['Status', 'No program selected']]);
-      document.getElementById('programFeasibilityCoverage').innerHTML = '<p class="analytics-empty">Import and select a structured program first.</p>';
+      document.getElementById('programFeasibilityCoverage').innerHTML = `
+        <div class="analytics-warning-list">
+          <strong>No Published Program Requirements</strong>
+          <p>Upload and review the current catalog in Catalog & Program Requirements, then Publish at least one program revision before running viability analysis.</p>
+          <button id="openCatalogRequirementsFromViability" type="button">Open Catalog & Program Requirements</button>
+        </div>
+      `;
       return;
     }
     const selectedTerm = document.getElementById('programFeasibilityTerm')?.value || normalizeTermLabel(currentTerm());
@@ -23795,6 +24064,12 @@ BUS 180 2 units`)
     return document.getElementById('emReportSelect')?.value || REPORTS.dashboard;
   }
 
+  function openCatalogProgramRequirementsReport() {
+    const select = document.getElementById('emReportSelect');
+    if (select) select.value = REPORTS.catalogProgramRequirements;
+    renderSelectedEnrollmentReport();
+  }
+
   function dashboardDataSourceLabel() {
     if (state.dashboardInput.length) return 'Selected dashboard CSV and/or archived term rows';
     if (state.workExperienceInput.length) return 'Currently loaded schedule rows with Work Experience rows included';
@@ -24699,14 +24974,58 @@ BUS 180 2 units`)
     document.getElementById('downloadProgramTemplate')?.addEventListener('click', downloadProgramTemplate);
     attachBusyClick('previewProgramRequirements', 'Previewing program requirements JSON...', () => previewProgramRequirementsJson(), { key: 'previewProgramRequirements', runningLabel: 'Previewing...' });
     attachBusyClick('saveProgramRequirements', 'Saving structured program requirements...', () => saveProgramRequirementsPreview(), { key: 'saveProgramRequirements', runningLabel: 'Saving...' });
-    document.getElementById('exportProgramRequirements')?.addEventListener('click', exportProgramRequirementsRepository);
+    attachBusyClick('exportProgramRequirements', 'Exporting catalog backup...', () => exportProgramRequirementsRepository(), { key: 'exportProgramRequirements', runningLabel: 'Exporting...' });
+    attachBusyClick('importCatalogBackup', 'Restoring catalog backup...', () => importProgramRequirementsBackup(), { key: 'importCatalogBackup', runningLabel: 'Restoring...' });
     document.getElementById('clearProgramRequirementsPreview')?.addEventListener('click', clearProgramRequirementsPreview);
     attachBusyClick('extractCatalogPdf', 'Extracting catalog PDF...', () => extractCatalogPdfFile(), { key: 'extractCatalogPdf', runningLabel: 'Extracting...' });
     document.getElementById('cancelCatalogPdfExtraction')?.addEventListener('click', cancelCatalogPdfExtraction);
     attachBusyClick('loadCatalogPilotPreview', 'Loading catalog pilot preview...', () => loadCatalogPilotPreview(), { key: 'loadCatalogPilotPreview', runningLabel: 'Loading...' });
     attachBusyClick('approveCatalogPilotPrograms', 'Approving catalog pilot programs...', () => approveCatalogPilotPrograms(), { key: 'approveCatalogPilotPrograms', runningLabel: 'Approving...' });
+    document.getElementById('catalogProgramRequirementsReport')?.addEventListener('click', event => {
+      const button = event.target.closest?.('[data-catalog-action]');
+      if (!button) return;
+      const action = button.dataset.catalogAction;
+      const candidateId = button.dataset.candidateId || '';
+      const revisionId = button.dataset.revisionId || '';
+      const task = action === 'open-review'
+        ? Promise.resolve().then(() => { state.selectedCatalogCandidateId = candidateId; renderProgramRequirementsAdmin(); })
+        : action === 'approve'
+          ? approveCatalogCandidate(candidateId)
+          : action === 'publish'
+            ? publishCatalogRevision(revisionId)
+            : action === 'archive'
+              ? archiveCatalogRevision(revisionId)
+              : action === 'rollback'
+                ? rollbackCatalogRevision(revisionId)
+                : Promise.resolve();
+      task.catch(err => {
+        state.programRequirementsErrors = [err.message || String(err)];
+        renderProgramRequirementsAdmin();
+      });
+    });
+    const dropZone = document.getElementById('catalogPdfDropZone');
+    dropZone?.addEventListener('dragover', event => { event.preventDefault(); dropZone.classList.add('analytics-row-info'); });
+    dropZone?.addEventListener('dragleave', () => dropZone.classList.remove('analytics-row-info'));
+    dropZone?.addEventListener('drop', event => {
+      event.preventDefault();
+      dropZone.classList.remove('analytics-row-info');
+      const file = event.dataTransfer?.files?.[0];
+      const input = document.getElementById('catalogPdfFile');
+      if (file && input) {
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        input.files = transfer.files;
+        extractCatalogPdfFile().catch(err => {
+          state.programRequirementsErrors = [err.message || String(err)];
+          renderProgramRequirementsAdmin();
+        });
+      }
+    });
     document.getElementById('programFeasibilityProgram')?.addEventListener('change', renderProgramFeasibilitySelectors);
     document.getElementById('programFeasibilityIncludeApprovedPilot')?.addEventListener('change', renderProgramFeasibilitySelectors);
+    document.getElementById('twoYearProgramFeasibilityReport')?.addEventListener('click', event => {
+      if (event.target?.id === 'openCatalogRequirementsFromViability') openCatalogProgramRequirementsReport();
+    });
     attachBusyClick('refreshProgramFeasibility', 'Refreshing program repository...', () => refreshProgramRequirementsRepository(), { key: 'refreshProgramFeasibility', runningLabel: 'Refreshing...' });
     attachBusyClick('runProgramFeasibility', 'Evaluating two-year program feasibility...', () => runProgramFeasibility(), { key: 'runProgramFeasibility', runningLabel: 'Evaluating...' });
     document.getElementById('cancelProgramPortfolio')?.addEventListener('click', cancelProgramPortfolioAnalysis);

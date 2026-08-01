@@ -4917,6 +4917,15 @@ test('two-year program feasibility foundation is registered and uses structured 
   assert.match(text, /function runProgramFeasibility/);
   assert.match(text, /function previewProgramRequirementsJson/);
   assert.match(text, /id="catalogPdfFile"/);
+  assert.match(text, /id="catalogPdfDropZone"/);
+  assert.match(text, /data-collapsible-title="Catalog Source"/);
+  assert.match(text, /data-collapsible-title="Program Inventory"/);
+  assert.match(text, /data-collapsible-title="Review Queue"/);
+  assert.match(text, /data-collapsible-title="Revision History"/);
+  assert.match(text, /id="importCatalogBackup"/);
+  assert.match(text, /function approveCatalogCandidate/);
+  assert.match(text, /function publishCatalogRevision/);
+  assert.match(text, /function importProgramRequirementsBackup/);
   assert.match(text, /function extractCatalogPdfFile/);
   assert.match(text, /Detected \$\{pilots\.length\} of 4 required Business pilot records/);
   assert.match(text, /Catalog PDF Pilot/);
@@ -4928,6 +4937,7 @@ test('two-year program feasibility foundation is registered and uses structured 
   assert.match(index, /js\/core\/feasibility-term-window\.js/);
   assert.match(index, /js\/core\/program-feasibility\.js/);
   assert.match(index, /js\/core\/academic-planning-platform\.js/);
+  assert.match(index, /pdf\.js\/3\.11\.174\/pdf\.min\.js/);
   assert.ok(index.indexOf('src="js/core/campus-classification.js"') < index.indexOf('src="js/core/schedule-builder.js"'));
   assert.ok(adminBlock.indexOf('REPORTS.catalogProgramRequirements') < adminBlock.indexOf('REPORTS.twoYearProgramFeasibility'));
   assert.match(text, /Development Status/);

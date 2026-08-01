@@ -237,6 +237,29 @@ test('catalog review workflow keeps extracted records out of feasibility until a
   assert.equal((await repo.getCatalogReviewDecisions()).length, 1);
 });
 
+test('catalog repository persists page text revisions and active published pointers', async () => {
+  const repo = COSProgramRequirements.createMemoryRepository();
+  const source = catalog.normalizeCatalogSource({ catalogYear: '2026-2027', filename: 'COS Catalog.pdf', pageCount: 2 });
+  await repo.saveCatalogSource(source);
+  await repo.saveCatalogPages(source.catalogSourceId, [page(1, 'Catalog page one'), page(2, 'Catalog page two')]);
+  const pages = await repo.getCatalogPages(source.catalogSourceId);
+  const candidate = catalog.extractProgramInventory(pilotPages, source)
+    .find(item => item.programName === 'Business' && item.awardType === 'Certificate of Achievement');
+  const detail = catalog.parseRequirementDetail(candidate, pilotPages, { filename: source.filename });
+  const approved = catalog.approveExtractedProgram(detail, 'Reviewer');
+  await repo.savePrograms([approved.program]);
+  await repo.saveProgramRequirementRevision(approved.revision);
+  const revisions = await repo.getProgramRequirementRevisions(approved.program.programId, approved.program.catalogYear);
+  const published = await repo.publishProgramRevision(revisions[0].revisionId, { reason: 'Publish test revision.' });
+  const pointers = await repo.getProgramActiveRevisionPointers();
+
+  assert.equal(pages.length, 2);
+  assert.equal(pages[0].text, 'Catalog page one');
+  assert.equal(published.status, 'published');
+  assert.equal(published.programSnapshot.reviewStatus, 'published');
+  assert.equal(pointers.some(pointer => pointer.activeRevisionId === published.revisionId), true);
+});
+
 test('approved catalog pilot records can run through program feasibility', () => {
   const candidate = catalog.extractProgramInventory(pilotPages, { catalogYear: '2026-2027' })
     .find(item => item.programName === 'Business' && item.awardType === 'Certificate of Achievement');

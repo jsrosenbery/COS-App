@@ -10,13 +10,14 @@
   const STORE_BATCHES = 'programImportBatches';
   const STORE_METADATA = 'programMetadata';
   const STORE_CATALOG_SOURCES = 'catalogSources';
+  const STORE_CATALOG_PAGES = 'catalogPages';
   const STORE_CATALOG_CANDIDATES = 'catalogProgramCandidates';
   const STORE_CATALOG_DETAILS = 'catalogRequirementDetails';
   const STORE_CATALOG_DECISIONS = 'catalogReviewDecisions';
   const STORE_PROGRAM_REVISIONS = 'programRequirementRevisions';
   const STORE_PROGRAM_ACTIVE_POINTERS = 'programActiveRevisionPointers';
   const STORE_PROGRAM_REVIEW_HISTORY = 'programReviewHistory';
-  const DB_VERSION = 4;
+  const DB_VERSION = 5;
   const VALID_GROUP_RULES = new Set(['all', 'choose-count', 'choose-units', 'one-from-each-list', 'or', 'elective']);
   const VALID_REVIEW_STATUSES = new Set(['draft', 'needs-review', 'approved', 'published', 'archived', 'retired']);
   const VALID_SOURCE_TYPES = new Set(['manual', 'json', 'csv', 'catalog-pdf']);
@@ -278,6 +279,7 @@
     const batches = new Map();
     const metadata = new Map();
     const catalogSources = new Map();
+    const catalogPages = new Map();
     const catalogCandidates = new Map();
     const catalogDetails = new Map();
     const catalogDecisions = new Map();
@@ -288,7 +290,12 @@
       revisions.set(record.revisionId, clone(record));
       const historyKey = `${programKey(record.programId, record.catalogYear)}::${record.revisionId}`;
       reviewHistory.set(historyKey, { ...record, id: historyKey });
-      if (record.status === 'published' || record.isActive) activePointers.set(programKey(record.programId, record.catalogYear), activePointerRecord(record));
+      const pointerKey = programKey(record.programId, record.catalogYear);
+      if (record.status === 'published') activePointers.set(pointerKey, activePointerRecord(record));
+      else if (record.status === 'archived' || record.isActive === false) {
+        const pointer = activePointers.get(pointerKey);
+        if (pointer?.activeRevisionId === record.revisionId) activePointers.delete(pointerKey);
+      }
     }
     initialPrograms.map(normalizeProgram).forEach(program => {
       const revision = revisionRecord(program, { reason: 'Migrated legacy program record.' });
@@ -341,6 +348,17 @@
         return clone(record);
       },
       async getCatalogSources() { return [...catalogSources.values()].map(clone); },
+      async saveCatalogPages(catalogSourceId = '', pages = []) {
+        const sourceId = compact(catalogSourceId);
+        if (!sourceId) throw new Error('catalogSourceId is required for catalog pages.');
+        (pages || []).forEach(page => {
+          const pageNumber = Number(page.pageNumber || 0);
+          catalogPages.set(`${sourceId}::${pageNumber}`, { ...clone(page), catalogSourceId: sourceId, pageNumber });
+        });
+      },
+      async getCatalogPages(catalogSourceId = '') {
+        return [...catalogPages.values()].filter(record => !catalogSourceId || record.catalogSourceId === catalogSourceId).sort((a, b) => Number(a.pageNumber) - Number(b.pageNumber)).map(clone);
+      },
       async saveCatalogProgramCandidates(records = []) {
         for (const candidate of records) {
           const id = compact(candidate.candidateId) || `candidate-${Date.now()}-${catalogCandidates.size}`;
@@ -418,7 +436,7 @@
         if (catalogYear) programs.delete(programKey(programId, catalogYear));
         else [...programs.keys()].filter(key => key.startsWith(`${canon(programId)}::`)).forEach(key => programs.delete(key));
       },
-      async clearAll() { programs.clear(); batches.clear(); metadata.clear(); catalogSources.clear(); catalogCandidates.clear(); catalogDetails.clear(); catalogDecisions.clear(); revisions.clear(); activePointers.clear(); reviewHistory.clear(); }
+      async clearAll() { programs.clear(); batches.clear(); metadata.clear(); catalogSources.clear(); catalogPages.clear(); catalogCandidates.clear(); catalogDetails.clear(); catalogDecisions.clear(); revisions.clear(); activePointers.clear(); reviewHistory.clear(); }
     };
   }
 
@@ -437,6 +455,7 @@
           if (!db.objectStoreNames.contains(STORE_BATCHES)) db.createObjectStore(STORE_BATCHES, { keyPath: 'id' });
           if (!db.objectStoreNames.contains(STORE_METADATA)) db.createObjectStore(STORE_METADATA, { keyPath: 'key' });
           if (!db.objectStoreNames.contains(STORE_CATALOG_SOURCES)) db.createObjectStore(STORE_CATALOG_SOURCES, { keyPath: 'catalogSourceId' });
+          if (!db.objectStoreNames.contains(STORE_CATALOG_PAGES)) db.createObjectStore(STORE_CATALOG_PAGES, { keyPath: 'id' });
           if (!db.objectStoreNames.contains(STORE_CATALOG_CANDIDATES)) db.createObjectStore(STORE_CATALOG_CANDIDATES, { keyPath: 'candidateId' });
           if (!db.objectStoreNames.contains(STORE_CATALOG_DETAILS)) db.createObjectStore(STORE_CATALOG_DETAILS, { keyPath: 'candidateId' });
           if (!db.objectStoreNames.contains(STORE_CATALOG_DECISIONS)) db.createObjectStore(STORE_CATALOG_DECISIONS, { keyPath: 'id' });
@@ -518,6 +537,19 @@
       async getCatalogSources() {
         return (await requestPromise((await store('readonly', STORE_CATALOG_SOURCES)).getAll())).map(clone);
       },
+      async saveCatalogPages(catalogSourceId = '', pages = []) {
+        const sourceId = compact(catalogSourceId);
+        if (!sourceId) throw new Error('catalogSourceId is required for catalog pages.');
+        const pageStore = await store('readwrite', STORE_CATALOG_PAGES);
+        for (const page of pages || []) {
+          const pageNumber = Number(page.pageNumber || 0);
+          await requestPromise(pageStore.put({ ...clone(page), id: `${sourceId}::${pageNumber}`, catalogSourceId: sourceId, pageNumber }));
+        }
+      },
+      async getCatalogPages(catalogSourceId = '') {
+        const records = (await requestPromise((await store('readonly', STORE_CATALOG_PAGES)).getAll())).map(clone);
+        return records.filter(record => !catalogSourceId || record.catalogSourceId === catalogSourceId).sort((a, b) => Number(a.pageNumber) - Number(b.pageNumber));
+      },
       async saveCatalogProgramCandidates(records = []) {
         const catalogStore = await store('readwrite', STORE_CATALOG_CANDIDATES);
         for (const candidate of records) {
@@ -556,7 +588,12 @@
         record.savedAt = compact(record.savedAt) || new Date().toISOString();
         await requestPromise((await store('readwrite', STORE_PROGRAM_REVISIONS)).put(record));
         await requestPromise((await store('readwrite', STORE_PROGRAM_REVIEW_HISTORY)).put({ ...record, id: `${programKey(record.programId, record.catalogYear)}::${record.revisionId}` }));
-        if (record.status === 'published' || record.isActive) await requestPromise((await store('readwrite', STORE_PROGRAM_ACTIVE_POINTERS)).put(activePointerRecord(record)));
+        if (record.status === 'published') await requestPromise((await store('readwrite', STORE_PROGRAM_ACTIVE_POINTERS)).put(activePointerRecord(record)));
+        else if (record.status === 'archived' || record.isActive === false) {
+          const pointerStore = await store('readwrite', STORE_PROGRAM_ACTIVE_POINTERS);
+          const pointer = await requestPromise(pointerStore.get(programKey(record.programId, record.catalogYear)));
+          if (pointer?.activeRevisionId === record.revisionId) await requestPromise(pointerStore.delete(pointer.key));
+        }
         return clone(record);
       },
       async getProgramRequirementRevisions(programId = '', catalogYear = '') {
@@ -622,6 +659,7 @@
         await requestPromise((await store('readwrite', STORE_BATCHES)).clear());
         await requestPromise((await store('readwrite', STORE_METADATA)).clear());
         await requestPromise((await store('readwrite', STORE_CATALOG_SOURCES)).clear());
+        await requestPromise((await store('readwrite', STORE_CATALOG_PAGES)).clear());
         await requestPromise((await store('readwrite', STORE_CATALOG_CANDIDATES)).clear());
         await requestPromise((await store('readwrite', STORE_CATALOG_DETAILS)).clear());
         await requestPromise((await store('readwrite', STORE_CATALOG_DECISIONS)).clear());
@@ -697,6 +735,7 @@
     STORE_BATCHES,
     STORE_METADATA,
     STORE_CATALOG_SOURCES,
+    STORE_CATALOG_PAGES,
     STORE_CATALOG_CANDIDATES,
     STORE_CATALOG_DETAILS,
     STORE_CATALOG_DECISIONS,
