@@ -157,8 +157,12 @@ test('index serves PDF.js catalog extraction engine locally', () => {
 
   assert.doesNotMatch(index, /cdnjs\.cloudflare\.com\/ajax\/libs\/pdf\.js/);
   assert.match(index, /src="vendor\/pdfjs\/pdf\.min\.js"/);
+  assert.match(index, /window\.COS_PDFJS_SCRIPT_SRC = 'vendor\/pdfjs\/pdf\.min\.js'/);
   assert.match(index, /window\.COS_PDFJS_WORKER_SRC = 'vendor\/pdfjs\/pdf\.worker\.min\.js'/);
   assert.match(index, /pdfjsLib\.GlobalWorkerOptions\.workerSrc = window\.COS_PDFJS_WORKER_SRC/);
+  assert.match(index, /COSConfigurePdfJs/);
+  assert.match(index, /COSLoadPdfJsFallback/);
+  assert.match(index, /script\.src = '\/vendor\/pdfjs\/pdf\.min\.js'/);
   assert.equal(fs.existsSync(path.join(root, 'vendor', 'pdfjs', 'pdf.min.js')), true);
   assert.equal(fs.existsSync(path.join(root, 'vendor', 'pdfjs', 'pdf.worker.min.js')), true);
 });

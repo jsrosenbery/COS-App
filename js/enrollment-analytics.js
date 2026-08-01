@@ -9041,6 +9041,7 @@
           <div><dt>Filename</dt><dd>${escapeAttr(extraction.filename || 'N/A')}</dd></div>
           <div><dt>Catalog Year</dt><dd>${escapeAttr(extraction.catalogYear || 'N/A')}</dd></div>
           <div><dt>PDF Extraction Engine</dt><dd>${escapeAttr(pdfEngine.status)}</dd></div>
+          <div><dt>PDF Library</dt><dd>${escapeAttr(pdfEngine.scriptSrc || 'N/A')}</dd></div>
           <div><dt>PDF Worker</dt><dd>${escapeAttr(pdfEngine.workerSrc || 'N/A')}</dd></div>
           <div><dt>PDF Page Count</dt><dd>${extraction.pageCount || 0}</dd></div>
           <div><dt>Pages Extracted</dt><dd>${extraction.pagesExtracted || extraction.pagesProcessed || 0}</dd></div>
@@ -9219,6 +9220,7 @@
     try {
       const extraction = await extractor.ingestCatalogPdf(file, {
         catalogYear,
+        pdfjsLib: pdfEngine.pdfjsLib,
         signal: state.catalogPdfAbortController.signal,
         onProgress: progress => {
           state.catalogPdfExtraction = { ...(state.catalogPdfExtraction || {}), ...progress, filename: file.name, catalogYear };
@@ -22894,11 +22896,15 @@ BUS 180 2 units`)
 
   function catalogPdfEngineReadiness(configure = false) {
     const pdfjs = window.pdfjsLib;
+    const loadStatus = window.COS_PDFJS_LOAD_STATUS || (pdfjs ? 'ready' : 'unknown');
+    const loadError = window.COS_PDFJS_LOAD_ERROR || '';
     if (!pdfjs?.getDocument) {
       return {
         ready: false,
         status: 'PDF extraction engine failed to load.',
-        detail: 'PDF.js is unavailable. The Catalog PDF remains processed entirely in the browser, so extraction is disabled until the local PDF.js library loads.'
+        detail: loadError || `PDF.js is unavailable from local path ${window.COS_PDFJS_SCRIPT_SRC || 'vendor/pdfjs/pdf.min.js'}. The Catalog PDF remains processed entirely in the browser, so extraction is disabled until the local PDF.js library loads.`,
+        loadStatus,
+        scriptSrc: window.COS_PDFJS_SCRIPT_SRC || 'vendor/pdfjs/pdf.min.js'
       };
     }
     const workerSrc = window.COS_PDFJS_WORKER_SRC || CATALOG_PDFJS_WORKER_SRC;
@@ -22911,7 +22917,10 @@ BUS 180 2 units`)
       ready: true,
       status: 'PDF extraction engine: Ready',
       detail: `Local PDF.js worker: ${workerSrc}`,
-      workerSrc
+      workerSrc,
+      loadStatus,
+      scriptSrc: window.COS_PDFJS_SCRIPT_SRC || 'vendor/pdfjs/pdf.min.js',
+      pdfjsLib: pdfjs
     };
   }
 
@@ -25036,6 +25045,9 @@ BUS 180 2 units`)
     document.getElementById('clearProgramRequirementsPreview')?.addEventListener('click', clearProgramRequirementsPreview);
     attachBusyClick('extractCatalogPdf', 'Extracting catalog PDF...', () => extractCatalogPdfFile(), { key: 'extractCatalogPdf', runningLabel: 'Extracting...' });
     document.getElementById('cancelCatalogPdfExtraction')?.addEventListener('click', cancelCatalogPdfExtraction);
+    window.addEventListener('cos-pdfjs-ready', () => {
+      if (selectedEnrollmentReport() === REPORTS.catalogProgramRequirements) renderProgramRequirementsAdmin();
+    });
     attachBusyClick('loadCatalogPilotPreview', 'Loading catalog pilot preview...', () => loadCatalogPilotPreview(), { key: 'loadCatalogPilotPreview', runningLabel: 'Loading...' });
     attachBusyClick('approveCatalogPilotPrograms', 'Approving catalog pilot programs...', () => approveCatalogPilotPrograms(), { key: 'approveCatalogPilotPrograms', runningLabel: 'Approving...' });
     document.getElementById('catalogProgramRequirementsReport')?.addEventListener('click', event => {
@@ -25066,6 +25078,10 @@ BUS 180 2 units`)
     dropZone?.addEventListener('drop', event => {
       event.preventDefault();
       dropZone.classList.remove('analytics-row-info');
+      if (!catalogPdfEngineReadiness().ready) {
+        renderProgramRequirementsAdmin();
+        return;
+      }
       const file = event.dataTransfer?.files?.[0];
       const input = document.getElementById('catalogPdfFile');
       if (file && input) {

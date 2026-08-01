@@ -4933,9 +4933,14 @@ test('two-year program feasibility foundation is registered and uses structured 
   assert.match(text, /function catalogPdfEngineReadiness/);
   assert.match(text, /PDF extraction engine: Ready/);
   assert.match(text, /PDF extraction engine failed to load/);
+  assert.match(text, /loadStatus/);
+  assert.match(text, /scriptSrc/);
   assert.match(text, /extractPdfButton\.disabled = !pdfEngine\.ready/);
   assert.match(text, /catalogPdfFile\.disabled = !pdfEngine\.ready/);
   assert.match(text, /catalogPdfEngineReadiness\(true\)/);
+  assert.match(text, /pdfjsLib: pdfEngine\.pdfjsLib/);
+  assert.match(text, /cos-pdfjs-ready/);
+  assert.match(text, /if \(!catalogPdfEngineReadiness\(\)\.ready\)/);
   assert.match(text, /Detected \$\{pilots\.length\} of 4 required Business pilot records/);
   assert.match(text, /Catalog PDF Pilot/);
   assert.match(text, /createIndexedDbRepository/);

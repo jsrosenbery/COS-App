@@ -21,13 +21,40 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <!-- PDF and Excel Export Libraries -->
-  <script src="vendor/pdfjs/pdf.min.js"></script>
   <script>
+    window.COS_PDFJS_SCRIPT_SRC = 'vendor/pdfjs/pdf.min.js';
     window.COS_PDFJS_WORKER_SRC = 'vendor/pdfjs/pdf.worker.min.js';
-    if (window.pdfjsLib?.GlobalWorkerOptions) {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = window.COS_PDFJS_WORKER_SRC;
-    }
+    window.COS_PDFJS_LOAD_STATUS = 'pending';
+    window.COSConfigurePdfJs = function () {
+      if (window.pdfjsLib?.GlobalWorkerOptions) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = window.COS_PDFJS_WORKER_SRC;
+        window.COS_PDFJS_LOAD_STATUS = 'ready';
+        window.dispatchEvent(new CustomEvent('cos-pdfjs-ready'));
+      } else {
+        window.COS_PDFJS_LOAD_STATUS = 'failed';
+        window.COS_PDFJS_LOAD_ERROR = 'Local PDF.js loaded, but window.pdfjsLib was not available.';
+      }
+    };
+    window.COSLoadPdfJsFallback = function () {
+      if (window.COS_PDFJS_FALLBACK_ATTEMPTED) {
+        window.COS_PDFJS_LOAD_STATUS = 'failed';
+        window.COS_PDFJS_LOAD_ERROR = 'Failed to load local PDF.js from vendor/pdfjs/pdf.min.js or /vendor/pdfjs/pdf.min.js';
+        return;
+      }
+      window.COS_PDFJS_FALLBACK_ATTEMPTED = true;
+      const script = document.createElement('script');
+      script.src = '/vendor/pdfjs/pdf.min.js';
+      script.onload = function () {
+        window.COSConfigurePdfJs && window.COSConfigurePdfJs();
+      };
+      script.onerror = function () {
+        window.COS_PDFJS_LOAD_STATUS = 'failed';
+        window.COS_PDFJS_LOAD_ERROR = 'Failed to load local PDF.js from vendor/pdfjs/pdf.min.js or /vendor/pdfjs/pdf.min.js';
+      };
+      document.head.appendChild(script);
+    };
   </script>
+  <script src="vendor/pdfjs/pdf.min.js" onload="window.COSConfigurePdfJs && window.COSConfigurePdfJs()" onerror="window.COSLoadPdfJsFallback && window.COSLoadPdfJsFallback();"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
