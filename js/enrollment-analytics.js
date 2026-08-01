@@ -8991,6 +8991,23 @@
   }
 
   function renderProgramRequirementsAdmin() {
+    const pdfEngine = catalogPdfEngineReadiness();
+    const extractPdfButton = document.getElementById('extractCatalogPdf');
+    if (extractPdfButton) {
+      extractPdfButton.disabled = !pdfEngine.ready;
+      extractPdfButton.setAttribute('aria-disabled', pdfEngine.ready ? 'false' : 'true');
+      extractPdfButton.title = pdfEngine.ready ? 'Extract catalog PDF text in this browser.' : pdfEngine.detail;
+    }
+    const catalogPdfFile = document.getElementById('catalogPdfFile');
+    if (catalogPdfFile) {
+      catalogPdfFile.disabled = !pdfEngine.ready;
+      catalogPdfFile.title = pdfEngine.ready ? '' : pdfEngine.detail;
+    }
+    const dropZone = document.getElementById('catalogPdfDropZone');
+    if (dropZone) {
+      dropZone.setAttribute('aria-disabled', pdfEngine.ready ? 'false' : 'true');
+      dropZone.classList.toggle('is-disabled', !pdfEngine.ready);
+    }
     const status = document.getElementById('programRequirementsStatus');
     if (status) {
       status.innerHTML = `
@@ -9023,6 +9040,8 @@
           <div><dt>Status</dt><dd>${escapeAttr(extraction.state || 'No PDF loaded')}</dd></div>
           <div><dt>Filename</dt><dd>${escapeAttr(extraction.filename || 'N/A')}</dd></div>
           <div><dt>Catalog Year</dt><dd>${escapeAttr(extraction.catalogYear || 'N/A')}</dd></div>
+          <div><dt>PDF Extraction Engine</dt><dd>${escapeAttr(pdfEngine.status)}</dd></div>
+          <div><dt>PDF Worker</dt><dd>${escapeAttr(pdfEngine.workerSrc || 'N/A')}</dd></div>
           <div><dt>PDF Page Count</dt><dd>${extraction.pageCount || 0}</dd></div>
           <div><dt>Pages Extracted</dt><dd>${extraction.pagesExtracted || extraction.pagesProcessed || 0}</dd></div>
           <div><dt>Progress</dt><dd>${progressPct}%</dd></div>
@@ -9030,7 +9049,7 @@
           <div><dt>Source Fingerprint</dt><dd>${escapeAttr(extraction.sourceFingerprint || 'N/A')}</dd></div>
           <div><dt>Duration</dt><dd>${extraction.durationMs ? `${Math.round(extraction.durationMs)} ms` : 'N/A'}</dd></div>
         </dl>
-        ${(extraction.warnings || []).length ? `<ul>${extraction.warnings.map(warning => `<li>${escapeAttr(warning)}</li>`).join('')}</ul>` : '<p class="analytics-empty">No PDF ingestion warnings.</p>'}
+        ${(extraction.warnings || []).length ? `<ul>${extraction.warnings.map(warning => `<li>${escapeAttr(warning)}</li>`).join('')}</ul>` : `<p class="analytics-empty">${escapeAttr(pdfEngine.detail || 'No PDF ingestion warnings.')}</p>`}
       `;
     }
     const sourceStatus = document.getElementById('catalogSourceStatus');
@@ -9169,6 +9188,17 @@
   async function extractCatalogPdfFile() {
     const input = document.getElementById('catalogPdfFile');
     const file = input?.files?.[0];
+    const pdfEngine = catalogPdfEngineReadiness(true);
+    if (!pdfEngine.ready) {
+      state.catalogPdfExtraction = {
+        state: 'PDF extraction engine failed to load',
+        filename: file?.name || '',
+        warnings: [pdfEngine.detail]
+      };
+      state.programRequirementsErrors = [pdfEngine.detail];
+      renderProgramRequirementsAdmin();
+      return;
+    }
     if (!file) {
       state.programRequirementsErrors = ['Choose a catalog PDF before extraction.'];
       renderProgramRequirementsAdmin();
@@ -9181,9 +9211,6 @@
     }
     const extractor = catalogExtractionApi();
     const repo = await programRequirementsRepository();
-    if (window.pdfjsLib?.GlobalWorkerOptions && !window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    }
     const catalogYear = document.getElementById('catalogPdfYear')?.value || '2026-2027';
     const catalogTitle = document.getElementById('catalogPdfTitle')?.value || `College of the Sequoias ${catalogYear} Catalog`;
     state.catalogPdfAbortController = new AbortController();
@@ -22863,6 +22890,30 @@ BUS 180 2 units`)
     modalityMetrics: REPORTS.modality,
     roomFitReportMetrics: REPORTS.roomFit
   };
+  const CATALOG_PDFJS_WORKER_SRC = 'vendor/pdfjs/pdf.worker.min.js';
+
+  function catalogPdfEngineReadiness(configure = false) {
+    const pdfjs = window.pdfjsLib;
+    if (!pdfjs?.getDocument) {
+      return {
+        ready: false,
+        status: 'PDF extraction engine failed to load.',
+        detail: 'PDF.js is unavailable. The Catalog PDF remains processed entirely in the browser, so extraction is disabled until the local PDF.js library loads.'
+      };
+    }
+    const workerSrc = window.COS_PDFJS_WORKER_SRC || CATALOG_PDFJS_WORKER_SRC;
+    if (pdfjs.GlobalWorkerOptions) {
+      if (configure || !pdfjs.GlobalWorkerOptions.workerSrc) {
+        pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+      }
+    }
+    return {
+      ready: true,
+      status: 'PDF extraction engine: Ready',
+      detail: `Local PDF.js worker: ${workerSrc}`,
+      workerSrc
+    };
+  }
 
   function collectReportContext(reportId, overrides = {}) {
     const prefix = overrides.prefix || REPORT_FILTER_PREFIX[reportId] || '';

@@ -150,3 +150,15 @@ test('index loads centralized config before application modules', () => {
   assert.ok(configIndex < index.indexOf('src="js/app.js"'));
   assert.ok(configIndex < index.indexOf('src="js/enrollment-analytics.js"'));
 });
+
+test('index serves PDF.js catalog extraction engine locally', () => {
+  const root = path.join(__dirname, '..');
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+
+  assert.doesNotMatch(index, /cdnjs\.cloudflare\.com\/ajax\/libs\/pdf\.js/);
+  assert.match(index, /src="vendor\/pdfjs\/pdf\.min\.js"/);
+  assert.match(index, /window\.COS_PDFJS_WORKER_SRC = 'vendor\/pdfjs\/pdf\.worker\.min\.js'/);
+  assert.match(index, /pdfjsLib\.GlobalWorkerOptions\.workerSrc = window\.COS_PDFJS_WORKER_SRC/);
+  assert.equal(fs.existsSync(path.join(root, 'vendor', 'pdfjs', 'pdf.min.js')), true);
+  assert.equal(fs.existsSync(path.join(root, 'vendor', 'pdfjs', 'pdf.worker.min.js')), true);
+});

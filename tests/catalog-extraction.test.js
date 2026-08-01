@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 
 globalThis.COSTermUtils = require('../js/core/term-utils.js');
@@ -8,9 +10,18 @@ globalThis.COSProgramRequirements = require('../js/core/program-requirements.js'
 globalThis.COSFeasibilityTermWindow = require('../js/core/feasibility-term-window.js');
 const catalog = require('../js/core/catalog-extraction.js');
 const feasibility = require('../js/core/program-feasibility.js');
+const pdfjs = require('../vendor/pdfjs/pdf.min.js');
 
 function page(pageNumber, text) {
   return catalog.pageTextRecord(pageNumber, text);
+}
+
+function fileFromBuffer(filename, buffer, type = 'application/pdf') {
+  return {
+    name: filename,
+    type,
+    arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+  };
 }
 
 function section(overrides = {}) {
@@ -125,6 +136,32 @@ test('catalog PDF ingestion supports 717-page progress and cancellation without 
     }
   });
   await assert.rejects(cancelled, /Catalog extraction cancelled/);
+});
+
+test('catalog PDF extraction refuses to begin when browser PDF engine is unavailable', async () => {
+  const result = await catalog.ingestCatalogPdf(fileFromBuffer('catalog.pdf', Buffer.from('%PDF-1.4')), {
+    catalogYear: '2026-2027',
+    pdfjsLib: null
+  });
+
+  assert.equal(result.state, 'Extraction failed');
+  assert.equal(result.pageCount, 0);
+  assert.match(result.warnings.join(' '), /pdfjsLib is not loaded/);
+});
+
+test('small PDF fixture produces page-text records through vendored browser PDF.js', async () => {
+  const fixturePath = path.join(__dirname, 'fixtures', 'catalog-small.pdf');
+  pdfjs.GlobalWorkerOptions.workerSrc = path.join(__dirname, '..', 'vendor', 'pdfjs', 'pdf.worker.min.js');
+
+  const result = await catalog.ingestCatalogPdf(fileFromBuffer('catalog-small.pdf', fs.readFileSync(fixturePath)), {
+    catalogYear: '2026-2027',
+    pdfjsLib: pdfjs
+  });
+
+  assert.equal(result.state, 'Ready for inventory extraction');
+  assert.equal(result.pageCount, 1);
+  assert.equal(result.pagesExtracted, 1);
+  assert.match(result.pageTexts[0].text, /Catalog PDF Fixture BUS 20 3 units/);
 });
 
 test('catalog requirement parser separates all-required, choose-one, choose-units, and review warnings', () => {
