@@ -24536,7 +24536,9 @@ BUS 180 2 units`)
   function setReportDisplay(reportName, elementId) {
     const node = document.getElementById(elementId);
     if (!node) return;
-    node.style.display = canAccess(reportName) && selectedEnrollmentReport() === reportName ? 'block' : 'none';
+    const reports = Array.isArray(reportName) ? reportName : [reportName];
+    const selected = selectedEnrollmentReport();
+    node.style.display = reports.some(report => canAccess(report) && selected === report) ? 'block' : 'none';
   }
 
   function updateHistoricalInstitutionalTermControls(selectedReport) {
@@ -24575,12 +24577,13 @@ BUS 180 2 units`)
     setReportDisplay(REPORTS.attrition, 'attritionReport');
     setReportDisplay(REPORTS.consolidation, 'consolidationReport');
     setReportDisplay(REPORTS.demand, 'demandReport');
-    setReportDisplay(REPORTS.emSnapshot, 'emSnapshotReport');
+    const legacyEmSnapshotReport = document.getElementById('emSnapshotReport');
+    if (legacyEmSnapshotReport) legacyEmSnapshotReport.style.display = 'none';
     setReportDisplay(REPORTS.conflictCheck, 'conflictCheckReport');
     setReportDisplay(REPORTS.archiveInspection, 'archiveInspectionReport');
     setReportDisplay(REPORTS.dataHub, 'sourceDataHubReport');
     setReportDisplay(REPORTS.roomFit, 'roomFitReport');
-    setReportDisplay(REPORTS.snapshotManager, 'snapshotManagerReport');
+    setReportDisplay([REPORTS.emSnapshot, REPORTS.snapshotManager], 'snapshotManagerReport');
     setReportDisplay(REPORTS.ftesReconciliation, 'ftesReconciliationReport');
     setReportDisplay(REPORTS.historicalInstitutionalModel, 'historicalInstitutionalModelReport');
     setReportDisplay(REPORTS.studentPresence, 'studentPresenceReport');
@@ -24627,8 +24630,8 @@ BUS 180 2 units`)
       document.getElementById('demandTable').innerHTML = '<p class="analytics-empty">Select archived historical terms, then click Run. Upload source files from the Source Data Hub.</p>';
       renderDemandLegend();
     }
-    if (selected === REPORTS.emSnapshot && !state.emSnapshotRan) {
-      clearEmSnapshot('Load or select the current section seating term, optionally enter a prior comparison term, then click Run FTES Review.');
+    if (selected === REPORTS.emSnapshot || selected === REPORTS.snapshotManager) {
+      renderSnapshotManager();
     }
     if (selected === REPORTS.conflictCheck && !state.conflictRan) {
       loadConflictRows().then(() => {
@@ -24781,9 +24784,6 @@ BUS 180 2 units`)
     if (selected === REPORTS.facultyHeatmap) {
       updateFacultyHeatmapFilterOptions();
       renderFacultyScheduleHeatmap();
-    }
-    if (selected === REPORTS.snapshotManager) {
-      renderSnapshotManager();
     }
   }
 

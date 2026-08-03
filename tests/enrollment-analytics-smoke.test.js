@@ -5467,6 +5467,10 @@ test('current enrollment and FTES report replaces manual snapshot controls', () 
   assert.match(text, /state\.currentEnrollmentFtesRows = \[\]/);
   assert.match(text, /id="dataHubSaveWorkExperience"/);
   assert.match(text, /\/api\/work-experience/);
+  assert.match(text, /setReportDisplay\(\[REPORTS\.emSnapshot, REPORTS\.snapshotManager\], 'snapshotManagerReport'\)/);
+  assert.match(text, /legacyEmSnapshotReport\.style\.display = 'none'/);
+  assert.match(text, /selected === REPORTS\.emSnapshot \|\| selected === REPORTS\.snapshotManager/);
+  assert.match(text, /renderSnapshotManager\(\)/);
   assert.match(text, /function buildCurrentEnrollmentFtesSummary/);
   assert.match(text, /function workExperienceRowsForTerms/);
   assert.match(text, /function loadWorkExperienceTermRows/);
