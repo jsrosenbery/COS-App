@@ -3891,8 +3891,8 @@
               <div>
                 <h3>How to Use This Report</h3>
                 <ul>
-                  <li>Select or load the applicable term in the main workspace, then run this report to use the available Section Seating rows for that term.</li>
-                  <li>Enter an optional prior term when a simple same-season or prior-year comparison is useful.</li>
+                  <li>Select the applicable current/source term from archived Section Seating terms, or use the currently loaded room-grid term when that is the desired scope.</li>
+                  <li>Select one or more historical comparison terms from the archive when a same-season or prior-year benchmark is useful.</li>
                   <li>Campus rows are grouped as HAC, COS, TCC, Online campuses, Dual Enrollment, and All Other Campuses. Modality rows also show the source instructional method code.</li>
                 </ul>
               </div>
@@ -3907,9 +3907,15 @@
             </div>
           </div>
           <div class="analytics-toolbar">
-            <span class="analytics-note">Selected term comes from the selected Section Seating term.</span>
+            <span class="analytics-note">This report is standalone: select archived/source terms here instead of relying on the room-grid tab.</span>
+            <label>Selected/current term
+              <select id="emSnapshotCurrentTerm"></select>
+            </label>
+            <label>Historical comparison terms
+              <select id="emSnapshotPriorTerms" multiple data-placeholder="Optional archived comparison terms"></select>
+            </label>
             <label>Selected term label <input id="emSnapshotLabel" type="text" placeholder="Selected term"></label>
-            <label>Prior comparison term <input id="emSnapshotPriorTerm" type="text" placeholder="Spring 2025"></label>
+            <label>Manual prior term fallback <input id="emSnapshotPriorTerm" type="text" placeholder="Optional term not listed"></label>
             <label>Prior comparison label <input id="emSnapshotPriorLabel" type="text" placeholder="Prior term"></label>
             <label>FTES cap <input id="emSnapshotFtesCap" type="number" min="0" step="0.1" placeholder="optional"></label>
             <label>Positive attendance estimate <input id="emSnapshotPositiveAttendance" type="number" min="0" step="0.1" placeholder="optional"></label>
@@ -11109,6 +11115,7 @@ BUS 180 2 units`)
       setSelectOptions('cefArchiveTerms', options);
       setArchiveInspectionTermOptions();
       updateCurrentEnrollmentFtesTermOptions(state.currentEnrollmentFtesRows || []);
+      updateEmSnapshotTermOptions([...(state.emSnapshotCurrentInput || []), ...(state.emSnapshotPriorInput || [])]);
       updateScheduleBuilderTermOptions();
       renderOptimizationArchiveStatus();
       renderSourceDataHubStatus();
@@ -21873,20 +21880,75 @@ BUS 180 2 units`)
     </section>`;
   }
 
+  function emSnapshotAvailableTerms(rows = []) {
+    return [...new Set([...(state.archivedAnalyticsTerms || []), ...collectRowTerms(rows), ...collectRowTerms(currentRows())])]
+      .map(normalizeTermLabel)
+      .filter(Boolean)
+      .sort((a, b) => termSortValue(a) - termSortValue(b));
+  }
+
+  function selectedEmSnapshotCurrentTerm() {
+    const value = document.getElementById('emSnapshotCurrentTerm')?.value || '';
+    if (value && value !== '__workspace__') return normalizeTermLabel(value);
+    return normalizeTermLabel(currentTerm());
+  }
+
+  function updateEmSnapshotTermOptions(rows = []) {
+    const terms = emSnapshotAvailableTerms(rows);
+    const currentSelect = document.getElementById('emSnapshotCurrentTerm');
+    const priorSelect = document.getElementById('emSnapshotPriorTerms');
+    const active = normalizeTermLabel(currentTerm());
+    if (currentSelect) {
+      const previous = currentSelect.value;
+      const defaultTerm = previous && previous !== '__workspace__' && terms.includes(normalizeTermLabel(previous))
+        ? normalizeTermLabel(previous)
+        : terms.includes(active)
+          ? active
+          : terms[terms.length - 1] || '';
+      currentSelect.replaceChildren();
+      currentSelect.appendChild(new Option(active ? `Use current room-grid term (${active})` : 'Use current room-grid term', '__workspace__', false, !defaultTerm));
+      terms.forEach(term => currentSelect.appendChild(new Option(term, term, false, term === defaultTerm)));
+      currentSelect.value = defaultTerm || '__workspace__';
+    }
+    if (priorSelect) {
+      const selected = new Set(getSelectedValues('emSnapshotPriorTerms').map(normalizeTermLabel));
+      const focus = selectedEmSnapshotCurrentTerm();
+      setSelectOptions('emSnapshotPriorTerms', terms
+        .filter(term => term !== focus)
+        .map(term => ({ value: term, label: term })));
+      Array.from(priorSelect.options || []).forEach(option => {
+        option.selected = selected.has(normalizeTermLabel(option.value));
+      });
+    }
+  }
+
   async function loadEmSnapshotRows() {
-    const selectedTerm = normalizeTermLabel(currentTerm());
-    const priorTerm = normalizeTermLabel(document.getElementById('emSnapshotPriorTerm')?.value || '');
-    const currentRowsRaw = selectedTerm ? await loadScheduleTermRows(selectedTerm) : currentRows();
-    const priorRowsRaw = priorTerm ? await loadScheduleTermRows(priorTerm) : [];
+    updateEmSnapshotTermOptions([...(state.emSnapshotCurrentInput || []), ...(state.emSnapshotPriorInput || [])]);
+    const selectedTerm = selectedEmSnapshotCurrentTerm();
+    const selectedPriorTerms = getSelectedValues('emSnapshotPriorTerms').map(normalizeTermLabel).filter(Boolean);
+    const manualPriorTerm = normalizeTermLabel(document.getElementById('emSnapshotPriorTerm')?.value || '');
+    const priorTerms = [...new Set([...selectedPriorTerms, manualPriorTerm].filter(term => term && term !== selectedTerm))];
+    const currentSelection = document.getElementById('emSnapshotCurrentTerm')?.value || '';
+    const currentRowsRaw = selectedTerm
+      ? (currentSelection === '__workspace__' ? currentRowsForTerm(selectedTerm) : await loadScheduleTermRows(selectedTerm))
+      : currentRows();
+    const priorRowsRaw = priorTerms.length
+      ? (await Promise.all(priorTerms.map(term => loadScheduleTermRows(term).catch(err => {
+          console.warn(`Current Enrollment & FTES comparison term ${term} skipped:`, err);
+          return [];
+        })))).flat()
+      : [];
     state.emSnapshotCurrentInput = dedupeEnrollmentRows((currentRowsRaw || []).map(normalize))
       .filter(row => !selectedTerm || normalizeTermLabel(row.term) === selectedTerm);
     state.emSnapshotPriorInput = dedupeEnrollmentRows((priorRowsRaw || []).map(normalize))
-      .filter(row => !priorTerm || normalizeTermLabel(row.term) === priorTerm);
+      .filter(row => !priorTerms.length || priorTerms.includes(normalizeTermLabel(row.term)));
+    updateEmSnapshotTermOptions([...state.emSnapshotCurrentInput, ...state.emSnapshotPriorInput]);
     return {
       current: state.emSnapshotCurrentInput,
       prior: state.emSnapshotPriorInput,
       selectedTerm,
-      priorTerm
+      priorTerm: priorTerms.join(', '),
+      priorTerms
     };
   }
 
@@ -25466,7 +25528,11 @@ BUS 180 2 units`)
     document.getElementById('clearSupplyDemand')?.addEventListener('click', clearSupplyDemand);
     document.getElementById('exportSupplyDemand')?.addEventListener('click', () => exportRowsWithoutMethodology(state.supplyDemandResourceRows?.length ? state.supplyDemandResourceRows : state.supplyDemandBucketRows, 'supply-vs-demand.csv'));
     document.getElementById('runEmSnapshot')?.addEventListener('click', () => runEmSnapshot().catch(err => alert(err.message || 'Current Enrollment & FTES failed.')));
-    ['emSnapshotLabel', 'emSnapshotPriorTerm', 'emSnapshotPriorLabel', 'emSnapshotFtesCap', 'emSnapshotPositiveAttendance'].forEach(id => {
+    document.getElementById('emSnapshotCurrentTerm')?.addEventListener('change', () => {
+      updateEmSnapshotTermOptions([...(state.emSnapshotCurrentInput || []), ...(state.emSnapshotPriorInput || [])]);
+      if (state.emSnapshotRan) runEmSnapshot().catch(err => console.warn(err));
+    });
+    ['emSnapshotPriorTerms', 'emSnapshotLabel', 'emSnapshotPriorTerm', 'emSnapshotPriorLabel', 'emSnapshotFtesCap', 'emSnapshotPositiveAttendance'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => { if (state.emSnapshotRan) runEmSnapshot().catch(err => console.warn(err)); });
     });
     document.getElementById('clearEmSnapshot')?.addEventListener('click', () => clearEmSnapshot());

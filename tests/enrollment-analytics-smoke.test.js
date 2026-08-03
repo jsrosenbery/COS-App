@@ -5483,6 +5483,19 @@ test('current enrollment and FTES report replaces manual snapshot controls', () 
   assert.doesNotMatch(text, /id="snapType"/);
 });
 
+test('development current enrollment and FTES uses standalone archive term selectors', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(text, /id="emSnapshotCurrentTerm"/);
+  assert.match(text, /id="emSnapshotPriorTerms" multiple/);
+  assert.match(text, /This report is standalone/);
+  assert.match(text, /function updateEmSnapshotTermOptions/);
+  assert.match(text, /updateEmSnapshotTermOptions\(\[\.\.\.\(state\.emSnapshotCurrentInput/);
+  assert.match(text, /const selectedPriorTerms = getSelectedValues\('emSnapshotPriorTerms'\)/);
+  assert.match(text, /priorTerms\.map\(term => loadScheduleTermRows\(term\)/);
+  assert.match(text, /selectedEmSnapshotCurrentTerm/);
+});
+
 test('current enrollment and FTES exposes historical pending FTES diagnostic coverage', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
