@@ -26,6 +26,7 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.equal(REPORT_LABEL[REPORTS.twoYearProgramFeasibility], 'Program Schedule Viability');
   assert.equal(REPORT_LABEL[REPORTS.catalogProgramRequirements], 'Catalog & Program Requirements');
   assert.equal(REPORT_LABEL[REPORTS.demand], 'Enrollment Planning Forecast');
+  assert.equal(REPORT_LABEL[REPORTS.lowEnrollmentTracking], 'Low Enrollment Tracking');
   assert.equal(REPORT_LABEL[REPORTS.duration], 'Course Duration Heatmap');
   assert.deepEqual(REPORT_WORKFLOW_GROUPS.map(group => group.label), ['Public Reports', 'Division Chair / Administrative Assistant', 'Dean', 'Enrollment Management', 'System Administrator']);
   assert.deepEqual(REPORT_WORKFLOW_GROUPS[0].reports, [REPORTS.instructorAvailability]);
@@ -44,6 +45,7 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.equal(REPORT_WORKFLOW_GROUPS[4].reports.indexOf(REPORTS.twoYearProgramFeasibility), REPORT_WORKFLOW_GROUPS[4].reports.indexOf(REPORTS.catalogProgramRequirements) + 1);
   assert.ok(REPORT_ORDER.includes(REPORTS.catalogProgramRequirements));
   assert.equal(REPORT_ORDER.indexOf(REPORTS.twoYearProgramFeasibility), REPORT_ORDER.indexOf(REPORTS.catalogProgramRequirements) + 1);
+  assert.equal(REPORT_ORDER.indexOf(REPORTS.lowEnrollmentTracking), REPORT_ORDER.indexOf(REPORTS.demand) + 1);
   assert.equal(REPORT_DESCRIPTIONS[REPORTS.emSnapshot], 'Review current enrollment, confirmed FTES, estimated FTES, and historically predicted FTES.');
   assert.ok(REPORT_ORDER.indexOf(REPORTS.instructorAvailability) < REPORT_ORDER.indexOf(REPORTS.heatmap));
 });

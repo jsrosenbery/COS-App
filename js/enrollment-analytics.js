@@ -19,6 +19,7 @@
     duration: 'course-duration-concurrent',
     demand: 'enrollment-demand-forecast',
     emSnapshot: 'enrollment-management-snapshot',
+    lowEnrollmentTracking: 'low-enrollment-tracking',
     heatmap: 'heatmap-analytics',
     utilization: 'room-utilization',
     modality: 'modality-balance',
@@ -77,6 +78,7 @@
     [REPORTS.attrition]: 'dean',
     [REPORTS.demand]: 'development',
     [REPORTS.emSnapshot]: 'development',
+    [REPORTS.lowEnrollmentTracking]: 'development',
     [REPORTS.roomFit]: 'dean',
     [REPORTS.utilization]: 'dean',
     [REPORTS.consolidation]: 'development',
@@ -131,6 +133,7 @@
     [REPORTS.attrition]: 'Enrollment Attrition',
     [REPORTS.demand]: 'Enrollment Planning Forecast',
     [REPORTS.emSnapshot]: 'Current Enrollment & FTES',
+    [REPORTS.lowEnrollmentTracking]: 'Low Enrollment Tracking',
     [REPORTS.snapshotManager]: 'Current Enrollment & FTES',
     [REPORTS.ftesReconciliation]: 'FTES Reconciliation',
     [REPORTS.historicalInstitutionalModel]: 'Historical Institutional Model',
@@ -170,6 +173,7 @@
     REPORTS.facultyModality,
     REPORTS.scheduleBuilder,
     REPORTS.demand,
+    REPORTS.lowEnrollmentTracking,
     REPORTS.catalogProgramRequirements,
     REPORTS.twoYearProgramFeasibility,
     REPORTS.emSnapshot,
@@ -228,6 +232,7 @@
       accessLabel: 'Enrollment Management Access',
       reports: [
         REPORTS.demand,
+        REPORTS.lowEnrollmentTracking,
         REPORTS.emSnapshot,
         REPORTS.consolidation,
         REPORTS.busyTimeDashboard,
@@ -270,6 +275,7 @@
   };
   const REPORT_SUBGROUPS = reportConfig.REPORT_SUBGROUPS || {
     [REPORTS.demand]: 'Analytics',
+    [REPORTS.lowEnrollmentTracking]: 'Analytics',
     [REPORTS.emSnapshot]: 'Analytics',
     [REPORTS.consolidation]: 'Analytics',
     [REPORTS.busyTimeDashboard]: 'Analytics',
@@ -286,6 +292,7 @@
     [REPORTS.dashboard]: 'Review enrollment health, registration pace, demand, attrition, and schedule signals.',
     [REPORTS.attrition]: 'Compare census enrollment with end-of-term enrollment across completed terms.',
     [REPORTS.demand]: 'Forecast enrollment, FTES, schedule supply, demand, and planning gaps.',
+    [REPORTS.lowEnrollmentTracking]: 'Track low-enrolled sections, dated enrollment updates, reasons, and VP comments by term.',
     [REPORTS.emSnapshot]: 'Review current enrollment, confirmed FTES, estimated FTES, and historically predicted FTES.',
     [REPORTS.snapshotManager]: 'Report current enrollment and FTES from loaded Section Seating data with like-term comparison.',
     [REPORTS.ftesReconciliation]: 'Compare TIMBER-calculated FTES with authoritative institutional Cube results.',
@@ -3883,6 +3890,7 @@
           <div id="demandTable" class="analytics-table"></div>
           <div id="demandLegend" class="analytics-legend"></div>
         </div>
+        <div id="lowEnrollmentTrackingReport" class="analytics-view"></div>
         <div id="emSnapshotReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Current Enrollment & FTES</h2>
@@ -23020,6 +23028,7 @@ BUS 180 2 units`)
     [REPORTS.dataHub]: 'sourceDataHubReport',
     [REPORTS.attrition]: 'attritionReport',
     [REPORTS.demand]: 'demandReport',
+    [REPORTS.lowEnrollmentTracking]: 'lowEnrollmentTrackingReport',
     [REPORTS.emSnapshot]: 'emSnapshotReport',
     [REPORTS.snapshotManager]: 'snapshotManagerReport',
     [REPORTS.ftesReconciliation]: 'ftesReconciliationReport',
@@ -23050,6 +23059,7 @@ BUS 180 2 units`)
     [REPORTS.attrition]: 'attr',
     [REPORTS.consolidation]: 'con',
     [REPORTS.demand]: 'dem',
+    [REPORTS.lowEnrollmentTracking]: 'lowEnrollment',
     [REPORTS.emSnapshot]: 'emSnapshot',
     [REPORTS.conflictCheck]: 'conflict',
     [REPORTS.studentPresence]: 'sp',
@@ -24577,6 +24587,7 @@ BUS 180 2 units`)
     setReportDisplay(REPORTS.attrition, 'attritionReport');
     setReportDisplay(REPORTS.consolidation, 'consolidationReport');
     setReportDisplay(REPORTS.demand, 'demandReport');
+    setReportDisplay(REPORTS.lowEnrollmentTracking, 'lowEnrollmentTrackingReport');
     const legacyEmSnapshotReport = document.getElementById('emSnapshotReport');
     if (legacyEmSnapshotReport) legacyEmSnapshotReport.style.display = 'none';
     setReportDisplay(REPORTS.conflictCheck, 'conflictCheckReport');
@@ -24629,6 +24640,14 @@ BUS 180 2 units`)
       populateAnalyticsFilters('dem', rows);
       document.getElementById('demandTable').innerHTML = '<p class="analytics-empty">Select archived historical terms, then click Run. Upload source files from the Source Data Hub.</p>';
       renderDemandLegend();
+    }
+    if (selected === REPORTS.lowEnrollmentTracking) {
+      window.COSLowEnrollmentTracker?.mount?.({
+        container: document.getElementById('lowEnrollmentTrackingReport'),
+        backendBaseUrl: window.BACKEND_BASE_URL || '',
+        getToken: enrollmentManagementToken,
+        requestAccess: () => requestReportAccess(REPORTS.lowEnrollmentTracking, REPORT_ACCESS[REPORTS.lowEnrollmentTracking] || 'development')
+      });
     }
     if (selected === REPORTS.emSnapshot || selected === REPORTS.snapshotManager) {
       renderSnapshotManager();
