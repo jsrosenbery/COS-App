@@ -24,37 +24,66 @@ test('low enrollment tracker parses the workbook shape and hidden reasons fallba
   assert.equal(workspace.rows[0].threshold, 21);
   assert.equal(workspace.rows[0].status, 'Below Threshold');
   assert.ok(workspace.reasons.includes('Dual Enrollment'));
+  assert.equal(tracker.DEFAULT_JUSTIFICATIONS.length, 10);
+  assert.ok(workspace.importSummary.rowsImported === 2);
 
   const reasons = tracker.parseReasonsTable([['Reason'], ['Custom reason'], ['Custom reason']]);
   assert.deepEqual(reasons, ['Custom reason']);
 });
 
-test('low enrollment update sums cross-listed member CRNs and deduplicates CSV meeting rows', () => {
+test('low enrollment update sums cross-listed member CRNs and reports full/partial/missing matches', () => {
   const workspace = tracker.parseWorkbookTable([
     ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold'],
     ['COMM C1000', '10003 / 10004', 'Public Speaking', 18, 30, 21],
-    ['ENGL C1000', '30001', 'Writing', 10, 30, 21]
+    ['ENGL C1000', '30001 / 30002', 'Writing', 10, 30, 21],
+    ['MATH 021', '40001', 'Support Algebra', 5, 30, 21]
   ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' });
 
   const csvRows = [
     { CRN: '10003', ACTUAL_ENROLL: '12', 'SUBJECT/COURSE': 'COMM C1000' },
     { CRN: '10003', ACTUAL_ENROLL: '12', 'SUBJECT/COURSE': 'COMM C1000' },
-    { CRN: '10004', ACTUAL_ENROLL: '13', 'SUBJECT/COURSE': 'COMM C1000' }
+    { CRN: '10004', ACTUAL_ENROLL: '13', 'SUBJECT/COURSE': 'COMM C1000' },
+    { CRN: '30001', ACTUAL_ENROLL: '9', 'SUBJECT/COURSE': 'ENGL C1000' }
   ];
   const parsed = tracker.parseEnrollmentCsvRows(csvRows);
-  assert.equal(parsed.size, 2);
+  assert.equal(parsed.size, 3);
   assert.equal(parsed.get('10003').enrollment, 12);
 
   const result = tracker.applyEnrollmentSnapshot(workspace, parsed, { snapshotDate: '2026-08-11', sourceFilename: 'section-seating.csv' });
-  assert.equal(result.matchedRows, 1);
-  assert.equal(result.missingRows, 1);
+  assert.equal(result.fullyMatchedRows, 1);
+  assert.equal(result.partiallyMatchedRows, 1);
+  assert.equal(result.completelyMissingRows, 1);
+  assert.equal(result.individualCrnsMatched, 3);
+  assert.equal(result.individualCrnsMissing, 2);
   assert.equal(result.newlyMet, 1);
   assert.equal(result.workspace.rows[0].latestEnrollment, 25);
   assert.equal(result.workspace.rows[0].highestEnrollment, 25);
   assert.equal(result.workspace.rows[0].status, 'Threshold Met');
-  assert.equal(result.workspace.rows[1].latestEnrollment, null);
-  assert.equal(result.workspace.rows[1].status, 'Missing Update');
+  assert.equal(result.workspace.rows[1].latestEnrollment, 9);
+  assert.equal(result.workspace.rows[1].snapshotMatchStatus['2026-08-11'], 'partial');
+  assert.deepEqual(result.workspace.rows[1].snapshotMissingCrns['2026-08-11'], ['30002']);
+  assert.equal(result.workspace.rows[2].latestEnrollment, null);
+  assert.equal(result.workspace.rows[2].status, 'Missing Update');
   assert.deepEqual(result.snapshot.values[result.workspace.rows[0].id].matchedCrns, ['10003', '10004']);
+});
+
+test('low enrollment workbook validation rejects missing threshold values', () => {
+  assert.throws(() => tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment'],
+    ['COMM C1000', '10003', 'Public Speaking', 18, 30]
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' }), /threshold/i);
+
+  const workspace = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment'],
+    ['COMM C1000', '10003', 'Public Speaking', 18, 30]
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx', throwOnInvalid: false });
+  assert.equal(workspace.importErrors.length, 2);
+  assert.match(workspace.importErrors.join(' '), /threshold/i);
+});
+
+test('low enrollment snapshot date detects source content before filename fallback', () => {
+  assert.equal(tracker.detectSnapshotDateFromRows([{ SNAPSHOT_DATE: '8/12/2026' }]), '2026-08-12');
+  assert.equal(tracker.extractSnapshotDateFromFilename('202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx'), '2026-08-04');
 });
 
 test('low enrollment report is registered as an Enrollment Management report', () => {
