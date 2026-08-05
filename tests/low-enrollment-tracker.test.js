@@ -133,6 +133,28 @@ test('low enrollment module source includes multi-select filters, sort controls,
   assert.doesNotMatch(source, /new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/);
 });
 
+test('low enrollment worksheet freezes only requested regions and keeps timeline navigation scoped', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'low-enrollment-tracker.js'), 'utf8');
+  assert.match(source, /sticky-left sticky-course/);
+  assert.match(source, /sticky-left sticky-crn/);
+  assert.match(source, /sticky-left sticky-title/);
+  assert.match(source, /sticky-right sticky-status/);
+  assert.match(source, /sticky-right sticky-justification/);
+  assert.match(source, /sticky-right sticky-comments/);
+  assert.doesNotMatch(source, /sticky-right sticky-latest/);
+  assert.doesNotMatch(source, /sticky-right sticky-highest/);
+  assert.doesNotMatch(source, /sticky-right sticky-threshold/);
+  assert.match(source, /data-timeline-column="true"/);
+  assert.match(source, /const emptyColspan = 18 \+ timelineColumns\.length/);
+  assert.doesNotMatch(source, /exportLowEnrollmentCsv|Export CSV|exportFilteredCsv/);
+});
+
+test('low enrollment missing snapshot cells render both missing class and visible text', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'low-enrollment-tracker.js'), 'utf8');
+  assert.match(source, /snapshot-\$\{escapeHtml\(matchStatus\)\}/);
+  assert.match(source, /<span class="muted">Missing<\/span>/);
+});
+
 test('low enrollment report is registered as an Enrollment Management report', () => {
   const { REPORTS, REPORT_ACCESS, REPORT_LABEL, REPORT_WORKFLOW_GROUPS, REPORT_DESCRIPTIONS } = reports;
   assert.equal(REPORTS.lowEnrollmentTracking, 'low-enrollment-tracking');
