@@ -70,6 +70,15 @@
     return String(value ?? '').replace(/\s+/g, ' ').trim();
   }
 
+  function localDateInputValue(date = new Date()) {
+    const value = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(value.getTime())) return '';
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   function toNumber(value) {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     const text = cleanString(value).replace(/[$,%]/g, '');
@@ -90,13 +99,15 @@
 
   function normalizeDate(value) {
     if (!value) return '';
-    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return localDateInputValue(value);
     if (typeof value === 'number' && Number.isFinite(value)) {
       const epoch = new Date(Date.UTC(1899, 11, 30));
       epoch.setUTCDate(epoch.getUTCDate() + Math.trunc(value));
       return epoch.toISOString().slice(0, 10);
     }
     const text = cleanString(value);
+    const ymd = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (ymd) return `${ymd[1]}-${String(Number(ymd[2])).padStart(2, '0')}-${String(Number(ymd[3])).padStart(2, '0')}`;
     const mdY = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
     if (mdY) {
       const year = mdY[3].length === 2 ? Number(`20${mdY[3]}`) : Number(mdY[3]);
@@ -104,7 +115,46 @@
       return Number.isNaN(date.getTime()) ? text : date.toISOString().slice(0, 10);
     }
     const parsed = new Date(text);
-    return Number.isNaN(parsed.getTime()) ? text : parsed.toISOString().slice(0, 10);
+    return Number.isNaN(parsed.getTime()) ? text : localDateInputValue(parsed);
+  }
+
+  function parseStartDateList(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return [];
+    const normalized = raw
+      .replace(/\r?\n+/g, ';')
+      .replace(/\s*[;,]\s*/g, ';')
+      .replace(/\b(\d{4}-\d{2}-\d{2})T[^\s;,]+/g, '$1');
+    const tokens = normalized.includes(';')
+      ? normalized.split(';')
+      : normalized.match(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}/g) || [normalized];
+    return Array.from(new Set(tokens.map(normalizeDate).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date))))
+      .sort((a, b) => a.localeCompare(b));
+  }
+
+  function formatShortDate(isoDate) {
+    const normalized = normalizeDate(isoDate);
+    const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return cleanString(isoDate);
+    return `${Number(match[2])}/${Number(match[3])}/${String(match[1]).slice(-2)}`;
+  }
+
+  function formatSnapshotColumnLabel(snapshotDate) {
+    const normalized = normalizeDate(snapshotDate);
+    const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return `${cleanString(snapshotDate)} Enrollment`;
+    return `${Number(match[2])}-${Number(match[3])}-${String(match[1]).slice(-2)} Enrollment`;
+  }
+
+  function formatStartDateDisplay(value) {
+    const dates = Array.isArray(value) ? value : parseStartDateList(value);
+    if (!dates.length) return cleanString(value);
+    return dates.map(formatShortDate).join('\n');
+  }
+
+  function startDateSortValue(row) {
+    const dates = row?.startDates?.length ? row.startDates : parseStartDateList(row?.startDateOriginal || row?.startDate || '');
+    return dates[0] || '';
   }
 
   function extractSnapshotDateFromFilename(filename = '') {
@@ -235,7 +285,9 @@
       scheduleType: cleanString(valueAt(row, headerMap, 'scheduleType')),
       appliedRule: cleanString(valueAt(row, headerMap, 'appliedRule')),
       threshold,
-      startDate: normalizeDate(valueAt(row, headerMap, 'startDate')),
+      startDateOriginal: cleanString(valueAt(row, headerMap, 'startDate')),
+      startDates: parseStartDateList(valueAt(row, headerMap, 'startDate')),
+      startDate: parseStartDateList(valueAt(row, headerMap, 'startDate')).join(', '),
       division: cleanString(valueAt(row, headerMap, 'division')),
       campus: cleanString(valueAt(row, headerMap, 'campus')),
       faculty: cleanString(valueAt(row, headerMap, 'faculty')),
@@ -257,7 +309,7 @@
       throw new Error('Workbook must include Course(s) and CRN(s) columns.');
     }
     const termCode = cleanString(options.termCode || extractTermCodeFromFilename(options.filename || '') || 'LOW-ENROLLMENT');
-    const sourceDate = normalizeDate(options.snapshotDate || extractSnapshotDateFromFilename(options.filename || '') || new Date());
+    const sourceDate = normalizeDate(options.snapshotDate || extractSnapshotDateFromFilename(options.filename || '') || localDateInputValue());
     const reasons = allowedReasons(options.reasons || DEFAULT_JUSTIFICATIONS);
     const rows = table.slice(headersIndex + 1)
       .filter(row => Array.isArray(row) && row.some(cell => cleanString(cell)))
@@ -372,7 +424,7 @@
   function applyEnrollmentSnapshot(workspace, rawRowsOrMap, options = {}) {
     const next = cloneWorkspace(workspace);
     const enrollmentMap = rawRowsOrMap instanceof Map ? rawRowsOrMap : parseEnrollmentCsvRows(rawRowsOrMap);
-    const snapshotDate = normalizeDate(options.snapshotDate || new Date());
+    const snapshotDate = normalizeDate(options.snapshotDate || localDateInputValue());
     let fullyMatchedRows = 0;
     let partiallyMatchedRows = 0;
     let completelyMissingRows = 0;
@@ -452,6 +504,173 @@
     };
   }
 
+  function crnSetKey(crns = []) {
+    return Array.from(new Set((crns || []).map(String).filter(Boolean))).sort().join('|');
+  }
+
+  function courseCrossListKey(row) {
+    const course = cleanString(row?.course).toUpperCase();
+    const crossList = cleanString(row?.crossListId).toUpperCase();
+    return course && crossList ? `${course}|${crossList}` : '';
+  }
+
+  function baselineFieldsFromRow(row, options = {}) {
+    const fields = {
+      course: row.course,
+      crnDisplay: row.crnDisplay,
+      crns: row.crns || [],
+      title: row.title,
+      crossListId: row.crossListId,
+      crnCount: row.crnCount,
+      maxEnrollment: row.maxEnrollment,
+      waitCount: row.waitCount,
+      instructionalMethod: row.instructionalMethod,
+      scheduleType: row.scheduleType,
+      appliedRule: row.appliedRule,
+      threshold: row.threshold,
+      startDateOriginal: row.startDateOriginal,
+      startDates: row.startDates || parseStartDateList(row.startDateOriginal || row.startDate),
+      startDate: (row.startDates || parseStartDateList(row.startDateOriginal || row.startDate)).join(', '),
+      division: row.division,
+      campus: row.campus,
+      faculty: row.faculty,
+      missingFromLatestWorkbook: false
+    };
+    if (options.includeInitialEnrollment) {
+      fields.initialEnrollment = row.initialEnrollment;
+      fields.currentEnrollment = row.initialEnrollment;
+    }
+    return fields;
+  }
+
+  function findRefreshMatch(row, indexes) {
+    const exact = indexes.byExactCrns.get(crnSetKey(row.crns));
+    if (exact) return { row: exact, strategy: 'exact-crn-set' };
+    if ((row.crns || []).length === 1) {
+      const single = indexes.bySingleCrn.get(String(row.crns[0]));
+      if (single) return { row: single, strategy: 'single-crn' };
+    }
+    const fallbackKey = courseCrossListKey(row);
+    if (fallbackKey) {
+      const fallback = indexes.byCourseCrossList.get(fallbackKey);
+      if (fallback) return { row: fallback, strategy: 'course-cross-list' };
+    }
+    return null;
+  }
+
+  function buildRefreshIndexes(rows = []) {
+    const indexes = { byExactCrns: new Map(), bySingleCrn: new Map(), byCourseCrossList: new Map() };
+    rows.forEach(row => {
+      const exactKey = crnSetKey(row.crns);
+      if (exactKey && !indexes.byExactCrns.has(exactKey)) indexes.byExactCrns.set(exactKey, row);
+      (row.crns || []).forEach(crn => {
+        if (!indexes.bySingleCrn.has(String(crn))) indexes.bySingleCrn.set(String(crn), row);
+      });
+      const fallbackKey = courseCrossListKey(row);
+      if (fallbackKey && !indexes.byCourseCrossList.has(fallbackKey)) indexes.byCourseCrossList.set(fallbackKey, row);
+    });
+    return indexes;
+  }
+
+  function refreshBaselineWorkspace(existingWorkspace, incomingWorkspace, options = {}) {
+    const existing = cloneWorkspace(existingWorkspace);
+    const incoming = cloneWorkspace(incomingWorkspace);
+    const indexes = buildRefreshIndexes(incoming.rows || []);
+    const matchedIncomingIds = new Set();
+    const summary = {
+      matchedRows: 0,
+      exactCrnSetMatches: 0,
+      singleCrnMatches: 0,
+      courseCrossListMatches: 0,
+      newRows: 0,
+      missingRows: 0,
+      preservedSnapshots: (existing.snapshots || []).filter(snapshot => snapshot.type !== 'initial').length,
+      preservedManualFields: 0,
+      initialEnrollmentUpdated: Boolean(options.includeInitialEnrollment)
+    };
+    const rows = (existing.rows || []).map(row => {
+      const match = findRefreshMatch(row, indexes);
+      if (!match) {
+        summary.missingRows += 1;
+        return { ...row, missingFromLatestWorkbook: true };
+      }
+      matchedIncomingIds.add(match.row.id);
+      summary.matchedRows += 1;
+      if (match.strategy === 'exact-crn-set') summary.exactCrnSetMatches += 1;
+      if (match.strategy === 'single-crn') summary.singleCrnMatches += 1;
+      if (match.strategy === 'course-cross-list') summary.courseCrossListMatches += 1;
+      if (cleanString(row.justification) || cleanString(row.vpComments)) summary.preservedManualFields += 1;
+      const refreshed = {
+        ...row,
+        ...baselineFieldsFromRow(match.row, options),
+        justification: row.justification,
+        vpComments: row.vpComments,
+        latestEnrollment: row.latestEnrollment,
+        highestEnrollment: row.highestEnrollment,
+        snapshotValues: row.snapshotValues || {},
+        snapshotMatchStatus: row.snapshotMatchStatus || {},
+        snapshotMissingCrns: row.snapshotMissingCrns || {},
+        missingSnapshots: row.missingSnapshots || []
+      };
+      refreshed.status = statusForRow(refreshed);
+      return refreshed;
+    });
+    (incoming.rows || []).forEach(row => {
+      if (matchedIncomingIds.has(row.id)) return;
+      summary.newRows += 1;
+      rows.push({
+        ...row,
+        id: `ler-${cleanString(existing.termCode || incoming.termCode || 'term')}-${rows.length + 1}`,
+        displayOrder: rows.length + 1,
+        snapshotValues: {},
+        missingSnapshots: (existing.snapshots || []).filter(snapshot => snapshot.type !== 'initial').map(snapshot => snapshot.snapshotDate),
+        missingFromLatestWorkbook: false
+      });
+    });
+    const refreshedWorkspace = {
+      ...existing,
+      sourceFilename: incoming.sourceFilename || existing.sourceFilename,
+      reasons: incoming.reasons?.length ? incoming.reasons : existing.reasons,
+      importSummary: incoming.importSummary,
+      importErrors: incoming.importErrors,
+      rows,
+      uploadHistory: [...(existing.uploadHistory || []), {
+        type: 'baseline-refresh',
+        sourceFilename: incoming.sourceFilename,
+        uploadedAt: new Date().toISOString(),
+        snapshotDate: incoming.initialSnapshotDate,
+        ...summary
+      }],
+      updatedAt: new Date().toISOString()
+    };
+    refreshedWorkspace.importSummary = { ...(buildImportSummary(refreshedWorkspace) || {}), ...summary };
+    return { workspace: refreshedWorkspace, summary };
+  }
+
+  function workspaceImportPreview(existingWorkspace, incomingWorkspace) {
+    const indexes = buildRefreshIndexes(incomingWorkspace?.rows || []);
+    const matchedIncomingIds = new Set();
+    let matchedRows = 0;
+    let missingRows = 0;
+    (existingWorkspace?.rows || []).forEach(row => {
+      const match = findRefreshMatch(row, indexes);
+      if (match) {
+        matchedRows += 1;
+        matchedIncomingIds.add(match.row.id);
+      } else {
+        missingRows += 1;
+      }
+    });
+    return {
+      existingRows: (existingWorkspace?.rows || []).length,
+      incomingRows: (incomingWorkspace?.rows || []).length,
+      matchedRows,
+      newRows: (incomingWorkspace?.rows || []).filter(row => !matchedIncomingIds.has(row.id)).length,
+      missingRows,
+      preservedSnapshots: (existingWorkspace?.snapshots || []).filter(snapshot => snapshot.type !== 'initial').length
+    };
+  }
+
   function escapeHtml(value) {
     return cleanString(value).replace(/[&<>"']/g, char => ({
       '&': '&amp;',
@@ -528,36 +747,134 @@
     return `<option value=""></option>${reasons.map(reason => `<option value="${escapeHtml(reason)}"${reason === selected ? ' selected' : ''}>${escapeHtml(reason)}</option>`).join('')}`;
   }
 
+  function filterValues(key) {
+    const values = mounted?.filters?.[key];
+    if (Array.isArray(values)) return values;
+    if (!values || values === 'all') return [];
+    return [values];
+  }
+
+  function filterLabel(value) {
+    return cleanString(value) || '(Blank)';
+  }
+
+  function filterValue(row, field) {
+    return cleanString(row?.[field]) || '(Blank)';
+  }
+
+  function rowMatchesMultiFilter(row, key, field) {
+    const selected = filterValues(key);
+    if (!selected.length) return true;
+    return selected.includes(filterValue(row, field));
+  }
+
+  function statusFilterValue(row) {
+    return statusForRow(row);
+  }
+
   function filteredRows(workspace) {
     const filters = mounted?.filters || {};
-    const status = filters.status || 'all';
     const search = cleanString(filters.search).toLowerCase();
-    const division = filters.division || 'all';
-    const campus = filters.campus || 'all';
     const showThresholdMet = filters.showThresholdMet !== false;
-    return (workspace?.rows || []).filter(row => {
+    const filtered = (workspace?.rows || []).filter(row => {
       const rowStatus = statusForRow(row);
       if (!showThresholdMet && rowStatus === 'Threshold Met') return false;
-      if (status === 'below' && rowStatus !== 'Below Threshold') return false;
-      if (status === 'met' && rowStatus !== 'Threshold Met') return false;
-      if (status === 'missing' && rowStatus !== 'Missing Update') return false;
-      if (status === 'manual' && rowStatus !== 'Manual Review') return false;
-      if (division !== 'all' && cleanString(row.division) !== division) return false;
-      if (campus !== 'all' && cleanString(row.campus) !== campus) return false;
+      const selectedStatuses = filterValues('status');
+      if (selectedStatuses.length && !selectedStatuses.includes(rowStatus)) return false;
+      if (!rowMatchesMultiFilter(row, 'division', 'division')) return false;
+      if (!rowMatchesMultiFilter(row, 'campus', 'campus')) return false;
+      if (!rowMatchesMultiFilter(row, 'instructionalMethod', 'instructionalMethod')) return false;
+      if (!rowMatchesMultiFilter(row, 'scheduleType', 'scheduleType')) return false;
       if (!search) return true;
       return [row.course, row.crnDisplay, row.title, row.division, row.campus, row.faculty, row.justification, row.vpComments]
         .some(value => cleanString(value).toLowerCase().includes(search));
     });
+    return sortRows(filtered);
   }
 
   function distinctOptions(rows, field) {
-    return Array.from(new Set((rows || []).map(row => cleanString(row[field])).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    return Array.from(new Set((rows || []).map(row => filterValue(row, field)))).sort((a, b) => a.localeCompare(b));
+  }
+
+  function sortValue(row, key, snapshots = []) {
+    if (key?.startsWith('snapshot:')) return toNumber(row.snapshotValues?.[key.slice(9)]);
+    if (key === 'status') return statusForRow(row);
+    if (key === 'startDate') return startDateSortValue(row);
+    if (['initialEnrollment', 'latestEnrollment', 'highestEnrollment', 'threshold', 'waitCount'].includes(key)) return toNumber(row[key]);
+    return cleanString(row[key]);
+  }
+
+  function compareSortValues(a, b, direction) {
+    const blankA = a === null || a === undefined || a === '';
+    const blankB = b === null || b === undefined || b === '';
+    if (blankA && blankB) return 0;
+    if (blankA) return 1;
+    if (blankB) return -1;
+    const numberA = typeof a === 'number' && Number.isFinite(a);
+    const numberB = typeof b === 'number' && Number.isFinite(b);
+    const result = numberA && numberB
+      ? a - b
+      : String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+    return direction === 'desc' ? -result : result;
+  }
+
+  function sortRows(rows = []) {
+    const state = mounted?.sort || {};
+    if (!state.key || !state.direction) return rows.slice().sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    return rows.slice().sort((a, b) => {
+      const compared = compareSortValues(sortValue(a, state.key), sortValue(b, state.key), state.direction);
+      return compared || ((a.displayOrder || 0) - (b.displayOrder || 0));
+    });
+  }
+
+  function sortButton(key, label) {
+    const active = mounted?.sort?.key === key ? mounted.sort.direction : '';
+    const marker = active === 'asc' ? ' ▲' : active === 'desc' ? ' ▼' : '';
+    return `<button type="button" class="low-enrollment-sort" data-sort-key="${escapeHtml(key)}">${escapeHtml(label)}${marker}</button>`;
+  }
+
+  function renderMultiSelectFilter(key, label, options = []) {
+    const selected = filterValues(key);
+    const selectedText = selected.length ? `${selected.length} selected` : 'All';
+    return `
+      <details class="low-enrollment-filter-menu" data-filter-menu="${escapeHtml(key)}">
+        <summary>${escapeHtml(label)} <span>${escapeHtml(selectedText)}</span></summary>
+        <div class="low-enrollment-filter-panel">
+          <input type="search" data-filter-search="${escapeHtml(key)}" placeholder="Search ${escapeHtml(label.toLowerCase())}">
+          <div class="low-enrollment-filter-actions">
+            <button type="button" data-filter-select-all="${escapeHtml(key)}">Select All</button>
+            <button type="button" data-filter-clear="${escapeHtml(key)}">Clear All</button>
+          </div>
+          <div class="low-enrollment-filter-options">
+            ${options.map(value => `
+              <label data-filter-option="${escapeHtml(key)}">
+                <input type="checkbox" value="${escapeHtml(value)}"${selected.includes(value) ? ' checked' : ''}>
+                <span>${escapeHtml(filterLabel(value))}</span>
+              </label>
+            `).join('')}
+          </div>
+          <div class="low-enrollment-filter-actions">
+            <button type="button" data-filter-apply="${escapeHtml(key)}">Apply</button>
+            <button type="button" data-filter-cancel="${escapeHtml(key)}">Cancel</button>
+          </div>
+        </div>
+      </details>
+    `;
+  }
+
+  function activeFilterSummary() {
+    const parts = ['status', 'division', 'campus', 'instructionalMethod', 'scheduleType']
+      .map(key => [key, filterValues(key)])
+      .filter(([, values]) => values.length)
+      .map(([key, values]) => `${key}: ${values.join(', ')}`);
+    const thresholdNote = mounted?.filters?.showThresholdMet === false ? 'Threshold Met hidden' : '';
+    return [...parts, thresholdNote].filter(Boolean).join(' | ') || 'No active filters';
   }
 
   function renderTable(workspace) {
     const snapshots = (workspace?.snapshots || []).filter(snapshot => snapshot.type !== 'initial');
     const rows = filteredRows(workspace);
-    const snapshotHeaders = snapshots.map(snapshot => `<th>${escapeHtml(snapshot.snapshotDate || snapshot.label)}</th>`).join('');
+    const snapshotHeaders = snapshots.map(snapshot => `<th>${sortButton(`snapshot:${snapshot.snapshotDate}`, formatSnapshotColumnLabel(snapshot.snapshotDate || snapshot.label))}</th>`).join('');
     const body = rows.map(row => {
       const cells = snapshots.map(snapshot => {
         const value = row.snapshotValues?.[snapshot.snapshotDate];
@@ -584,7 +901,8 @@
           <td>${escapeHtml(row.waitCount)}</td>
           <td>${escapeHtml(row.instructionalMethod)}</td>
           <td>${escapeHtml(row.appliedRule)}</td>
-          <td>${escapeHtml(row.startDate)}</td>
+          <td>${escapeHtml(row.scheduleType)}</td>
+          <td class="low-enrollment-date-cell">${escapeHtml(formatStartDateDisplay(row.startDates?.length ? row.startDates : row.startDateOriginal || row.startDate))}</td>
           <td>${escapeHtml(row.division)}</td>
           <td>${escapeHtml(row.campus)}</td>
           <td>${escapeHtml(row.faculty)}</td>
@@ -598,28 +916,29 @@
         <table class="low-enrollment-table">
           <thead>
             <tr>
-              <th>Course(s)</th>
-              <th>CRN(s)</th>
-              <th>Title</th>
-              <th>Initial Enrollment</th>
+              <th>${sortButton('course', 'Course')}</th>
+              <th>${sortButton('crnDisplay', 'CRN')}</th>
+              <th>${sortButton('title', 'Title')}</th>
+              <th>${sortButton('initialEnrollment', 'Initial Enrollment')}</th>
               ${snapshotHeaders}
-              <th>Latest Enrollment</th>
-              <th>Highest Enrollment</th>
-              <th>Threshold</th>
-              <th>Status</th>
+              <th>${sortButton('latestEnrollment', 'Latest')}</th>
+              <th>${sortButton('highestEnrollment', 'Highest')}</th>
+              <th>${sortButton('threshold', 'Threshold')}</th>
+              <th>${sortButton('status', 'Status')}</th>
               <th>Max Enrollment</th>
-              <th>Wait Count</th>
-              <th>Inst. Method</th>
+              <th>${sortButton('waitCount', 'Wait Count')}</th>
+              <th>${sortButton('instructionalMethod', 'Instructional Method')}</th>
               <th>Applied Rule</th>
-              <th>Start Date</th>
-              <th>Division</th>
-              <th>Campus</th>
-              <th>Faculty</th>
-              <th>Justification</th>
+              <th>${sortButton('scheduleType', 'Schedule Type')}</th>
+              <th>${sortButton('startDate', 'Start Date')}</th>
+              <th>${sortButton('division', 'Division')}</th>
+              <th>${sortButton('campus', 'Campus')}</th>
+              <th>${sortButton('faculty', 'Faculty')}</th>
+              <th>${sortButton('justification', 'Justification')}</th>
               <th>Comments to VP Office</th>
             </tr>
           </thead>
-          <tbody>${body || '<tr><td colspan="18">No rows match the current filters.</td></tr>'}</tbody>
+          <tbody>${body || `<tr><td colspan="${20 + snapshots.length}">No rows match the current filters.</td></tr>`}</tbody>
         </table>
       </div>
     `;
@@ -660,6 +979,9 @@
     const terms = mounted.terms || [];
     const divisions = distinctOptions(workspace?.rows || [], 'division');
     const campuses = distinctOptions(workspace?.rows || [], 'campus');
+    const instructionalMethods = distinctOptions(workspace?.rows || [], 'instructionalMethod');
+    const scheduleTypes = distinctOptions(workspace?.rows || [], 'scheduleType');
+    const statusOptions = ['Below Threshold', 'Threshold Met', 'Missing Update', 'Manual Review'];
     mounted.container.innerHTML = `
       <div class="low-enrollment-tracker">
         <div class="analytics-report-intro">
@@ -693,35 +1015,21 @@
           </label>
           <label>Initial workbook <input id="lowEnrollmentWorkbookFile" type="file" accept=".xlsx,.xls"></label>
           <button id="importLowEnrollmentWorkbook" type="button">Import Initial Workbook</button>
-          <label>Update date <input id="lowEnrollmentSnapshotDate" type="date" value="${escapeHtml(new Date().toISOString().slice(0, 10))}"></label>
+          <label>Update date <input id="lowEnrollmentSnapshotDate" type="date" value="${escapeHtml(mounted.snapshotDate || localDateInputValue())}"></label>
           <label>Enrollment update CSV <input id="lowEnrollmentCsvFile" type="file" accept=".csv"></label>
           <button id="uploadLowEnrollmentSnapshot" type="button"${workspace ? '' : ' disabled'}>Upload Enrollment Update</button>
           <button id="refreshLowEnrollmentTerms" type="button">Refresh Terms</button>
         </div>
         <div class="analytics-toolbar low-enrollment-filterbar">
-          <label>Status
-            <select id="lowEnrollmentStatusFilter">
-              <option value="all"${mounted?.filters?.status === 'all' ? ' selected' : ''}>All statuses</option>
-              <option value="below"${mounted?.filters?.status === 'below' ? ' selected' : ''}>Below Threshold</option>
-              <option value="met"${mounted?.filters?.status === 'met' ? ' selected' : ''}>Threshold Met</option>
-              <option value="missing"${mounted?.filters?.status === 'missing' ? ' selected' : ''}>Missing Update</option>
-              <option value="manual"${mounted?.filters?.status === 'manual' ? ' selected' : ''}>Manual Review</option>
-            </select>
-          </label>
-          <label>Division
-            <select id="lowEnrollmentDivisionFilter">
-              <option value="all">All divisions</option>
-              ${divisions.map(value => `<option value="${escapeHtml(value)}"${mounted?.filters?.division === value ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('')}
-            </select>
-          </label>
-          <label>Campus
-            <select id="lowEnrollmentCampusFilter">
-              <option value="all">All campuses</option>
-              ${campuses.map(value => `<option value="${escapeHtml(value)}"${mounted?.filters?.campus === value ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('')}
-            </select>
-          </label>
+          ${renderMultiSelectFilter('status', 'Status', statusOptions)}
+          ${renderMultiSelectFilter('division', 'Division', divisions)}
+          ${renderMultiSelectFilter('campus', 'Campus', campuses)}
+          ${renderMultiSelectFilter('instructionalMethod', 'Instructional Method / Modality', instructionalMethods)}
+          ${renderMultiSelectFilter('scheduleType', 'Schedule Type', scheduleTypes)}
           <label><input id="lowEnrollmentShowThresholdMet" type="checkbox"${mounted?.filters?.showThresholdMet === false ? '' : ' checked'}> Show Threshold Met</label>
           <label>Search <input id="lowEnrollmentSearch" type="search" placeholder="Course, CRN, faculty, comment" value="${escapeHtml(mounted?.filters?.search || '')}"></label>
+          <button id="clearLowEnrollmentFilters" type="button">Clear All Filters</button>
+          <span class="analytics-note low-enrollment-active-filters">${escapeHtml(activeFilterSummary())}</span>
           <span id="lowEnrollmentSaveStatus" class="analytics-note">${workspace ? `Loaded ${escapeHtml(workspace.displayTerm || workspace.termCode)}.` : 'Import or select a saved workspace.'}</span>
         </div>
         ${workspace ? renderMetrics(workspace) : ''}
@@ -743,6 +1051,118 @@
   function setStatus(message) {
     const node = mounted?.container?.querySelector('#lowEnrollmentSaveStatus');
     if (node) node.textContent = message;
+  }
+
+  function showModal({ title, body, actions = [] }) {
+    return new Promise(resolve => {
+      const overlay = root.document?.createElement('div');
+      if (!overlay) return resolve('');
+      overlay.className = 'low-enrollment-modal-backdrop';
+      overlay.innerHTML = `
+        <div class="low-enrollment-modal" role="dialog" aria-modal="true" aria-labelledby="lowEnrollmentModalTitle">
+          <h3 id="lowEnrollmentModalTitle">${escapeHtml(title)}</h3>
+          <div class="low-enrollment-modal-body">${body}</div>
+          <div class="low-enrollment-modal-actions">
+            ${actions.map(action => `<button type="button" data-modal-action="${escapeHtml(action.value)}"${action.primary ? ' class="primary"' : ''}>${escapeHtml(action.label)}</button>`).join('')}
+          </div>
+        </div>
+      `;
+      const close = value => {
+        overlay.remove();
+        resolve(value);
+      };
+      overlay.addEventListener('click', event => {
+        if (event.target === overlay) close('');
+        const button = event.target.closest?.('[data-modal-action]');
+        if (!button) return;
+        const action = actions.find(item => item.value === button.dataset.modalAction);
+        if (action?.validate && !action.validate(overlay)) return;
+        close(action?.capture ? action.capture(overlay) : (button.dataset.modalAction || ''));
+      });
+      overlay.addEventListener('keydown', event => {
+        if (event.key === 'Escape') close('');
+      });
+      root.document.body.appendChild(overlay);
+      overlay.querySelector('button, input')?.focus();
+    });
+  }
+
+  async function chooseExistingWorkspaceImport(existingWorkspace, incomingWorkspace) {
+    const preview = workspaceImportPreview(existingWorkspace, incomingWorkspace);
+    const termLabel = existingWorkspace.displayTerm || existingWorkspace.termCode;
+    const body = `
+      <p><strong>${escapeHtml(termLabel)}</strong> already has a Low Enrollment workspace.</p>
+      <div class="low-enrollment-summary-grid">
+        <span><strong>${preview.existingRows}</strong> Existing rows</span>
+        <span><strong>${preview.incomingRows}</strong> Incoming rows</span>
+        <span><strong>${preview.matchedRows}</strong> Refresh matches</span>
+        <span><strong>${preview.newRows}</strong> New rows</span>
+        <span><strong>${preview.missingRows}</strong> Existing rows not in workbook</span>
+        <span><strong>${preview.preservedSnapshots}</strong> Dated snapshots preserved by refresh</span>
+      </div>
+      <p><strong>Replace Entire Workspace</strong> removes periodic snapshots, upload history, Timber-entered justifications, VP comments, and Highest/Latest history.</p>
+      <p><strong>Refresh Baseline Roster</strong> preserves dated snapshots, upload history, justifications, VP comments, highest history, and threshold-met history.</p>
+      <label class="low-enrollment-confirm-line">
+        Type ${escapeHtml(existingWorkspace.termCode)} to enable replacement
+        <input data-replace-term-confirm type="text" autocomplete="off">
+      </label>
+      <label><input data-refresh-initial-enrollment type="checkbox"> Also refresh Initial Enrollment from the incoming workbook</label>
+    `;
+    const action = await showModal({
+      title: 'Existing Low Enrollment Workspace',
+      body,
+      actions: [
+        {
+          value: 'refresh',
+          label: 'Refresh Baseline Roster',
+          primary: true,
+          capture: overlay => ({ mode: 'refresh', includeInitialEnrollment: Boolean(overlay.querySelector('[data-refresh-initial-enrollment]')?.checked) })
+        },
+        {
+          value: 'replace',
+          label: 'Replace Entire Workspace',
+          validate: overlay => cleanString(overlay.querySelector('[data-replace-term-confirm]')?.value) === cleanString(existingWorkspace.termCode)
+        },
+        { value: 'cancel', label: 'Cancel' }
+      ]
+    });
+    if (action?.mode === 'refresh') return action;
+    if (action === 'replace') return { mode: 'replace' };
+    return { mode: 'cancel' };
+  }
+
+  function showSnapshotResult(result, error = null) {
+    if (error) {
+      return showModal({
+        title: 'Enrollment Update Failed',
+        body: `<p>${escapeHtml(error.message || 'Enrollment update failed.')}</p>`,
+        actions: [{ value: 'try', label: 'Try Again', primary: true }, { value: 'close', label: 'Close' }]
+      });
+    }
+    const partial = result.partiallyMatchedRows > 0 || result.completelyMissingRows > 0;
+    const title = partial ? 'Enrollment Update Saved with Warnings' : 'Enrollment Update Saved';
+    const body = `
+      <div class="low-enrollment-summary-grid">
+        <span><strong>${result.fullyMatchedRows}</strong> Full matches</span>
+        <span><strong>${result.partiallyMatchedRows}</strong> Partial matches</span>
+        <span><strong>${result.completelyMissingRows}</strong> Missing rows</span>
+        <span><strong>${result.individualCrnsMatched}</strong> CRNs matched</span>
+        <span><strong>${result.individualCrnsMissing}</strong> CRNs missing</span>
+        <span><strong>${result.newlyMet}</strong> Newly met threshold</span>
+      </div>
+      <p>${partial ? 'Some rows were partial or missing. The dated column was saved with row-level warnings.' : 'The dated enrollment column was saved and the workspace was reloaded.'}</p>
+    `;
+    return showModal({
+      title,
+      body,
+      actions: [{ value: 'view', label: 'View Updated Column', primary: true }, { value: 'close', label: 'Close' }]
+    }).then(action => {
+      if (action === 'view') {
+        Array.from(root.document?.querySelectorAll('[data-sort-key]') || [])
+          .find(node => node.dataset.sortKey === `snapshot:${result.snapshot.snapshotDate}`)
+          ?.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'center' });
+      }
+    });
   }
 
   async function ensureAccess() {
@@ -772,17 +1192,28 @@
     await ensureAccess();
     const existing = (mounted.terms || []).find(term => String(term.termCode) === String(workspace.termCode));
     let replaceExisting = false;
+    let workspaceToSave = workspace;
     if (existing) {
-      replaceExisting = root.confirm?.(`A Low Enrollment workspace already exists for ${workspace.displayTerm || workspace.termCode}.\n\nReplacing it will remove the current snapshot history, Justifications, and VP comments for that term.\n\nReplace the existing term workspace?`) === true;
-      if (!replaceExisting) throw new Error('Import canceled. Existing workspace was not replaced.');
+      const existingWorkspace = String(mounted.workspace?.termCode) === String(workspace.termCode)
+        ? mounted.workspace
+        : (await fetchJson(`/api/low-enrollment-tracking/${encodeURIComponent(workspace.termCode)}`)).data;
+      const decision = await chooseExistingWorkspaceImport(existingWorkspace, workspace);
+      if (decision.mode === 'cancel') throw new Error('Import canceled. Existing workspace was not changed.');
+      if (decision.mode === 'refresh') {
+        const refreshed = refreshBaselineWorkspace(existingWorkspace, workspace, { includeInitialEnrollment: decision.includeInitialEnrollment });
+        workspaceToSave = refreshed.workspace;
+        replaceExisting = true;
+      } else {
+        replaceExisting = true;
+      }
     }
-    const payload = await fetchJson(`/api/low-enrollment-tracking/${encodeURIComponent(workspace.termCode)}`, {
+    const payload = await fetchJson(`/api/low-enrollment-tracking/${encodeURIComponent(workspaceToSave.termCode)}`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ workspace, replaceExisting })
+      body: JSON.stringify({ workspace: workspaceToSave, replaceExisting })
     });
     mounted.workspace = payload.data;
-    await loadTerms(workspace.termCode);
+    await loadTerms(workspaceToSave.termCode);
   }
 
   async function saveSnapshot(result) {
@@ -793,13 +1224,25 @@
       replaceExisting = root.confirm?.(`A snapshot already exists for ${result.snapshot.snapshotDate}.\n\nReplacing it will replace that dated column and recalculate Latest, Highest, and Status. Comments and Justifications will remain unchanged.\n\nReplace existing snapshot?`) === true;
       if (!replaceExisting) throw new Error('Snapshot upload canceled. Existing dated snapshot was not replaced.');
     }
-    const payload = await fetchJson(`/api/low-enrollment-tracking/${encodeURIComponent(result.workspace.termCode)}/snapshots`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ snapshot: result.snapshot, uploadHistory: result.uploadHistory, rows: result.workspace.rows, replaceExisting })
-    });
-    mounted.workspace = payload.data;
-    await loadTerms(result.workspace.termCode);
+    try {
+      const payload = await fetchJson(`/api/low-enrollment-tracking/${encodeURIComponent(result.workspace.termCode)}/snapshots`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ snapshot: result.snapshot, uploadHistory: result.uploadHistory, rows: result.workspace.rows, replaceExisting })
+      });
+      mounted.workspace = payload.data;
+      await loadTerms(result.workspace.termCode);
+    } catch (err) {
+      console.warn('Low Enrollment snapshot upload failed', {
+        endpoint: `/api/low-enrollment-tracking/${encodeURIComponent(result.workspace.termCode)}/snapshots`,
+        httpStatus: err.status || '',
+        backendErrorCode: err.payload?.code || err.payload?.error || '',
+        snapshotDate: result.snapshot?.snapshotDate || '',
+        termCode: result.workspace?.termCode || '',
+        recordsParsed: result.individualCrnsMatched + result.individualCrnsMissing
+      });
+      throw err;
+    }
   }
 
   async function readWorkbookFile(file) {
@@ -826,31 +1269,60 @@
     container.querySelector('#lowEnrollmentTerm')?.addEventListener('change', event => {
       loadWorkspace(event.target.value).then(render).catch(err => setStatus(err.message));
     });
-    container.querySelector('#lowEnrollmentStatusFilter')?.addEventListener('change', event => {
-      mounted.filters.status = event.target.value || 'all';
-      render();
-    });
     container.querySelector('#lowEnrollmentSearch')?.addEventListener('input', event => {
       mounted.filters.search = event.target.value || '';
       render();
     });
-    container.querySelector('#lowEnrollmentDivisionFilter')?.addEventListener('change', event => {
-      mounted.filters.division = event.target.value || 'all';
-      render();
-    });
-    container.querySelector('#lowEnrollmentCampusFilter')?.addEventListener('change', event => {
-      mounted.filters.campus = event.target.value || 'all';
-      render();
+    container.querySelector('#lowEnrollmentSnapshotDate')?.addEventListener('change', event => {
+      mounted.snapshotDate = event.target.value || localDateInputValue();
     });
     container.querySelector('#lowEnrollmentShowThresholdMet')?.addEventListener('change', event => {
       mounted.filters.showThresholdMet = Boolean(event.target.checked);
       render();
     });
+    container.querySelector('#clearLowEnrollmentFilters')?.addEventListener('click', () => {
+      mounted.filters = { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], showThresholdMet: true };
+      render();
+    });
+    container.querySelectorAll('[data-filter-search]')?.forEach(input => {
+      input.addEventListener('input', event => {
+        const panel = event.target.closest('.low-enrollment-filter-panel');
+        const search = cleanString(event.target.value).toLowerCase();
+        panel?.querySelectorAll('[data-filter-option]')?.forEach(label => {
+          label.hidden = search && !cleanString(label.textContent).toLowerCase().includes(search);
+        });
+      });
+    });
+    container.querySelectorAll('[data-filter-select-all]')?.forEach(button => {
+      button.addEventListener('click', () => button.closest('.low-enrollment-filter-panel')?.querySelectorAll('input[type="checkbox"]')?.forEach(input => { input.checked = true; }));
+    });
+    container.querySelectorAll('[data-filter-clear]')?.forEach(button => {
+      button.addEventListener('click', () => button.closest('.low-enrollment-filter-panel')?.querySelectorAll('input[type="checkbox"]')?.forEach(input => { input.checked = false; }));
+    });
+    container.querySelectorAll('[data-filter-cancel]')?.forEach(button => {
+      button.addEventListener('click', () => render());
+    });
+    container.querySelectorAll('[data-filter-apply]')?.forEach(button => {
+      button.addEventListener('click', () => {
+        const key = button.dataset.filterApply;
+        mounted.filters[key] = Array.from(button.closest('.low-enrollment-filter-panel')?.querySelectorAll('input[type="checkbox"]:checked') || []).map(input => input.value);
+        render();
+      });
+    });
+    container.querySelectorAll('[data-sort-key]')?.forEach(button => {
+      button.addEventListener('click', () => {
+        const key = button.dataset.sortKey;
+        const current = mounted.sort || {};
+        const nextDirection = current.key !== key ? 'asc' : current.direction === 'asc' ? 'desc' : current.direction === 'desc' ? '' : 'asc';
+        mounted.sort = nextDirection ? { key, direction: nextDirection } : { key: '', direction: '' };
+        render();
+      });
+    });
     container.querySelectorAll('[data-status-card]')?.forEach(button => {
       button.addEventListener('click', () => {
-        const filter = container.querySelector('#lowEnrollmentStatusFilter');
-        if (filter) filter.value = button.dataset.statusCard || 'all';
-        mounted.filters.status = button.dataset.statusCard || 'all';
+        const raw = button.dataset.statusCard || '';
+        const map = { below: 'Below Threshold', met: 'Threshold Met', missing: 'Missing Update', manual: 'Manual Review' };
+        mounted.filters.status = raw === 'all' ? [] : [map[raw] || raw];
         render();
       });
     });
@@ -885,16 +1357,31 @@
       const workspace = selectedWorkspace();
       if (!workspace) return setStatus('Select or import a Low Enrollment workspace first.');
       if (!file) return setStatus('Choose an enrollment update CSV first.');
+      const button = container.querySelector('#uploadLowEnrollmentSnapshot');
       try {
+        if (button) {
+          button.disabled = true;
+          button.textContent = 'Uploading...';
+        }
         setStatus('Applying enrollment update...');
         const rows = await readCsvFile(file);
-        const snapshotDate = container.querySelector('#lowEnrollmentSnapshotDate')?.value || detectSnapshotDateFromRows(rows) || extractSnapshotDateFromFilename(file.name) || new Date().toISOString().slice(0, 10);
+        const snapshotDate = container.querySelector('#lowEnrollmentSnapshotDate')?.value || detectSnapshotDateFromRows(rows) || extractSnapshotDateFromFilename(file.name) || localDateInputValue();
+        mounted.snapshotDate = snapshotDate;
         const result = applyEnrollmentSnapshot(workspace, rows, { snapshotDate, sourceFilename: file.name });
         await saveSnapshot(result);
         setStatus(`Snapshot saved. ${result.fullyMatchedRows} full, ${result.partiallyMatchedRows} partial, ${result.completelyMissingRows} missing row(s); ${result.newlyMet} newly met threshold.`);
         render();
+        await showSnapshotResult(result);
+        const fileInput = mounted.container?.querySelector('#lowEnrollmentCsvFile');
+        if (fileInput) fileInput.value = '';
       } catch (err) {
+        await showSnapshotResult(null, err);
         setStatus(err.message || 'Enrollment update failed.');
+      } finally {
+        if (button?.isConnected) {
+          button.disabled = false;
+          button.textContent = 'Upload Enrollment Update';
+        }
       }
     });
     container.querySelectorAll('[data-low-enrollment-field]')?.forEach(input => {
@@ -939,8 +1426,28 @@
       .low-enrollment-table{min-width:1500px;width:100%;border-collapse:collapse}
       .low-enrollment-table th{position:sticky;top:0;z-index:2;background:#245685;color:#fff}
       .low-enrollment-table th,.low-enrollment-table td{padding:8px;border-bottom:1px solid #e1e8f0;vertical-align:top;font-size:12px}
+      .low-enrollment-table th button.low-enrollment-sort{all:unset;cursor:pointer;font:inherit;color:inherit;display:block;width:100%}
       .low-enrollment-table textarea{min-width:210px;width:100%;resize:vertical}
       .low-enrollment-table select{min-width:220px}
+      .low-enrollment-date-cell{white-space:pre-line}
+      .low-enrollment-filterbar{align-items:flex-start}
+      .low-enrollment-filter-menu{position:relative;min-width:170px}
+      .low-enrollment-filter-menu summary{cursor:pointer;border:1px solid #cfdbe8;border-radius:8px;background:#fff;padding:8px 10px;font-weight:800;color:#17355d;list-style:none}
+      .low-enrollment-filter-menu summary span{display:block;color:#5b6d81;font-size:11px;font-weight:700}
+      .low-enrollment-filter-panel{position:absolute;z-index:20;top:calc(100% + 6px);left:0;width:270px;max-width:80vw;border:1px solid #cbd8e6;border-radius:10px;background:#fff;box-shadow:0 18px 36px rgba(15,35,60,.18);padding:10px}
+      .low-enrollment-filter-panel input[type="search"]{width:100%;margin-bottom:8px}
+      .low-enrollment-filter-options{max-height:220px;overflow:auto;display:grid;gap:4px;margin:8px 0}
+      .low-enrollment-filter-options label{display:flex;gap:6px;align-items:center;font-size:12px}
+      .low-enrollment-filter-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+      .low-enrollment-filter-actions button{border:1px solid #cbd8e6;border-radius:7px;background:#f8fbff;padding:5px 8px;color:#17355d;font-weight:800}
+      .low-enrollment-active-filters{flex-basis:100%}
+      .low-enrollment-modal-backdrop{position:fixed;inset:0;z-index:9999;background:rgba(10,24,40,.48);display:flex;align-items:center;justify-content:center;padding:20px}
+      .low-enrollment-modal{width:min(720px,96vw);max-height:88vh;overflow:auto;background:#fff;border-radius:12px;border:1px solid #cbd8e6;box-shadow:0 24px 70px rgba(7,20,38,.35);padding:18px;color:#10233c}
+      .low-enrollment-modal h3{margin-top:0;color:#123367}
+      .low-enrollment-modal-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}
+      .low-enrollment-modal-actions button{border:1px solid #cbd8e6;border-radius:9px;background:#fff;padding:8px 12px;font-weight:900;color:#17355d}
+      .low-enrollment-modal-actions button.primary{background:#0d4f80;color:#fff;border-color:#0d4f80}
+      .low-enrollment-confirm-line{display:grid;gap:5px;margin:12px 0}
       .status-pill{display:inline-flex;border-radius:999px;padding:3px 8px;font-weight:900;font-size:11px;background:#eaf1f8;color:#123367}
       .status-pill.threshold-met{background:#ecfdf3;color:#166534}
       .status-pill.below-threshold{background:#fff7ed;color:#9a3412}
@@ -966,7 +1473,9 @@
       requestAccess: options.requestAccess,
       terms: [],
       workspace: null,
-      filters: { status: 'all', search: '', division: 'all', campus: 'all', showThresholdMet: true }
+      filters: { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], showThresholdMet: true },
+      sort: { key: '', direction: '' },
+      snapshotDate: localDateInputValue()
     };
     render();
     loadTerms().then(render).catch(err => setStatus(err.message || 'Low Enrollment Tracking load failed.'));
@@ -977,6 +1486,11 @@
     normalizeHeader,
     buildHeaderMap,
     parseCrns,
+    localDateInputValue,
+    normalizeDate,
+    parseStartDateList,
+    formatStartDateDisplay,
+    formatSnapshotColumnLabel,
     parseReasonsTable,
     parseWorkbookTable,
     parseWorkbook,
@@ -985,6 +1499,8 @@
     validateImportWorkspace,
     buildImportSummary,
     applyEnrollmentSnapshot,
+    refreshBaselineWorkspace,
+    workspaceImportPreview,
     statusForRow,
     displayTermFromCode,
     extractTermCodeFromFilename,

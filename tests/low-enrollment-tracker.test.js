@@ -86,6 +86,53 @@ test('low enrollment snapshot date detects source content before filename fallba
   assert.equal(tracker.extractSnapshotDateFromFilename('202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx'), '2026-08-04');
 });
 
+test('low enrollment start dates normalize, dedupe, sort, and display as M/D/YY lines', () => {
+  const dates = tracker.parseStartDateList('Fall note 2026-08-17T00:00:00; 8/10/26, 08/10/2026\n9/1/2026');
+  assert.deepEqual(dates, ['2026-08-10', '2026-08-17', '2026-09-01']);
+  assert.equal(tracker.formatStartDateDisplay(dates), '8/10/26\n8/17/26\n9/1/26');
+});
+
+test('low enrollment snapshot columns use M-D-YY enrollment labels', () => {
+  assert.equal(tracker.formatSnapshotColumnLabel('2026-08-07'), '8-7-26 Enrollment');
+});
+
+test('low enrollment baseline refresh preserves manual comments and dated snapshots', () => {
+  const existing = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Wait Count', 'Inst. Method', 'Sched Type', 'Applied Rule', 'Threshold', 'Start Date', 'Division', 'Campus', 'Faculty', 'Justification', 'Comments to VPs Office'],
+    ['COMM C1000', '10003 / 10004', 'Old Public Speaking', '18', '30', '0', 'IP', 'LEC', 'Below 70%', '21', '8/10/2026', 'LANG', 'COS', 'Smith', 'Other', 'VP note'],
+    ['MATH 021', '20001', 'Support Algebra', '8', '25', '0', 'IP', 'LEC', 'Below 70%', '18', '8/10/2026', 'MATH', 'TCC', 'Jones', '', '']
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' });
+  const afterSnapshot = tracker.applyEnrollmentSnapshot(existing, [
+    { CRN: '10003', ACTUAL_ENROLL: '12' },
+    { CRN: '10004', ACTUAL_ENROLL: '13' }
+  ], { snapshotDate: '2026-08-11', sourceFilename: 'update.csv' }).workspace;
+  const incoming = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Wait Count', 'Inst. Method', 'Sched Type', 'Applied Rule', 'Threshold', 'Start Date', 'Division', 'Campus', 'Faculty'],
+    ['COMM C1000', '10004, 10003', 'New Public Speaking', '19', '35', '2', 'HYB', 'LEC', 'Below 75%', '26', '8/17/2026', 'COMM', 'HAC', 'Smith'],
+    ['ENGL C1000', '30001', 'Writing', '12', '30', '0', 'IP', 'LEC', 'Below 70%', '21', '8/17/2026', 'ENGL', 'COS', 'Rivera']
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-5-26.xlsx', throwOnInvalid: false });
+  const result = tracker.refreshBaselineWorkspace(afterSnapshot, incoming);
+  assert.equal(result.summary.matchedRows, 1);
+  assert.equal(result.summary.newRows, 1);
+  assert.equal(result.summary.missingRows, 1);
+  assert.equal(result.workspace.rows[0].title, 'New Public Speaking');
+  assert.equal(result.workspace.rows[0].justification, 'Other');
+  assert.equal(result.workspace.rows[0].vpComments, 'VP note');
+  assert.equal(result.workspace.rows[0].latestEnrollment, 25);
+  assert.equal(result.workspace.rows[0].snapshotValues['2026-08-11'], 25);
+  assert.equal(result.workspace.rows[1].missingFromLatestWorkbook, true);
+});
+
+test('low enrollment module source includes multi-select filters, sort controls, and explicit result modals', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'low-enrollment-tracker.js'), 'utf8');
+  assert.match(source, /data-filter-menu/);
+  assert.match(source, /data-filter-apply/);
+  assert.match(source, /data-sort-key/);
+  assert.match(source, /Enrollment Update Saved with Warnings/);
+  assert.match(source, /Replace Entire Workspace/);
+  assert.doesNotMatch(source, /new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/);
+});
+
 test('low enrollment report is registered as an Enrollment Management report', () => {
   const { REPORTS, REPORT_ACCESS, REPORT_LABEL, REPORT_WORKFLOW_GROUPS, REPORT_DESCRIPTIONS } = reports;
   assert.equal(REPORTS.lowEnrollmentTracking, 'low-enrollment-tracking');
