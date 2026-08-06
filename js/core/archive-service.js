@@ -7,6 +7,7 @@
 
   const DEFAULT_CONCURRENCY = 3;
   const DEFAULT_MAX_ARCHIVES = 10;
+  const DEFAULT_MANIFEST_TTL_MS = 5 * 60 * 1000;
   const manifestState = { promise: null, data: null, fetchedAt: 0 };
   const archiveDataCache = new Map();
   const archiveRequestCache = new Map();
@@ -99,7 +100,9 @@
   async function getArchiveManifest(options = {}) {
     const baseUrl = backendBaseUrl(options);
     if (!baseUrl) return { schemaVersion: 0, generatedAt: '', terms: [] };
-    if (!options.force && manifestState.data) return manifestState.data;
+    const ttlMs = Number.isFinite(Number(options.manifestTtlMs)) ? Number(options.manifestTtlMs) : DEFAULT_MANIFEST_TTL_MS;
+    const fresh = manifestState.data && (Date.now() - (manifestState.fetchedAt || 0)) < ttlMs;
+    if (!options.force && fresh) return manifestState.data;
     if (!options.force && manifestState.promise) return manifestState.promise;
     manifestState.promise = (async () => {
       const started = now();
@@ -172,6 +175,8 @@
     if (!options.force && archiveDataCache.has(cacheKey)) {
       const cached = archiveDataCache.get(cacheKey);
       cached.usedAt = Date.now();
+      archiveDataCache.delete(cacheKey);
+      archiveDataCache.set(cacheKey, cached);
       return cached.payload;
     }
     if (!options.force && archiveRequestCache.has(cacheKey)) return archiveRequestCache.get(cacheKey);
@@ -262,11 +267,15 @@
   async function loadArchiveTerms(terms = [], options = {}) {
     const requested = [...new Set((terms || []).map(cleanTerm).filter(Boolean))];
     const started = now();
+    const progress = summary => {
+      const withElapsed = { ...summary, elapsedMs: now() - started };
+      options.onProgress?.(withElapsed);
+    };
     const results = await runWithConcurrency(
       requested,
       term => loadArchiveTerm(term, options),
       options.concurrency || DEFAULT_CONCURRENCY,
-      options.onProgress
+      progress
     );
     const summary = progressSummary(requested, results);
     summary.elapsedMs = now() - started;
@@ -292,6 +301,8 @@
   function renderArchiveLoadingStatus(summary = {}) {
     const bytes = Number(summary.bytes || summary.approximateBytes || 0);
     const mb = bytes ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : 'N/A';
+    const elapsed = Number(summary.elapsedMs || 0);
+    const elapsedText = `${(elapsed / 1000).toFixed(1)}s`;
     return `
       <div class="archive-loading-status">
         <strong>Historical data</strong>
@@ -301,6 +312,7 @@
         <span>Failed: ${summary.failed || 0}</span>
         <span>Rows loaded: ${summary.rowsLoaded || 0}</span>
         <span>Downloaded: ${mb}</span>
+        <span>Elapsed: ${elapsedText}</span>
       </div>
     `;
   }
@@ -316,6 +328,7 @@
   return {
     DEFAULT_CONCURRENCY,
     DEFAULT_MAX_ARCHIVES,
+    DEFAULT_MANIFEST_TTL_MS,
     getArchiveManifest,
     refreshArchiveManifest,
     loadArchiveTerm,

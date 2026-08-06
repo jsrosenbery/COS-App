@@ -2420,6 +2420,37 @@ button:hover,
   white-space: pre-line;
 }
 
+.archive-loading-status-mount {
+  margin: 8px 0 12px;
+}
+
+.archive-loading-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #d8e1ec;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: #123367;
+  font-size: 13px;
+}
+
+.archive-loading-status strong {
+  margin-right: 4px;
+}
+
+.archive-loading-failures {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+}
+
 @media (max-width: 760px) {
   .site-banner {
     max-height: 24vh;

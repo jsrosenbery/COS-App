@@ -46,6 +46,29 @@ test('archive manifest is fetched once per session and refresh forces a new requ
   assert.equal(calls, 2);
 });
 
+test('archive manifest refreshes after the freshness ttl expires', async () => {
+  resetService();
+  globalThis.BACKEND_BASE_URL = 'https://backend.test';
+  let manifestVersion = 'one';
+  let calls = 0;
+  globalThis.fetch = async url => {
+    calls += 1;
+    assert.equal(url, 'https://backend.test/api/analytics-archive/manifest');
+    return jsonResponse({ data: { schemaVersion: 1, terms: [{ termCode: 'FALL 2026', updatedAt: manifestVersion }] } });
+  };
+
+  const first = await service.getArchiveManifest();
+  assert.equal(first.terms[0].updatedAt, 'one');
+  manifestVersion = 'two';
+  const fresh = await service.getArchiveManifest();
+  assert.equal(fresh.terms[0].updatedAt, 'one');
+  service._private.manifestState.fetchedAt = Date.now() - service.DEFAULT_MANIFEST_TTL_MS - 1000;
+  const stale = await service.getArchiveManifest();
+
+  assert.equal(stale.terms[0].updatedAt, 'two');
+  assert.equal(calls, 2);
+});
+
 test('archive manifest gracefully falls back to legacy archive listing', async () => {
   resetService();
   globalThis.BACKEND_BASE_URL = 'https://backend.test';
@@ -80,6 +103,29 @@ test('archive term requests dedupe in-flight promises and then return from memor
   const cached = await service.loadArchiveTerm('FALL 2026');
   assert.equal(cached, first);
   assert.equal(termCalls, 1);
+});
+
+test('archive memory cache moves hits to newest position before evicting', async () => {
+  resetService();
+  globalThis.BACKEND_BASE_URL = 'https://backend.test';
+  const terms = ['A', 'B', 'C'];
+  globalThis.fetch = async url => {
+    if (url.endsWith('/manifest')) {
+      return jsonResponse({ data: { schemaVersion: 1, terms: terms.map(termCode => ({ termCode, updatedAt: 'v1' })) } });
+    }
+    const term = decodeURIComponent(url.split('/').pop());
+    return jsonResponse({ term, data: [{ term }] });
+  };
+
+  await service.loadArchiveTerm('A', { maxArchives: 2 });
+  await service.loadArchiveTerm('B', { maxArchives: 2 });
+  await service.loadArchiveTerm('A', { maxArchives: 2 });
+  await service.loadArchiveTerm('C', { maxArchives: 2 });
+
+  const keys = Array.from(service._private.archiveDataCache.keys());
+  assert.ok(keys.some(key => key.startsWith('A|')));
+  assert.ok(keys.some(key => key.startsWith('C|')));
+  assert.ok(!keys.some(key => key.startsWith('B|')));
 });
 
 test('failed archive term requests are not permanently cached and force refresh bypasses cache', async () => {
@@ -164,4 +210,21 @@ test('archive service debug timing is silent unless debug flag is enabled', asyn
   } finally {
     globalThis.console = priorConsole;
   }
+});
+
+test('archive loading status includes elapsed loading time', () => {
+  const html = service.renderArchiveLoadingStatus({
+    total: 2,
+    loaded: 1,
+    pending: 1,
+    failed: 0,
+    rowsLoaded: 25,
+    bytes: 1024,
+    elapsedMs: 1234
+  });
+
+  assert.match(html, /Loaded: 1/);
+  assert.match(html, /Pending: 1/);
+  assert.match(html, /Rows loaded: 25/);
+  assert.match(html, /Elapsed: 1\.2s/);
 });

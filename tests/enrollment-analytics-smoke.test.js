@@ -2362,6 +2362,33 @@ test('demand forecast is scoped to selected demand uploads and archives', () => 
   assert.match(text, /Demand source load failed:/);
 });
 
+test('archive loading progress is mounted by the actual historical report loader', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const archiveStart = text.indexOf('async function readArchivedRows');
+  const archiveEnd = text.indexOf('async function refreshAnalyticsArchiveOptions', archiveStart);
+  const archiveBlock = text.slice(archiveStart, archiveEnd);
+
+  assert.match(archiveBlock, /const load = await readArchivedRowsWithDiagnostics\(selectId, options\)/);
+  assert.match(archiveBlock, /function archiveLoadingMountForSelect\(selectId, reportLabel = 'analytics archive'\)/);
+  assert.match(archiveBlock, /const mountId = `archive-loading-status-\$\{selectId\}`/);
+  assert.match(archiveBlock, /setAttribute\('aria-live', 'polite'\)/);
+  assert.match(archiveBlock, /renderArchiveProgressForSelect\(selectId, summary, \{ reportLabel \}\)/);
+  assert.doesNotMatch(archiveBlock, /statusElementId/);
+});
+
+test('classic archive source loading reports failed terms without discarding successful terms', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const fetchStart = text.indexOf('async function fetchArchivedScheduleRows');
+  const fetchEnd = text.indexOf('async function refreshAnalysisArchiveSelectors', fetchStart);
+  const fetchBlock = text.slice(fetchStart, fetchEnd);
+
+  assert.match(fetchBlock, /fetchArchivedScheduleRows\.lastFailures = \[\]/);
+  assert.match(fetchBlock, /result\.failed \? \[\] :/);
+  assert.match(fetchBlock, /failures\.length && !rows\.length/);
+  assert.match(fetchBlock, /function archiveFailureStatusText/);
+  assert.match(text, /archiveFailureStatusText\(\)/);
+});
+
 test('enrollment planning forecast exposes population toggles sections and metadata', () => {
   const text = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'css/style.css'), 'utf8');

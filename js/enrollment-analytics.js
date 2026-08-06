@@ -10821,11 +10821,46 @@ BUS 180 2 units`)
   }
 
   async function readArchivedRows(selectId, options = {}) {
-    const terms = getSelectedValues(selectId);
-    if (!terms.length || !window.BACKEND_BASE_URL) return [];
-    const reportLabel = options.reportLabel || 'analytics archive';
-    const batches = await Promise.all(terms.map(term => fetchArchivedTermRows(term, reportLabel)));
-    return batches.flat();
+    const load = await readArchivedRowsWithDiagnostics(selectId, options);
+    return load.rows || [];
+  }
+
+  function archiveLoadingMountForSelect(selectId, reportLabel = 'analytics archive') {
+    const select = document.getElementById(selectId);
+    if (!select) return null;
+    const mountId = `archive-loading-status-${selectId}`;
+    let node = document.getElementById(mountId);
+    if (node) return node;
+    node = document.createElement('div');
+    node.id = mountId;
+    node.className = 'archive-loading-status-mount';
+    node.setAttribute('role', 'status');
+    node.setAttribute('aria-live', 'polite');
+    node.dataset.reportLabel = reportLabel;
+    const insertAfter = select.closest('.dashboard-scope-panel') ||
+      select.closest('.analytics-toolbar') ||
+      select.closest('.analytics-form-row') ||
+      select.parentElement;
+    if (insertAfter?.parentNode) insertAfter.insertAdjacentElement('afterend', node);
+    else (select.closest('.analytics-view') || document.body).appendChild(node);
+    return node;
+  }
+
+  function archiveFailureListHtml(failures = []) {
+    const failed = failures.filter(item => item?.failed);
+    if (!failed.length) return '';
+    return `<div class="archive-loading-failures">Failed term(s): ${failed.map(item => `${escapeAttr(item.term || item.item || 'Unknown')}${item.error ? ` (${escapeAttr(item.error)})` : ''}`).join('; ')}</div>`;
+  }
+
+  function renderArchiveProgressForSelect(selectId, summary = {}, options = {}) {
+    const node = archiveLoadingMountForSelect(selectId, options.reportLabel || 'analytics archive');
+    if (!node) return;
+    state.archiveLoadingStatus = summary;
+    const renderer = window.COSArchiveService?.renderArchiveLoadingStatus;
+    const statusHtml = renderer
+      ? renderer(summary)
+      : `<div class="archive-loading-status"><strong>Historical data</strong><span>Loaded: ${summary.loaded || 0}</span><span>Pending: ${summary.pending || 0}</span><span>Failed: ${summary.failed || 0}</span><span>Rows loaded: ${summary.rowsLoaded || 0}</span></div>`;
+    node.innerHTML = `${statusHtml}${archiveFailureListHtml(summary.results || summary.failures || [])}`;
   }
 
   function renderOptimizationArchiveStatus(message = '') {
@@ -11047,7 +11082,7 @@ BUS 180 2 units`)
     const reportLabel = options.reportLabel || 'analytics archive';
     if (!selectedTerms.length) return { selectedTerms, results: [], rows: [] };
     if (!window.BACKEND_BASE_URL) {
-      return {
+      const result = {
         selectedTerms,
         results: selectedTerms.map(term => ({
           term,
@@ -11057,15 +11092,31 @@ BUS 180 2 units`)
         })),
         rows: []
       };
+      renderArchiveProgressForSelect(selectId, {
+        total: selectedTerms.length,
+        loaded: 0,
+        pending: 0,
+        failed: selectedTerms.length,
+        rowsLoaded: 0,
+        bytes: 0,
+        elapsedMs: 0,
+        results: result.results
+      }, { reportLabel });
+      return result;
     }
     if (window.COSArchiveService?.loadArchiveTerms) {
+      renderArchiveProgressForSelect(selectId, {
+        total: selectedTerms.length,
+        loaded: 0,
+        pending: selectedTerms.length,
+        failed: 0,
+        rowsLoaded: 0,
+        bytes: 0,
+        elapsedMs: 0
+      }, { reportLabel });
       const load = await window.COSArchiveService.loadArchiveTerms(selectedTerms, {
         reportLabel,
-        onProgress: summary => {
-          state.archiveLoadingStatus = summary;
-          const node = options.statusElementId ? document.getElementById(options.statusElementId) : null;
-          if (node && window.COSArchiveService?.renderArchiveLoadingStatus) node.innerHTML = window.COSArchiveService.renderArchiveLoadingStatus(summary);
-        }
+        onProgress: summary => renderArchiveProgressForSelect(selectId, summary, { reportLabel })
       });
       const results = load.results.map(result => ({
         term: normalizeTermLabel(result.term),
@@ -11073,6 +11124,7 @@ BUS 180 2 units`)
         failed: result.failed,
         error: result.error
       }));
+      renderArchiveProgressForSelect(selectId, { ...(load.summary || {}), results }, { reportLabel });
       return {
         selectedTerms,
         results,
@@ -11080,6 +11132,16 @@ BUS 180 2 units`)
         summary: load.summary
       };
     }
+    const started = performance.now();
+    renderArchiveProgressForSelect(selectId, {
+      total: selectedTerms.length,
+      loaded: 0,
+      pending: selectedTerms.length,
+      failed: 0,
+      rowsLoaded: 0,
+      bytes: 0,
+      elapsedMs: 0
+    }, { reportLabel });
     const results = await Promise.all(selectedTerms.map(async term => {
       try {
         const rows = await fetchArchivedTermRows(term, reportLabel);
@@ -11088,10 +11150,22 @@ BUS 180 2 units`)
         return { term, rows: [], failed: true, error: err?.message || String(err) };
       }
     }));
+    const summary = {
+      total: selectedTerms.length,
+      loaded: results.filter(result => !result.failed).length,
+      pending: 0,
+      failed: results.filter(result => result.failed).length,
+      rowsLoaded: results.reduce((sum, result) => sum + result.rows.length, 0),
+      bytes: 0,
+      elapsedMs: performance.now() - started,
+      results
+    };
+    renderArchiveProgressForSelect(selectId, summary, { reportLabel });
     return {
       selectedTerms,
       results,
-      rows: results.flatMap(result => result.rows)
+      rows: results.flatMap(result => result.rows),
+      summary
     };
   }
 
