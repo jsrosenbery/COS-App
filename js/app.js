@@ -1883,21 +1883,50 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   async function fetchArchivedScheduleRows(terms) {
+    fetchArchivedScheduleRows.lastFailures = [];
     if (!terms.length) return [];
-    const batches = await Promise.all(terms.map(async term => {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`);
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(`Could not load archived term ${term}: ${payload.error || payload.message || response.statusText}`);
-      return (payload.data || []).map(row => ({ ...row, __sourceTerm: payload.term || term }));
+    if (window.COSArchiveService?.loadArchiveTerms) {
+      const load = await window.COSArchiveService.loadArchiveTerms(terms);
+      const failures = load.results.filter(result => result.failed);
+      fetchArchivedScheduleRows.lastFailures = failures;
+      const rows = load.results.flatMap(result => (result.failed ? [] : (result.rows || []).map(row => ({ ...row, __sourceTerm: result.payload?.term || result.term }))));
+      if (failures.length && !rows.length) throw new Error(`Could not load archived term ${failures[0].term}: ${failures[0].error}`);
+      return rows;
+    }
+    const results = await Promise.all(terms.map(async term => {
+      try {
+        const response = await fetch(`${BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || payload.message || response.statusText);
+        return { term, rows: (payload.data || []).map(row => ({ ...row, __sourceTerm: payload.term || term })), failed: false, error: '' };
+      } catch (err) {
+        return { term, rows: [], failed: true, error: err?.message || String(err) };
+      }
     }));
-    return batches.flat();
+    fetchArchivedScheduleRows.lastFailures = results.filter(result => result.failed);
+    const rows = results.flatMap(result => result.rows);
+    if (fetchArchivedScheduleRows.lastFailures.length && !rows.length) {
+      const failure = fetchArchivedScheduleRows.lastFailures[0];
+      throw new Error(`Could not load archived term ${failure.term}: ${failure.error}`);
+    }
+    return rows;
+  }
+
+  function archiveFailureStatusText() {
+    const failures = fetchArchivedScheduleRows.lastFailures || [];
+    if (!failures.length) return '';
+    return ` ${failures.length} archived term(s) failed: ${failures.map(failure => failure.term).join(', ')}.`;
   }
 
   async function refreshAnalysisArchiveSelectors() {
     if (!BACKEND_BASE_URL) return;
     try {
-      const payload = await fetch(`${BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
-      const terms = (payload.data || []).map(item => item.term).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      const manifest = window.COSArchiveService?.getArchiveManifest
+        ? await window.COSArchiveService.getArchiveManifest()
+        : await fetch(`${BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
+      const terms = Array.isArray(manifest.terms)
+        ? manifest.terms.map(item => item.termCode).filter(Boolean)
+        : (manifest.data || []).map(item => item.term).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       ['heatmap-archive-terms', 'linechart-archive-terms', 'modality-archive-terms'].forEach(id => {
         const select = document.getElementById(id);
         if (!select) return;
@@ -1942,7 +1971,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (prefix === 'linechart') renderLineChart();
     else updateAllHeatmap();
     const terms = [...new Set(rows.map(row => getSectionTerm(row)).filter(Boolean))].sort();
-    setScheduleAnalysisStatus(prefix, `Loaded ${rows.length} row(s)${terms.length ? ` for ${terms.join(', ')}` : ''}.`);
+    setScheduleAnalysisStatus(prefix, `Loaded ${rows.length} row(s)${terms.length ? ` for ${terms.join(', ')}` : ''}.${archiveFailureStatusText()}`);
     return getScheduleAnalysisRows();
   }
 
@@ -1969,7 +1998,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     initModalityFilters();
     renderModalityTool();
     const terms = [...new Set(modalityLoadedSourceRows.map(getSectionTerm).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    setScheduleAnalysisStatus('modality', `Loaded ${modalityLoadedSourceRows.length} row(s)${terms.length ? ` for ${terms.join(', ')}` : ''}.`);
+    setScheduleAnalysisStatus('modality', `Loaded ${modalityLoadedSourceRows.length} row(s)${terms.length ? ` for ${terms.join(', ')}` : ''}.${archiveFailureStatusText()}`);
     return modalityLoadedSourceRows;
   }
 

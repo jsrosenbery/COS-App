@@ -1853,9 +1853,12 @@
       }
       if (!Array.isArray(payload.data) || !payload.data.length) {
         try {
-          const archiveResponse = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`);
-          if (!archiveResponse.ok) throw new Error(`${archiveResponse.status} ${archiveResponse.statusText}`.trim());
-          const archivePayload = await archiveResponse.json();
+          const archivePayload = window.COSArchiveService?.loadArchiveTerm
+            ? await window.COSArchiveService.loadArchiveTerm(requestedTerm)
+            : await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`).then(async archiveResponse => {
+                if (!archiveResponse.ok) throw new Error(`${archiveResponse.status} ${archiveResponse.statusText}`.trim());
+                return archiveResponse.json();
+              });
           if (Array.isArray(archivePayload.data) && archivePayload.data.length) {
             payload = archivePayload;
             source = 'analytics archive';
@@ -10818,11 +10821,46 @@ BUS 180 2 units`)
   }
 
   async function readArchivedRows(selectId, options = {}) {
-    const terms = getSelectedValues(selectId);
-    if (!terms.length || !window.BACKEND_BASE_URL) return [];
-    const reportLabel = options.reportLabel || 'analytics archive';
-    const batches = await Promise.all(terms.map(term => fetchArchivedTermRows(term, reportLabel)));
-    return batches.flat();
+    const load = await readArchivedRowsWithDiagnostics(selectId, options);
+    return load.rows || [];
+  }
+
+  function archiveLoadingMountForSelect(selectId, reportLabel = 'analytics archive') {
+    const select = document.getElementById(selectId);
+    if (!select) return null;
+    const mountId = `archive-loading-status-${selectId}`;
+    let node = document.getElementById(mountId);
+    if (node) return node;
+    node = document.createElement('div');
+    node.id = mountId;
+    node.className = 'archive-loading-status-mount';
+    node.setAttribute('role', 'status');
+    node.setAttribute('aria-live', 'polite');
+    node.dataset.reportLabel = reportLabel;
+    const insertAfter = select.closest('.dashboard-scope-panel') ||
+      select.closest('.analytics-toolbar') ||
+      select.closest('.analytics-form-row') ||
+      select.parentElement;
+    if (insertAfter?.parentNode) insertAfter.insertAdjacentElement('afterend', node);
+    else (select.closest('.analytics-view') || document.body).appendChild(node);
+    return node;
+  }
+
+  function archiveFailureListHtml(failures = []) {
+    const failed = failures.filter(item => item?.failed);
+    if (!failed.length) return '';
+    return `<div class="archive-loading-failures">Failed term(s): ${failed.map(item => `${escapeAttr(item.term || item.item || 'Unknown')}${item.error ? ` (${escapeAttr(item.error)})` : ''}`).join('; ')}</div>`;
+  }
+
+  function renderArchiveProgressForSelect(selectId, summary = {}, options = {}) {
+    const node = archiveLoadingMountForSelect(selectId, options.reportLabel || 'analytics archive');
+    if (!node) return;
+    state.archiveLoadingStatus = summary;
+    const renderer = window.COSArchiveService?.renderArchiveLoadingStatus;
+    const statusHtml = renderer
+      ? renderer(summary)
+      : `<div class="archive-loading-status"><strong>Historical data</strong><span>Loaded: ${summary.loaded || 0}</span><span>Pending: ${summary.pending || 0}</span><span>Failed: ${summary.failed || 0}</span><span>Rows loaded: ${summary.rowsLoaded || 0}</span></div>`;
+    node.innerHTML = `${statusHtml}${archiveFailureListHtml(summary.results || summary.failures || [])}`;
   }
 
   function renderOptimizationArchiveStatus(message = '') {
@@ -11044,7 +11082,7 @@ BUS 180 2 units`)
     const reportLabel = options.reportLabel || 'analytics archive';
     if (!selectedTerms.length) return { selectedTerms, results: [], rows: [] };
     if (!window.BACKEND_BASE_URL) {
-      return {
+      const result = {
         selectedTerms,
         results: selectedTerms.map(term => ({
           term,
@@ -11054,7 +11092,56 @@ BUS 180 2 units`)
         })),
         rows: []
       };
+      renderArchiveProgressForSelect(selectId, {
+        total: selectedTerms.length,
+        loaded: 0,
+        pending: 0,
+        failed: selectedTerms.length,
+        rowsLoaded: 0,
+        bytes: 0,
+        elapsedMs: 0,
+        results: result.results
+      }, { reportLabel });
+      return result;
     }
+    if (window.COSArchiveService?.loadArchiveTerms) {
+      renderArchiveProgressForSelect(selectId, {
+        total: selectedTerms.length,
+        loaded: 0,
+        pending: selectedTerms.length,
+        failed: 0,
+        rowsLoaded: 0,
+        bytes: 0,
+        elapsedMs: 0
+      }, { reportLabel });
+      const load = await window.COSArchiveService.loadArchiveTerms(selectedTerms, {
+        reportLabel,
+        onProgress: summary => renderArchiveProgressForSelect(selectId, summary, { reportLabel })
+      });
+      const results = load.results.map(result => ({
+        term: normalizeTermLabel(result.term),
+        rows: (result.rows || []).map(row => ({ ...row, __sourceTerm: normalizeTermLabel(result.payload?.term || result.term) })),
+        failed: result.failed,
+        error: result.error
+      }));
+      renderArchiveProgressForSelect(selectId, { ...(load.summary || {}), results }, { reportLabel });
+      return {
+        selectedTerms,
+        results,
+        rows: results.flatMap(result => result.rows),
+        summary: load.summary
+      };
+    }
+    const started = performance.now();
+    renderArchiveProgressForSelect(selectId, {
+      total: selectedTerms.length,
+      loaded: 0,
+      pending: selectedTerms.length,
+      failed: 0,
+      rowsLoaded: 0,
+      bytes: 0,
+      elapsedMs: 0
+    }, { reportLabel });
     const results = await Promise.all(selectedTerms.map(async term => {
       try {
         const rows = await fetchArchivedTermRows(term, reportLabel);
@@ -11063,10 +11150,22 @@ BUS 180 2 units`)
         return { term, rows: [], failed: true, error: err?.message || String(err) };
       }
     }));
+    const summary = {
+      total: selectedTerms.length,
+      loaded: results.filter(result => !result.failed).length,
+      pending: 0,
+      failed: results.filter(result => result.failed).length,
+      rowsLoaded: results.reduce((sum, result) => sum + result.rows.length, 0),
+      bytes: 0,
+      elapsedMs: performance.now() - started,
+      results
+    };
+    renderArchiveProgressForSelect(selectId, summary, { reportLabel });
     return {
       selectedTerms,
       results,
-      rows: results.flatMap(result => result.rows)
+      rows: results.flatMap(result => result.rows),
+      summary
     };
   }
 
@@ -11075,21 +11174,14 @@ BUS 180 2 units`)
     if (!requestedTerm) return [];
     if (!window.BACKEND_BASE_URL) throw new Error(`Cannot load archived term ${requestedTerm} for ${reportLabel}: backend URL is not configured.`);
     try {
-      const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`);
-      let payload = {};
-      try {
-        payload = await response.json();
-      } catch (parseErr) {
-        payload = {};
-      }
-      if (!response.ok) {
-        const detail = payload.error || payload.message || `${response.status} ${response.statusText}`.trim();
-        throw new Error(`Could not load archived term ${requestedTerm} for ${reportLabel}: ${detail}`);
-      }
-      if (!Array.isArray(payload.data)) {
-        const detail = payload.error || payload.message || 'archive response did not include a data array';
-        throw new Error(`Could not load archived term ${requestedTerm} for ${reportLabel}: ${detail}`);
-      }
+      const payload = window.COSArchiveService?.loadArchiveTerm
+        ? await window.COSArchiveService.loadArchiveTerm(requestedTerm, { reportLabel })
+        : await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`).then(async response => {
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(body.error || body.message || `${response.status} ${response.statusText}`.trim());
+            return body;
+          });
+      if (!Array.isArray(payload.data)) throw new Error(`Could not load archived term ${requestedTerm} for ${reportLabel}: archive response did not include a data array`);
       return payload.data.map(row => ({ ...row, __sourceTerm: normalizeTermLabel(payload.term || requestedTerm) }));
     } catch (err) {
       if (/Could not load archived term|Cannot load archived term/.test(err?.message || '')) throw err;
@@ -11104,9 +11196,17 @@ BUS 180 2 units`)
       return;
     }
     try {
-      const payload = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
-      state.archivedAnalyticsTerms = (payload.data || []).map(item => item.term).filter(Boolean);
-      const options = state.archivedAnalyticsTerms.map(term => ({ value: term, label: term }));
+      const manifest = window.COSArchiveService?.getArchiveManifest
+        ? await window.COSArchiveService.getArchiveManifest()
+        : await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
+      const terms = Array.isArray(manifest.terms)
+        ? manifest.terms
+        : (manifest.data || []).map(item => ({ termCode: item.term, displayTerm: item.term }));
+      state.archivedAnalyticsManifest = manifest;
+      state.archivedAnalyticsTerms = terms.map(item => item.termCode || item.term).filter(Boolean);
+      const options = terms
+        .map(item => ({ value: item.termCode || item.term, label: item.displayTerm || item.termCode || item.term }))
+        .filter(item => item.value);
       setSelectOptions('attrArchiveTerms', options);
       setSelectOptions('conArchiveTerms', options);
       setSelectOptions('dashArchiveTerms', options);
@@ -11273,6 +11373,8 @@ BUS 180 2 units`)
       }
       saved.push(term);
     }
+    if (window.COSArchiveService?.clearArchiveMemoryCache) window.COSArchiveService.clearArchiveMemoryCache();
+    if (window.COSArchiveService?.refreshArchiveManifest) await window.COSArchiveService.refreshArchiveManifest();
     await refreshAnalyticsArchiveOptions();
     alert(saved.length ? `Archived ${saved.length} term file(s): ${saved.join(', ')}` : 'No files were archived.');
   }
