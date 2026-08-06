@@ -133,6 +133,76 @@ test('low enrollment module source includes multi-select filters, sort controls,
   assert.doesNotMatch(source, /new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/);
 });
 
+test('low enrollment worksheet freezes only requested regions and keeps timeline navigation scoped', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'low-enrollment-tracker.js'), 'utf8');
+  assert.match(source, /sticky-left sticky-course/);
+  assert.match(source, /sticky-left sticky-crn/);
+  assert.match(source, /sticky-left sticky-title/);
+  assert.match(source, /sticky-right sticky-status/);
+  assert.match(source, /sticky-right sticky-justification/);
+  assert.match(source, /sticky-right sticky-comments/);
+  assert.doesNotMatch(source, /sticky-right sticky-latest/);
+  assert.doesNotMatch(source, /sticky-right sticky-highest/);
+  assert.doesNotMatch(source, /sticky-right sticky-threshold/);
+  assert.match(source, /data-timeline-column="true"/);
+  assert.match(source, /const emptyColspan = 18 \+ timelineColumns\.length/);
+  assert.match(source, /calculateTimelineNavigationScroll/);
+  assert.match(source, /measuredFrozenTimelineWidths/);
+  assert.doesNotMatch(source, /scrollLeft \+ 600|scrollLeft - 600|offsetLeft - 120/);
+  assert.doesNotMatch(source, /exportLowEnrollmentCsv|Export CSV|exportFilteredCsv/);
+});
+
+test('low enrollment timeline navigation accounts for frozen left and right panes', () => {
+  const limits = tracker.calculateTimelineScrollLimits({
+    firstColumnLeft: 280,
+    lastColumnRight: 1436,
+    viewportWidth: 1000,
+    scrollWidth: 1900,
+    frozenLeftWidth: 280,
+    frozenRightWidth: 360,
+    padding: 8
+  });
+  assert.deepEqual(limits, { minScrollLeft: 0, maxScrollLeft: 804 });
+
+  const latestScroll = tracker.calculateTimelineNavigationScroll({
+    currentScrollLeft: 0,
+    viewportWidth: 1000,
+    scrollWidth: 1900,
+    frozenLeftWidth: 280,
+    frozenRightWidth: 360,
+    targetLeft: 1350,
+    targetRight: 1436,
+    minScrollLeft: limits.minScrollLeft,
+    maxScrollLeft: limits.maxScrollLeft,
+    padding: 8
+  });
+  assert.equal(latestScroll, 804);
+  assert.ok(1350 >= latestScroll + 280 + 8);
+  assert.ok(1436 <= latestScroll + 1000 - 360 - 8);
+
+  const updatedScroll = tracker.calculateTimelineNavigationScroll({
+    currentScrollLeft: 804,
+    viewportWidth: 1000,
+    scrollWidth: 1900,
+    frozenLeftWidth: 280,
+    frozenRightWidth: 360,
+    targetLeft: 365,
+    targetRight: 451,
+    minScrollLeft: limits.minScrollLeft,
+    maxScrollLeft: limits.maxScrollLeft,
+    padding: 8
+  });
+  assert.equal(updatedScroll, 77);
+  assert.ok(365 >= updatedScroll + 280 + 8);
+  assert.ok(451 <= updatedScroll + 1000 - 360 - 8);
+});
+
+test('low enrollment missing snapshot cells render both missing class and visible text', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'low-enrollment-tracker.js'), 'utf8');
+  assert.match(source, /snapshot-\$\{escapeHtml\(matchStatus\)\}/);
+  assert.match(source, /<span class="muted">Missing<\/span>/);
+});
+
 test('low enrollment report is registered as an Enrollment Management report', () => {
   const { REPORTS, REPORT_ACCESS, REPORT_LABEL, REPORT_WORKFLOW_GROUPS, REPORT_DESCRIPTIONS } = reports;
   assert.equal(REPORTS.lowEnrollmentTracking, 'low-enrollment-tracking');

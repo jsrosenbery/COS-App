@@ -39,7 +39,10 @@
     vpComments: ['comments to vps office', 'comments to vp office', 'comments to vp', 'vp comments']
   });
 
+  const TIMELINE_EDGE_PADDING_PX = 8;
+
   let mounted = null;
+  let lowEnrollmentResizeHandler = null;
 
   function normalizeHeader(value) {
     return String(value || '')
@@ -68,6 +71,62 @@
 
   function cleanString(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  function finiteNumber(value, fallback = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
+  function calculateTimelineScrollLimits({
+    firstColumnLeft = 0,
+    lastColumnRight = 0,
+    viewportWidth = 0,
+    scrollWidth = 0,
+    frozenLeftWidth = 0,
+    frozenRightWidth = 0,
+    padding = TIMELINE_EDGE_PADDING_PX
+  } = {}) {
+    const clientWidth = Math.max(0, finiteNumber(viewportWidth));
+    const contentWidth = Math.max(clientWidth, finiteNumber(scrollWidth, clientWidth));
+    const physicalMax = Math.max(0, contentWidth - clientWidth);
+    const earliest = finiteNumber(firstColumnLeft) - finiteNumber(frozenLeftWidth) - finiteNumber(padding);
+    const latest = finiteNumber(lastColumnRight) - clientWidth + finiteNumber(frozenRightWidth) + finiteNumber(padding);
+    const minScrollLeft = Math.min(physicalMax, Math.max(0, earliest));
+    const maxScrollLeft = Math.min(physicalMax, Math.max(minScrollLeft, latest));
+    return { minScrollLeft, maxScrollLeft };
+  }
+
+  function calculateTimelineNavigationScroll({
+    currentScrollLeft = 0,
+    viewportWidth = 0,
+    scrollWidth = 0,
+    frozenLeftWidth = 0,
+    frozenRightWidth = 0,
+    targetLeft = 0,
+    targetRight = 0,
+    minScrollLeft = 0,
+    maxScrollLeft,
+    padding = TIMELINE_EDGE_PADDING_PX
+  } = {}) {
+    const current = Math.max(0, finiteNumber(currentScrollLeft));
+    const clientWidth = Math.max(0, finiteNumber(viewportWidth));
+    const contentWidth = Math.max(clientWidth, finiteNumber(scrollWidth, clientWidth));
+    const physicalMax = Math.max(0, contentWidth - clientWidth);
+    const min = Math.max(0, finiteNumber(minScrollLeft));
+    const max = Math.max(min, maxScrollLeft === undefined ? physicalMax : Math.min(physicalMax, finiteNumber(maxScrollLeft, physicalMax)));
+    const leftPane = Math.max(0, finiteNumber(frozenLeftWidth));
+    const rightPane = Math.max(0, finiteNumber(frozenRightWidth));
+    const edgePadding = Math.max(0, finiteNumber(padding));
+    const visibleLeft = current + leftPane + edgePadding;
+    const visibleRight = current + clientWidth - rightPane - edgePadding;
+    let next = current;
+    if (finiteNumber(targetLeft) < visibleLeft) {
+      next = finiteNumber(targetLeft) - leftPane - edgePadding;
+    } else if (finiteNumber(targetRight) > visibleRight) {
+      next = finiteNumber(targetRight) - clientWidth + rightPane + edgePadding;
+    }
+    return Math.min(max, Math.max(min, next));
   }
 
   function localDateInputValue(date = new Date()) {
@@ -874,29 +933,44 @@
   function renderTable(workspace) {
     const snapshots = (workspace?.snapshots || []).filter(snapshot => snapshot.type !== 'initial');
     const rows = filteredRows(workspace);
-    const snapshotHeaders = snapshots.map(snapshot => `<th>${sortButton(`snapshot:${snapshot.snapshotDate}`, formatSnapshotColumnLabel(snapshot.snapshotDate || snapshot.label))}</th>`).join('');
+    const updatedSnapshotDate = mounted?.updatedSnapshotDate || '';
+    const timelineColumns = [
+      { key: 'initialEnrollment', label: 'Initial Enrollment', sortKey: 'initialEnrollment', type: 'initial' },
+      ...snapshots.map(snapshot => ({
+        key: snapshot.snapshotDate,
+        label: formatSnapshotColumnLabel(snapshot.snapshotDate || snapshot.label),
+        sortKey: `snapshot:${snapshot.snapshotDate}`,
+        type: 'snapshot',
+        snapshot
+      }))
+    ];
+    const timelineHeaders = timelineColumns.map(column => {
+      const isUpdated = column.type === 'snapshot' && column.key === updatedSnapshotDate;
+      return `<th class="timeline-col ${isUpdated ? 'updated-column' : ''}" data-timeline-column="true" data-updated-column="${isUpdated ? 'true' : 'false'}">${sortButton(column.sortKey, column.label)}</th>`;
+    }).join('');
+    const emptyColspan = 18 + timelineColumns.length;
+    const timelineColGroup = timelineColumns.map(() => '<col class="col-timeline">').join('');
     const body = rows.map(row => {
-      const cells = snapshots.map(snapshot => {
+      const timelineCells = timelineColumns.map(column => {
+        if (column.type === 'initial') return `<td class="timeline-col initial-column" data-timeline-column="true">${escapeHtml(row.initialEnrollment)}</td>`;
+        const snapshot = column.snapshot;
         const value = row.snapshotValues?.[snapshot.snapshotDate];
         const matchStatus = row.snapshotMatchStatus?.[snapshot.snapshotDate] || (value === null || value === undefined ? 'missing' : 'matched');
         const missing = row.snapshotMissingCrns?.[snapshot.snapshotDate] || [];
         const marker = matchStatus === 'partial'
           ? ` <span class="snapshot-warning" title="Missing CRNs: ${escapeHtml(missing.join(', '))}">Partial</span>`
-          : matchStatus === 'missing' ? '<span class="muted">Missing</span>' : '';
-        return `<td class="snapshot-${escapeHtml(matchStatus)}">${value === null || value === undefined ? '' : escapeHtml(value)}${marker}</td>`;
+          : '';
+        const content = value === null || value === undefined ? '<span class="muted">Missing</span>' : escapeHtml(value);
+        const isUpdated = snapshot.snapshotDate === updatedSnapshotDate;
+        return `<td class="timeline-col snapshot-${escapeHtml(matchStatus)} ${isUpdated ? 'updated-column' : ''}" data-timeline-column="true" data-updated-column="${isUpdated ? 'true' : 'false'}">${content}${marker}</td>`;
       }).join('');
       const status = statusForRow(row);
       return `
         <tr data-row-id="${escapeHtml(row.id)}">
-          <td>${escapeHtml(row.course)}</td>
-          <td>${escapeHtml(row.crnDisplay)}</td>
-          <td>${escapeHtml(row.title)}</td>
-          <td>${escapeHtml(row.initialEnrollment)}</td>
-          ${cells}
-          <td>${row.latestEnrollment === null || row.latestEnrollment === undefined ? '' : escapeHtml(row.latestEnrollment)}</td>
-          <td>${row.highestEnrollment === null || row.highestEnrollment === undefined ? '' : escapeHtml(row.highestEnrollment)}</td>
-          <td>${escapeHtml(row.threshold)}</td>
-          <td><span class="status-pill ${status.toLowerCase().replace(/\s+/g, '-')}">${escapeHtml(status)}</span></td>
+          <td class="sticky-left sticky-course">${escapeHtml(row.course)}</td>
+          <td class="sticky-left sticky-crn">${escapeHtml(row.crnDisplay)}</td>
+          <td class="sticky-left sticky-title">${escapeHtml(row.title)}</td>
+          ${timelineCells}
           <td>${escapeHtml(row.maxEnrollment)}</td>
           <td>${escapeHtml(row.waitCount)}</td>
           <td>${escapeHtml(row.instructionalMethod)}</td>
@@ -906,40 +980,73 @@
           <td>${escapeHtml(row.division)}</td>
           <td>${escapeHtml(row.campus)}</td>
           <td>${escapeHtml(row.faculty)}</td>
-          <td><select data-low-enrollment-field="justification">${reasonOptions(workspace, row.justification)}</select></td>
-          <td><textarea data-low-enrollment-field="vpComments" rows="3">${escapeHtml(row.vpComments)}</textarea></td>
+          <td class="right-adjacent">${row.latestEnrollment === null || row.latestEnrollment === undefined ? '' : escapeHtml(row.latestEnrollment)}</td>
+          <td class="right-adjacent">${row.highestEnrollment === null || row.highestEnrollment === undefined ? '' : escapeHtml(row.highestEnrollment)}</td>
+          <td class="right-adjacent">${escapeHtml(row.threshold)}</td>
+          <td class="sticky-right sticky-status"><span class="status-pill ${status.toLowerCase().replace(/\s+/g, '-')}">${escapeHtml(status)}</span></td>
+          <td class="sticky-right sticky-justification"><select data-low-enrollment-field="justification">${reasonOptions(workspace, row.justification)}</select></td>
+          <td class="sticky-right sticky-comments"><textarea data-low-enrollment-field="vpComments" rows="3">${escapeHtml(row.vpComments)}</textarea></td>
         </tr>
       `;
     }).join('');
     return `
-      <div class="analytics-table low-enrollment-table-wrap">
-        <table class="low-enrollment-table">
-          <thead>
-            <tr>
-              <th>${sortButton('course', 'Course')}</th>
-              <th>${sortButton('crnDisplay', 'CRN')}</th>
-              <th>${sortButton('title', 'Title')}</th>
-              <th>${sortButton('initialEnrollment', 'Initial Enrollment')}</th>
-              ${snapshotHeaders}
-              <th>${sortButton('latestEnrollment', 'Latest')}</th>
-              <th>${sortButton('highestEnrollment', 'Highest')}</th>
-              <th>${sortButton('threshold', 'Threshold')}</th>
-              <th>${sortButton('status', 'Status')}</th>
-              <th>Max Enrollment</th>
-              <th>${sortButton('waitCount', 'Wait Count')}</th>
-              <th>${sortButton('instructionalMethod', 'Instructional Method')}</th>
-              <th>Applied Rule</th>
-              <th>${sortButton('scheduleType', 'Schedule Type')}</th>
-              <th>${sortButton('startDate', 'Start Date')}</th>
-              <th>${sortButton('division', 'Division')}</th>
-              <th>${sortButton('campus', 'Campus')}</th>
-              <th>${sortButton('faculty', 'Faculty')}</th>
-              <th>${sortButton('justification', 'Justification')}</th>
-              <th>Comments to VP Office</th>
-            </tr>
-          </thead>
-          <tbody>${body || `<tr><td colspan="${20 + snapshots.length}">No rows match the current filters.</td></tr>`}</tbody>
-        </table>
+      <div class="low-enrollment-worksheet-shell">
+        <div class="low-enrollment-timeline-nav">
+          <span>Enrollment timeline</span>
+          <button type="button" data-timeline-nav="earlier">Earlier</button>
+          <button type="button" data-timeline-nav="later">Later</button>
+          <button type="button" data-timeline-nav="latest">Latest Snapshot</button>
+          <button type="button" data-timeline-nav="updated">View Updated Column</button>
+        </div>
+        <div class="analytics-table low-enrollment-table-wrap" id="lowEnrollmentTimelineScroller">
+          <table class="low-enrollment-table low-enrollment-worksheet">
+            <colgroup>
+              <col class="col-course">
+              <col class="col-crn">
+              <col class="col-title">
+              ${timelineColGroup}
+              <col class="col-narrow">
+              <col class="col-narrow">
+              <col class="col-medium">
+              <col class="col-medium">
+              <col class="col-medium">
+              <col class="col-medium">
+              <col class="col-medium">
+              <col class="col-narrow">
+              <col class="col-medium">
+              <col class="col-narrow">
+              <col class="col-narrow">
+              <col class="col-narrow">
+              <col class="col-status">
+              <col class="col-justification">
+              <col class="col-comments">
+            </colgroup>
+            <thead>
+              <tr>
+                <th class="sticky-left sticky-course">${sortButton('course', 'Course')}</th>
+                <th class="sticky-left sticky-crn">${sortButton('crnDisplay', 'CRN')}</th>
+                <th class="sticky-left sticky-title">${sortButton('title', 'Title')}</th>
+                ${timelineHeaders}
+                <th>Max Enrollment</th>
+                <th>${sortButton('waitCount', 'Wait Count')}</th>
+                <th>${sortButton('instructionalMethod', 'Instructional Method')}</th>
+                <th>Applied Rule</th>
+                <th>${sortButton('scheduleType', 'Schedule Type')}</th>
+                <th>${sortButton('startDate', 'Start Date')}</th>
+                <th>${sortButton('division', 'Division')}</th>
+                <th>${sortButton('campus', 'Campus')}</th>
+                <th>${sortButton('faculty', 'Faculty')}</th>
+                <th class="right-adjacent">${sortButton('latestEnrollment', 'Latest')}</th>
+                <th class="right-adjacent">${sortButton('highestEnrollment', 'Highest')}</th>
+                <th class="right-adjacent">${sortButton('threshold', 'Threshold')}</th>
+                <th class="sticky-right sticky-status">${sortButton('status', 'Status')}</th>
+                <th class="sticky-right sticky-justification">${sortButton('justification', 'Justification')}</th>
+                <th class="sticky-right sticky-comments">Comments to VP Office</th>
+              </tr>
+            </thead>
+            <tbody>${body || `<tr><td colspan="${emptyColspan}">No rows match the current filters.</td></tr>`}</tbody>
+          </table>
+        </div>
       </div>
     `;
   }
@@ -1046,6 +1153,82 @@
     `;
     attachHandlers();
     injectLowEnrollmentStyles();
+  }
+
+  function measuredFrozenTimelineWidths(scroller) {
+    if (!scroller?.getBoundingClientRect) return { frozenLeftWidth: 0, frozenRightWidth: 0 };
+    const scrollerRect = scroller.getBoundingClientRect();
+    const leftCells = Array.from(scroller.querySelectorAll('thead .sticky-left'));
+    const rightCells = Array.from(scroller.querySelectorAll('thead .sticky-right'));
+    const frozenLeftWidth = leftCells.reduce((max, cell) => {
+      const rect = cell.getBoundingClientRect();
+      return Math.max(max, rect.right - scrollerRect.left);
+    }, 0);
+    const frozenRightWidth = rightCells.reduce((max, cell) => {
+      const rect = cell.getBoundingClientRect();
+      return Math.max(max, scrollerRect.right - rect.left);
+    }, 0);
+    return {
+      frozenLeftWidth: Math.max(0, frozenLeftWidth),
+      frozenRightWidth: Math.max(0, frozenRightWidth)
+    };
+  }
+
+  function timelineColumnMetrics(scroller) {
+    return Array.from(scroller?.querySelectorAll('thead [data-timeline-column="true"]') || [])
+      .map(cell => ({
+        cell,
+        left: finiteNumber(cell.offsetLeft),
+        right: finiteNumber(cell.offsetLeft) + finiteNumber(cell.offsetWidth)
+      }));
+  }
+
+  function scrollLowEnrollmentTimeline(scroller, action, options = {}) {
+    const columns = timelineColumnMetrics(scroller);
+    if (!scroller || !columns.length) return;
+    const first = columns[0];
+    const last = columns[columns.length - 1];
+    const frozen = measuredFrozenTimelineWidths(scroller);
+    const limits = calculateTimelineScrollLimits({
+      firstColumnLeft: first.left,
+      lastColumnRight: last.right,
+      viewportWidth: scroller.clientWidth,
+      scrollWidth: scroller.scrollWidth,
+      frozenLeftWidth: frozen.frozenLeftWidth,
+      frozenRightWidth: frozen.frozenRightWidth
+    });
+    const visibleLeft = finiteNumber(scroller.scrollLeft) + frozen.frozenLeftWidth + TIMELINE_EDGE_PADDING_PX;
+    const visibleRight = finiteNumber(scroller.scrollLeft) + finiteNumber(scroller.clientWidth) - frozen.frozenRightWidth - TIMELINE_EDGE_PADDING_PX;
+    let target = null;
+    if (action === 'latest') target = last;
+    if (action === 'updated') target = columns.find(column => column.cell.dataset.updatedColumn === 'true') || last;
+    if (action === 'later') target = columns.find(column => column.right > visibleRight + 1) || last;
+    if (action === 'earlier') target = columns.slice().reverse().find(column => column.left < visibleLeft - 1) || first;
+    if (!target) return;
+    const nextScrollLeft = calculateTimelineNavigationScroll({
+      currentScrollLeft: scroller.scrollLeft,
+      viewportWidth: scroller.clientWidth,
+      scrollWidth: scroller.scrollWidth,
+      frozenLeftWidth: frozen.frozenLeftWidth,
+      frozenRightWidth: frozen.frozenRightWidth,
+      targetLeft: target.left,
+      targetRight: target.right,
+      minScrollLeft: limits.minScrollLeft,
+      maxScrollLeft: limits.maxScrollLeft
+    });
+    if (typeof scroller.scrollTo === 'function') {
+      scroller.scrollTo({ left: nextScrollLeft, behavior: options.behavior || 'smooth' });
+    } else {
+      scroller.scrollLeft = nextScrollLeft;
+    }
+    scroller.dataset.timelineFocusedAction = action;
+  }
+
+  function recalculateLowEnrollmentTimelineNavigation() {
+    const scroller = mounted?.container?.querySelector('#lowEnrollmentTimelineScroller');
+    const action = scroller?.dataset?.timelineFocusedAction;
+    if (!scroller || !['latest', 'updated'].includes(action)) return;
+    scrollLowEnrollmentTimeline(scroller, action, { behavior: 'auto' });
   }
 
   function setStatus(message) {
@@ -1186,6 +1369,7 @@
     if (!term) return;
     const payload = await fetchJson(`/api/low-enrollment-tracking/${encodeURIComponent(term)}`);
     mounted.workspace = payload.data;
+    mounted.updatedSnapshotDate = '';
   }
 
   async function saveWorkspace(workspace) {
@@ -1231,7 +1415,9 @@
         body: JSON.stringify({ snapshot: result.snapshot, uploadHistory: result.uploadHistory, rows: result.workspace.rows, replaceExisting })
       });
       mounted.workspace = payload.data;
+      mounted.updatedSnapshotDate = result.snapshot.snapshotDate;
       await loadTerms(result.workspace.termCode);
+      mounted.updatedSnapshotDate = result.snapshot.snapshotDate;
     } catch (err) {
       console.warn('Low Enrollment snapshot upload failed', {
         endpoint: `/api/low-enrollment-tracking/${encodeURIComponent(result.workspace.termCode)}/snapshots`,
@@ -1316,6 +1502,12 @@
         const nextDirection = current.key !== key ? 'asc' : current.direction === 'asc' ? 'desc' : current.direction === 'desc' ? '' : 'asc';
         mounted.sort = nextDirection ? { key, direction: nextDirection } : { key: '', direction: '' };
         render();
+      });
+    });
+    container.querySelectorAll('[data-timeline-nav]')?.forEach(button => {
+      button.addEventListener('click', () => {
+        const scroller = container.querySelector('#lowEnrollmentTimelineScroller');
+        scrollLowEnrollmentTimeline(scroller, button.dataset.timelineNav);
       });
     });
     container.querySelectorAll('[data-status-card]')?.forEach(button => {
@@ -1422,13 +1614,40 @@
       .low-enrollment-metrics button,.low-enrollment-metrics div{border:1px solid #d5e1ee;border-radius:10px;background:#f8fbff;padding:12px;text-align:left;color:#123367}
       .low-enrollment-metrics strong{display:block;font-size:24px;font-weight:900}
       .low-enrollment-metrics span{display:block;color:#51657c;font-size:11px;font-weight:900;text-transform:uppercase}
+      .low-enrollment-worksheet-shell{border:1px solid #d5e1ee;border-radius:12px;background:#fff;overflow:hidden}
+      .low-enrollment-timeline-nav{display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:10px 12px;border-bottom:1px solid #d5e1ee;background:#f8fbff}
+      .low-enrollment-timeline-nav span{margin-right:auto;font-weight:900;color:#123367}
+      .low-enrollment-timeline-nav button{border:1px solid #c8d8e8;border-radius:999px;background:#fff;color:#123367;font-weight:900;padding:6px 10px;cursor:pointer}
       .low-enrollment-table-wrap{max-height:680px;overflow:auto}
-      .low-enrollment-table{min-width:1500px;width:100%;border-collapse:collapse}
-      .low-enrollment-table th{position:sticky;top:0;z-index:2;background:#245685;color:#fff}
-      .low-enrollment-table th,.low-enrollment-table td{padding:8px;border-bottom:1px solid #e1e8f0;vertical-align:top;font-size:12px}
+      .low-enrollment-table{--low-enrollment-course-width:75px;--low-enrollment-crn-width:65px;--low-enrollment-title-width:140px;--low-enrollment-status-width:75px;--low-enrollment-justification-width:120px;--low-enrollment-comments-width:165px;min-width:2100px;width:max-content;border-collapse:separate;border-spacing:0;table-layout:fixed}
+      .low-enrollment-table .col-course{width:var(--low-enrollment-course-width)}
+      .low-enrollment-table .col-crn{width:var(--low-enrollment-crn-width)}
+      .low-enrollment-table .col-title{width:var(--low-enrollment-title-width)}
+      .low-enrollment-table .col-timeline{width:78px}
+      .low-enrollment-table .col-narrow{width:84px}
+      .low-enrollment-table .col-medium{width:112px}
+      .low-enrollment-table .col-status{width:var(--low-enrollment-status-width)}
+      .low-enrollment-table .col-justification{width:var(--low-enrollment-justification-width)}
+      .low-enrollment-table .col-comments{width:var(--low-enrollment-comments-width)}
+      .low-enrollment-table th{position:sticky;top:0;z-index:3;background:#245685;color:#fff;box-shadow:0 1px 0 #1d4771}
+      .low-enrollment-table th,.low-enrollment-table td{padding:8px;border-bottom:1px solid #e1e8f0;border-right:1px solid #eef3f8;vertical-align:top;font-size:12px;line-height:1.25}
+      .low-enrollment-table tbody tr:hover td{background:#fff7ed}
+      .low-enrollment-table tbody tr:hover .sticky-left,.low-enrollment-table tbody tr:hover .sticky-right{background:#fff7ed}
       .low-enrollment-table th button.low-enrollment-sort{all:unset;cursor:pointer;font:inherit;color:inherit;display:block;width:100%}
-      .low-enrollment-table textarea{min-width:210px;width:100%;resize:vertical}
-      .low-enrollment-table select{min-width:220px}
+      .low-enrollment-table textarea{min-width:0;width:100%;resize:vertical}
+      .low-enrollment-table select{min-width:0;width:100%}
+      .timeline-col{min-width:86px;text-align:center}
+      .initial-column{font-weight:900;background:#f8fbff}
+      .right-adjacent{min-width:86px;text-align:center}
+      .updated-column{box-shadow:inset 0 0 0 2px rgba(245,124,0,.35);background:#fff7ed}
+      .sticky-left,.sticky-right{position:sticky;background:#fff;z-index:2}
+      th.sticky-left,th.sticky-right{z-index:5;background:#245685}
+      .sticky-course{left:0;min-width:var(--low-enrollment-course-width);width:var(--low-enrollment-course-width)}
+      .sticky-crn{left:var(--low-enrollment-course-width);min-width:var(--low-enrollment-crn-width);width:var(--low-enrollment-crn-width)}
+      .sticky-title{left:calc(var(--low-enrollment-course-width) + var(--low-enrollment-crn-width));min-width:var(--low-enrollment-title-width);width:var(--low-enrollment-title-width);box-shadow:4px 0 8px rgba(18,51,103,.08)}
+      .sticky-comments{right:0;min-width:var(--low-enrollment-comments-width);width:var(--low-enrollment-comments-width);box-shadow:-4px 0 8px rgba(18,51,103,.08)}
+      .sticky-justification{right:var(--low-enrollment-comments-width);min-width:var(--low-enrollment-justification-width);width:var(--low-enrollment-justification-width)}
+      .sticky-status{right:calc(var(--low-enrollment-comments-width) + var(--low-enrollment-justification-width));min-width:var(--low-enrollment-status-width);width:var(--low-enrollment-status-width)}
       .low-enrollment-date-cell{white-space:pre-line}
       .low-enrollment-filterbar{align-items:flex-start}
       .low-enrollment-filter-menu{position:relative;min-width:170px}
@@ -1466,6 +1685,9 @@
 
   function mount(options = {}) {
     if (!options.container) return;
+    if (lowEnrollmentResizeHandler && root.removeEventListener) {
+      root.removeEventListener('resize', lowEnrollmentResizeHandler);
+    }
     mounted = {
       container: options.container,
       backendBaseUrl: options.backendBaseUrl || root.BACKEND_BASE_URL || '',
@@ -1475,8 +1697,15 @@
       workspace: null,
       filters: { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], showThresholdMet: true },
       sort: { key: '', direction: '' },
-      snapshotDate: localDateInputValue()
+      snapshotDate: localDateInputValue(),
+      updatedSnapshotDate: ''
     };
+    lowEnrollmentResizeHandler = () => {
+      const run = () => recalculateLowEnrollmentTimelineNavigation();
+      if (typeof root.requestAnimationFrame === 'function') root.requestAnimationFrame(run);
+      else run();
+    };
+    root.addEventListener?.('resize', lowEnrollmentResizeHandler);
     render();
     loadTerms().then(render).catch(err => setStatus(err.message || 'Low Enrollment Tracking load failed.'));
   }
@@ -1502,6 +1731,8 @@
     refreshBaselineWorkspace,
     workspaceImportPreview,
     statusForRow,
+    calculateTimelineScrollLimits,
+    calculateTimelineNavigationScroll,
     displayTermFromCode,
     extractTermCodeFromFilename,
     extractSnapshotDateFromFilename,
