@@ -1884,6 +1884,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   async function fetchArchivedScheduleRows(terms) {
     if (!terms.length) return [];
+    if (window.COSArchiveService?.loadArchiveTerms) {
+      const load = await window.COSArchiveService.loadArchiveTerms(terms);
+      const failures = load.results.filter(result => result.failed);
+      if (failures.length) throw new Error(`Could not load archived term ${failures[0].term}: ${failures[0].error}`);
+      return load.results.flatMap(result => (result.rows || []).map(row => ({ ...row, __sourceTerm: result.payload?.term || result.term })));
+    }
     const batches = await Promise.all(terms.map(async term => {
       const response = await fetch(`${BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`);
       const payload = await response.json().catch(() => ({}));
@@ -1896,8 +1902,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   async function refreshAnalysisArchiveSelectors() {
     if (!BACKEND_BASE_URL) return;
     try {
-      const payload = await fetch(`${BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
-      const terms = (payload.data || []).map(item => item.term).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      const manifest = window.COSArchiveService?.getArchiveManifest
+        ? await window.COSArchiveService.getArchiveManifest()
+        : await fetch(`${BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
+      const terms = Array.isArray(manifest.terms)
+        ? manifest.terms.map(item => item.termCode).filter(Boolean)
+        : (manifest.data || []).map(item => item.term).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       ['heatmap-archive-terms', 'linechart-archive-terms', 'modality-archive-terms'].forEach(id => {
         const select = document.getElementById(id);
         if (!select) return;

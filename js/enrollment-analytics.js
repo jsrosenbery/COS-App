@@ -1853,9 +1853,12 @@
       }
       if (!Array.isArray(payload.data) || !payload.data.length) {
         try {
-          const archiveResponse = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`);
-          if (!archiveResponse.ok) throw new Error(`${archiveResponse.status} ${archiveResponse.statusText}`.trim());
-          const archivePayload = await archiveResponse.json();
+          const archivePayload = window.COSArchiveService?.loadArchiveTerm
+            ? await window.COSArchiveService.loadArchiveTerm(requestedTerm)
+            : await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`).then(async archiveResponse => {
+                if (!archiveResponse.ok) throw new Error(`${archiveResponse.status} ${archiveResponse.statusText}`.trim());
+                return archiveResponse.json();
+              });
           if (Array.isArray(archivePayload.data) && archivePayload.data.length) {
             payload = archivePayload;
             source = 'analytics archive';
@@ -11055,6 +11058,28 @@ BUS 180 2 units`)
         rows: []
       };
     }
+    if (window.COSArchiveService?.loadArchiveTerms) {
+      const load = await window.COSArchiveService.loadArchiveTerms(selectedTerms, {
+        reportLabel,
+        onProgress: summary => {
+          state.archiveLoadingStatus = summary;
+          const node = options.statusElementId ? document.getElementById(options.statusElementId) : null;
+          if (node && window.COSArchiveService?.renderArchiveLoadingStatus) node.innerHTML = window.COSArchiveService.renderArchiveLoadingStatus(summary);
+        }
+      });
+      const results = load.results.map(result => ({
+        term: normalizeTermLabel(result.term),
+        rows: (result.rows || []).map(row => ({ ...row, __sourceTerm: normalizeTermLabel(result.payload?.term || result.term) })),
+        failed: result.failed,
+        error: result.error
+      }));
+      return {
+        selectedTerms,
+        results,
+        rows: results.flatMap(result => result.rows),
+        summary: load.summary
+      };
+    }
     const results = await Promise.all(selectedTerms.map(async term => {
       try {
         const rows = await fetchArchivedTermRows(term, reportLabel);
@@ -11075,21 +11100,14 @@ BUS 180 2 units`)
     if (!requestedTerm) return [];
     if (!window.BACKEND_BASE_URL) throw new Error(`Cannot load archived term ${requestedTerm} for ${reportLabel}: backend URL is not configured.`);
     try {
-      const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`);
-      let payload = {};
-      try {
-        payload = await response.json();
-      } catch (parseErr) {
-        payload = {};
-      }
-      if (!response.ok) {
-        const detail = payload.error || payload.message || `${response.status} ${response.statusText}`.trim();
-        throw new Error(`Could not load archived term ${requestedTerm} for ${reportLabel}: ${detail}`);
-      }
-      if (!Array.isArray(payload.data)) {
-        const detail = payload.error || payload.message || 'archive response did not include a data array';
-        throw new Error(`Could not load archived term ${requestedTerm} for ${reportLabel}: ${detail}`);
-      }
+      const payload = window.COSArchiveService?.loadArchiveTerm
+        ? await window.COSArchiveService.loadArchiveTerm(requestedTerm, { reportLabel })
+        : await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(requestedTerm)}`).then(async response => {
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(body.error || body.message || `${response.status} ${response.statusText}`.trim());
+            return body;
+          });
+      if (!Array.isArray(payload.data)) throw new Error(`Could not load archived term ${requestedTerm} for ${reportLabel}: archive response did not include a data array`);
       return payload.data.map(row => ({ ...row, __sourceTerm: normalizeTermLabel(payload.term || requestedTerm) }));
     } catch (err) {
       if (/Could not load archived term|Cannot load archived term/.test(err?.message || '')) throw err;
@@ -11104,9 +11122,17 @@ BUS 180 2 units`)
       return;
     }
     try {
-      const payload = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
-      state.archivedAnalyticsTerms = (payload.data || []).map(item => item.term).filter(Boolean);
-      const options = state.archivedAnalyticsTerms.map(term => ({ value: term, label: term }));
+      const manifest = window.COSArchiveService?.getArchiveManifest
+        ? await window.COSArchiveService.getArchiveManifest()
+        : await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive`).then(response => response.ok ? response.json() : { data: [] });
+      const terms = Array.isArray(manifest.terms)
+        ? manifest.terms
+        : (manifest.data || []).map(item => ({ termCode: item.term, displayTerm: item.term }));
+      state.archivedAnalyticsManifest = manifest;
+      state.archivedAnalyticsTerms = terms.map(item => item.termCode || item.term).filter(Boolean);
+      const options = terms
+        .map(item => ({ value: item.termCode || item.term, label: item.displayTerm || item.termCode || item.term }))
+        .filter(item => item.value);
       setSelectOptions('attrArchiveTerms', options);
       setSelectOptions('conArchiveTerms', options);
       setSelectOptions('dashArchiveTerms', options);
@@ -11273,6 +11299,8 @@ BUS 180 2 units`)
       }
       saved.push(term);
     }
+    if (window.COSArchiveService?.clearArchiveMemoryCache) window.COSArchiveService.clearArchiveMemoryCache();
+    if (window.COSArchiveService?.refreshArchiveManifest) await window.COSArchiveService.refreshArchiveManifest();
     await refreshAnalyticsArchiveOptions();
     alert(saved.length ? `Archived ${saved.length} term file(s): ${saved.join(', ')}` : 'No files were archived.');
   }
