@@ -39,7 +39,10 @@
     vpComments: ['comments to vps office', 'comments to vp office', 'comments to vp', 'vp comments']
   });
 
+  const TIMELINE_EDGE_PADDING_PX = 8;
+
   let mounted = null;
+  let lowEnrollmentResizeHandler = null;
 
   function normalizeHeader(value) {
     return String(value || '')
@@ -68,6 +71,62 @@
 
   function cleanString(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  function finiteNumber(value, fallback = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
+  function calculateTimelineScrollLimits({
+    firstColumnLeft = 0,
+    lastColumnRight = 0,
+    viewportWidth = 0,
+    scrollWidth = 0,
+    frozenLeftWidth = 0,
+    frozenRightWidth = 0,
+    padding = TIMELINE_EDGE_PADDING_PX
+  } = {}) {
+    const clientWidth = Math.max(0, finiteNumber(viewportWidth));
+    const contentWidth = Math.max(clientWidth, finiteNumber(scrollWidth, clientWidth));
+    const physicalMax = Math.max(0, contentWidth - clientWidth);
+    const earliest = finiteNumber(firstColumnLeft) - finiteNumber(frozenLeftWidth) - finiteNumber(padding);
+    const latest = finiteNumber(lastColumnRight) - clientWidth + finiteNumber(frozenRightWidth) + finiteNumber(padding);
+    const minScrollLeft = Math.min(physicalMax, Math.max(0, earliest));
+    const maxScrollLeft = Math.min(physicalMax, Math.max(minScrollLeft, latest));
+    return { minScrollLeft, maxScrollLeft };
+  }
+
+  function calculateTimelineNavigationScroll({
+    currentScrollLeft = 0,
+    viewportWidth = 0,
+    scrollWidth = 0,
+    frozenLeftWidth = 0,
+    frozenRightWidth = 0,
+    targetLeft = 0,
+    targetRight = 0,
+    minScrollLeft = 0,
+    maxScrollLeft,
+    padding = TIMELINE_EDGE_PADDING_PX
+  } = {}) {
+    const current = Math.max(0, finiteNumber(currentScrollLeft));
+    const clientWidth = Math.max(0, finiteNumber(viewportWidth));
+    const contentWidth = Math.max(clientWidth, finiteNumber(scrollWidth, clientWidth));
+    const physicalMax = Math.max(0, contentWidth - clientWidth);
+    const min = Math.max(0, finiteNumber(minScrollLeft));
+    const max = Math.max(min, maxScrollLeft === undefined ? physicalMax : Math.min(physicalMax, finiteNumber(maxScrollLeft, physicalMax)));
+    const leftPane = Math.max(0, finiteNumber(frozenLeftWidth));
+    const rightPane = Math.max(0, finiteNumber(frozenRightWidth));
+    const edgePadding = Math.max(0, finiteNumber(padding));
+    const visibleLeft = current + leftPane + edgePadding;
+    const visibleRight = current + clientWidth - rightPane - edgePadding;
+    let next = current;
+    if (finiteNumber(targetLeft) < visibleLeft) {
+      next = finiteNumber(targetLeft) - leftPane - edgePadding;
+    } else if (finiteNumber(targetRight) > visibleRight) {
+      next = finiteNumber(targetRight) - clientWidth + rightPane + edgePadding;
+    }
+    return Math.min(max, Math.max(min, next));
   }
 
   function localDateInputValue(date = new Date()) {
@@ -1096,6 +1155,82 @@
     injectLowEnrollmentStyles();
   }
 
+  function measuredFrozenTimelineWidths(scroller) {
+    if (!scroller?.getBoundingClientRect) return { frozenLeftWidth: 0, frozenRightWidth: 0 };
+    const scrollerRect = scroller.getBoundingClientRect();
+    const leftCells = Array.from(scroller.querySelectorAll('thead .sticky-left'));
+    const rightCells = Array.from(scroller.querySelectorAll('thead .sticky-right'));
+    const frozenLeftWidth = leftCells.reduce((max, cell) => {
+      const rect = cell.getBoundingClientRect();
+      return Math.max(max, rect.right - scrollerRect.left);
+    }, 0);
+    const frozenRightWidth = rightCells.reduce((max, cell) => {
+      const rect = cell.getBoundingClientRect();
+      return Math.max(max, scrollerRect.right - rect.left);
+    }, 0);
+    return {
+      frozenLeftWidth: Math.max(0, frozenLeftWidth),
+      frozenRightWidth: Math.max(0, frozenRightWidth)
+    };
+  }
+
+  function timelineColumnMetrics(scroller) {
+    return Array.from(scroller?.querySelectorAll('thead [data-timeline-column="true"]') || [])
+      .map(cell => ({
+        cell,
+        left: finiteNumber(cell.offsetLeft),
+        right: finiteNumber(cell.offsetLeft) + finiteNumber(cell.offsetWidth)
+      }));
+  }
+
+  function scrollLowEnrollmentTimeline(scroller, action, options = {}) {
+    const columns = timelineColumnMetrics(scroller);
+    if (!scroller || !columns.length) return;
+    const first = columns[0];
+    const last = columns[columns.length - 1];
+    const frozen = measuredFrozenTimelineWidths(scroller);
+    const limits = calculateTimelineScrollLimits({
+      firstColumnLeft: first.left,
+      lastColumnRight: last.right,
+      viewportWidth: scroller.clientWidth,
+      scrollWidth: scroller.scrollWidth,
+      frozenLeftWidth: frozen.frozenLeftWidth,
+      frozenRightWidth: frozen.frozenRightWidth
+    });
+    const visibleLeft = finiteNumber(scroller.scrollLeft) + frozen.frozenLeftWidth + TIMELINE_EDGE_PADDING_PX;
+    const visibleRight = finiteNumber(scroller.scrollLeft) + finiteNumber(scroller.clientWidth) - frozen.frozenRightWidth - TIMELINE_EDGE_PADDING_PX;
+    let target = null;
+    if (action === 'latest') target = last;
+    if (action === 'updated') target = columns.find(column => column.cell.dataset.updatedColumn === 'true') || last;
+    if (action === 'later') target = columns.find(column => column.right > visibleRight + 1) || last;
+    if (action === 'earlier') target = columns.slice().reverse().find(column => column.left < visibleLeft - 1) || first;
+    if (!target) return;
+    const nextScrollLeft = calculateTimelineNavigationScroll({
+      currentScrollLeft: scroller.scrollLeft,
+      viewportWidth: scroller.clientWidth,
+      scrollWidth: scroller.scrollWidth,
+      frozenLeftWidth: frozen.frozenLeftWidth,
+      frozenRightWidth: frozen.frozenRightWidth,
+      targetLeft: target.left,
+      targetRight: target.right,
+      minScrollLeft: limits.minScrollLeft,
+      maxScrollLeft: limits.maxScrollLeft
+    });
+    if (typeof scroller.scrollTo === 'function') {
+      scroller.scrollTo({ left: nextScrollLeft, behavior: options.behavior || 'smooth' });
+    } else {
+      scroller.scrollLeft = nextScrollLeft;
+    }
+    scroller.dataset.timelineFocusedAction = action;
+  }
+
+  function recalculateLowEnrollmentTimelineNavigation() {
+    const scroller = mounted?.container?.querySelector('#lowEnrollmentTimelineScroller');
+    const action = scroller?.dataset?.timelineFocusedAction;
+    if (!scroller || !['latest', 'updated'].includes(action)) return;
+    scrollLowEnrollmentTimeline(scroller, action, { behavior: 'auto' });
+  }
+
   function setStatus(message) {
     const node = mounted?.container?.querySelector('#lowEnrollmentSaveStatus');
     if (node) node.textContent = message;
@@ -1372,22 +1507,7 @@
     container.querySelectorAll('[data-timeline-nav]')?.forEach(button => {
       button.addEventListener('click', () => {
         const scroller = container.querySelector('#lowEnrollmentTimelineScroller');
-        if (!scroller) return;
-        const timelineCells = Array.from(scroller.querySelectorAll('thead [data-timeline-column="true"]'));
-        const first = timelineCells[0];
-        const last = timelineCells[timelineCells.length - 1];
-        if (!first || !last) return;
-        const min = first.offsetLeft;
-        const max = Math.max(min, last.offsetLeft + last.offsetWidth - scroller.clientWidth);
-        const clamp = value => Math.min(max, Math.max(min, value));
-        const action = button.dataset.timelineNav;
-        if (action === 'earlier') scroller.scrollLeft = clamp(scroller.scrollLeft - 600);
-        if (action === 'later') scroller.scrollLeft = clamp(scroller.scrollLeft + 600);
-        if (action === 'latest') scroller.scrollLeft = max;
-        if (action === 'updated') {
-          const updated = scroller.querySelector('thead [data-updated-column="true"]');
-          scroller.scrollLeft = updated ? clamp(updated.offsetLeft - 120) : max;
-        }
+        scrollLowEnrollmentTimeline(scroller, button.dataset.timelineNav);
       });
     });
     container.querySelectorAll('[data-status-card]')?.forEach(button => {
@@ -1499,16 +1619,16 @@
       .low-enrollment-timeline-nav span{margin-right:auto;font-weight:900;color:#123367}
       .low-enrollment-timeline-nav button{border:1px solid #c8d8e8;border-radius:999px;background:#fff;color:#123367;font-weight:900;padding:6px 10px;cursor:pointer}
       .low-enrollment-table-wrap{max-height:680px;overflow:auto}
-      .low-enrollment-table{min-width:2100px;width:max-content;border-collapse:separate;border-spacing:0;table-layout:fixed}
-      .low-enrollment-table .col-course{width:75px}
-      .low-enrollment-table .col-crn{width:65px}
-      .low-enrollment-table .col-title{width:140px}
+      .low-enrollment-table{--low-enrollment-course-width:75px;--low-enrollment-crn-width:65px;--low-enrollment-title-width:140px;--low-enrollment-status-width:75px;--low-enrollment-justification-width:120px;--low-enrollment-comments-width:165px;min-width:2100px;width:max-content;border-collapse:separate;border-spacing:0;table-layout:fixed}
+      .low-enrollment-table .col-course{width:var(--low-enrollment-course-width)}
+      .low-enrollment-table .col-crn{width:var(--low-enrollment-crn-width)}
+      .low-enrollment-table .col-title{width:var(--low-enrollment-title-width)}
       .low-enrollment-table .col-timeline{width:78px}
       .low-enrollment-table .col-narrow{width:84px}
       .low-enrollment-table .col-medium{width:112px}
-      .low-enrollment-table .col-status{width:75px}
-      .low-enrollment-table .col-justification{width:120px}
-      .low-enrollment-table .col-comments{width:165px}
+      .low-enrollment-table .col-status{width:var(--low-enrollment-status-width)}
+      .low-enrollment-table .col-justification{width:var(--low-enrollment-justification-width)}
+      .low-enrollment-table .col-comments{width:var(--low-enrollment-comments-width)}
       .low-enrollment-table th{position:sticky;top:0;z-index:3;background:#245685;color:#fff;box-shadow:0 1px 0 #1d4771}
       .low-enrollment-table th,.low-enrollment-table td{padding:8px;border-bottom:1px solid #e1e8f0;border-right:1px solid #eef3f8;vertical-align:top;font-size:12px;line-height:1.25}
       .low-enrollment-table tbody tr:hover td{background:#fff7ed}
@@ -1522,12 +1642,12 @@
       .updated-column{box-shadow:inset 0 0 0 2px rgba(245,124,0,.35);background:#fff7ed}
       .sticky-left,.sticky-right{position:sticky;background:#fff;z-index:2}
       th.sticky-left,th.sticky-right{z-index:5;background:#245685}
-      .sticky-course{left:0;min-width:75px;width:75px}
-      .sticky-crn{left:75px;min-width:65px;width:65px}
-      .sticky-title{left:140px;min-width:140px;width:140px;box-shadow:4px 0 8px rgba(18,51,103,.08)}
-      .sticky-comments{right:0;min-width:165px;width:165px;box-shadow:-4px 0 8px rgba(18,51,103,.08)}
-      .sticky-justification{right:165px;min-width:120px;width:120px}
-      .sticky-status{right:285px;min-width:75px;width:75px}
+      .sticky-course{left:0;min-width:var(--low-enrollment-course-width);width:var(--low-enrollment-course-width)}
+      .sticky-crn{left:var(--low-enrollment-course-width);min-width:var(--low-enrollment-crn-width);width:var(--low-enrollment-crn-width)}
+      .sticky-title{left:calc(var(--low-enrollment-course-width) + var(--low-enrollment-crn-width));min-width:var(--low-enrollment-title-width);width:var(--low-enrollment-title-width);box-shadow:4px 0 8px rgba(18,51,103,.08)}
+      .sticky-comments{right:0;min-width:var(--low-enrollment-comments-width);width:var(--low-enrollment-comments-width);box-shadow:-4px 0 8px rgba(18,51,103,.08)}
+      .sticky-justification{right:var(--low-enrollment-comments-width);min-width:var(--low-enrollment-justification-width);width:var(--low-enrollment-justification-width)}
+      .sticky-status{right:calc(var(--low-enrollment-comments-width) + var(--low-enrollment-justification-width));min-width:var(--low-enrollment-status-width);width:var(--low-enrollment-status-width)}
       .low-enrollment-date-cell{white-space:pre-line}
       .low-enrollment-filterbar{align-items:flex-start}
       .low-enrollment-filter-menu{position:relative;min-width:170px}
@@ -1565,6 +1685,9 @@
 
   function mount(options = {}) {
     if (!options.container) return;
+    if (lowEnrollmentResizeHandler && root.removeEventListener) {
+      root.removeEventListener('resize', lowEnrollmentResizeHandler);
+    }
     mounted = {
       container: options.container,
       backendBaseUrl: options.backendBaseUrl || root.BACKEND_BASE_URL || '',
@@ -1577,6 +1700,12 @@
       snapshotDate: localDateInputValue(),
       updatedSnapshotDate: ''
     };
+    lowEnrollmentResizeHandler = () => {
+      const run = () => recalculateLowEnrollmentTimelineNavigation();
+      if (typeof root.requestAnimationFrame === 'function') root.requestAnimationFrame(run);
+      else run();
+    };
+    root.addEventListener?.('resize', lowEnrollmentResizeHandler);
     render();
     loadTerms().then(render).catch(err => setStatus(err.message || 'Low Enrollment Tracking load failed.'));
   }
@@ -1602,6 +1731,8 @@
     refreshBaselineWorkspace,
     workspaceImportPreview,
     statusForRow,
+    calculateTimelineScrollLimits,
+    calculateTimelineNavigationScroll,
     displayTermFromCode,
     extractTermCodeFromFilename,
     extractSnapshotDateFromFilename,
