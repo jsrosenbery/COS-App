@@ -253,6 +253,12 @@ function isValidRoom(building, room) {
   return true;
 }
 
+function isRoomGridSection(section) {
+  if (!isValidRoom(section?.Building || section?.BUILDING, section?.Room || section?.ROOM)) return false;
+  const modality = getModalityCategory(getInstructionalMethod(section));
+  return !['ONLINE', 'WORK EXPERIENCE'].includes(String(modality || '').toUpperCase());
+}
+
 function escapeHTML(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({
     '&': '&amp;',
@@ -727,7 +733,7 @@ function getUniqueRooms(data) {
   // Fallback: returns array of "Bldg-Room" combos from uploaded section rows.
   return [...new Set(
     data
-      .filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM))
+      .filter(isRoomGridSection)
       .map(getRoomKey)
   )].sort();
 }
@@ -2684,7 +2690,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const data = (filt === 'All'
       ? currentData
       : currentData.filter(i => getRoomKey(i) === filt)
-    ).filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM)); // Omit invalid rooms
+    ).filter(isRoomGridSection); // Omit invalid rooms, online sections, and Work Experience
     const rect = container.getBoundingClientRect();
     daysOfWeek.forEach((day, dIdx) => {
       let evs = data
@@ -6385,7 +6391,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       data = data.filter(i => getRoomKey(i) === filt);
     }
     // OMIT invalid rooms
-    data = (data || []).filter(i => isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM));
+    data = (data || []).filter(isRoomGridSection);
     const events = [];
     (data || []).forEach(ev => {
       let daysArr = Array.isArray(ev.Days) ? ev.Days : (typeof ev.Days === "string" ? ev.Days.split(',') : []);

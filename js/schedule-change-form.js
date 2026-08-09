@@ -451,6 +451,13 @@
       'https://app-backend-docker-fgh0.onrender.com';
   }
 
+  function scfAuthorizationHeaders() {
+    const expiresAt = Date.parse(sessionStorage.getItem('cos-role-token-expires-at') || '');
+    const token = sessionStorage.getItem('cos-role-token') || '';
+    if (!token || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return {};
+    return { Authorization: `Bearer ${token}` };
+  }
+
   async function scfFetchExportCapabilities() {
     if (!exportCapabilitiesPromise) {
       exportCapabilitiesPromise = fetch(`${scfBackendBaseUrl()}/api/export-capabilities`, { cache: 'no-store' })
@@ -656,7 +663,7 @@
     const context = scfEmailContext(shadow);
     const response = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/create-email-draft`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...scfAuthorizationHeaders() },
       body: JSON.stringify({
         recipients: email.recipients,
         cc: email.cc,
@@ -1118,7 +1125,7 @@ async function sendScheduleChangeEmail(shadow) {
     const context = scfEmailContext(shadow);
     const response = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/send-email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...scfAuthorizationHeaders() },
       body: JSON.stringify({
         recipients: email.recipients,
         cc: email.cc,
@@ -1178,9 +1185,19 @@ async function sendScheduleChangeEmail(shadow) {
   }
 
   function normalizeDayList(days) {
+    const dayNames = { SU:'Sunday', MO:'Monday', TU:'Tuesday', WE:'Wednesday', TH:'Thursday', FR:'Friday', SA:'Saturday' };
+    if (window.COSDayUtils?.normalizeDays) {
+      return window.COSDayUtils.normalizeDays(days).map(day => dayNames[day] || day).filter(Boolean);
+    }
     if (Array.isArray(days)) return days.filter(Boolean);
+    const value = String(days || '').trim();
+    if (!value) return [];
+    const fullNames = value.split(/[,/]+|\s{2,}/).map(day => day.trim()).filter(Boolean);
+    if (fullNames.some(day => /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)$/i.test(day))) {
+      return fullNames;
+    }
     const daysMap = { U:'Sunday', M:'Monday', T:'Tuesday', W:'Wednesday', R:'Thursday', F:'Friday', S:'Saturday' };
-    return String(days || '').split('').map(day => daysMap[day] || day).filter(Boolean);
+    return value.replace(/[^UMTWRFS]/gi, '').split('').map(day => daysMap[day.toUpperCase()]).filter(Boolean);
   }
 
   function getCourseValue(row) {
@@ -1253,7 +1270,8 @@ async function sendScheduleChangeEmail(shadow) {
     if (/hanford/i.test(campus) || /^HAN/i.test(building)) return 'Hanford';
     if (/online/i.test(campus) || /^ONLINE/i.test(building)) return 'Online';
     if (/off/i.test(campus)) return 'Off-Campus';
-    return campus ? 'Visalia' : '';
+    if (/visalia|main/i.test(campus) || /^(?:VIS|MAIN)/i.test(building)) return 'Visalia';
+    return '';
   }
 
   function getRoomCapacityValue(row) {
@@ -1268,10 +1286,14 @@ async function sendScheduleChangeEmail(shadow) {
     return roomMeta?.capacity == null ? '' : String(roomMeta.capacity);
   }
 
-  function findScheduleRowByCrn(getScheduleData, crn) {
+  function findScheduleRowsByCrn(getScheduleData, crn) {
     const normalized = String(crn || '').trim();
-    if (!normalized) return null;
-    return (getScheduleData?.() || []).find(row => extractField(row, ['CRN']) === normalized) || null;
+    if (!normalized) return [];
+    return (getScheduleData?.() || []).filter(row => extractField(row, ['CRN']) === normalized);
+  }
+
+  function uniqueJoined(values, separator = ', ') {
+    return [...new Set(values.map(value => String(value || '').trim()).filter(Boolean))].join(separator);
   }
 
   function populateCrnOptions(datalist, getScheduleData) {
@@ -1288,28 +1310,36 @@ async function sendScheduleChangeEmail(shadow) {
     const form = shadow.getElementById('scf');
     const crnInput = shadow.getElementById('crnLookup');
     const status = shadow.getElementById('lookupStatus');
-    const row = findScheduleRowByCrn(getScheduleData, crnInput?.value);
+    const rows = findScheduleRowsByCrn(getScheduleData, crnInput?.value);
+    const row = rows[0];
     if (!row) {
       status.textContent = crnInput?.value ? `No loaded section found for CRN ${crnInput.value}.` : 'Enter a CRN to autofill.';
       status.className = 'status err';
       return;
     }
 
-    const building = extractField(row, ['Building']);
-    const room = extractField(row, ['Room']);
-    const instructor = extractField(row, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty']);
+    const meetingDays = uniqueJoined(rows.flatMap(item =>
+      normalizeDayList(item.Days || extractField(item, ['DAYS', 'Days']))
+    ));
+    const meetingTimes = uniqueJoined(rows.map(getTimeValue), '; ');
+    const dateRanges = uniqueJoined(rows.map(getDateRangeValue), '; ');
+    const buildings = uniqueJoined(rows.map(item => extractField(item, ['Building'])));
+    const rooms = uniqueJoined(rows.map(item => extractField(item, ['Room'])));
+    const instructors = uniqueJoined(rows.map(item =>
+      extractField(item, ['Instructor', 'Instructor1', 'Instructor(s)', 'Faculty'])
+    ), '; ');
 
     setFieldValue(form, 'CRN', extractField(row, ['CRN']));
     setFieldValue(form, 'Subject & Course #', getCourseValue(row));
-    setFieldValue(form, 'Time(s)', getTimeValue(row));
-    setFieldValue(form, 'Day(s)', normalizeDayList(row.Days || extractField(row, ['DAYS', 'Days'])).join(', '));
-    setFieldValue(form, 'Short Term Dates', getDateRangeValue(row));
+    setFieldValue(form, 'Time(s)', meetingTimes);
+    setFieldValue(form, 'Day(s)', meetingDays);
+    setFieldValue(form, 'Short Term Dates', dateRanges);
     setFieldValue(form, '# of Weeks', extractField(row, ['Weeks', '# of Weeks', 'Number of Weeks']));
     setFieldValue(form, 'Units', extractField(row, ['Units', 'Credit Hours', 'Credits']));
     setFieldValue(form, 'Capacity', getRoomCapacityValue(row));
-    setFieldValue(form, 'Building(s)', building);
-    setFieldValue(form, 'Room(s)', room);
-    setFieldValue(form, 'Instructor Full Name', instructor);
+    setFieldValue(form, 'Building(s)', buildings);
+    setFieldValue(form, 'Room(s)', rooms);
+    setFieldValue(form, 'Instructor Full Name', instructors);
     setFieldValue(form, 'Banner ID', extractField(row, ['Banner ID', 'Banner_ID', 'Instructor ID']));
 
     const sourceTerm = extractField(row, ['Term', 'TERM', 'Academic Term']) || getCurrentTerm?.() || '';
@@ -1317,7 +1347,7 @@ async function sendScheduleChangeEmail(shadow) {
     if (form.elements.year && !form.elements.year.value) form.elements.year.value = getTermYear(sourceTerm);
     setChecked(form, 'campus', getCampusValue(row));
 
-    status.textContent = `Autofilled ${getCourseValue(row) || 'section'} from CRN ${extractField(row, ['CRN'])}.`;
+    status.textContent = `Autofilled ${getCourseValue(row) || 'section'} from CRN ${extractField(row, ['CRN'])}${rows.length > 1 ? ` across ${rows.length} meeting rows` : ''}.`;
     status.className = 'status ok';
   }
 
