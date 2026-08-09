@@ -45,6 +45,7 @@ Local development defaults to `http://127.0.0.1:3000`; production defaults to th
 - `js/shared/utils.js`: shared browser utilities for gradual extraction from `app.js`.
 - `js/admin.js`, `js/availability.js`, `js/heatmap.js`, `js/modality.js`, `js/utilization.js`: feature namespaces used as landing zones while `app.js` is split.
 - `js/parser.js`: CSV parsing/normalization plus compatibility shims for the enrollment analytics module.
+- `js/enrollment-analytics.js`: Enrollment Management report UI, access control, orchestration, and analytics workflows.
 - `js/enrollment-analytics.js`: supplemental Enrollment Management report UI/orchestration loaded by `parser.js`.
 - `js/enrollment/metrics.js`: shared enrollment metric calculations used by reports and smoke tests.
 - `js/enrollment/trend-projection.js`: shared trend projection engine for forecast presentation. It uses comparable-term trends, recency-weighted growth, schedule adjustment, confidence, and expected ranges without affecting Room Availability logic.
