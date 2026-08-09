@@ -29,7 +29,7 @@ window.COS_APP_CONFIG = {
 };
 ```
 
-For a different backend, override `window.COS_APP_CONFIG.backendBaseUrl` before `js/config.js` loads or edit `js/config.js` for that deployment.
+Local development defaults to `http://127.0.0.1:3000`; production defaults to the Render API above. To use a different backend, set `window.COS_APP_CONFIG.backendBaseUrl` before `js/config.js` loads.
 
 ## Architecture
 
@@ -88,7 +88,15 @@ Important endpoints used by the frontend:
 
 Write endpoints are protected by the backend `GENERAL_PASSWORD` environment variable, with `UPLOAD_PASSWORD` retained as a compatibility fallback. Do not commit upload or admin passwords to this public frontend repository.
 
-TIMBER role unlock uses `POST /api/auth/role`. Configure `GENERAL_PASSWORD`, `DIV_CHAIR_PASSWORD`, `DEAN_PASSWORD`, `EM_PASSWORD`, `DEV_PASSWORD`, and `ADMIN_PASSWORD` in the backend environment. Higher roles inherit lower permissions. The legacy `POST /api/auth/enrollment-management` endpoint remains available for Enrollment Management-compatible sessions. The frontend stores only the short-lived token, expiration, and resolved role in `sessionStorage`; passwords are not stored.
+TIMBER role unlock uses `POST /api/auth/role`. Configure `GENERAL_PASSWORD`, `DIV_CHAIR_PASSWORD`, `DEAN_PASSWORD`, `EM_PASSWORD`, `DEV_PASSWORD`, and `ADMIN_PASSWORD` in the backend environment. Role passwords unlock their corresponding TIMBER views. Existing schedule and catalog import endpoints continue to require `GENERAL_PASSWORD`; this compatibility behavior is intentional. The legacy `POST /api/auth/enrollment-management` endpoint remains available for Enrollment Management-compatible sessions. Protected role APIs issue short-lived in-memory bearer sessions; passwords are not persisted by the backend.
+
+## Stabilization and Access Notes
+
+- Failed role sign-in is limited to five attempts per client IP, followed by a 15-minute lock by default. The limit and lock duration can be changed with `AUTH_FAILURE_LIMIT`, `AUTH_FAILURE_WINDOW_MS`, and `AUTH_LOCKOUT_MS`.
+- Server-side email draft creation and direct email sending require a valid General-or-higher bearer session. Local `mailto:` drafts remain available without backend email delivery.
+- DOCX-to-PDF conversion remains password-free, with rate and concurrency limits to protect availability.
+- Work Experience code `20` remains reportable as `Work Experience` but is excluded from Room Availability and calendar grids. `FLX` is reported in the Hybrid modality category.
+- Administrative diagnostics require an Administrator bearer session.
 
 ## Data Notes
 
