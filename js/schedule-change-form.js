@@ -451,6 +451,13 @@
       'https://app-backend-docker-fgh0.onrender.com';
   }
 
+  function scfAuthorizationHeaders() {
+    const expiresAt = Date.parse(sessionStorage.getItem('cos-role-token-expires-at') || '');
+    const token = sessionStorage.getItem('cos-role-token') || '';
+    if (!token || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return {};
+    return { Authorization: `Bearer ${token}` };
+  }
+
   async function scfFetchExportCapabilities() {
     if (!exportCapabilitiesPromise) {
       exportCapabilitiesPromise = fetch(`${scfBackendBaseUrl()}/api/export-capabilities`, { cache: 'no-store' })
@@ -656,7 +663,7 @@
     const context = scfEmailContext(shadow);
     const response = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/create-email-draft`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...scfAuthorizationHeaders() },
       body: JSON.stringify({
         recipients: email.recipients,
         cc: email.cc,
@@ -1118,7 +1125,7 @@ async function sendScheduleChangeEmail(shadow) {
     const context = scfEmailContext(shadow);
     const response = await fetch(`${scfBackendBaseUrl()}/api/schedule-change/send-email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...scfAuthorizationHeaders() },
       body: JSON.stringify({
         recipients: email.recipients,
         cc: email.cc,
