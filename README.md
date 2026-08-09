@@ -89,7 +89,7 @@ Important endpoints used by the frontend:
 
 Write endpoints are protected by the backend `GENERAL_PASSWORD` environment variable, with `UPLOAD_PASSWORD` retained as a compatibility fallback. Do not commit upload or admin passwords to this public frontend repository.
 
-TIMBER role unlock uses `POST /api/auth/role`. Configure `GENERAL_PASSWORD`, `DIV_CHAIR_PASSWORD`, `DEAN_PASSWORD`, `EM_PASSWORD`, `DEV_PASSWORD`, and `ADMIN_PASSWORD` in the backend environment. Role passwords unlock their corresponding TIMBER views. Existing schedule and catalog import endpoints continue to require `GENERAL_PASSWORD`; this compatibility behavior is intentional. The legacy `POST /api/auth/enrollment-management` endpoint remains available for Enrollment Management-compatible sessions. Protected role APIs issue short-lived in-memory bearer sessions; passwords are not persisted by the backend.
+TIMBER role unlock uses `POST /api/auth/role`. Configure `GENERAL_PASSWORD`, `DIV_CHAIR_PASSWORD`, `DEAN_PASSWORD`, `EM_PASSWORD`, `DEV_PASSWORD`, and `ADMIN_PASSWORD` in the backend environment. Role passwords unlock their corresponding TIMBER views. Existing schedule and catalog import endpoints continue to require `GENERAL_PASSWORD`; this compatibility behavior is intentional. The legacy `POST /api/auth/enrollment-management` endpoint remains available for Enrollment Management-compatible sessions. The frontend stores only the short-lived token, expiration, and resolved role in `sessionStorage`; passwords are not stored. Backend sessions remain in process memory and expire automatically.
 
 ## Stabilization and Access Notes
 
