@@ -8,8 +8,13 @@
       : 'production'
   );
 
+  const defaultBackendBaseUrl = environment === 'development'
+    ? 'http://127.0.0.1:3000'
+    : 'https://app-backend-docker-fgh0.onrender.com';
+
   window.COS_APP_CONFIG = {
-    backendBaseUrl: 'https://app-backend-docker-fgh0.onrender.com',
+    ...overrides,
+    backendBaseUrl: overrides.backendBaseUrl || defaultBackendBaseUrl,
     environment,
     flags: {
       isDevelopment: environment === 'development',
@@ -29,8 +34,7 @@
       curriculumCrosswalkAdmin: true,
       scheduleChangeForm: true,
       ...(overrides.features || {})
-    },
-    ...(overrides || {})
+    }
   };
 
   window.BACKEND_BASE_URL = window.COS_APP_CONFIG.backendBaseUrl;
