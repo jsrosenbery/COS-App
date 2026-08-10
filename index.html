@@ -628,7 +628,10 @@
   <script src="https://cdn.jsdelivr.net/npm/datatables.net/js/jquery.dataTables.min.js"></script>
 
   <!-- App scripts -->
-  <script src="js/config.js"></script>
+  <script>
+    window.TIMBER_BUILD_VERSION = '2026.08.10.1';
+  </script>
+  <script src="js/config.js?v=2026.08.10.1"></script>
   <script src="js/config/campuses.js"></script>
   <script src="js/config/reports.js"></script>
   <script src="js/config/scheduling.js"></script>
@@ -671,20 +674,20 @@
 
 
 
-  <script src="js/parser.js"></script>
+  <script src="js/parser.js?v=2026.08.10.1"></script>
   <!-- CAL-GETC mapping file must be loaded BEFORE app.js -->
   <script src="js/cal_getc_mapping.js"></script>
   <script src="js/curriculum_crosswalk.js"></script>
   <script src="js/roomCatalog.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=2026.08.10.1"></script>
   <script src="js/enrollment/metrics.js"></script>
   <script src="js/enrollment/filters.js"></script>
   <script src="js/enrollment/consolidation.js"></script>
   <script src="js/enrollment/dashboard.js"></script>
   <script src="js/enrollment/trend-projection.js"></script>
   <script src="js/enrollment/historical-institutional.js"></script>
-  <script src="js/low-enrollment-tracker.js"></script>
-  <script src="js/enrollment-analytics.js"></script>
+  <script src="js/low-enrollment-tracker.js?v=2026.08.10.1"></script>
+  <script src="js/enrollment-analytics.js?v=2026.08.10.1"></script>
 
 
   <!-- === DOCX merge libraries (for official form export) === -->
@@ -694,7 +697,7 @@
 
   <!-- Schedule Change Form component (Shadow DOM, non-destructive) -->
   <script src="js/schedule-change-filenames.js"></script>
-  <script src="js/schedule-change-form.js"></script>
+  <script src="js/schedule-change-form.js?v=2026.08.10.1"></script>
   <script>
     // Mount SCF button inline with Export to PDF, styled to match Export
     document.addEventListener('DOMContentLoaded', function () {
