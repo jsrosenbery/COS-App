@@ -71,7 +71,7 @@
     [REPORTS.attrition]: 'dean',
     [REPORTS.demand]: 'development',
     [REPORTS.emSnapshot]: 'development',
-    [REPORTS.lowEnrollmentTracking]: 'development',
+    [REPORTS.lowEnrollmentTracking]: 'dean',
     [REPORTS.roomFit]: 'dean',
     [REPORTS.utilization]: 'dean',
     [REPORTS.consolidation]: 'development',
@@ -136,9 +136,9 @@
     REPORTS.conflictCheck,
     REPORTS.facultyHeatmap,
     REPORTS.facultyModality,
+    REPORTS.lowEnrollmentTracking,
     REPORTS.scheduleBuilder,
     REPORTS.demand,
-    REPORTS.lowEnrollmentTracking,
     REPORTS.catalogProgramRequirements,
     REPORTS.twoYearProgramFeasibility,
     REPORTS.emSnapshot,
@@ -188,6 +188,7 @@
         REPORTS.conflictCheck,
         REPORTS.facultyHeatmap,
         REPORTS.facultyModality,
+        REPORTS.lowEnrollmentTracking,
         REPORTS.scheduleBuilder
       ])
     },
@@ -197,7 +198,6 @@
       accessLabel: 'Enrollment Management Access',
       reports: Object.freeze([
         REPORTS.demand,
-        REPORTS.lowEnrollmentTracking,
         REPORTS.emSnapshot,
         REPORTS.consolidation,
         REPORTS.busyTimeDashboard,

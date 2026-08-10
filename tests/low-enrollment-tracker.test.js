@@ -145,7 +145,7 @@ test('low enrollment worksheet freezes only requested regions and keeps timeline
   assert.doesNotMatch(source, /sticky-right sticky-highest/);
   assert.doesNotMatch(source, /sticky-right sticky-threshold/);
   assert.match(source, /data-timeline-column="true"/);
-  assert.match(source, /const emptyColspan = 18 \+ timelineColumns\.length/);
+  assert.match(source, /const emptyColspan = 17 \+ timelineColumns\.length/);
   assert.match(source, /calculateTimelineNavigationScroll/);
   assert.match(source, /measuredFrozenTimelineWidths/);
   assert.doesNotMatch(source, /scrollLeft \+ 600|scrollLeft - 600|offsetLeft - 120/);
@@ -163,11 +163,14 @@ test('low enrollment Excel export preserves visible data and justification dropd
   assert.equal(model.columns[model.justificationColumnIndex - 1].header, 'Justification');
   assert.equal(model.rows[0][model.justificationColumnIndex - 1], 'Other');
   assert.deepEqual(model.reasons, ['Other', 'Required course']);
+  assert.ok(model.columns.some(column => column.header === '1st Day Enrollment'));
+  assert.equal(model.columns.some(column => column.header === 'Wait Count'), false);
 
   const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'low-enrollment-tracker.js'), 'utf8');
   assert.match(source, /state = 'veryHidden'/);
   assert.match(source, /formulae: \['JustificationOptions'\]/);
   assert.match(source, /dataValidation/);
+  assert.match(source, /addWorksheet\('Removed Sections'/);
   assert.ok(model.columns.find(column => column.key === '_timberRowId').hidden);
   assert.ok(model.columns.find(column => column.key === '_timberTermCode').hidden);
 });
@@ -267,12 +270,36 @@ test('low enrollment missing snapshot cells render both missing class and visibl
   assert.match(source, /<span class="muted">Missing<\/span>/);
 });
 
-test('low enrollment report is registered as an Enrollment Management report', () => {
+test('low enrollment export rows identify removed threshold-met sections for the second workbook tab', () => {
+  const workspace = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold'],
+    ['COMM C1000', '10003', 'Public Speaking', 18, 30, 21],
+    ['ENGL C1000', '30001', 'Writing', 10, 30, 21]
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' });
+  const updated = tracker.applyEnrollmentSnapshot(workspace, [
+    { CRN: '10003', ACTUAL_ENROLL: '22' },
+    { CRN: '30001', ACTUAL_ENROLL: '12' }
+  ], { snapshotDate: '2026-08-11', sourceFilename: 'update.csv' }).workspace;
+  const removed = updated.rows.filter(tracker.removedFromActiveWatchlist);
+  const exportModel = tracker.buildExcelExportModel(updated, removed);
+  const headers = exportModel.columns.map(column => column.header);
+  const removedRow = Object.fromEntries(headers.map((header, index) => [header, exportModel.rows[0][index]]));
+
+  assert.equal(removed.length, 1);
+  assert.equal(removedRow.Status, 'Threshold Met');
+  assert.equal(removedRow['1st Day Enrollment'], 18);
+  assert.equal(removedRow['Removed / Met Minimum Reason'], 'Threshold Met');
+  assert.equal(removedRow['8-11-26 Enrollment'], 22);
+  assert.equal(Object.prototype.hasOwnProperty.call(removedRow, 'Wait Count'), false);
+});
+
+test('low enrollment report is registered as a Dean report', () => {
   const { REPORTS, REPORT_ACCESS, REPORT_LABEL, REPORT_WORKFLOW_GROUPS, REPORT_DESCRIPTIONS } = reports;
   assert.equal(REPORTS.lowEnrollmentTracking, 'low-enrollment-tracking');
-  assert.equal(REPORT_ACCESS[REPORTS.lowEnrollmentTracking], 'development');
+  assert.equal(REPORT_ACCESS[REPORTS.lowEnrollmentTracking], 'dean');
   assert.equal(REPORT_LABEL[REPORTS.lowEnrollmentTracking], 'Low Enrollment Tracking');
-  assert.ok(REPORT_WORKFLOW_GROUPS.find(group => group.key === 'enrollment-management').reports.includes(REPORTS.lowEnrollmentTracking));
+  assert.ok(REPORT_WORKFLOW_GROUPS.find(group => group.key === 'dean').reports.includes(REPORTS.lowEnrollmentTracking));
+  assert.equal(REPORT_WORKFLOW_GROUPS.find(group => group.key === 'enrollment-management').reports.includes(REPORTS.lowEnrollmentTracking), false);
   assert.match(REPORT_DESCRIPTIONS[REPORTS.lowEnrollmentTracking], /low-enrolled sections/i);
 });
 
