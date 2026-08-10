@@ -168,6 +168,52 @@ test('low enrollment Excel export preserves visible data and justification dropd
   assert.match(source, /state = 'veryHidden'/);
   assert.match(source, /formulae: \['JustificationOptions'\]/);
   assert.match(source, /dataValidation/);
+  assert.ok(model.columns.find(column => column.key === '_timberRowId').hidden);
+  assert.ok(model.columns.find(column => column.key === '_timberTermCode').hidden);
+});
+
+test('edited tracker import changes only manual fields, accepts clearing, and rejects custom justifications', () => {
+  const workspace = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold', 'Justification', 'Comments to VPs Office'],
+    ['COMM C1000', '10003', 'Speaking', 10, 30, 21, 'Other', 'Existing note']
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' });
+  const row = workspace.rows[0];
+  const priorXlsx = global.XLSX;
+  global.XLSX = { utils: { sheet_to_json: sheet => sheet } };
+  try {
+    const headers = ['Course', 'Justification', 'Comments to VPs Office', 'Timber Row ID', 'Timber Term Code', 'Timber Import Schema', 'Timber Original Justification', 'Timber Original VP Comments'];
+    const workbook = { SheetNames: ['Low Enrollment'], Sheets: { 'Low Enrollment': [
+      headers,
+      ['COMM C1000', '', '', row.id, '202710', 'TIMBER_LOW_ENROLLMENT_MANUAL_V1', 'Other', 'Existing note']
+    ] } };
+    const preview = tracker.parseManualUpdateWorkbook(workbook, workspace);
+    assert.equal(preview.valid, true);
+    assert.deepEqual(preview.updates, [{ rowId: row.id, justification: '', vpComments: '', expectedJustification: 'Other', expectedVpComments: 'Existing note' }]);
+    assert.equal(preview.summary.clearedJustifications, 1);
+    assert.equal(preview.summary.clearedVpComments, 1);
+
+    workbook.Sheets['Low Enrollment'][1][1] = 'Typed custom reason';
+    const invalid = tracker.parseManualUpdateWorkbook(workbook, workspace);
+    assert.equal(invalid.valid, false);
+    assert.match(invalid.errors.join(' '), /dropdown list/i);
+  } finally {
+    global.XLSX = priorXlsx;
+  }
+});
+
+test('baseline refresh preserves term-specific exclusion metadata', () => {
+  const existing = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold'],
+    ['LA 425', '10003', 'Open Lab', 2, 30, 21]
+  ], { filename: '202710 watchlist_8-4-26.xlsx' });
+  existing.rows[0].exclusion = { excluded: true, reason: 'Open lab', note: 'Accepted exception' };
+  const incoming = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold'],
+    ['LA 425', '10003', 'Open Lab', 3, 30, 21]
+  ], { filename: '202710 watchlist_8-5-26.xlsx' });
+  const refreshed = tracker.refreshBaselineWorkspace(existing, incoming).workspace;
+  assert.equal(refreshed.rows[0].exclusion.excluded, true);
+  assert.equal(refreshed.rows[0].exclusion.reason, 'Open lab');
 });
 
 test('low enrollment timeline navigation accounts for frozen left and right panes', () => {

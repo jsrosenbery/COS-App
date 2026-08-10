@@ -17,6 +17,8 @@
     'Required for faculty to complete a full load for the semester',
     'Other'
   ]);
+  const MANUAL_IMPORT_SCHEMA = 'TIMBER_LOW_ENROLLMENT_MANUAL_V1';
+  const EXCLUSION_REASONS = Object.freeze(['Open lab', 'Athletics or team activity', 'Accepted low-enrollment exception', 'Other']);
 
   const HEADER_ALIASES = Object.freeze({
     course: ['course(s)', 'course', 'subject/course', 'subj_course'],
@@ -423,6 +425,9 @@
     const xlsx = root.XLSX;
     if (!xlsx?.utils?.sheet_to_json) throw new Error('XLSX parser is not available.');
     const reportTable = xlsx.utils.sheet_to_json(workbook.Sheets[reportName], { header: 1, defval: '' });
+    if (reportTable.some(row => Array.isArray(row) && row.some(value => cleanString(value) === MANUAL_IMPORT_SCHEMA))) {
+      throw new Error('This is an edited Timber export. Use Import Edited Tracker instead of Import Initial Workbook.');
+    }
     const reasonsName = sheetNames.find(name => /^reasons$/i.test(name));
     let reasons = Array.from(DEFAULT_JUSTIFICATIONS);
     if (reasonsName) {
@@ -664,6 +669,7 @@
         ...baselineFieldsFromRow(match.row, options),
         justification: row.justification,
         vpComments: row.vpComments,
+        exclusion: row.exclusion || null,
         latestEnrollment: row.latestEnrollment,
         highestEnrollment: row.highestEnrollment,
         snapshotValues: row.snapshotValues || {},
@@ -775,8 +781,12 @@
   }
 
   function statusCounts(workspace) {
-    const counts = { all: 0, below: 0, met: 0, missing: 0, manual: 0 };
+    const counts = { all: 0, below: 0, met: 0, missing: 0, manual: 0, excluded: 0 };
     (workspace?.rows || []).forEach(row => {
+      if (row.exclusion?.excluded) {
+        counts.excluded += 1;
+        return;
+      }
       counts.all += 1;
       const status = statusForRow(row);
       if (status === 'Threshold Met') counts.met += 1;
@@ -796,6 +806,7 @@
         <button type="button" data-status-card="met"><strong>${counts.met}</strong><span>Threshold Met</span></button>
         <button type="button" data-status-card="missing"><strong>${counts.missing}</strong><span>Missing Update</span></button>
         <button type="button" data-status-card="manual"><strong>${counts.manual}</strong><span>Manual Review</span></button>
+        <button type="button" data-excluded-view="true"><strong>${counts.excluded}</strong><span>Excluded Rows</span></button>
         <div><strong>${(workspace?.snapshots || []).length}</strong><span>Dated Snapshots</span></div>
       </div>
     `;
@@ -836,6 +847,8 @@
     const search = cleanString(filters.search).toLowerCase();
     const showThresholdMet = filters.showThresholdMet !== false;
     const filtered = (workspace?.rows || []).filter(row => {
+      if (row.exclusion?.excluded && mounted?.showExcluded !== true) return false;
+      if (!row.exclusion?.excluded && mounted?.showExcluded === true) return false;
       const rowStatus = statusForRow(row);
       if (!showThresholdMet && rowStatus === 'Threshold Met') return false;
       const selectedStatuses = filterValues('status');
@@ -878,7 +891,12 @@
       { key: 'threshold', header: 'Threshold', width: 11, value: row => row.threshold },
       { key: 'status', header: 'Status', width: 18, value: row => statusForRow(row) },
       { key: 'justification', header: 'Justification', width: 48, value: row => row.justification },
-      { key: 'vpComments', header: 'Comments to VPs Office', width: 48, value: row => row.vpComments }
+      { key: 'vpComments', header: 'Comments to VPs Office', width: 48, value: row => row.vpComments },
+      { key: '_timberRowId', header: 'Timber Row ID', width: 1, hidden: true, value: row => row.id },
+      { key: '_timberTermCode', header: 'Timber Term Code', width: 1, hidden: true, value: () => workspace?.termCode || '' },
+      { key: '_timberSchema', header: 'Timber Import Schema', width: 1, hidden: true, value: () => MANUAL_IMPORT_SCHEMA },
+      { key: '_timberOriginalJustification', header: 'Timber Original Justification', width: 1, hidden: true, value: row => row.justification || '' },
+      { key: '_timberOriginalVpComments', header: 'Timber Original VP Comments', width: 1, hidden: true, value: row => row.vpComments || '' }
     ];
     return {
       columns,
@@ -899,7 +917,10 @@
     });
     worksheet.addRow(model.columns.map(column => column.header));
     model.rows.forEach(values => worksheet.addRow(values));
-    model.columns.forEach((column, index) => { worksheet.getColumn(index + 1).width = column.width; });
+    model.columns.forEach((column, index) => {
+      worksheet.getColumn(index + 1).width = column.width;
+      worksheet.getColumn(index + 1).hidden = Boolean(column.hidden);
+    });
     worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, model.rows.length + 1), column: model.columns.length } };
     const header = worksheet.getRow(1);
     header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -928,6 +949,72 @@
       }
     }
     return workbook;
+  }
+
+  function parseManualUpdateWorkbook(workbook, workspace) {
+    const xlsx = root.XLSX;
+    if (!xlsx?.utils?.sheet_to_json) throw new Error('XLSX parser is not available.');
+    const sheetNames = workbook?.SheetNames || Object.keys(workbook?.Sheets || {});
+    const reportName = sheetNames.find(name => /^low enrollment$/i.test(name));
+    if (!reportName) throw new Error('This is not a Timber Low Enrollment export: the Low Enrollment worksheet is missing.');
+    const table = xlsx.utils.sheet_to_json(workbook.Sheets[reportName], { header: 1, defval: '' });
+    const headerIndex = table.findIndex(row => Array.isArray(row) && row.some(value => normalizeHeader(value) === normalizeHeader('Timber Row ID')));
+    if (headerIndex < 0) throw new Error('This workbook does not contain Timber import metadata. Export a fresh tracker workbook and edit that file.');
+    const headers = table[headerIndex].map(normalizeHeader);
+    const column = label => headers.indexOf(normalizeHeader(label));
+    const indexes = {
+      rowId: column('Timber Row ID'),
+      termCode: column('Timber Term Code'),
+      schema: column('Timber Import Schema'),
+      justification: column('Justification'),
+      vpComments: column('Comments to VPs Office'),
+      originalJustification: column('Timber Original Justification'),
+      originalVpComments: column('Timber Original VP Comments')
+    };
+    if (Object.values(indexes).some(index => index < 0)) throw new Error('The workbook is missing required Timber manual-update columns.');
+    const savedRows = new Map((workspace?.rows || []).map(row => [String(row.id), row]));
+    const allowed = allowedReasons(workspace);
+    const seen = new Set();
+    const errors = [];
+    const updates = [];
+    let unchangedRows = 0;
+    table.slice(headerIndex + 1).forEach((values, offset) => {
+      const rowNumber = headerIndex + offset + 2;
+      const rowId = cleanString(values[indexes.rowId]);
+      if (!rowId) return;
+      const termCode = cleanString(values[indexes.termCode]);
+      const schema = cleanString(values[indexes.schema]);
+      const justification = cleanString(values[indexes.justification]);
+      const vpComments = values[indexes.vpComments] === null || values[indexes.vpComments] === undefined ? '' : String(values[indexes.vpComments]);
+      const expectedJustification = cleanString(values[indexes.originalJustification]);
+      const expectedVpComments = values[indexes.originalVpComments] === null || values[indexes.originalVpComments] === undefined ? '' : String(values[indexes.originalVpComments]);
+      if (seen.has(rowId)) errors.push(`Row ${rowNumber}: duplicate Timber row ID.`);
+      seen.add(rowId);
+      if (termCode !== cleanString(workspace?.termCode)) errors.push(`Row ${rowNumber}: term ${termCode || '(blank)'} does not match ${workspace?.termCode}.`);
+      if (schema !== MANUAL_IMPORT_SCHEMA) errors.push(`Row ${rowNumber}: unsupported or missing Timber import schema.`);
+      const saved = savedRows.get(rowId);
+      if (!saved) errors.push(`Row ${rowNumber}: tracker row ${rowId} was not found in the selected term.`);
+      if (justification && !allowed.includes(justification)) errors.push(`Row ${rowNumber}: Justification must be selected from the saved dropdown list.`);
+      if (!saved) return;
+      if (expectedJustification !== cleanString(saved.justification) || expectedVpComments !== String(saved.vpComments || '')) {
+        errors.push(`Row ${rowNumber}: dashboard manual fields changed after this workbook was exported. Export a fresh workbook before importing.`);
+      }
+      if (justification === cleanString(saved.justification) && vpComments === String(saved.vpComments || '')) unchangedRows += 1;
+      else updates.push({ rowId, justification, vpComments, expectedJustification, expectedVpComments });
+    });
+    if (!seen.size) errors.push('The workbook does not contain any exported tracker rows.');
+    return {
+      valid: errors.length === 0,
+      errors,
+      updates,
+      summary: {
+        workbookRows: seen.size,
+        changedRows: updates.length,
+        unchangedRows,
+        clearedJustifications: updates.filter(update => !update.justification && cleanString(savedRows.get(update.rowId)?.justification)).length,
+        clearedVpComments: updates.filter(update => !update.vpComments && String(savedRows.get(update.rowId)?.vpComments || '')).length
+      }
+    };
   }
 
   async function exportLowEnrollmentExcel(workspace, rows = workspace?.rows || []) {
@@ -1056,11 +1143,16 @@
         return `<td class="timeline-col snapshot-${escapeHtml(matchStatus)} ${isUpdated ? 'updated-column' : ''}" data-timeline-column="true" data-updated-column="${isUpdated ? 'true' : 'false'}">${content}${marker}</td>`;
       }).join('');
       const status = statusForRow(row);
+      const exclusion = row.exclusion || {};
       return `
         <tr data-row-id="${escapeHtml(row.id)}">
           <td class="sticky-left sticky-course">${escapeHtml(row.course)}</td>
           <td class="sticky-left sticky-crn">${escapeHtml(row.crnDisplay)}</td>
-          <td class="sticky-left sticky-title">${escapeHtml(row.title)}</td>
+          <td class="sticky-left sticky-title">
+            ${escapeHtml(row.title)}
+            ${exclusion.excluded ? `<small class="low-enrollment-exclusion-note"><strong>Excluded:</strong> ${escapeHtml(exclusion.reason)}${exclusion.note ? ` — ${escapeHtml(exclusion.note)}` : ''}</small>` : ''}
+            <button type="button" class="low-enrollment-row-action" data-exclusion-action="${exclusion.excluded ? 'restore' : 'exclude'}">${exclusion.excluded ? 'Restore to tracking' : 'Exclude from tracking'}</button>
+          </td>
           ${timelineCells}
           <td>${escapeHtml(row.maxEnrollment)}</td>
           <td>${escapeHtml(row.waitCount)}</td>
@@ -1192,6 +1284,8 @@
                 <li>Import the initial Low Enrollment workbook for a term. Hidden workbook reasons are used for the Justification dropdown.</li>
                 <li>Upload later Section Seating CSV files as dated enrollment updates. Individual CRNs are matched directly; visible cross-listed rows sum their member CRNs.</li>
                 <li>Justification and VP comments autosave to the backend for the selected term workspace.</li>
+                <li>Export an editable tracker, make only manual-field changes, then use Import Edited Tracker to preview and apply them.</li>
+                <li>Use Exclude from tracking for accepted term-specific exceptions. Excluded rows retain their history and can be restored.</li>
               </ul>
             </div>
             <div>
@@ -1217,6 +1311,8 @@
           <label>Enrollment update CSV <input id="lowEnrollmentCsvFile" type="file" accept=".csv"></label>
           <button id="uploadLowEnrollmentSnapshot" type="button"${workspace ? '' : ' disabled'}>Upload Enrollment Update</button>
           <button id="refreshLowEnrollmentTerms" type="button">Refresh Terms</button>
+          <label>Edited tracker <input id="lowEnrollmentManualWorkbookFile" type="file" accept=".xlsx"></label>
+          <button id="importLowEnrollmentManualWorkbook" type="button"${workspace ? '' : ' disabled'}>Import Edited Tracker</button>
         </div>
         <div class="analytics-toolbar low-enrollment-filterbar">
           ${renderMultiSelectFilter('status', 'Status', statusOptions)}
@@ -1227,7 +1323,8 @@
           <label><input id="lowEnrollmentShowThresholdMet" type="checkbox"${mounted?.filters?.showThresholdMet === false ? '' : ' checked'}> Show Threshold Met</label>
           <label>Search <input id="lowEnrollmentSearch" type="search" placeholder="Course, CRN, faculty, comment" value="${escapeHtml(mounted?.filters?.search || '')}"></label>
           <button id="clearLowEnrollmentFilters" type="button">Clear All Filters</button>
-          <button id="exportLowEnrollmentExcel" type="button"${workspace ? '' : ' disabled'}>Export Current View to Excel</button>
+          <button id="exportLowEnrollmentExcel" type="button"${workspace && !mounted?.showExcluded ? '' : ' disabled'}>Export Current View to Excel</button>
+          <button id="toggleLowEnrollmentExcluded" type="button"${workspace ? '' : ' disabled'}>${mounted?.showExcluded ? 'Show Active Rows' : 'Show Excluded Rows'}</button>
           <span class="analytics-note low-enrollment-active-filters">${escapeHtml(activeFilterSummary())}</span>
           <span id="lowEnrollmentSaveStatus" class="analytics-note">${workspace ? `Loaded ${escapeHtml(workspace.displayTerm || workspace.termCode)}.` : 'Import or select a saved workspace.'}</span>
         </div>
@@ -1529,6 +1626,94 @@
     return parseWorkbook(workbook, { filename: file.name });
   }
 
+  async function readManualUpdateFile(file, workspace) {
+    const buffer = await file.arrayBuffer();
+    const workbook = root.XLSX.read(buffer, { type: 'array', cellDates: true });
+    return parseManualUpdateWorkbook(workbook, workspace);
+  }
+
+  async function confirmManualImport(preview, filename) {
+    const summary = preview.summary;
+    const errors = preview.errors.slice(0, 12);
+    const body = `
+      <p><strong>${escapeHtml(filename)}</strong> will update only Justification and Comments to VPs Office. Enrollment data, thresholds, statuses, and snapshots cannot be changed by this import.</p>
+      <div class="low-enrollment-summary-grid">
+        <span><strong>${summary.workbookRows}</strong> Workbook rows</span>
+        <span><strong>${summary.changedRows}</strong> Rows changed</span>
+        <span><strong>${summary.unchangedRows}</strong> Rows unchanged</span>
+        <span><strong>${summary.clearedJustifications}</strong> Justifications cleared</span>
+        <span><strong>${summary.clearedVpComments}</strong> VP comments cleared</span>
+        <span><strong>${preview.errors.length}</strong> Errors</span>
+      </div>
+      ${errors.length ? `<div class="low-enrollment-import-errors"><strong>Nothing can be saved until these errors are corrected:</strong><ul>${errors.map(error => `<li>${escapeHtml(error)}</li>`).join('')}</ul>${preview.errors.length > errors.length ? `<p>And ${preview.errors.length - errors.length} more error(s).</p>` : ''}</div>` : ''}
+    `;
+    return showModal({
+      title: preview.valid ? 'Confirm Edited Tracker Import' : 'Edited Tracker Import Blocked',
+      body,
+      actions: preview.valid && summary.changedRows
+        ? [{ value: 'import', label: 'Apply Manual Updates', primary: true }, { value: 'cancel', label: 'Cancel' }]
+        : [{ value: 'close', label: 'Close', primary: true }]
+    });
+  }
+
+  async function saveManualImport(workspace, preview, sourceFilename) {
+    await ensureAccess();
+    const payload = await fetchJson(`/api/low-enrollment-tracking/${encodeURIComponent(workspace.termCode)}/manual-import`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ updates: preview.updates, sourceFilename })
+    });
+    mounted.workspace = payload.data;
+    await loadTerms(workspace.termCode);
+  }
+
+  async function chooseExclusionChange(workspace, row, action) {
+    if (action === 'restore') {
+      const decision = await showModal({
+        title: 'Restore Row to Low Enrollment Tracking',
+        body: `<p>Restore <strong>${escapeHtml(row.course)}</strong> (${escapeHtml(row.crnDisplay)}) to dashboard counts, alerts, and exports?</p>`,
+        actions: [{ value: 'restore', label: 'Restore Row', primary: true }, { value: 'cancel', label: 'Cancel' }]
+      });
+      return decision === 'restore' ? { excluded: false, reason: '', note: '' } : null;
+    }
+    const body = `
+      <p>Exclude <strong>${escapeHtml(row.course)}</strong> (${escapeHtml(row.crnDisplay)}) for ${escapeHtml(workspace.displayTerm || workspace.termCode)}. Its enrollment history will be preserved and it can be restored later.</p>
+      <label class="low-enrollment-confirm-line">Exclusion reason
+        <select data-exclusion-reason><option value=""></option>${EXCLUSION_REASONS.map(reason => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`).join('')}</select>
+      </label>
+      <label class="low-enrollment-confirm-line">Optional note
+        <textarea data-exclusion-note rows="4" placeholder="For example: open lab or athletics team"></textarea>
+      </label>
+    `;
+    const decision = await showModal({
+      title: 'Exclude Row from Low Enrollment Tracking',
+      body,
+      actions: [{
+        value: 'exclude',
+        label: 'Exclude Row',
+        primary: true,
+        validate: overlay => Boolean(cleanString(overlay.querySelector('[data-exclusion-reason]')?.value)),
+        capture: overlay => ({
+          excluded: true,
+          reason: cleanString(overlay.querySelector('[data-exclusion-reason]')?.value),
+          note: String(overlay.querySelector('[data-exclusion-note]')?.value || '')
+        })
+      }, { value: 'cancel', label: 'Cancel' }]
+    });
+    return typeof decision === 'object' ? decision : null;
+  }
+
+  async function saveExclusion(workspace, row, change) {
+    await ensureAccess();
+    const payload = await fetchJson(`/api/low-enrollment-tracking/${encodeURIComponent(workspace.termCode)}/rows/${encodeURIComponent(row.id)}/exclusion`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(change)
+    });
+    const index = (workspace.rows || []).findIndex(item => item.id === row.id);
+    if (index >= 0) workspace.rows[index] = payload.data.row;
+  }
+
   async function readCsvFile(file) {
     return new Promise((resolve, reject) => {
       root.Papa.parse(file, {
@@ -1560,6 +1745,15 @@
     });
     container.querySelector('#clearLowEnrollmentFilters')?.addEventListener('click', () => {
       mounted.filters = { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], showThresholdMet: true };
+      render();
+    });
+    container.querySelector('#toggleLowEnrollmentExcluded')?.addEventListener('click', () => {
+      mounted.showExcluded = !mounted.showExcluded;
+      render();
+    });
+    container.querySelector('[data-excluded-view]')?.addEventListener('click', () => {
+      mounted.showExcluded = true;
+      mounted.filters.status = [];
       render();
     });
     container.querySelector('#exportLowEnrollmentExcel')?.addEventListener('click', async event => {
@@ -1626,6 +1820,7 @@
         const raw = button.dataset.statusCard || '';
         const map = { below: 'Below Threshold', met: 'Threshold Met', missing: 'Missing Update', manual: 'Manual Review' };
         mounted.filters.status = raw === 'all' ? [] : [map[raw] || raw];
+        mounted.showExcluded = false;
         render();
       });
     });
@@ -1641,6 +1836,36 @@
         render();
       } catch (err) {
         setStatus(err.message || 'Workbook import failed.');
+      }
+    });
+    container.querySelector('#importLowEnrollmentManualWorkbook')?.addEventListener('click', async event => {
+      const workspace = selectedWorkspace();
+      const file = container.querySelector('#lowEnrollmentManualWorkbookFile')?.files?.[0];
+      if (!workspace) return setStatus('Select a saved Low Enrollment workspace first.');
+      if (!file) return setStatus('Choose an edited Timber tracker workbook first.');
+      const button = event.currentTarget;
+      try {
+        button.disabled = true;
+        button.textContent = 'Checking...';
+        setStatus('Validating edited tracker workbook...');
+        await loadWorkspace(workspace.termCode);
+        const currentWorkspace = selectedWorkspace();
+        const preview = await readManualUpdateFile(file, currentWorkspace);
+        const decision = await confirmManualImport(preview, file.name);
+        if (decision !== 'import') {
+          setStatus(preview.valid ? 'Edited tracker import canceled.' : 'Edited tracker import blocked; no data was changed.');
+          return;
+        }
+        await saveManualImport(currentWorkspace, preview, file.name);
+        setStatus(`Imported manual updates for ${preview.summary.changedRows} row(s). Enrollment data was unchanged.`);
+        render();
+      } catch (err) {
+        setStatus(err.message || 'Edited tracker import failed.');
+      } finally {
+        if (button?.isConnected) {
+          button.disabled = false;
+          button.textContent = 'Import Edited Tracker';
+        }
       }
     });
     container.querySelector('#lowEnrollmentCsvFile')?.addEventListener('change', async event => {
@@ -1715,6 +1940,24 @@
         }
       });
     });
+    container.querySelectorAll('[data-exclusion-action]')?.forEach(button => {
+      button.addEventListener('click', async event => {
+        const rowId = event.target.closest('tr[data-row-id]')?.dataset.rowId;
+        const workspace = selectedWorkspace();
+        const row = (workspace?.rows || []).find(item => item.id === rowId);
+        if (!workspace || !row) return;
+        try {
+          const change = await chooseExclusionChange(workspace, row, event.target.dataset.exclusionAction);
+          if (!change) return;
+          setStatus(change.excluded ? 'Excluding row...' : 'Restoring row...');
+          await saveExclusion(workspace, row, change);
+          setStatus(change.excluded ? 'Row excluded. Enrollment history was preserved.' : 'Row restored to active tracking.');
+          render();
+        } catch (err) {
+          setStatus(err.message || 'Exclusion update failed.');
+        }
+      });
+    });
   }
 
   function injectLowEnrollmentStyles() {
@@ -1744,6 +1987,9 @@
       .low-enrollment-table th,.low-enrollment-table td{padding:8px;border-bottom:1px solid #e1e8f0;border-right:1px solid #eef3f8;vertical-align:top;font-size:12px;line-height:1.25}
       .low-enrollment-table tbody tr:hover td{background:#fff7ed}
       .low-enrollment-table tbody tr:hover .sticky-left,.low-enrollment-table tbody tr:hover .sticky-right{background:#fff7ed}
+      .low-enrollment-row-action{display:block;margin-top:6px;border:1px solid #cbd8e6;border-radius:6px;background:#fff;padding:3px 6px;color:#17355d;font-size:10px;font-weight:900;cursor:pointer}
+      .low-enrollment-exclusion-note{display:block;margin-top:5px;color:#8a4b08;white-space:normal}
+      .low-enrollment-import-errors{border:1px solid #fecaca;border-radius:8px;background:#fff5f5;color:#991b1b;padding:10px}
       .low-enrollment-table th button.low-enrollment-sort{all:unset;cursor:pointer;font:inherit;color:inherit;display:block;width:100%}
       .low-enrollment-table textarea{min-width:0;width:100%;resize:vertical}
       .low-enrollment-table select{min-width:0;width:100%}
@@ -1809,7 +2055,8 @@
       filters: { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], showThresholdMet: true },
       sort: { key: '', direction: '' },
       snapshotDate: localDateInputValue(),
-      updatedSnapshotDate: ''
+      updatedSnapshotDate: '',
+      showExcluded: false
     };
     lowEnrollmentResizeHandler = () => {
       const run = () => recalculateLowEnrollmentTimelineNavigation();
@@ -1847,6 +2094,7 @@
     displayTermFromCode,
     extractTermCodeFromFilename,
     extractSnapshotDateFromFilename,
+    parseManualUpdateWorkbook,
     buildExcelExportModel,
     createExcelWorkbook,
     mount
