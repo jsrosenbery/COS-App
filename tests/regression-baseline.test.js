@@ -198,16 +198,7 @@ test('regression baseline: room-grid modality filtering uses the shared normaliz
   const helperEnd = app.indexOf('function escapeHTML(', helperStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart, 'room-grid helpers should remain extractable');
 
-  const context = {
-    window: {},
-    console,
-    getInstructionalMethod(section) {
-      return section.INSTRUCTIONAL_METHOD_CODE ||
-        section.Instructional_Method ||
-        section['Instructional Method'] ||
-        '';
-    }
-  };
+  const context = { window: {}, console };
   context.window.window = context.window;
   vm.createContext(context);
   vm.runInContext(read('js/core/modality-normalizer.js'), context, { filename: 'js/core/modality-normalizer.js' });
@@ -223,6 +214,7 @@ test('regression baseline: room-grid modality filtering uses the shared normaliz
     INSTRUCTIONAL_METHOD_CODE: method
   });
 
+  assert.doesNotMatch(app.slice(helperStart, helperEnd), /getInstructionalMethod/);
   assert.doesNotThrow(() => context.isRoomGridSection(roomSection('IP')));
   assert.equal(context.isRoomGridSection(roomSection('IP')), true);
   assert.equal(context.isRoomGridSection(roomSection('HYB')), true);
