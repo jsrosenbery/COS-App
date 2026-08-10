@@ -254,9 +254,21 @@ function isValidRoom(building, room) {
 }
 
 function isRoomGridSection(section) {
-  if (!isValidRoom(section?.Building || section?.BUILDING, section?.Room || section?.ROOM)) return false;
-  const modality = getModalityCategory(getInstructionalMethod(section));
-  return !['ONLINE', 'WORK EXPERIENCE'].includes(String(modality || '').toUpperCase());
+  if (!isValidRoom(
+    section?.Building || section?.BUILDING,
+    section?.Room || section?.ROOM
+  )) return false;
+
+  const modality = window.COSModalityNormalizer?.normalize
+    ? window.COSModalityNormalizer.normalize(
+        getInstructionalMethod(section),
+        section
+      )
+    : '';
+
+  return !['ONLINE', 'WORK EXPERIENCE'].includes(
+    String(modality || '').toUpperCase()
+  );
 }
 
 function escapeHTML(value) {
