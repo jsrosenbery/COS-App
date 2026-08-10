@@ -4420,15 +4420,15 @@ test('launcher configuration uses the required responsibility groups and order',
   ]);
   assert.deepEqual(REPORT_WORKFLOW_GROUPS[0].reports, [REPORTS.instructorAvailability]);
   assert.deepEqual(REPORT_WORKFLOW_GROUPS[1].reports, [REPORTS.heatmap, REPORTS.studentPresence, REPORTS.modality, REPORTS.duration]);
-  assert.deepEqual(REPORT_WORKFLOW_GROUPS[2].reports, [REPORTS.dashboard, REPORTS.attrition, REPORTS.utilization, REPORTS.roomFit, REPORTS.conflictCheck, REPORTS.facultyHeatmap, REPORTS.facultyModality, REPORTS.scheduleBuilder]);
-  assert.deepEqual(REPORT_WORKFLOW_GROUPS[3].reports, [REPORTS.demand, REPORTS.lowEnrollmentTracking, REPORTS.emSnapshot, REPORTS.consolidation, REPORTS.busyTimeDashboard, REPORTS.primeTimeAnalysis, REPORTS.supplyDemand, REPORTS.studentChoiceOpportunity, REPORTS.recommendationEngine, REPORTS.scheduleOptimizationLab]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[2].reports, [REPORTS.dashboard, REPORTS.attrition, REPORTS.utilization, REPORTS.roomFit, REPORTS.conflictCheck, REPORTS.facultyHeatmap, REPORTS.facultyModality, REPORTS.lowEnrollmentTracking, REPORTS.scheduleBuilder]);
+  assert.deepEqual(REPORT_WORKFLOW_GROUPS[3].reports, [REPORTS.demand, REPORTS.emSnapshot, REPORTS.consolidation, REPORTS.busyTimeDashboard, REPORTS.primeTimeAnalysis, REPORTS.supplyDemand, REPORTS.studentChoiceOpportunity, REPORTS.recommendationEngine, REPORTS.scheduleOptimizationLab]);
   assert.deepEqual(REPORT_WORKFLOW_GROUPS[4].reports, [REPORTS.instructionalMethodValidation, REPORTS.dataHub, REPORTS.catalogProgramRequirements, REPORTS.twoYearProgramFeasibility, REPORTS.ftesReconciliation, REPORTS.historicalInstitutionalModel, REPORTS.archiveInspection, REPORTS.workExperience]);
 
   assert.equal(REPORT_ACCESS[REPORTS.instructorAvailability], 'general');
   assert.equal(REPORT_ACCESS[REPORTS.heatmap], 'divchair');
   assert.equal(REPORT_ACCESS[REPORTS.dashboard], 'dean');
   assert.equal(REPORT_ACCESS[REPORTS.demand], 'development');
-  assert.equal(REPORT_ACCESS[REPORTS.lowEnrollmentTracking], 'development');
+  assert.equal(REPORT_ACCESS[REPORTS.lowEnrollmentTracking], 'dean');
   assert.equal(REPORT_ACCESS[REPORTS.dataHub], 'admin');
   assert.equal(REPORT_ACCESS[REPORTS.twoYearProgramFeasibility], 'admin');
   assert.equal(REPORT_LABEL[REPORTS.duration], 'Course Duration Heatmap');

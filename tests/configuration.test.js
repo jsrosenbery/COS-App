@@ -45,7 +45,7 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.equal(REPORT_WORKFLOW_GROUPS[4].reports.indexOf(REPORTS.twoYearProgramFeasibility), REPORT_WORKFLOW_GROUPS[4].reports.indexOf(REPORTS.catalogProgramRequirements) + 1);
   assert.ok(REPORT_ORDER.includes(REPORTS.catalogProgramRequirements));
   assert.equal(REPORT_ORDER.indexOf(REPORTS.twoYearProgramFeasibility), REPORT_ORDER.indexOf(REPORTS.catalogProgramRequirements) + 1);
-  assert.equal(REPORT_ORDER.indexOf(REPORTS.lowEnrollmentTracking), REPORT_ORDER.indexOf(REPORTS.demand) + 1);
+  assert.equal(REPORT_ORDER.indexOf(REPORTS.lowEnrollmentTracking), REPORT_ORDER.indexOf(REPORTS.facultyModality) + 1);
   assert.equal(REPORT_DESCRIPTIONS[REPORTS.emSnapshot], 'Review current enrollment, confirmed FTES, estimated FTES, and historically predicted FTES.');
   assert.ok(REPORT_ORDER.indexOf(REPORTS.instructorAvailability) < REPORT_ORDER.indexOf(REPORTS.heatmap));
 });

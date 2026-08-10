@@ -257,6 +257,17 @@
     return 'Below Threshold';
   }
 
+  function removedFromActiveWatchlist(row) {
+    return Boolean(row?.missingFromLatestWorkbook) || statusForRow(row) === 'Threshold Met';
+  }
+
+  function removedReason(row) {
+    const reasons = [];
+    if (statusForRow(row) === 'Threshold Met') reasons.push('Threshold Met');
+    if (row?.missingFromLatestWorkbook) reasons.push('Removed from Latest Baseline');
+    return reasons.join('; ') || '';
+  }
+
   function parseReasonsTable(table = []) {
     const reasons = [];
     table.forEach(row => {
@@ -781,7 +792,7 @@
   }
 
   function statusCounts(workspace) {
-    const counts = { all: 0, below: 0, met: 0, missing: 0, manual: 0, excluded: 0 };
+    const counts = { all: 0, active: 0, removed: 0, below: 0, met: 0, missing: 0, manual: 0, excluded: 0 };
     (workspace?.rows || []).forEach(row => {
       if (row.exclusion?.excluded) {
         counts.excluded += 1;
@@ -789,6 +800,8 @@
       }
       counts.all += 1;
       const status = statusForRow(row);
+      if (removedFromActiveWatchlist(row)) counts.removed += 1;
+      else counts.active += 1;
       if (status === 'Threshold Met') counts.met += 1;
       else if (status === 'Missing Update') counts.missing += 1;
       else if (status === 'Manual Review') counts.manual += 1;
@@ -802,6 +815,8 @@
     return `
       <div class="low-enrollment-metrics">
         <button type="button" data-status-card="all"><strong>${counts.all}</strong><span>Rows</span></button>
+        <button type="button" data-section-view-card="active"><strong>${counts.active}</strong><span>Active Watchlist</span></button>
+        <button type="button" data-section-view-card="removed"><strong>${counts.removed}</strong><span>Removed / Met Minimum</span></button>
         <button type="button" data-status-card="below"><strong>${counts.below}</strong><span>Below Threshold</span></button>
         <button type="button" data-status-card="met"><strong>${counts.met}</strong><span>Threshold Met</span></button>
         <button type="button" data-status-card="missing"><strong>${counts.missing}</strong><span>Missing Update</span></button>
@@ -845,12 +860,14 @@
   function filteredRows(workspace) {
     const filters = mounted?.filters || {};
     const search = cleanString(filters.search).toLowerCase();
-    const showThresholdMet = filters.showThresholdMet !== false;
+    const sectionView = filters.sectionView || 'active';
     const filtered = (workspace?.rows || []).filter(row => {
       if (row.exclusion?.excluded && mounted?.showExcluded !== true) return false;
       if (!row.exclusion?.excluded && mounted?.showExcluded === true) return false;
       const rowStatus = statusForRow(row);
-      if (!showThresholdMet && rowStatus === 'Threshold Met') return false;
+      const removed = removedFromActiveWatchlist(row);
+      if (sectionView === 'active' && removed) return false;
+      if (sectionView === 'removed' && !removed) return false;
       const selectedStatuses = filterValues('status');
       if (selectedStatuses.length && !selectedStatuses.includes(rowStatus)) return false;
       if (!rowMatchesMultiFilter(row, 'division', 'division')) return false;
@@ -870,7 +887,7 @@
       { key: 'course', header: 'Course', width: 14, value: row => row.course },
       { key: 'crnDisplay', header: 'CRN', width: 14, value: row => row.crnDisplay },
       { key: 'title', header: 'Title', width: 30, value: row => row.title },
-      { key: 'initialEnrollment', header: 'Initial Enrollment', width: 14, value: row => row.initialEnrollment },
+      { key: 'initialEnrollment', header: '1st Day Enrollment', width: 14, value: row => row.initialEnrollment },
       ...snapshots.map(snapshot => ({
         key: `snapshot:${snapshot.snapshotDate}`,
         header: formatSnapshotColumnLabel(snapshot.snapshotDate || snapshot.label),
@@ -878,7 +895,6 @@
         value: row => row.snapshotValues?.[snapshot.snapshotDate] ?? ''
       })),
       { key: 'maxEnrollment', header: 'Max Enrollment', width: 14, value: row => row.maxEnrollment },
-      { key: 'waitCount', header: 'Wait Count', width: 12, value: row => row.waitCount },
       { key: 'instructionalMethod', header: 'Instructional Method', width: 20, value: row => row.instructionalMethod },
       { key: 'appliedRule', header: 'Applied Rule', width: 20, value: row => row.appliedRule },
       { key: 'scheduleType', header: 'Schedule Type', width: 16, value: row => row.scheduleType },
@@ -890,6 +906,7 @@
       { key: 'highestEnrollment', header: 'Highest', width: 11, value: row => row.highestEnrollment ?? '' },
       { key: 'threshold', header: 'Threshold', width: 11, value: row => row.threshold },
       { key: 'status', header: 'Status', width: 18, value: row => statusForRow(row) },
+      { key: 'removedReason', header: 'Removed / Met Minimum Reason', width: 24, value: row => removedReason(row) },
       { key: 'justification', header: 'Justification', width: 48, value: row => row.justification },
       { key: 'vpComments', header: 'Comments to VPs Office', width: 48, value: row => row.vpComments },
       { key: '_timberRowId', header: 'Timber Row ID', width: 1, hidden: true, value: row => row.id },
@@ -927,6 +944,27 @@
     header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF245685' } };
     header.alignment = { vertical: 'middle', wrapText: true };
     worksheet.eachRow((row, rowNumber) => {
+      row.alignment = { vertical: 'top', wrapText: true };
+      if (rowNumber > 1) row.height = 34;
+    });
+
+    const removedRows = (workspace?.rows || []).filter(row => removedFromActiveWatchlist(row) && !row.exclusion?.excluded);
+    const removedModel = buildExcelExportModel(workspace, removedRows);
+    const removedWorksheet = workbook.addWorksheet('Removed Sections', {
+      views: [{ state: 'frozen', xSplit: 3, ySplit: 1 }]
+    });
+    removedWorksheet.addRow(removedModel.columns.map(column => column.header));
+    removedModel.rows.forEach(values => removedWorksheet.addRow(values));
+    removedModel.columns.forEach((column, index) => {
+      removedWorksheet.getColumn(index + 1).width = column.width;
+      removedWorksheet.getColumn(index + 1).hidden = Boolean(column.hidden);
+    });
+    removedWorksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, removedModel.rows.length + 1), column: removedModel.columns.length } };
+    const removedHeader = removedWorksheet.getRow(1);
+    removedHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    removedHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF245685' } };
+    removedHeader.alignment = { vertical: 'middle', wrapText: true };
+    removedWorksheet.eachRow((row, rowNumber) => {
       row.alignment = { vertical: 'top', wrapText: true };
       if (rowNumber > 1) row.height = 34;
     });
@@ -1104,8 +1142,19 @@
       .map(key => [key, filterValues(key)])
       .filter(([, values]) => values.length)
       .map(([key, values]) => `${key}: ${values.join(', ')}`);
-    const thresholdNote = mounted?.filters?.showThresholdMet === false ? 'Threshold Met hidden' : '';
-    return [...parts, thresholdNote].filter(Boolean).join(' | ') || 'No active filters';
+    const sectionView = mounted?.filters?.sectionView || 'active';
+    const sectionNote = sectionView === 'active'
+      ? 'section view: Active Watchlist'
+      : sectionView === 'removed' ? 'section view: Removed / Met Minimum' : 'section view: All Sections';
+    return [sectionNote, ...parts].filter(Boolean).join(' | ') || 'No active filters';
+  }
+
+  function rowsForSectionView(workspace, sectionView) {
+    const previous = mounted?.filters?.sectionView;
+    if (mounted?.filters) mounted.filters.sectionView = sectionView;
+    const rows = filteredRows(workspace);
+    if (mounted?.filters) mounted.filters.sectionView = previous;
+    return rows;
   }
 
   function renderTable(workspace) {
@@ -1113,7 +1162,7 @@
     const rows = filteredRows(workspace);
     const updatedSnapshotDate = mounted?.updatedSnapshotDate || '';
     const timelineColumns = [
-      { key: 'initialEnrollment', label: 'Initial Enrollment', sortKey: 'initialEnrollment', type: 'initial' },
+      { key: 'initialEnrollment', label: '1st Day Enrollment', sortKey: 'initialEnrollment', type: 'initial' },
       ...snapshots.map(snapshot => ({
         key: snapshot.snapshotDate,
         label: formatSnapshotColumnLabel(snapshot.snapshotDate || snapshot.label),
@@ -1126,7 +1175,7 @@
       const isUpdated = column.type === 'snapshot' && column.key === updatedSnapshotDate;
       return `<th class="timeline-col ${isUpdated ? 'updated-column' : ''}" data-timeline-column="true" data-updated-column="${isUpdated ? 'true' : 'false'}">${sortButton(column.sortKey, column.label)}</th>`;
     }).join('');
-    const emptyColspan = 18 + timelineColumns.length;
+    const emptyColspan = 17 + timelineColumns.length;
     const timelineColGroup = timelineColumns.map(() => '<col class="col-timeline">').join('');
     const body = rows.map(row => {
       const timelineCells = timelineColumns.map(column => {
@@ -1155,7 +1204,6 @@
           </td>
           ${timelineCells}
           <td>${escapeHtml(row.maxEnrollment)}</td>
-          <td>${escapeHtml(row.waitCount)}</td>
           <td>${escapeHtml(row.instructionalMethod)}</td>
           <td>${escapeHtml(row.appliedRule)}</td>
           <td>${escapeHtml(row.scheduleType)}</td>
@@ -1189,7 +1237,6 @@
               <col class="col-title">
               ${timelineColGroup}
               <col class="col-narrow">
-              <col class="col-narrow">
               <col class="col-medium">
               <col class="col-medium">
               <col class="col-medium">
@@ -1211,7 +1258,6 @@
                 <th class="sticky-left sticky-title">${sortButton('title', 'Title')}</th>
                 ${timelineHeaders}
                 <th>Max Enrollment</th>
-                <th>${sortButton('waitCount', 'Wait Count')}</th>
                 <th>${sortButton('instructionalMethod', 'Instructional Method')}</th>
                 <th>Applied Rule</th>
                 <th>${sortButton('scheduleType', 'Schedule Type')}</th>
@@ -1315,12 +1361,18 @@
           <button id="importLowEnrollmentManualWorkbook" type="button"${workspace ? '' : ' disabled'}>Import Edited Tracker</button>
         </div>
         <div class="analytics-toolbar low-enrollment-filterbar">
+          <label>Section View
+            <select id="lowEnrollmentSectionView">
+              <option value="active"${(mounted?.filters?.sectionView || 'active') === 'active' ? ' selected' : ''}>Active Watchlist</option>
+              <option value="removed"${mounted?.filters?.sectionView === 'removed' ? ' selected' : ''}>Removed / Met Minimum</option>
+              <option value="all"${mounted?.filters?.sectionView === 'all' ? ' selected' : ''}>All Sections</option>
+            </select>
+          </label>
           ${renderMultiSelectFilter('status', 'Status', statusOptions)}
           ${renderMultiSelectFilter('division', 'Division', divisions)}
           ${renderMultiSelectFilter('campus', 'Campus', campuses)}
           ${renderMultiSelectFilter('instructionalMethod', 'Instructional Method / Modality', instructionalMethods)}
           ${renderMultiSelectFilter('scheduleType', 'Schedule Type', scheduleTypes)}
-          <label><input id="lowEnrollmentShowThresholdMet" type="checkbox"${mounted?.filters?.showThresholdMet === false ? '' : ' checked'}> Show Threshold Met</label>
           <label>Search <input id="lowEnrollmentSearch" type="search" placeholder="Course, CRN, faculty, comment" value="${escapeHtml(mounted?.filters?.search || '')}"></label>
           <button id="clearLowEnrollmentFilters" type="button">Clear All Filters</button>
           <button id="exportLowEnrollmentExcel" type="button"${workspace && !mounted?.showExcluded ? '' : ' disabled'}>Export Current View to Excel</button>
@@ -1478,7 +1530,7 @@
         Type ${escapeHtml(existingWorkspace.termCode)} to enable replacement
         <input data-replace-term-confirm type="text" autocomplete="off">
       </label>
-      <label><input data-refresh-initial-enrollment type="checkbox"> Also refresh Initial Enrollment from the incoming workbook</label>
+      <label><input data-refresh-initial-enrollment type="checkbox"> Also refresh 1st Day Enrollment from the incoming workbook</label>
     `;
     const action = await showModal({
       title: 'Existing Low Enrollment Workspace',
@@ -1736,15 +1788,15 @@
       mounted.filters.search = event.target.value || '';
       render();
     });
+    container.querySelector('#lowEnrollmentSectionView')?.addEventListener('change', event => {
+      mounted.filters.sectionView = event.target.value || 'active';
+      render();
+    });
     container.querySelector('#lowEnrollmentSnapshotDate')?.addEventListener('change', event => {
       mounted.snapshotDate = event.target.value || localDateInputValue();
     });
-    container.querySelector('#lowEnrollmentShowThresholdMet')?.addEventListener('change', event => {
-      mounted.filters.showThresholdMet = Boolean(event.target.checked);
-      render();
-    });
     container.querySelector('#clearLowEnrollmentFilters')?.addEventListener('click', () => {
-      mounted.filters = { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], showThresholdMet: true };
+      mounted.filters = { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], sectionView: 'active' };
       render();
     });
     container.querySelector('#toggleLowEnrollmentExcluded')?.addEventListener('click', () => {
@@ -1820,6 +1872,17 @@
         const raw = button.dataset.statusCard || '';
         const map = { below: 'Below Threshold', met: 'Threshold Met', missing: 'Missing Update', manual: 'Manual Review' };
         mounted.filters.status = raw === 'all' ? [] : [map[raw] || raw];
+        mounted.showExcluded = false;
+        if (raw === 'all') mounted.filters.sectionView = 'all';
+        if (raw === 'met') mounted.filters.sectionView = 'removed';
+        if (raw === 'below' || raw === 'missing' || raw === 'manual') mounted.filters.sectionView = 'all';
+        render();
+      });
+    });
+    container.querySelectorAll('[data-section-view-card]')?.forEach(button => {
+      button.addEventListener('click', () => {
+        mounted.filters.sectionView = button.dataset.sectionViewCard || 'active';
+        mounted.filters.status = [];
         mounted.showExcluded = false;
         render();
       });
@@ -2052,7 +2115,7 @@
       requestAccess: options.requestAccess,
       terms: [],
       workspace: null,
-      filters: { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], showThresholdMet: true },
+      filters: { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], sectionView: 'active' },
       sort: { key: '', direction: '' },
       snapshotDate: localDateInputValue(),
       updatedSnapshotDate: '',
@@ -2089,6 +2152,8 @@
     refreshBaselineWorkspace,
     workspaceImportPreview,
     statusForRow,
+    removedFromActiveWatchlist,
+    removedReason,
     calculateTimelineScrollLimits,
     calculateTimelineNavigationScroll,
     displayTermFromCode,
