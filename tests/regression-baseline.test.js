@@ -83,9 +83,14 @@ test('regression baseline: critical first-party scripts use the current Timber b
     'js/low-enrollment-tracker.js',
     'js/schedule-change-form.js'
   ].forEach(script => {
-    assert.match(
-      html,
-      new RegExp(`src=["']${script.replace(/[.*+?^${}()|[\]\\]/g, '\\test('regression baseline: report navigation registry keeps representative reports wired', () => {')}\\?v=${buildVersion[1]}["']`),
+    assert.ok(
+      html.includes(`src="${script}?v=${buildVersion[1]}"`),
+      `${script} should use the current Timber build version`
+    );
+  });
+});
+
+test('regression baseline: report navigation registry keeps representative reports wired', () => {')}\\?v=${buildVersion[1]}["']`),
       `${script} should use the current Timber build version`
     );
   });
