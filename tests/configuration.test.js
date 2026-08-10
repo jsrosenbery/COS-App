@@ -122,6 +122,14 @@ test('launcher runtime config renders and activates Catalog & Program Requiremen
   assert.equal(activated.views.dashboardReport.hidden, true);
 });
 
+test('launcher keeps ungrouped reports visible when a group also has subgrouped reports', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'enrollment-analytics.js'), 'utf8');
+
+  assert.match(source, /const ungroupedReports = reports\.filter\(report => !REPORT_SUBGROUPS\[report\]\)/);
+  assert.match(source, /ungroupedReports\.length/);
+  assert.match(source, /reportButtonListHtml\(ungroupedReports, group\.key, purpose\)/);
+});
+
 test('centralized campus config preserves default campus behavior', () => {
   assert.deepEqual(config.campuses.CAMPUS_CODES, ['COS', 'TCC', 'HAC', 'ONT', 'ONH', 'ONC']);
   assert.deepEqual(config.campuses.PHYSICAL_CAMPUS_CODES, ['COS', 'TCC', 'HAC']);

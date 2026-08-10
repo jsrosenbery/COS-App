@@ -2207,13 +2207,21 @@
       const reports = group.reports.filter(report => REPORT_ORDER.includes(report));
       const purpose = reportSubtitleForGroup(group.key);
       const subgroupLabels = [...new Set(reports.map(report => REPORT_SUBGROUPS[report]).filter(Boolean))];
+      const ungroupedReports = reports.filter(report => !REPORT_SUBGROUPS[report]);
       const buttons = subgroupLabels.length
-        ? subgroupLabels.map(subgroup => `
+        ? [
+            ungroupedReports.length ? `
+            <div class="em-report-subgroup">
+              <div class="em-report-button-list">${reportButtonListHtml(ungroupedReports, group.key, purpose)}</div>
+            </div>
+          ` : '',
+            ...subgroupLabels.map(subgroup => `
             <div class="em-report-subgroup">
               <h4>${escapeAttr(subgroup)}</h4>
               <div class="em-report-button-list">${reportButtonListHtml(reports.filter(report => REPORT_SUBGROUPS[report] === subgroup), group.key, purpose)}</div>
             </div>
-          `).join('')
+          `)
+          ].join('')
         : `<div class="em-report-button-list">${reportButtonListHtml(reports, group.key, purpose)}</div>`;
       return `
         <section class="em-report-group" data-report-role="${group.key}">
