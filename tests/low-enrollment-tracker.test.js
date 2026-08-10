@@ -150,6 +150,24 @@ test('low enrollment worksheet freezes only requested regions and keeps timeline
   assert.match(source, /measuredFrozenTimelineWidths/);
   assert.doesNotMatch(source, /scrollLeft \+ 600|scrollLeft - 600|offsetLeft - 120/);
   assert.doesNotMatch(source, /exportLowEnrollmentCsv|Export CSV|exportFilteredCsv/);
+  assert.match(source, /Export Current View to Excel/);
+});
+
+test('low enrollment Excel export preserves visible data and justification dropdown metadata', () => {
+  const workspace = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Wait Count', 'Inst. Method', 'Sched Type', 'Applied Rule', 'Threshold', 'Start Date', 'Division', 'Campus', 'Faculty', 'Justification', 'Comments to VPs Office'],
+    ['ENGL C1000', '12345', 'Composition', 12, 30, 1, 'IP', 'LEC', 'Rule 1', 15, '8/17/26', 'Arts', 'COS', 'Ada Lovelace', 'Other', 'Review']
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx', reasons: ['Other', 'Required course'] });
+  const model = tracker.buildExcelExportModel(workspace, workspace.rows);
+  assert.equal(model.rows.length, 1);
+  assert.equal(model.columns[model.justificationColumnIndex - 1].header, 'Justification');
+  assert.equal(model.rows[0][model.justificationColumnIndex - 1], 'Other');
+  assert.deepEqual(model.reasons, ['Other', 'Required course']);
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'low-enrollment-tracker.js'), 'utf8');
+  assert.match(source, /state = 'veryHidden'/);
+  assert.match(source, /formulae: \['JustificationOptions'\]/);
+  assert.match(source, /dataValidation/);
 });
 
 test('low enrollment timeline navigation accounts for frozen left and right panes', () => {
