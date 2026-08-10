@@ -259,12 +259,12 @@ function isRoomGridSection(section) {
     section?.Room || section?.ROOM
   )) return false;
 
-  const modality = window.COSModalityNormalizer?.normalize
-    ? window.COSModalityNormalizer.normalize(
-        getInstructionalMethod(section),
-        section
-      )
-    : '';
+  const canonical = section?.canonicalSection || (section?.canonical
+    ? section
+    : window.COSSectionModel?.normalizeSection?.(section));
+  const modality = canonical?.modality || (window.COSModalityNormalizer?.normalize
+    ? window.COSModalityNormalizer.normalize('', section)
+    : 'UNKNOWN');
 
   return !['ONLINE', 'WORK EXPERIENCE'].includes(
     String(modality || '').toUpperCase()
