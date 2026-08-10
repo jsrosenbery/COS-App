@@ -1134,6 +1134,48 @@ test('snapshot manager stores lifecycle metadata for registration phase tracking
   assert.match(source, /id="dataHubSnapshotDate"/);
 });
 
+test('bulk section seating snapshot preview applies only classes starting that day by default', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const preview = COSEnrollmentAnalytics.buildBulkSectionSeatingSnapshotPreview([
+    { Term: 'Fall 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '22', 'Start Date': '8/16/2027', 'End Date': '12/10/2027', 'Instructional Method': 'IP' },
+    { Term: 'Fall 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', Section: '001', ACTUAL_ENROLL: '22', 'Start Date': '8/16/2027', 'End Date': '12/10/2027', 'Instructional Method': 'IP' },
+    { Term: 'Fall 2027', CRN: '10002', Subject: 'MATH', Course: '021', Section: '002', ACTUAL_ENROLL: '18', 'Start Date': '8/10/2027', 'End Date': '12/10/2027', 'Instructional Method': 'IP' },
+    { Term: 'Fall 2027', CRN: '10003', Subject: 'HIST', Course: '018', Section: '003', ACTUAL_ENROLL: '20', 'Start Date': '9/1/2027', 'End Date': '12/10/2027', 'Instructional Method': 'IP' },
+    { Term: 'Fall 2027', CRN: '10004', Subject: 'COMM', Course: '001', Section: '004', ACTUAL_ENROLL: '12', 'Start Date': '7/1/2027', 'End Date': '8/1/2027', 'Instructional Method': 'IP' },
+    { Term: 'Fall 2027', CRN: '10005', Subject: 'ART', Course: '001', Section: '005', ACTUAL_ENROLL: '9', 'Instructional Method': 'IP' },
+    { Term: 'Fall 2027', CRN: '10006', Subject: 'PSYC', Course: '001', Section: '006', ACTUAL_ENROLL: '30', 'Start Date': '8/16/2027', 'End Date': '12/10/2027', 'Instructional Method': 'ONL' }
+  ], { term: 'Fall 2027', snapshotType: 'First Day', snapshotDate: '2027-08-16', includeOnline: false });
+
+  assert.equal(preview.term, 'FALL 2027');
+  assert.equal(preview.counts.rowsParsed, 7);
+  assert.equal(preview.counts.distinctCrns, 6);
+  assert.equal(preview.counts.duplicateRowsIgnored, 1);
+  assert.equal(preview.counts.startingOnSnapshotDate, 1);
+  assert.equal(preview.counts.alreadyInProgressSkipped, 1);
+  assert.equal(preview.counts.futureStartSkipped, 1);
+  assert.equal(preview.counts.endedSkipped, 1);
+  assert.equal(preview.counts.missingStartDateSkipped, 1);
+  assert.equal(preview.counts.onlineTbaSkipped, 1);
+  assert.equal(JSON.stringify(preview.records.map(record => record.crn)), JSON.stringify(['10001']));
+  assert.equal(preview.records[0].enrollment, 22);
+  assert.equal(preview.records[0].bulkSnapshotRule, 'Starts on snapshot date');
+});
+
+test('bulk section seating snapshot preview can include in-progress and online sections', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const preview = COSEnrollmentAnalytics.buildBulkSectionSeatingSnapshotPreview([
+    { Term: 'Fall 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '22', 'Start Date': '8/16/2027', 'End Date': '12/10/2027', 'Instructional Method': 'IP' },
+    { Term: 'Fall 2027', CRN: '10002', Subject: 'MATH', Course: '021', ACTUAL_ENROLL: '18', 'Start Date': '8/10/2027', 'End Date': '12/10/2027', 'Instructional Method': 'IP' },
+    { Term: 'Fall 2027', CRN: '10006', Subject: 'PSYC', Course: '001', ACTUAL_ENROLL: '30', 'Start Date': '8/16/2027', 'End Date': '12/10/2027', 'Instructional Method': 'ONL' }
+  ], { term: 'Fall 2027', snapshotType: 'First Day', snapshotDate: '2027-08-16', includeInProgress: true, includeOnline: true });
+
+  assert.equal(preview.counts.startingOnSnapshotDate, 2);
+  assert.equal(preview.counts.alreadyInProgressIncluded, 1);
+  assert.equal(preview.counts.recordsReady, 3);
+  assert.equal(JSON.stringify(preview.records.map(record => record.crn).sort()), JSON.stringify(['10001', '10002', '10006']));
+  assert.equal(preview.records.find(record => record.crn === '10002').bulkSnapshotRule, 'Starts on snapshot date or already in progress');
+});
+
 test('snapshot manager updates same term CRN type instead of duplicating', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const first = COSEnrollmentAnalytics.buildSnapshotRecords([

@@ -1725,6 +1725,143 @@
     }).filter(Boolean);
   }
 
+  function dedupeSnapshotRecords(records = []) {
+    const map = new Map();
+    (records || []).forEach(record => {
+      const key = snapshotKey(record);
+      if (key && key !== '||') map.set(key, record);
+    });
+    return [...map.values()];
+  }
+
+  function inferSnapshotTerm(rows = [], fallback = '') {
+    const normalizedFallback = normalizeTermLabel(fallback || '');
+    if (normalizedFallback) return normalizedFallback;
+    const terms = [...new Set((rows || [])
+      .map(row => normalizeTermLabel(val(row, fields.term) || row.__sourceTerm || ''))
+      .filter(Boolean))];
+    return terms.length === 1 ? terms[0] : '';
+  }
+
+  function buildBulkSectionSeatingSnapshotPreview(rows = [], options = {}) {
+    const snapshotDate = dateIso(options.snapshotDate || '');
+    const snapshotType = normalizeSnapshotType(options.snapshotType || 'First Day');
+    const term = inferSnapshotTerm(rows, options.term);
+    const includeInProgress = options.includeInProgress === true;
+    const includeOnline = options.includeOnline !== false;
+    const sourceFileName = String(options.sourceFileName || '').trim();
+    const distinctByCrn = new Map();
+    const diagnostics = [];
+    let onlineRowsSkipped = 0;
+    let missingCrnRows = 0;
+
+    (rows || []).forEach(rawRow => {
+      const row = normalize({ ...rawRow, __sourceTerm: term });
+      if (!row.crn) {
+        missingCrnRows += 1;
+        return;
+      }
+      const key = `${term}|${row.crn}`;
+      if (!distinctByCrn.has(key)) distinctByCrn.set(key, { rawRow, row });
+    });
+
+    const includedRows = [];
+    const includedCrns = new Set();
+    const counts = {
+      rowsParsed: rows.length,
+      distinctCrns: distinctByCrn.size,
+      duplicateRowsIgnored: Math.max(0, rows.length - missingCrnRows - distinctByCrn.size),
+      missingCrnRows,
+      startingOnSnapshotDate: 0,
+      alreadyInProgressIncluded: 0,
+      alreadyInProgressSkipped: 0,
+      futureStartSkipped: 0,
+      endedSkipped: 0,
+      missingStartDateSkipped: 0,
+      onlineTbaSkipped: 0,
+      otherSkipped: 0
+    };
+
+    if (!term) diagnostics.push('No single term could be inferred. Enter the term before previewing or saving.');
+    if (!snapshotDate) diagnostics.push('Snapshot date is required.');
+
+    distinctByCrn.forEach(({ rawRow, row }) => {
+      const startDate = dateIso(row.startDate || val(rawRow, fields.startDate));
+      const endDate = dateIso(row.endDate || val(rawRow, fields.endDate));
+      const onlineOrTba = isOnlineInstructionModality(row) || isOnlinePlaceholderTime(row);
+      if (!includeOnline && onlineOrTba) {
+        onlineRowsSkipped += 1;
+        counts.onlineTbaSkipped += 1;
+        return;
+      }
+      if (!startDate) {
+        counts.missingStartDateSkipped += 1;
+        return;
+      }
+      if (startDate === snapshotDate) {
+        counts.startingOnSnapshotDate += 1;
+        includedRows.push(rawRow);
+        includedCrns.add(row.crn);
+        return;
+      }
+      if (startDate < snapshotDate && (!endDate || snapshotDate <= endDate)) {
+        if (includeInProgress) {
+          counts.alreadyInProgressIncluded += 1;
+          includedRows.push(rawRow);
+          includedCrns.add(row.crn);
+        } else {
+          counts.alreadyInProgressSkipped += 1;
+        }
+        return;
+      }
+      if (startDate > snapshotDate) {
+        counts.futureStartSkipped += 1;
+        return;
+      }
+      if (endDate && snapshotDate > endDate) {
+        counts.endedSkipped += 1;
+        return;
+      }
+      counts.otherSkipped += 1;
+    });
+
+    const records = dedupeSnapshotRecords(buildSnapshotRecords(includedRows, {
+      term,
+      snapshotType,
+      snapshotDate,
+      lifecyclePhase: snapshotType,
+      sourceFileName,
+      dataCompletenessNotes: includeInProgress
+        ? 'Bulk Section Seating snapshot: includes sections starting on the snapshot date and sections already in progress.'
+        : 'Bulk Section Seating snapshot: includes only sections starting on the snapshot date.',
+      notes: includeOnline ? '' : 'Online/TBA rows excluded by import option.'
+    })).map(record => ({
+      ...record,
+      sourceFieldUsed: record.sourceFieldUsed || 'ACTUAL_ENROLL',
+      bulkSnapshotImport: true,
+      bulkSnapshotRule: includeInProgress ? 'Starts on snapshot date or already in progress' : 'Starts on snapshot date'
+    }));
+
+    if (onlineRowsSkipped) diagnostics.push(`${onlineRowsSkipped} Online/TBA section(s) were skipped by import option.`);
+    if (counts.missingStartDateSkipped) diagnostics.push(`${counts.missingStartDateSkipped} distinct CRN(s) were skipped because no valid section start date was found.`);
+    if (!records.length && !diagnostics.length) diagnostics.push('No eligible snapshot records were found for the selected date and rules.');
+
+    return {
+      term,
+      snapshotType,
+      snapshotDate,
+      includeInProgress,
+      includeOnline,
+      counts: {
+        ...counts,
+        recordsReady: records.length,
+        distinctCrnsReady: includedCrns.size
+      },
+      diagnostics,
+      records
+    };
+  }
+
   function upsertSnapshotRecords(existing = [], incoming = []) {
     const map = new Map();
     (existing || []).forEach(record => {
@@ -2667,10 +2804,17 @@
                 <label>Term <input id="dataHubSnapshotTerm" type="text" placeholder="FALL 2026"></label>
                 <label>Snapshot type <select id="dataHubSnapshotType"><option>First Day</option><option>Census 1</option><option>Final</option><option>Custom</option></select></label>
                 <label>Snapshot date <input id="dataHubSnapshotDate" type="date"></label>
-                <label>Snapshot CSV <input id="dataHubSnapshotCsv" type="file" accept=".csv"></label>
-                <button id="dataHubSaveSnapshotBatch" type="button">Save Snapshot</button>
+                <label>Snapshot / Section Seating CSV <input id="dataHubSnapshotCsv" type="file" accept=".csv"></label>
+                <button id="dataHubSaveSnapshotBatch" type="button">Save Entire Snapshot CSV</button>
+              </div>
+              <div class="analytics-toolbar">
+                <label><input id="dataHubBulkSnapshotInProgress" type="checkbox"> Also apply to classes already in progress</label>
+                <label><input id="dataHubBulkSnapshotOnline" type="checkbox" checked> Include Online/TBA sections</label>
+                <button id="dataHubPreviewBulkSnapshot" type="button">Preview Section Seating Snapshot</button>
+                <button id="dataHubSaveBulkSnapshot" type="button">Save Previewed Snapshot</button>
               </div>
               <p id="dataHubSnapshotStatus" class="analytics-note">Stored snapshot count not refreshed yet.</p>
+              <div id="dataHubBulkSnapshotPreview" class="analytics-table"></div>
             </section>
             <section class="source-data-card source-data-card-wide" data-source-type="admin-imports">
               <h3>Catalogs, Events, and Mappings</h3>
@@ -12056,6 +12200,91 @@ BUS 180 2 units`)
       inputId: 'dataHubSnapshotCsv'
     });
     renderSourceDataHubStatus();
+  }
+
+  function renderDataHubBulkSnapshotPreview(preview = null) {
+    const node = document.getElementById('dataHubBulkSnapshotPreview');
+    if (!node) return;
+    if (!preview) {
+      node.innerHTML = '';
+      return;
+    }
+    const counts = preview.counts || {};
+    const summaryRows = [
+      { metric: 'Term', value: preview.term || 'Missing' },
+      { metric: 'Snapshot Type', value: preview.snapshotType || 'Missing' },
+      { metric: 'Snapshot Date', value: preview.snapshotDate || 'Missing' },
+      { metric: 'Rows Parsed', value: counts.rowsParsed || 0 },
+      { metric: 'Distinct CRNs Found', value: counts.distinctCrns || 0 },
+      { metric: 'Duplicate Meeting Rows Ignored', value: counts.duplicateRowsIgnored || 0 },
+      { metric: 'Starting On Snapshot Date', value: counts.startingOnSnapshotDate || 0 },
+      { metric: 'Already In Progress Included', value: counts.alreadyInProgressIncluded || 0 },
+      { metric: 'Already In Progress Skipped', value: counts.alreadyInProgressSkipped || 0 },
+      { metric: 'Future Start Skipped', value: counts.futureStartSkipped || 0 },
+      { metric: 'Ended Skipped', value: counts.endedSkipped || 0 },
+      { metric: 'Missing Start Date Skipped', value: counts.missingStartDateSkipped || 0 },
+      { metric: 'Online/TBA Skipped', value: counts.onlineTbaSkipped || 0 },
+      { metric: 'Snapshot Records Ready', value: counts.recordsReady || 0 }
+    ];
+    const sampleRows = (preview.records || []).slice(0, 12).map(record => ({
+      term: record.term,
+      crn: record.crn,
+      course: `${record.subject || ''} ${record.course || ''}`.trim(),
+      section: record.section || '',
+      enrollment: record.enrollment,
+      startDate: record.startDate || '',
+      endDate: record.endDate || '',
+      sourceFieldUsed: record.sourceFieldUsed || ''
+    }));
+    node.innerHTML = `
+      <h4>Bulk Section Seating Snapshot Preview</h4>
+      <p class="analytics-note">The preview deduplicates by CRN. First Day defaults to sections whose start date equals the selected snapshot date; use the in-progress option to also snapshot sections already underway on that date.</p>
+      ${preview.diagnostics?.length ? `<div class="analytics-warning-list">${preview.diagnostics.map(item => `<p>${escapeAttr(item)}</p>`).join('')}</div>` : ''}
+      ${miniTable(summaryRows, ['metric', 'value'], 'bulkSnapshotSummary')}
+      <h4>Sample Records Ready to Save</h4>
+      ${sampleRows.length ? miniTable(sampleRows, ['term', 'crn', 'course', 'section', 'enrollment', 'startDate', 'endDate', 'sourceFieldUsed'], 'bulkSnapshotSample') : '<p class="analytics-empty">No records ready to save for the selected date/rules.</p>'}
+    `;
+  }
+
+  async function previewDataHubBulkSnapshotImport() {
+    const input = document.getElementById('dataHubSnapshotCsv');
+    const rows = await readCsv(input);
+    if (!rows.length) {
+      alert('Choose a Section Seating CSV before previewing a bulk snapshot.');
+      return null;
+    }
+    const preview = buildBulkSectionSeatingSnapshotPreview(rows, {
+      term: document.getElementById('dataHubSnapshotTerm')?.value || '',
+      snapshotType: document.getElementById('dataHubSnapshotType')?.value || '',
+      snapshotDate: document.getElementById('dataHubSnapshotDate')?.value || '',
+      sourceFileName: input?.files?.[0]?.name || '',
+      includeInProgress: document.getElementById('dataHubBulkSnapshotInProgress')?.checked === true,
+      includeOnline: document.getElementById('dataHubBulkSnapshotOnline')?.checked !== false
+    });
+    state.dataHubBulkSnapshotPreview = preview;
+    renderDataHubBulkSnapshotPreview(preview);
+    return preview;
+  }
+
+  async function saveDataHubBulkSnapshotImport() {
+    const preview = state.dataHubBulkSnapshotPreview || await previewDataHubBulkSnapshotImport();
+    if (!preview) return;
+    if (!preview.term || !preview.snapshotDate || !preview.snapshotType) {
+      alert('Term, snapshot type, and snapshot date are required before saving.');
+      return;
+    }
+    if (!preview.records?.length) {
+      alert('No eligible records are ready to save. Review the preview diagnostics.');
+      return;
+    }
+    const message = `Save ${preview.records.length} ${preview.snapshotType} snapshot record(s) for ${preview.term} on ${preview.snapshotDate}?\n\nStarting that day: ${preview.counts.startingOnSnapshotDate || 0}\nAlready in progress included: ${preview.counts.alreadyInProgressIncluded || 0}\nDuplicate rows ignored: ${preview.counts.duplicateRowsIgnored || 0}`;
+    if (!confirm(message)) return;
+    const result = await persistEnrollmentSnapshots(preview.records);
+    state.snapshotRows = preview.records;
+    state.dataHubBulkSnapshotPreview = null;
+    renderDataHubBulkSnapshotPreview(null);
+    renderSourceDataHubStatus();
+    alert(`Saved ${preview.records.length} snapshot row(s). Appended ${result.appended}; updated ${result.updated}.`);
   }
 
   function snapshotUploadWarnings(rows, selectedTerm) {
@@ -25384,6 +25613,8 @@ BUS 180 2 units`)
     attachBusyClick('dataHubPreviewHistoricalInstitutional', 'Previewing Historical Institutional Results...', () => previewHistoricalInstitutionalImport(), { key: 'dataHubPreviewHistoricalInstitutional', runningLabel: 'Previewing...' });
     attachBusyClick('dataHubCommitHistoricalInstitutional', 'Committing Historical Institutional Results...', () => commitHistoricalInstitutionalImport(), { key: 'dataHubCommitHistoricalInstitutional', runningLabel: 'Committing...' });
     attachBusyClick('dataHubSaveSnapshotBatch', 'Saving enrollment snapshot...', () => saveDataHubSnapshotBatch(), { key: 'dataHubSaveSnapshotBatch', runningLabel: 'Saving...' });
+    attachBusyClick('dataHubPreviewBulkSnapshot', 'Previewing Section Seating snapshot...', () => previewDataHubBulkSnapshotImport(), { key: 'dataHubPreviewBulkSnapshot', runningLabel: 'Previewing...' });
+    attachBusyClick('dataHubSaveBulkSnapshot', 'Saving previewed Section Seating snapshot...', () => saveDataHubBulkSnapshotImport(), { key: 'dataHubSaveBulkSnapshot', runningLabel: 'Saving...' });
     document.getElementById('downloadProgramTemplate')?.addEventListener('click', downloadProgramTemplate);
     attachBusyClick('previewProgramRequirements', 'Previewing program requirements JSON...', () => previewProgramRequirementsJson(), { key: 'previewProgramRequirements', runningLabel: 'Previewing...' });
     attachBusyClick('saveProgramRequirements', 'Saving structured program requirements...', () => saveProgramRequirementsPreview(), { key: 'saveProgramRequirements', runningLabel: 'Saving...' });
@@ -26034,6 +26265,7 @@ BUS 180 2 units`)
     historicalInstitutionalEstimateRows,
     renderHistoricalInstitutionalModel,
     buildSnapshotRecords,
+    buildBulkSectionSeatingSnapshotPreview,
     upsertSnapshotRecords,
     mergeSnapshotsIntoRows,
     snapshotCoverage,
