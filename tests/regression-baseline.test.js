@@ -169,3 +169,45 @@ test('regression baseline: one export data path completes without uncaught error
   assert.doesNotThrow(() => JSON.stringify(rows));
   assert.ok(rows.some(row => Object.values(row).includes('FALL 2026')));
 });
+
+test('regression baseline: room-grid modality filtering uses the shared normalizer', () => {
+  const app = read('js/app.js');
+  const helperStart = app.indexOf('function isValidRoom(');
+  const helperEnd = app.indexOf('function escapeHTML(', helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, 'room-grid helpers should remain extractable');
+
+  const context = {
+    window: {},
+    console,
+    getInstructionalMethod(section) {
+      return section.INSTRUCTIONAL_METHOD_CODE ||
+        section.Instructional_Method ||
+        section['Instructional Method'] ||
+        '';
+    }
+  };
+  context.window.window = context.window;
+  vm.createContext(context);
+  vm.runInContext(read('js/core/modality-normalizer.js'), context, { filename: 'js/core/modality-normalizer.js' });
+  vm.runInContext(
+    `${app.slice(helperStart, helperEnd)}; this.isRoomGridSection = isRoomGridSection;`,
+    context,
+    { filename: 'js/app.js#room-grid-helpers' }
+  );
+
+  const roomSection = method => ({
+    Building: 'VIS',
+    Room: '101',
+    INSTRUCTIONAL_METHOD_CODE: method
+  });
+
+  assert.doesNotThrow(() => context.isRoomGridSection(roomSection('IP')));
+  assert.equal(context.isRoomGridSection(roomSection('IP')), true);
+  assert.equal(context.isRoomGridSection(roomSection('HYB')), true);
+  assert.equal(context.isRoomGridSection(roomSection('FLX')), true);
+  assert.equal(context.isRoomGridSection(roomSection('ONL')), false);
+  assert.equal(context.isRoomGridSection(roomSection('20')), false);
+  assert.equal(context.isRoomGridSection(roomSection('UNMAPPED')), true);
+  assert.equal(context.isRoomGridSection({ Building: 'ONLINE', Room: '101', INSTRUCTIONAL_METHOD_CODE: 'IP' }), false);
+  assert.equal(context.isRoomGridSection({ Building: 'VIS', Room: 'N/A', INSTRUCTIONAL_METHOD_CODE: 'IP' }), false);
+});
