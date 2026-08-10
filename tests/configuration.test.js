@@ -6,7 +6,7 @@ const test = require('node:test');
 const config = require('../js/config/index.js');
 
 test('centralized config exposes report identifiers access and order', () => {
-  const { REPORTS, REPORT_ACCESS, REPORT_ORDER, REPORT_LABEL, REPORT_WORKFLOW_GROUPS, REPORT_DESCRIPTIONS } = config.reports;
+  const { REPORTS, REPORT_ACCESS, REPORT_ORDER, REPORT_LABEL, REPORT_WORKFLOW_GROUPS, REPORT_DESCRIPTIONS, REPORT_SUBGROUPS } = config.reports;
 
   assert.equal(REPORTS.scheduleBuilder, 'schedule-builder');
   assert.equal(REPORTS.facultyHeatmap, 'faculty-schedule-heatmap');
@@ -48,6 +48,10 @@ test('centralized config exposes report identifiers access and order', () => {
   assert.equal(REPORT_ORDER.indexOf(REPORTS.lowEnrollmentTracking), REPORT_ORDER.indexOf(REPORTS.facultyModality) + 1);
   assert.equal(REPORT_DESCRIPTIONS[REPORTS.emSnapshot], 'Review current enrollment, confirmed FTES, estimated FTES, and historically predicted FTES.');
   assert.ok(REPORT_ORDER.indexOf(REPORTS.instructorAvailability) < REPORT_ORDER.indexOf(REPORTS.heatmap));
+  assert.equal(REPORT_SUBGROUPS[REPORTS.dashboard], 'Analytics');
+  assert.equal(REPORT_SUBGROUPS[REPORTS.lowEnrollmentTracking], 'Analytics');
+  assert.equal(REPORT_SUBGROUPS[REPORTS.conflictCheck], 'Planning Tools');
+  assert.equal(REPORT_SUBGROUPS[REPORTS.scheduleBuilder], 'Planning Tools');
 });
 
 test('launcher runtime config renders and activates Catalog & Program Requirements for Admin only', () => {

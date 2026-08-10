@@ -239,8 +239,16 @@
     admin: 'System Administrator Access'
   });
   const REPORT_SUBGROUPS = Object.freeze({
-    [REPORTS.demand]: 'Analytics',
+    [REPORTS.dashboard]: 'Analytics',
+    [REPORTS.attrition]: 'Analytics',
+    [REPORTS.utilization]: 'Analytics',
+    [REPORTS.roomFit]: 'Analytics',
+    [REPORTS.facultyHeatmap]: 'Analytics',
+    [REPORTS.facultyModality]: 'Analytics',
     [REPORTS.lowEnrollmentTracking]: 'Analytics',
+    [REPORTS.conflictCheck]: 'Planning Tools',
+    [REPORTS.scheduleBuilder]: 'Planning Tools',
+    [REPORTS.demand]: 'Analytics',
     [REPORTS.emSnapshot]: 'Analytics',
     [REPORTS.consolidation]: 'Analytics',
     [REPORTS.busyTimeDashboard]: 'Analytics',
