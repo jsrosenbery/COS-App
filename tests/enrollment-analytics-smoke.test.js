@@ -4917,7 +4917,7 @@ test('anonymous Schedule Builder keeps browser-side engine wiring outside launch
   assert.match(text, /function exportScheduleBuilderRows/);
   assert.match(text, /window\.print\(\)/);
   assert.match(index, /js\/core\/schedule-builder\.js/);
-  assert.ok(index.indexOf('src="js/core/schedule-builder.js"') < index.indexOf('src="js/enrollment-analytics.js"'));
+  assert.ok(index.indexOf('src="js/core/schedule-builder.js"') < index.indexOf('src="js/enrollment-analytics.js'));
   assert.match(engine, /root\.COSScheduleBuilder = api/);
   assert.match(engine, /function buildScheduleOptions/);
   assert.match(engine, /function sectionsConflict/);
@@ -4988,9 +4988,9 @@ test('two-year program feasibility foundation is registered and uses structured 
   assert.match(text, /restricted to System Administrators/);
   assert.ok(index.indexOf('src="js/core/schedule-builder.js"') < index.indexOf('src="js/core/program-feasibility.js"'));
   assert.ok(index.indexOf('src="js/core/catalog-extraction.js"') < index.indexOf('src="js/core/catalog-review-workflow.js"'));
-  assert.ok(index.indexOf('src="js/core/catalog-review-workflow.js"') < index.indexOf('src="js/enrollment-analytics.js"'));
+  assert.ok(index.indexOf('src="js/core/catalog-review-workflow.js"') < index.indexOf('src="js/enrollment-analytics.js'));
   assert.ok(index.indexOf('src="js/core/program-feasibility.js"') < index.indexOf('src="js/core/academic-planning-platform.js"'));
-  assert.ok(index.indexOf('src="js/core/academic-planning-platform.js"') < index.indexOf('src="js/enrollment-analytics.js"'));
+  assert.ok(index.indexOf('src="js/core/academic-planning-platform.js"') < index.indexOf('src="js/enrollment-analytics.js'));
 });
 
 test('report loading uses shared busy state and separated term caches', () => {
@@ -6549,7 +6549,7 @@ test('FTES reconciliation loads SheetJS before enrollment analytics for XLSX val
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const enrollmentAnalytics = fs.readFileSync(path.join(__dirname, '..', 'js', 'enrollment-analytics.js'), 'utf8');
   assert.ok(index.indexOf('xlsx.full.min.js') > -1);
-  assert.ok(index.indexOf('xlsx.full.min.js') < index.indexOf('src="js/enrollment-analytics.js"'));
+  assert.ok(index.indexOf('xlsx.full.min.js') < index.indexOf('src="js/enrollment-analytics.js'));
   assert.match(enrollmentAnalytics, /sheet_to_json\(worksheet,\s*\{\s*header:\s*1,\s*defval:\s*'',\s*raw:\s*true\s*\}/);
 });
 
@@ -7906,7 +7906,7 @@ test('schedule change form defaults to PDF from DOCX and keeps Word export secon
   const form = fs.readFileSync(path.join(__dirname, '..', 'js/schedule-change-form.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('src="js/schedule-change-filenames.js"') < index.indexOf('src="js/schedule-change-form.js"'));
+  assert.ok(index.indexOf('src="js/schedule-change-filenames.js"') < index.indexOf('src="js/schedule-change-form.js'));
   assert.match(form, /<option value="pdf" selected>Export PDF<\/option>/);
   assert.match(form, /<option value="docx">Export Word Document<\/option>/);
   assert.match(form, /<option value="both">Export both PDF and Word Document<\/option>/);
