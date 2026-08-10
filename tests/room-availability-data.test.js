@@ -45,12 +45,35 @@ test('eligibility keeps physical hybrid FLX and unknown rows while excluding non
   assert.equal(result.diagnostics.excludedInvalidRoom, 3);
 });
 
-test('room selector and calendar receive the same normalized meetings', () => {
+test('Room Catalog remains authoritative and includes occupied and empty rooms', () => {
   const result = roomData.buildRoomAvailabilityDataset([allColumns({ CRN: '1' }), allColumns({ CRN: '2', ROOM: '205', SCHD_CODE_SSRMEET: 'LAB' })]);
-  const rooms = [...new Set(result.meetings.map(row => `${row.Building}-${row.Room}`))];
+  const rooms = roomData.roomSelectorRooms(result.meetings, [
+    { buildingRoom: 'VIS-101' },
+    { buildingRoom: 'VIS-205' },
+    { buildingRoom: 'VIS-999' }
+  ]);
   const calendarMeetings = result.meetings.filter(row => row.Days.length && row.Start_Time && row.End_Time);
-  assert.deepEqual(rooms, ['VIS-101', 'VIS-205']);
+  assert.deepEqual(rooms, ['VIS-101', 'VIS-205', 'VIS-999']);
+  assert.equal(result.meetings.filter(row => `${row.Building}-${row.Room}` === 'VIS-101').length, 1);
+  assert.equal(result.meetings.filter(row => `${row.Building}-${row.Room}` === 'VIS-999').length, 0);
   assert.equal(calendarMeetings.length, result.meetings.length);
+});
+
+test('room selector falls back to occupied Section Seating rooms without Room Catalog', () => {
+  const result = roomData.buildRoomAvailabilityDataset([allColumns({ ROOM: '101' }), allColumns({ CRN: '2', ROOM: '205' })]);
+  assert.deepEqual(roomData.roomSelectorRooms(result.meetings, []), ['VIS-101', 'VIS-205']);
+});
+
+test('incomplete meeting rows are diagnostics and never valid occupancy', () => {
+  const result = roomData.buildRoomAvailabilityDataset([
+    allColumns({ CRN: '1', DAYS: '' }),
+    allColumns({ CRN: '2', STARTTIME: '' }),
+    allColumns({ CRN: '3', ENDTIME: '' }),
+    allColumns({ CRN: '4' })
+  ]);
+  assert.deepEqual(result.meetings.map(row => row.CRN), ['4']);
+  assert.equal(result.diagnostics.excludedMissingDaysTimes, 3);
+  assert.equal(result.diagnostics.validPhysicalRooms, 4);
 });
 
 test('legacy simple rows remain compatible and valid All Columns rows cannot normalize empty', () => {

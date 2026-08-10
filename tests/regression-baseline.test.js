@@ -118,7 +118,7 @@ test('regression baseline: backend schedule load and room availability rendering
   const app = read('js/app.js');
 
   assert.match(app, /async function loadScheduleFromBackend\(term/);
-  assert.match(app, /\/api\/schedule\/\$\{encodeURIComponent\(term\)\}/);
+  assert.match(app, /\/api\/section-seating\/\$\{encodeURIComponent\(term\)\}\/current/);
   assert.match(app, /currentData = \(data \|\| \[\]\)\.map\(row => normalizeRow\(\{ \.\.\.row, __uploadedAt: lastUpdated/);
   assert.match(app, /renderSchedule\(\)/);
   assert.match(app, /function handleAvailability\(/);

@@ -741,6 +741,10 @@ function getRoomDisplay(key) {
 }
 
 function getUniqueRooms(data) {
+  if (window.COSRoomAvailabilityData?.roomSelectorRooms) {
+    return window.COSRoomAvailabilityData.roomSelectorRooms(data, roomCatalog);
+  }
+  if (roomCatalog.length) return getRoomCatalogEntries().map(room => room.buildingRoom);
   return [...new Set(
     data
       .filter(isRoomGridSection)
@@ -2526,8 +2530,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         await nextPaint();
       }
       const payload = fetchJson
-        ? await fetchJson(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`)
-        : await fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`).then(res => {
+        ? await fetchJson(`${BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current`)
+        : await fetch(`${BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current`).then(res => {
             if (!res.ok) throw new Error('Schedule fetch failed');
             return res.json();
           });
@@ -2580,33 +2584,6 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
   }
 
-  // --- POST CSV to backend, not localStorage ---
-  async function uploadScheduleToBackend(term, csvString, password, sourceName = '') {
-    const notify = window.COSUtils?.notify;
-    const fetchJson = window.COSUtils?.fetchJson;
-    try {
-      if (fetchJson) {
-        await fetchJson(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ csv: csvString, password, sourceName, reportType: 'All Columns Section Seating' })
-        });
-      } else {
-        const res = await fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ csv: csvString, password, sourceName, reportType: 'All Columns Section Seating' })
-        });
-        if (!res.ok) throw new Error('Upload failed');
-      }
-      notify?.(`Uploaded ${term} schedule successfully.`, 'success');
-      await loadScheduleFromBackend(term);
-    } catch (err) {
-      notify?.(`Upload failed. ${err.message || 'Backend request failed.'}`, 'error');
-      alert('Upload failed: ' + (err.message || 'Backend request failed.'));
-    }
-  }
-
   function selectTerm(term, tabElem, options = {}) {
     currentTerm = term;
     tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -2622,31 +2599,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function setupUpload() {
     roomDiv.replaceChildren();
     uploadDiv.replaceChildren();
-    const label = document.createElement('label');
-    const title = document.createElement('strong');
-    title.textContent = `Upload CSV for ${currentTerm}`;
-    label.appendChild(title);
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.id = 'file-input';
-    input.accept = '.csv';
-    label.appendChild(input);
-    uploadDiv.appendChild(label);
-    input.onchange = async e => {
-      const password = await requestPassword('Enter upload password:', 'Upload cancelled.');
-      if (!password) {
-        e.target.value = '';
-        return;
-      }
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = function(ev) {
-        const csvString = ev.target.result;
-        uploadScheduleToBackend(currentTerm, csvString, password, file.name); // reloads after upload
-      };
-      reader.readAsText(file);
-    };
+    const note = document.createElement('p');
+    note.textContent = `Current ${currentTerm} Section Seating is managed in the Enrollment Management Source Data Hub.`;
+    uploadDiv.appendChild(note);
   }
 
   function buildRoomDropdowns() {

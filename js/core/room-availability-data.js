@@ -96,6 +96,7 @@
       diagnostics.validPhysicalRooms += 1;
       if (!(meeting.Days || []).length || !meeting.Start_Time || !meeting.End_Time || meeting.Start_Time === meeting.End_Time) {
         diagnostics.excludedMissingDaysTimes += 1;
+        return;
       }
       const key = meetingIdentity(meeting);
       if (seen.has(key)) {
@@ -107,6 +108,15 @@
     });
 
     return { meetings, diagnostics };
+  }
+
+  function roomSelectorRooms(meetings, roomCatalog = []) {
+    if ((roomCatalog || []).length) {
+      return [...new Set(roomCatalog.map(room => room.buildingRoom || [room.building, room.room].filter(Boolean).join('-')).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+    return [...new Set((meetings || []).map(meeting => [meeting.Building, meeting.Room].filter(Boolean).join('-')).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }
 
   function sourceTimestamp(source = {}) {
@@ -125,6 +135,7 @@
     normalizeRoomAvailabilityRow,
     meetingIdentity,
     buildRoomAvailabilityDataset,
+    roomSelectorRooms,
     selectLatestCurrentTermSource,
     sourceTimestamp
   };
