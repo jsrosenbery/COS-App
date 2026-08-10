@@ -851,6 +851,97 @@
     return sortRows(filtered);
   }
 
+  function buildExcelExportModel(workspace, rows = workspace?.rows || []) {
+    const snapshots = (workspace?.snapshots || []).filter(snapshot => snapshot.type !== 'initial');
+    const columns = [
+      { key: 'course', header: 'Course', width: 14, value: row => row.course },
+      { key: 'crnDisplay', header: 'CRN', width: 14, value: row => row.crnDisplay },
+      { key: 'title', header: 'Title', width: 30, value: row => row.title },
+      { key: 'initialEnrollment', header: 'Initial Enrollment', width: 14, value: row => row.initialEnrollment },
+      ...snapshots.map(snapshot => ({
+        key: `snapshot:${snapshot.snapshotDate}`,
+        header: formatSnapshotColumnLabel(snapshot.snapshotDate || snapshot.label),
+        width: 13,
+        value: row => row.snapshotValues?.[snapshot.snapshotDate] ?? ''
+      })),
+      { key: 'maxEnrollment', header: 'Max Enrollment', width: 14, value: row => row.maxEnrollment },
+      { key: 'waitCount', header: 'Wait Count', width: 12, value: row => row.waitCount },
+      { key: 'instructionalMethod', header: 'Instructional Method', width: 20, value: row => row.instructionalMethod },
+      { key: 'appliedRule', header: 'Applied Rule', width: 20, value: row => row.appliedRule },
+      { key: 'scheduleType', header: 'Schedule Type', width: 16, value: row => row.scheduleType },
+      { key: 'startDate', header: 'Start Date', width: 16, value: row => formatStartDateDisplay(row.startDates?.length ? row.startDates : row.startDateOriginal || row.startDate) },
+      { key: 'division', header: 'Division', width: 20, value: row => row.division },
+      { key: 'campus', header: 'Campus', width: 14, value: row => row.campus },
+      { key: 'faculty', header: 'Faculty', width: 24, value: row => row.faculty },
+      { key: 'latestEnrollment', header: 'Latest', width: 11, value: row => row.latestEnrollment ?? '' },
+      { key: 'highestEnrollment', header: 'Highest', width: 11, value: row => row.highestEnrollment ?? '' },
+      { key: 'threshold', header: 'Threshold', width: 11, value: row => row.threshold },
+      { key: 'status', header: 'Status', width: 18, value: row => statusForRow(row) },
+      { key: 'justification', header: 'Justification', width: 48, value: row => row.justification },
+      { key: 'vpComments', header: 'Comments to VPs Office', width: 48, value: row => row.vpComments }
+    ];
+    return {
+      columns,
+      rows: (rows || []).map(row => columns.map(column => column.value(row) ?? '')),
+      reasons: allowedReasons(workspace),
+      justificationColumnIndex: columns.findIndex(column => column.key === 'justification') + 1
+    };
+  }
+
+  function createExcelWorkbook(workspace, rows = workspace?.rows || [], ExcelJS = root.ExcelJS) {
+    if (!ExcelJS?.Workbook) throw new Error('Excel export library is not available. Refresh the page and try again.');
+    const model = buildExcelExportModel(workspace, rows);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'TIMBER';
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet('Low Enrollment', {
+      views: [{ state: 'frozen', xSplit: 3, ySplit: 1 }]
+    });
+    worksheet.addRow(model.columns.map(column => column.header));
+    model.rows.forEach(values => worksheet.addRow(values));
+    model.columns.forEach((column, index) => { worksheet.getColumn(index + 1).width = column.width; });
+    worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, model.rows.length + 1), column: model.columns.length } };
+    const header = worksheet.getRow(1);
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF245685' } };
+    header.alignment = { vertical: 'middle', wrapText: true };
+    worksheet.eachRow((row, rowNumber) => {
+      row.alignment = { vertical: 'top', wrapText: true };
+      if (rowNumber > 1) row.height = 34;
+    });
+
+    const reasonsSheet = workbook.addWorksheet('Justifications');
+    model.reasons.forEach(reason => reasonsSheet.addRow([reason]));
+    reasonsSheet.getColumn(1).width = 90;
+    reasonsSheet.state = 'veryHidden';
+    if (model.reasons.length) {
+      workbook.definedNames.add(`'Justifications'!$A$1:$A$${model.reasons.length}`, 'JustificationOptions');
+      for (let rowNumber = 2; rowNumber <= model.rows.length + 1; rowNumber += 1) {
+        worksheet.getCell(rowNumber, model.justificationColumnIndex).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['JustificationOptions'],
+          showErrorMessage: true,
+          errorTitle: 'Invalid justification',
+          error: 'Choose a justification from the dropdown list.'
+        };
+      }
+    }
+    return workbook;
+  }
+
+  async function exportLowEnrollmentExcel(workspace, rows = workspace?.rows || []) {
+    const workbook = createExcelWorkbook(workspace, rows);
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const link = root.document.createElement('a');
+    const term = cleanString(workspace?.displayTerm || workspace?.termCode || 'Low Enrollment').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${term || 'Low-Enrollment'}-Tracking.xlsx`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
   function distinctOptions(rows, field) {
     return Array.from(new Set((rows || []).map(row => filterValue(row, field)))).sort((a, b) => a.localeCompare(b));
   }
@@ -1136,6 +1227,7 @@
           <label><input id="lowEnrollmentShowThresholdMet" type="checkbox"${mounted?.filters?.showThresholdMet === false ? '' : ' checked'}> Show Threshold Met</label>
           <label>Search <input id="lowEnrollmentSearch" type="search" placeholder="Course, CRN, faculty, comment" value="${escapeHtml(mounted?.filters?.search || '')}"></label>
           <button id="clearLowEnrollmentFilters" type="button">Clear All Filters</button>
+          <button id="exportLowEnrollmentExcel" type="button"${workspace ? '' : ' disabled'}>Export Current View to Excel</button>
           <span class="analytics-note low-enrollment-active-filters">${escapeHtml(activeFilterSummary())}</span>
           <span id="lowEnrollmentSaveStatus" class="analytics-note">${workspace ? `Loaded ${escapeHtml(workspace.displayTerm || workspace.termCode)}.` : 'Import or select a saved workspace.'}</span>
         </div>
@@ -1470,6 +1562,25 @@
       mounted.filters = { status: [], search: '', division: [], campus: [], instructionalMethod: [], scheduleType: [], showThresholdMet: true };
       render();
     });
+    container.querySelector('#exportLowEnrollmentExcel')?.addEventListener('click', async event => {
+      const workspace = selectedWorkspace();
+      if (!workspace) return setStatus('Select a Low Enrollment workspace before exporting.');
+      const button = event.currentTarget;
+      try {
+        button.disabled = true;
+        button.textContent = 'Exporting...';
+        setStatus('Building editable Excel workbook...');
+        await exportLowEnrollmentExcel(workspace, filteredRows(workspace));
+        setStatus(`Exported ${filteredRows(workspace).length} visible row(s) with the Justification dropdown.`);
+      } catch (err) {
+        setStatus(err.message || 'Excel export failed.');
+      } finally {
+        if (button?.isConnected) {
+          button.disabled = false;
+          button.textContent = 'Export Current View to Excel';
+        }
+      }
+    });
     container.querySelectorAll('[data-filter-search]')?.forEach(input => {
       input.addEventListener('input', event => {
         const panel = event.target.closest('.low-enrollment-filter-panel');
@@ -1736,6 +1847,8 @@
     displayTermFromCode,
     extractTermCodeFromFilename,
     extractSnapshotDateFromFilename,
+    buildExcelExportModel,
+    createExcelWorkbook,
     mount
   };
 });
