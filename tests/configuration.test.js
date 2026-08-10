@@ -148,9 +148,9 @@ test('index loads centralized config before application modules', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const configIndex = index.indexOf('src="js/config/index.js"');
 
-  assert.ok(configIndex > index.indexOf('src="js/config.js"'));
-  assert.ok(configIndex < index.indexOf('src="js/app.js"'));
-  assert.ok(configIndex < index.indexOf('src="js/enrollment-analytics.js"'));
+  assert.ok(configIndex > index.indexOf('src="js/config.js'));
+  assert.ok(configIndex < index.indexOf('src="js/app.js'));
+  assert.ok(configIndex < index.indexOf('src="js/enrollment-analytics.js'));
 });
 
 test('index serves PDF.js catalog extraction engine locally', () => {
