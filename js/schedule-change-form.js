@@ -1266,11 +1266,12 @@ async function sendScheduleChangeEmail(shadow) {
   function getCampusValue(row) {
     const campus = extractField(row, ['Campus']);
     const building = extractField(row, ['Building']);
-    if (/tulare|tcc/i.test(campus) || /^TCC/i.test(building)) return 'Tulare';
-    if (/hanford/i.test(campus) || /^HAN/i.test(building)) return 'Hanford';
-    if (/online/i.test(campus) || /^ONLINE/i.test(building)) return 'Online';
+    const campusCode = String(campus || '').trim().toUpperCase();
+    if (campusCode === 'TCC' || /tulare|tcc/i.test(campus) || /^TCC/i.test(building)) return 'Tulare';
+    if (campusCode === 'HAC' || /hanford/i.test(campus) || /^(?:HAN|HAC)/i.test(building)) return 'Hanford';
+    if (['ONC', 'ONT', 'ONH'].includes(campusCode) || /online/i.test(campus) || /^ONLINE/i.test(building)) return 'Online';
     if (/off/i.test(campus)) return 'Off-Campus';
-    if (/visalia|main/i.test(campus) || /^(?:VIS|MAIN)/i.test(building)) return 'Visalia';
+    if (campusCode === 'COS' || /visalia|main/i.test(campus) || /^(?:VIS|MAIN)/i.test(building)) return 'Visalia';
     return '';
   }
 

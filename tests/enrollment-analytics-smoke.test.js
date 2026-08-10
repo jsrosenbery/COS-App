@@ -7625,10 +7625,11 @@ test('collapsible sections are wired across reports without changing Room Availa
   assert.doesNotMatch(analytics, /<details class="methodology-panel" open>/);
 });
 
-test('room availability grid defaults to All while preserving explicit room selections', () => {
+test('room availability grid defaults to the first occupied room while preserving explicit room selections', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
 
-  assert.match(app, /const defaultRoom = 'All'/);
+  assert.match(app, /const occupiedRooms = new Set\(roomMeetingData\.map\(getRoomKey\)\)/);
+  assert.match(app, /const defaultRoom = combos\.find\(room => occupiedRooms\.has\(room\)\) \|\| roomOptions\[0\]\?\.value \|\| 'All'/);
   assert.match(app, /snapshotRoomFilter\.value = priorSnapshotRoom/);
   assert.match(app, /calendarRoomSelect\.value = priorCalendarRoom/);
   assert.match(app, /combos\.includes\(priorSnapshotRoom\)/);

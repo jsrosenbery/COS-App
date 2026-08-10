@@ -2608,7 +2608,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     // For snapshot
     const combos = getUniqueRooms(roomMeetingData);
     const roomOptions = combos.map(room => ({ value: room, label: getRoomDisplay(room) }));
-    const defaultRoom = 'All';
+    const occupiedRooms = new Set(roomMeetingData.map(getRoomKey));
+    const defaultRoom = combos.find(room => occupiedRooms.has(room)) || roomOptions[0]?.value || 'All';
     const priorSnapshotRoom = snapshotRoomFilter?.value;
     const priorCalendarRoom = calendarRoomFilter?.value || document.getElementById('calendar-room-select')?.value;
     if (roomDiv) {
