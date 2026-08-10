@@ -90,12 +90,6 @@ test('regression baseline: critical first-party scripts use the current Timber b
   });
 });
 
-test('regression baseline: report navigation registry keeps representative reports wired', () => {')}\\?v=${buildVersion[1]}["']`),
-      `${script} should use the current Timber build version`
-    );
-  });
-});
-
 test('regression baseline: report navigation registry keeps representative reports wired', () => {
   const analytics = read('js/enrollment-analytics.js');
 
