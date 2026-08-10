@@ -1845,7 +1845,7 @@
       let source = 'schedule';
       let scheduleError = '';
       try {
-        const response = await fetch(`${window.BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(requestedTerm)}`);
+        const response = await fetch(`${window.BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(requestedTerm)}/current`);
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
         payload = await response.json();
       } catch (err) {
@@ -11359,6 +11359,18 @@ BUS 180 2 units`)
         continue;
       }
       const csv = await file.text();
+      const currentResponse = await fetch(`${window.BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ csv, sourceName: file.name, reportType: 'All Columns Section Seating' })
+      });
+      if (!currentResponse.ok) {
+        const detail = await currentResponse.text();
+        throw new Error(detail || `Current Section Seating save failed for ${term}`);
+      }
       const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`, {
         method: 'POST',
         headers: {
@@ -11371,6 +11383,10 @@ BUS 180 2 units`)
         const detail = await response.text();
         throw new Error(detail || `Archive failed for ${term}`);
       }
+      state.scheduleTermCache = { ...(state.scheduleTermCache || {}) };
+      state.scheduleTermMetadataCache = { ...(state.scheduleTermMetadataCache || {}) };
+      delete state.scheduleTermCache[normalizeTermLabel(term)];
+      delete state.scheduleTermMetadataCache[normalizeTermLabel(term)];
       saved.push(term);
     }
     if (window.COSArchiveService?.clearArchiveMemoryCache) window.COSArchiveService.clearArchiveMemoryCache();

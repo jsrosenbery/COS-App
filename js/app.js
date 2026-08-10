@@ -741,8 +741,10 @@ function getRoomDisplay(key) {
 }
 
 function getUniqueRooms(data) {
+  if (window.COSRoomAvailabilityData?.roomSelectorRooms) {
+    return window.COSRoomAvailabilityData.roomSelectorRooms(data, roomCatalog);
+  }
   if (roomCatalog.length) return getRoomCatalogEntries().map(room => room.buildingRoom);
-  // Fallback: returns array of "Bldg-Room" combos from uploaded section rows.
   return [...new Set(
     data
       .filter(isRoomGridSection)
@@ -1017,6 +1019,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const defaultTermIndex = Math.max(0, terms.indexOf(defaultTerm));
   const daysOfWeek = [...hmDays];
   let currentData = [];
+  let roomMeetingData = [];
   let currentTerm = '';
 
   const BACKEND_BASE_URL = window.BACKEND_BASE_URL || window.COS_APP_CONFIG?.backendBaseUrl || "https://app-backend-docker-fgh0.onrender.com";
@@ -1100,6 +1103,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let roomEventsByTerm = loadRoomEventsBackup();
   const UTILIZATION_DISPLAY_MODE_KEY = 'timberUtilizationDisplayMode';
   const scheduleLastUpdatedByTerm = {};
+  const scheduleSourceByTerm = {};
   const selectedUtilizationCategories = new Set();
   const utilizationCategoryLabels = [
     'Not Utilized',
@@ -2526,17 +2530,26 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         await nextPaint();
       }
       const payload = fetchJson
-        ? await fetchJson(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`)
-        : await fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`).then(res => {
+        ? await fetchJson(`${BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current`)
+        : await fetch(`${BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current`).then(res => {
             if (!res.ok) throw new Error('Schedule fetch failed');
             return res.json();
           });
-      const { data, lastUpdated } = payload || {};
+      const { data, lastUpdated, source } = payload || {};
       // PATCH: Normalize backend data fields to frontend expectations
       if (lastUpdated) scheduleLastUpdatedByTerm[term] = lastUpdated;
       else delete scheduleLastUpdatedByTerm[term];
       currentData = (data || []).map(row => normalizeRow({ ...row, __uploadedAt: lastUpdated || row.__uploadedAt || row.uploadedAt || row.UploadedAt || '' }));
-      tsDiv.textContent = lastUpdated ? `Last upload: ${new Date(lastUpdated).toLocaleString()}` : '';
+      const roomDataset = window.COSRoomAvailabilityData?.buildRoomAvailabilityDataset
+        ? window.COSRoomAvailabilityData.buildRoomAvailabilityDataset(data || [], { term, isValidRoom })
+        : { meetings: currentData.filter(isRoomGridSection), diagnostics: { sourceRows: currentData.length } };
+      roomMeetingData = roomDataset.meetings;
+      scheduleSourceByTerm[term] = source || { name: `${term} All Columns`, uploadedAt: lastUpdated, updatedAt: lastUpdated };
+      tsDiv.textContent = lastUpdated ? `Data source: ${scheduleSourceByTerm[term].name || `${term} All Columns`} · Uploaded: ${new Date(lastUpdated).toLocaleString()}` : '';
+      const developmentMode = Boolean(window.TIMBER_DEBUG) || ['localhost', '127.0.0.1'].includes(window.location?.hostname);
+      if (developmentMode && (!roomMeetingData.length || roomDataset.diagnostics.excludedMissingDaysTimes)) {
+        console.warn('[Room Availability diagnostics]', roomDataset.diagnostics);
+      }
       updateRoomAvailabilityFreshnessPanel();
       buildRoomDropdowns();
       renderSchedule();
@@ -2554,40 +2567,20 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       }
     } catch (err) {
       currentData = [];
+      roomMeetingData = [];
       delete scheduleLastUpdatedByTerm[term];
+      delete scheduleSourceByTerm[term];
       clearSchedule();
-      tsDiv.textContent = `Could not load ${term}: ${err.message || 'backend request failed'}`;
+      tsDiv.replaceChildren(document.createTextNode(`Could not load latest ${term} All Columns source: ${err.message || 'backend request failed'}. `));
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.textContent = 'Retry latest upload';
+      retry.addEventListener('click', () => loadScheduleFromBackend(term));
+      tsDiv.appendChild(retry);
       updateRoomAvailabilityFreshnessPanel();
       notify?.(`Could not load ${term}. ${err.message || 'Backend request failed.'}`, 'error');
     } finally {
       if (showBusy) hideAppBusy();
-    }
-  }
-
-  // --- POST CSV to backend, not localStorage ---
-  async function uploadScheduleToBackend(term, csvString, password) {
-    const notify = window.COSUtils?.notify;
-    const fetchJson = window.COSUtils?.fetchJson;
-    try {
-      if (fetchJson) {
-        await fetchJson(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ csv: csvString, password })
-        });
-      } else {
-        const res = await fetch(`${BACKEND_BASE_URL}/api/schedule/${encodeURIComponent(term)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ csv: csvString, password })
-        });
-        if (!res.ok) throw new Error('Upload failed');
-      }
-      notify?.(`Uploaded ${term} schedule successfully.`, 'success');
-      await loadScheduleFromBackend(term);
-    } catch (err) {
-      notify?.(`Upload failed. ${err.message || 'Backend request failed.'}`, 'error');
-      alert('Upload failed: ' + (err.message || 'Backend request failed.'));
     }
   }
 
@@ -2606,36 +2599,14 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function setupUpload() {
     roomDiv.replaceChildren();
     uploadDiv.replaceChildren();
-    const label = document.createElement('label');
-    const title = document.createElement('strong');
-    title.textContent = `Upload CSV for ${currentTerm}`;
-    label.appendChild(title);
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.id = 'file-input';
-    input.accept = '.csv';
-    label.appendChild(input);
-    uploadDiv.appendChild(label);
-    input.onchange = async e => {
-      const password = await requestPassword('Enter upload password:', 'Upload cancelled.');
-      if (!password) {
-        e.target.value = '';
-        return;
-      }
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = function(ev) {
-        const csvString = ev.target.result;
-        uploadScheduleToBackend(currentTerm, csvString, password); // reloads after upload
-      };
-      reader.readAsText(file);
-    };
+    const note = document.createElement('p');
+    note.textContent = `Current ${currentTerm} Section Seating is managed in the Enrollment Management Source Data Hub.`;
+    uploadDiv.appendChild(note);
   }
 
   function buildRoomDropdowns() {
     // For snapshot
-    const combos = getUniqueRooms(currentData);
+    const combos = getUniqueRooms(roomMeetingData);
     const roomOptions = combos.map(room => ({ value: room, label: getRoomDisplay(room) }));
     const defaultRoom = roomOptions[0]?.value || 'All';
     const priorSnapshotRoom = snapshotRoomFilter?.value;
@@ -2700,8 +2671,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     clearSchedule();
     const filt = selectedRoom;
     const data = (filt === 'All'
-      ? currentData
-      : currentData.filter(i => getRoomKey(i) === filt)
+      ? roomMeetingData
+      : roomMeetingData.filter(i => getRoomKey(i) === filt)
     ).filter(isRoomGridSection); // Omit invalid rooms, online sections, and Work Experience
     const rect = container.getBoundingClientRect();
     daysOfWeek.forEach((day, dIdx) => {
@@ -2925,7 +2896,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return { status: 'Available', available: true };
   }
 
-  function sectionEventSoftConflicts(sections = currentData, events = getRoomEventsForCurrentTerm()) {
+  function sectionEventSoftConflicts(sections = roomMeetingData, events = getRoomEventsForCurrentTerm()) {
     const rows = [];
     (sections || []).forEach(section => {
       if (!isValidRoom(section.Building || section.BUILDING, section.Room || section.ROOM)) return;
@@ -2997,12 +2968,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
     const catalogRooms = roomCatalog.length
       ? getRoomCatalogEntries()
-      : getUniqueRooms(currentData).map(key => ({ buildingRoom: key, campus: '', type: '', capacity: null }));
+      : getUniqueRooms(roomMeetingData).map(key => ({ buildingRoom: key, campus: '', type: '', capacity: null }));
     const selectedCampus = availCampusSelect?.value || '';
     const selectedType = availTypeSelect?.value || '';
     const minCapacity = Number(availCapacityInput?.value || 0);
     const instructionMap = new Map();
-    currentData.forEach(i => {
+    roomMeetingData.forEach(i => {
       if (!isValidRoom(i.Building || i.BUILDING, i.Room || i.ROOM)) return;
       if (Array.isArray(i.Days) && i.Days.some(d => days.includes(d))) {
         const si = parseTime(i.Start_Time), ei = parseTime(i.End_Time);
@@ -4295,6 +4266,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     activeTermCard?.classList.toggle('freshness-warning', !currentTerm);
 
     const scheduleStamp = scheduleLastUpdatedByTerm[currentTerm] || '';
+    const scheduleSource = scheduleSourceByTerm[currentTerm] || {};
     const scheduleDisplay = formatFreshnessTimestamp(scheduleStamp);
     if (scheduleTimeNode) {
       scheduleTimeNode.textContent = scheduleDisplay || 'Timestamp unavailable';
@@ -4303,7 +4275,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
     if (scheduleStatusNode) {
       scheduleStatusNode.textContent = scheduleStamp
-        ? `Schedule Data: Available for ${currentTerm || 'selected term'}`
+        ? `Data source: ${scheduleSource.name || `${currentTerm || 'Selected term'} All Columns`}`
         : 'Schedule Data Timestamp Unavailable. Confirm the current schedule before making final decisions.';
     }
     scheduleCard?.classList.toggle('freshness-warning', !scheduleStamp);
@@ -6397,7 +6369,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
       'Thursday': 4, 'Friday': 5, 'Saturday': 6
     };
-    let data = currentData;
+    let data = roomMeetingData;
     const filt = calendarRoomFilter?.value || 'All';
     if (filt && filt !== 'All') {
       data = data.filter(i => getRoomKey(i) === filt);

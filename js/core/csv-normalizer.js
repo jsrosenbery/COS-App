@@ -114,7 +114,7 @@
     section: ['Section', 'SECTION', 'Sec', 'SEC', 'SECTION_NUMB', 'Section Number'],
     campus: ['Campus', 'CAMPUS', 'Campus Code', 'CAMPUS CODE', 'Campus_Code', 'CAMPUS_CODE'],
     instructionalMethod: ['INSTRUCTIONAL_METHOD_CODE', 'Instructional Method Code', 'Instructional Method', 'Instructional_Method', 'Instr Method', 'Instruction Method', 'Method', 'Modality', 'INSTRUCTION_METHOD_DESC', 'Instruction Method Desc', 'Schedule Type'],
-    instructor: ['Instructor', 'INSTRUCTOR', 'Faculty', 'FACULTY', 'Primary Instructor'],
+    instructor: ['Instructor', 'INSTRUCTOR', 'Faculty', 'FACULTY', 'FacultyName', 'FACULTY_NAME', 'Primary Instructor'],
     days: ['DAYS', 'Days', 'Meeting Days', 'Meet Days', 'Day', 'Days Of Week', 'Mtg Days', 'Meeting Pattern', 'Meeting_Pattern', 'dayPattern', 'Day Pattern'],
     time: ['Time', 'TIME', 'Meeting Time', 'Meet Time', 'Mtg Time', 'Time Range', 'Times'],
     start: ['Start_Time', 'START_TIME', 'Start Time', 'START TIME', 'Begin Time', 'BEGIN TIME', 'Begin_Time', 'Class Begin Time', 'Meeting Start', 'Mtg Start', 'Start'],
@@ -135,7 +135,8 @@
     finalEnrollment: ['finalEnrollment', 'Final Enrollment', 'FINAL_ENROLLMENT', 'End Enrollment', 'END_ENROLLMENT'],
     waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WAIT COUNT', 'WAIT_COUNT', 'WL Count', 'WAITLISTED'],
     accountingMethod: ['ACCOUNTING METHOD', 'Accounting Method', 'ACCOUNTING_METHOD'],
-    crossList: ['CROSS_LIST', 'Cross List', 'Cross_List', 'Cross Listed', 'Cross-Listed', 'XLIST', 'X_LIST']
+    crossList: ['CROSS_LIST', 'Cross List', 'Cross_List', 'Cross Listed', 'Cross-Listed', 'XLIST', 'X_LIST'],
+    scheduleType: ['SCHD_CODE_SSRMEET', 'SCHD CODE SSRMEET', 'Schedule Type', 'SCHEDULE_TYPE', 'Schedule Code', 'SCHD_CODE', 'Meeting Type', 'MEETING_TYPE']
   };
 
   function normalizeCsvRow(row, options = {}) {
@@ -177,6 +178,7 @@
       partOfTerm: canon(extractField(row, fields.partOfTerm)),
       activityDate: extractField(row, fields.activityDate),
       crossList: canon(extractField(row, fields.crossList)),
+      scheduleType: canon(extractField(row, fields.scheduleType)),
       startDate: extractField(row, fields.startDate),
       endDate: extractField(row, fields.endDate)
     };

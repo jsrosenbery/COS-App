@@ -4600,6 +4600,8 @@ test('source data hub centralizes upload controls while keeping datasets separat
   assert.match(app, /dataHubMount\.appendChild\(adminTools\)/);
   assert.match(app, /id="dataHubSectionCsv"/);
   assert.match(app, /archiveUploads\('dataHubSectionCsv'\)/);
+  assert.match(app, /api\/section-seating\/\$\{encodeURIComponent\(term\)\}\/current/);
+  assert.match(app, /api\/analytics-archive\/\$\{encodeURIComponent\(term\)\}/);
   assert.match(app, /id="dataHubFacultyScheduleCsv"/);
   assert.match(app, /saveFacultyScheduleArchive\('dataHubFacultyScheduleCsv'\)/);
   assert.match(app, /id="dataHubWorkExperienceCsv"/);
@@ -4896,7 +4898,7 @@ test('anonymous Schedule Builder keeps browser-side engine wiring outside launch
   assert.match(text, /function scheduleBuilderEffectiveTerm/);
   assert.match(text, /scheduleBuilderTermRows: \{\}/);
   assert.match(text, /function loadScheduleBuilderEffectiveTermRows/);
-  assert.match(text, /api\/schedule\/\$\{encodeURIComponent\(requestedTerm\)\}/);
+  assert.match(text, /api\/section-seating\/\$\{encodeURIComponent\(requestedTerm\)\}\/current/);
   assert.match(text, /api\/analytics-archive\/\$\{encodeURIComponent\(requestedTerm\)\}/);
   assert.match(text, /\.\.\.\(state\.archivedAnalyticsTerms \|\| \[\]\)/);
   assert.match(text, /from schedule or analytics archive/);
@@ -5012,7 +5014,7 @@ test('report loading uses shared busy state and separated term caches', () => {
   assert.match(text, /facultyScheduleTermCache: \{\}/);
   assert.match(text, /facultyScheduleTermMetadataCache: \{\}/);
   assert.match(text, /function loadScheduleTermRows/);
-  assert.match(text, /api\/schedule\/\$\{encodeURIComponent\(requestedTerm\)\}/);
+  assert.match(text, /api\/section-seating\/\$\{encodeURIComponent\(requestedTerm\)\}\/current/);
   assert.match(text, /api\/analytics-archive\/\$\{encodeURIComponent\(requestedTerm\)\}/);
   assert.match(text, /api\/faculty-schedules\/\$\{encodeURIComponent\(normalizedTerm\)\}/);
   assert.match(text, /without changing Room Availability/);
@@ -7464,8 +7466,8 @@ test('shared api utilities provide checked JSON fetch and non-blocking notificat
   assert.match(app, /await nextPaint\(\)/);
   assert.match(app, /finally \{[\s\S]*hideAppBusy\(\)/);
   assert.match(app, /Could not load \$\{term\}/);
-  assert.match(app, /async function uploadScheduleToBackend/);
-  assert.match(app, /Uploaded \$\{term\} schedule successfully\./);
+  assert.doesNotMatch(app, /async function uploadScheduleToBackend/);
+  assert.match(app, /Enrollment Management Source Data Hub/);
 });
 
 test('collapsible section helper defaults open toggles aria and persists state', () => {
