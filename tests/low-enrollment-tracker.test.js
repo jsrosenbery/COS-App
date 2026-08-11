@@ -171,6 +171,8 @@ test('low enrollment Excel export preserves visible data and justification dropd
   assert.match(source, /formulae: \['JustificationOptions'\]/);
   assert.match(source, /dataValidation/);
   assert.match(source, /addWorksheet\('Removed Sections'/);
+  assert.match(source, /topLeftCell: 'D2'/);
+  assert.match(source, /activeCell: 'D2'/);
   assert.ok(model.columns.find(column => column.key === '_timberRowId').hidden);
   assert.ok(model.columns.find(column => column.key === '_timberTermCode').hidden);
 });
@@ -270,26 +272,33 @@ test('low enrollment missing snapshot cells render both missing class and visibl
   assert.match(source, /<span class="muted">Missing<\/span>/);
 });
 
-test('low enrollment export rows identify removed threshold-met sections for the second workbook tab', () => {
+test('low enrollment export rows identify threshold-met and excluded sections for the second workbook tab', () => {
   const workspace = tracker.parseWorkbookTable([
     ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold'],
     ['COMM C1000', '10003', 'Public Speaking', 18, 30, 21],
-    ['ENGL C1000', '30001', 'Writing', 10, 30, 21]
+    ['ENGL C1000', '30001', 'Writing', 10, 30, 21],
+    ['LA 425', '40001', 'Open Lab', 2, 30, 21]
   ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' });
   const updated = tracker.applyEnrollmentSnapshot(workspace, [
     { CRN: '10003', ACTUAL_ENROLL: '22' },
-    { CRN: '30001', ACTUAL_ENROLL: '12' }
+    { CRN: '30001', ACTUAL_ENROLL: '12' },
+    { CRN: '40001', ACTUAL_ENROLL: '3' }
   ], { snapshotDate: '2026-08-11', sourceFilename: 'update.csv' }).workspace;
-  const removed = updated.rows.filter(tracker.removedFromActiveWatchlist);
+  updated.rows[2].exclusion = { excluded: true, reason: 'Open lab', note: 'Accepted exception' };
+  const removed = tracker.removedOrExcludedExportRows(updated);
   const exportModel = tracker.buildExcelExportModel(updated, removed);
   const headers = exportModel.columns.map(column => column.header);
   const removedRow = Object.fromEntries(headers.map((header, index) => [header, exportModel.rows[0][index]]));
+  const excludedRow = Object.fromEntries(headers.map((header, index) => [header, exportModel.rows[1][index]]));
 
-  assert.equal(removed.length, 1);
+  assert.equal(removed.length, 2);
   assert.equal(removedRow.Status, 'Threshold Met');
   assert.equal(removedRow['1st Day Enrollment'], 18);
   assert.equal(removedRow['Removed / Met Minimum Reason'], 'Threshold Met');
   assert.equal(removedRow['8-11-26 Enrollment'], 22);
+  assert.equal(excludedRow.Course, 'LA 425');
+  assert.equal(excludedRow.Status, 'Below Threshold');
+  assert.equal(excludedRow['Removed / Met Minimum Reason'], 'Excluded from Tracking: Open lab: Accepted exception');
   assert.equal(Object.prototype.hasOwnProperty.call(removedRow, 'Wait Count'), false);
 });
 

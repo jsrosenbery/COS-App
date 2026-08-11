@@ -263,6 +263,12 @@
 
   function removedReason(row) {
     const reasons = [];
+    if (row?.exclusion?.excluded) {
+      const exclusionParts = ['Excluded from Tracking'];
+      if (row.exclusion.reason) exclusionParts.push(cleanString(row.exclusion.reason));
+      if (row.exclusion.note) exclusionParts.push(cleanString(row.exclusion.note));
+      reasons.push(exclusionParts.filter(Boolean).join(': '));
+    }
     if (statusForRow(row) === 'Threshold Met') reasons.push('Threshold Met');
     if (row?.missingFromLatestWorkbook) reasons.push('Removed from Latest Baseline');
     return reasons.join('; ') || '';
@@ -923,51 +929,63 @@
     };
   }
 
+  function removedOrExcludedExportRows(workspace) {
+    return (workspace?.rows || []).filter(row => row?.exclusion?.excluded || removedFromActiveWatchlist(row));
+  }
+
+  function worksheetDataRowHeight(values = []) {
+    const maxLines = values.reduce((max, value) => {
+      const lines = String(value ?? '').split(/\r?\n/).length;
+      return Math.max(max, lines);
+    }, 1);
+    return Math.min(96, Math.max(22, (maxLines * 15) + 6));
+  }
+
+  function applyExcelWorksheetLayout(worksheet, model) {
+    model.columns.forEach((column, index) => {
+      const excelColumn = worksheet.getColumn(index + 1);
+      excelColumn.width = column.width;
+      excelColumn.hidden = Boolean(column.hidden);
+    });
+    worksheet.views = [{
+      state: 'frozen',
+      xSplit: 3,
+      ySplit: 1,
+      topLeftCell: 'D2',
+      activeCell: 'D2'
+    }];
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: Math.max(1, model.rows.length + 1), column: model.columns.length }
+    };
+    const header = worksheet.getRow(1);
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF245685' } };
+    header.alignment = { vertical: 'middle', wrapText: true };
+    header.height = 28;
+    worksheet.eachRow((row, rowNumber) => {
+      row.alignment = { vertical: 'top', wrapText: true };
+      if (rowNumber > 1) row.height = worksheetDataRowHeight(row.values.slice(1));
+    });
+  }
+
   function createExcelWorkbook(workspace, rows = workspace?.rows || [], ExcelJS = root.ExcelJS) {
     if (!ExcelJS?.Workbook) throw new Error('Excel export library is not available. Refresh the page and try again.');
     const model = buildExcelExportModel(workspace, rows);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'TIMBER';
     workbook.created = new Date();
-    const worksheet = workbook.addWorksheet('Low Enrollment', {
-      views: [{ state: 'frozen', xSplit: 3, ySplit: 1 }]
-    });
+    const worksheet = workbook.addWorksheet('Low Enrollment');
     worksheet.addRow(model.columns.map(column => column.header));
     model.rows.forEach(values => worksheet.addRow(values));
-    model.columns.forEach((column, index) => {
-      worksheet.getColumn(index + 1).width = column.width;
-      worksheet.getColumn(index + 1).hidden = Boolean(column.hidden);
-    });
-    worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, model.rows.length + 1), column: model.columns.length } };
-    const header = worksheet.getRow(1);
-    header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF245685' } };
-    header.alignment = { vertical: 'middle', wrapText: true };
-    worksheet.eachRow((row, rowNumber) => {
-      row.alignment = { vertical: 'top', wrapText: true };
-      if (rowNumber > 1) row.height = 34;
-    });
+    applyExcelWorksheetLayout(worksheet, model);
 
-    const removedRows = (workspace?.rows || []).filter(row => removedFromActiveWatchlist(row) && !row.exclusion?.excluded);
+    const removedRows = removedOrExcludedExportRows(workspace);
     const removedModel = buildExcelExportModel(workspace, removedRows);
-    const removedWorksheet = workbook.addWorksheet('Removed Sections', {
-      views: [{ state: 'frozen', xSplit: 3, ySplit: 1 }]
-    });
+    const removedWorksheet = workbook.addWorksheet('Removed Sections');
     removedWorksheet.addRow(removedModel.columns.map(column => column.header));
     removedModel.rows.forEach(values => removedWorksheet.addRow(values));
-    removedModel.columns.forEach((column, index) => {
-      removedWorksheet.getColumn(index + 1).width = column.width;
-      removedWorksheet.getColumn(index + 1).hidden = Boolean(column.hidden);
-    });
-    removedWorksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, removedModel.rows.length + 1), column: removedModel.columns.length } };
-    const removedHeader = removedWorksheet.getRow(1);
-    removedHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    removedHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF245685' } };
-    removedHeader.alignment = { vertical: 'middle', wrapText: true };
-    removedWorksheet.eachRow((row, rowNumber) => {
-      row.alignment = { vertical: 'top', wrapText: true };
-      if (rowNumber > 1) row.height = 34;
-    });
+    applyExcelWorksheetLayout(removedWorksheet, removedModel);
 
     const reasonsSheet = workbook.addWorksheet('Justifications');
     model.reasons.forEach(reason => reasonsSheet.addRow([reason]));
@@ -2161,6 +2179,8 @@
     extractSnapshotDateFromFilename,
     parseManualUpdateWorkbook,
     buildExcelExportModel,
+    removedOrExcludedExportRows,
+    worksheetDataRowHeight,
     createExcelWorkbook,
     mount
   };
