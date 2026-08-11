@@ -164,6 +164,55 @@ test('small PDF fixture produces page-text records through vendored browser PDF.
   assert.match(result.pageTexts[0].text, /Catalog PDF Fixture BUS 20 3 units/);
 });
 
+test('PDF text items retain visual rows for downstream requirement parsing', () => {
+  const text = catalog.pdfTextItemsToLines([
+    { str: 'Program Award:', transform: [1, 0, 0, 1, 10, 700] },
+    { str: 'Certificate of Achievement', transform: [1, 0, 0, 1, 140, 700] },
+    { str: 'ACCT 001', transform: [1, 0, 0, 1, 10, 680] },
+    { str: 'Financial Accounting', transform: [1, 0, 0, 1, 110, 680] },
+    { str: '4', transform: [1, 0, 0, 1, 500, 680] }
+  ]);
+  assert.equal(text, 'Program Award: Certificate of Achievement\nACCT 001 Financial Accounting 4');
+});
+
+test('CurrIQ single-program export becomes a reviewable structured program', () => {
+  const pages = [page(1, `
+Viewing: Certificate of Achievement in Accounting
+Program Award: Certificate of Achievement
+Effective Term: Fall 2026
+Department: Business
+Program Title: Accounting
+Program Requirements:
+Code Title Units
+Required Major Courses (19 units)
+ACCT 001 Financial Accounting 4
+ACCT 002 Managerial Accounting 4
+List A - Select 3 units
+BUS 020 Business Law 3
+BUS 021 Business Communications 3
+List B - Select 9 units
+ACCT 105 Payroll Accounting 3
+ACCT 110 Tax Accounting 3
+ACCT 115 Accounting Applications 3
+TOTAL 31
+  `)];
+  const parsed = catalog.parseCurriculumProgramExport(pages, {
+    catalogYear: '2026-2027', filename: 'Certificate of Achievement in Accounting.pdf', catalogTitle: 'CurrIQ Program Export'
+  });
+
+  assert.ok(parsed);
+  assert.equal(parsed.detail.program.programName, 'Accounting');
+  assert.equal(parsed.detail.program.awardType, 'Certificate of Achievement');
+  assert.equal(parsed.detail.program.reviewStatus, 'needs-review');
+  assert.equal(parsed.detail.program.totalUnitsRequired, 31);
+  assert.ok(parsed.detail.program.requirementGroups.some(group => group.rule === 'choose-units' && group.unitsRequired === 3));
+  assert.ok(parsed.detail.program.requirementGroups.flatMap(group => group.courses).some(course => course.courseKey === 'ACCT 1'));
+});
+
+test('non-CurrIQ catalog text stays on the existing catalog extraction path', () => {
+  assert.equal(catalog.parseCurriculumProgramExport(pilotPages, { catalogYear: '2026-2027' }), null);
+});
+
 test('catalog requirement parser separates all-required, choose-one, choose-units, and review warnings', () => {
   const candidate = catalog.extractProgramInventory(pilotPages, { catalogYear: '2026-2027' })
     .find(item => item.programName === 'Business Administration for Transfer 2.0');
