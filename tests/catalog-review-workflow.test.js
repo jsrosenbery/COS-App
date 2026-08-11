@@ -115,6 +115,9 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /data-candidate-id="\$\{escapeAttr\(row\.candidateId\)\}"/);
   assert.match(source, /async function openCatalogProgramReview/);
   assert.match(source, /revealCatalogProgramDetail/);
+  assert.match(source, /Approval Blockers/);
+  assert.match(source, /catalogDetailForCandidate/);
+  assert.match(source, /validation\.blockers/);
   assert.equal((source.match(/catalogProgramRequirementsReport'\)\?\.addEventListener\('click'/g) || []).length, 1);
   assert.equal((source.match(/data-catalog-action="open-review"/g) || []).length, 1);
 });

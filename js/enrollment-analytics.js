@@ -9146,6 +9146,13 @@
     return (state.catalogProgramCandidates || []).find(candidate => candidate.candidateId === state.selectedCatalogCandidateId) || null;
   }
 
+  function catalogDetailForCandidate(candidateId = '') {
+    const details = state.catalogRequirementDetails || [];
+    if (!candidateId) return null;
+    return details.find(detail => window.COSCatalogReviewWorkflow?.detailMatchesCandidate?.(detail, candidateId)
+      || detail.candidateId === candidateId) || null;
+  }
+
   function catalogReviewSelection() {
     return window.COSCatalogReviewWorkflow?.resolveCatalogReviewSelection?.(state, state.selectedCatalogCandidateId, state.selectedProgramRevisionId)
       || { ok: false, error: 'Catalog review workflow module is not loaded.' };
@@ -9187,7 +9194,7 @@
     const detail = selection.detail || catalogSelectedDetail();
     const candidate = selection.candidate || catalogSelectedCandidate();
     const program = selection.program || detail?.program || {};
-    const validation = detail ? catalogValidationSummary(detail) : { valid: false, warnings: ['No parsed requirement detail has been saved for this candidate yet.'] };
+    const validation = detail ? catalogValidationSummary(detail, candidate) : { valid: false, warnings: ['No parsed requirement detail has been saved for this candidate yet.'], blockers: ['No parsed requirement detail has been saved for this candidate yet.'] };
     const sourceText = program.source?.originalText || (detail?.requirementEvidence || []).map(item => item.text).join('\n') || '';
     const sourcePreview = sourceText ? escapeAttr(sourceText).slice(0, 4000) : 'No original source text is available for this record.';
     const sourcePages = detail?.pageRange?.pages?.join(', ')
@@ -9215,9 +9222,10 @@
         <div><dt>Stated Units</dt><dd>${escapeAttr(program.totalUnitsRequired ?? 'N/A')}</dd></div>
         <div><dt>Parsed Units</dt><dd>${escapeAttr(unit.parsedUnits ?? unit.calculatedUnits ?? 'N/A')}</dd></div>
         <div><dt>Unit Reconciliation</dt><dd>${escapeAttr(unit.status || 'N/A')}</dd></div>
-        <div><dt>Validation</dt><dd>${validation.valid ? 'Ready' : 'Needs Review'}</dd></div>
+        <div><dt>Validation</dt><dd>${validation.valid ? 'Ready' : 'Approval Blocked'}</dd></div>
       </div>
       <div class="catalog-review-actions">${selection.candidateId ? `<button type="button" data-catalog-action="approve" data-candidate-id="${escapeAttr(selection.candidateId)}">Approve Candidate</button>` : '<span class="analytics-empty">No review actions available for this record.</span>'}</div>
+      ${(validation.blockers || []).length ? `<div class="analytics-row-warning"><strong>Approval Blockers</strong><ul>${validation.blockers.map(warning => `<li>${escapeAttr(warning)}</li>`).join('')}</ul><p>Resolve these items before approval, or enter an administrator override reason when prompted.</p></div>` : '<p class="analytics-empty">No approval blockers.</p>'}
       ${(validation.warnings || []).length ? `<div class="analytics-row-warning"><strong>Warnings</strong><ul>${validation.warnings.map(warning => `<li>${escapeAttr(warning)}</li>`).join('')}</ul></div>` : '<p class="analytics-empty">No review warnings.</p>'}
       <details open><summary>Original Source Text</summary><pre class="catalog-source-preview">${sourcePreview}</pre></details>
       ${courseRows.length ? `<h4>Parsed Courses</h4><div class="analytics-table"><table><thead><tr><th>Group</th><th>Course</th><th>Units</th><th>Prerequisites</th><th>Corequisites</th><th>Equivalents</th><th>Page</th></tr></thead><tbody>${courseRows.map(row => `<tr><td>${escapeAttr(row.group)}</td><td>${escapeAttr(row.course)}</td><td>${escapeAttr(row.units)}</td><td>${escapeAttr(row.prerequisites)}</td><td>${escapeAttr(row.corequisites)}</td><td>${escapeAttr(row.equivalents)}</td><td>${escapeAttr(row.page)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="analytics-empty">No parsed courses are available for this selected program.</p>'}
@@ -9235,15 +9243,17 @@
     table('programRequirementsPreview', programRequirementRows([program]), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType']);
   }
 
-  function catalogValidationSummary(detail = null) {
+  function catalogValidationSummary(detail = null, candidate = null) {
     if (!detail) return { valid: false, warnings: ['No candidate selected.'] };
     try {
       return catalogExtractionApi().validateExtractionCandidate({
-        catalogYear: detail.program?.catalogYear,
-        detailedSourceFound: detail.pageRange?.boundaryConfidence >= 0.75
+        ...(candidate || {}),
+        catalogYear: candidate?.catalogYear || detail.program?.catalogYear,
+        detailedSourceFound: candidate?.detailedSourceFound || detail.pageRange?.boundaryConfidence >= 0.75
       }, detail);
     } catch (err) {
-      return { valid: false, warnings: [err.message || 'Validation failed.'] };
+      const message = err.message || 'Validation failed.';
+      return { valid: false, warnings: [message], blockers: [message] };
     }
   }
 
@@ -9255,9 +9265,10 @@
     }) || {};
     const rows = [];
     (state.catalogRequirementDetails || []).forEach(detail => {
-      const validation = catalogValidationSummary(detail);
+      const candidate = (state.catalogProgramCandidates || []).find(item => item.candidateId === detail.candidateId) || null;
+      const validation = catalogValidationSummary(detail, candidate);
       (validation.warnings || []).forEach(warning => rows.push({
-        severity: /Ambiguous|Missing|unmatched|cycle|variance|No detailed/i.test(warning) ? 'High' : 'Medium',
+        severity: (validation.blockers || []).includes(warning) ? 'High' : 'Medium',
         program: detail.program?.programName || '',
         catalogYear: detail.program?.catalogYear || '',
         revision: detail.program?.revisionId || '',
@@ -9373,17 +9384,23 @@
       warnings: (candidate.warnings || []).join('; '),
       reviewStatus: candidate.extractionStatus || candidate.reviewStatus
     })), ['program', 'awardType', 'areaOfStudy', 'sourcePages', 'pageRange', 'confidence', 'warnings', 'reviewStatus']);
-    catalogActionTable('catalogReviewQueue', (state.catalogProgramCandidates || []).map(candidate => ({
-      candidateId: candidate.candidateId,
-      program: candidate.programName,
-      award: candidate.awardType,
-      pages: candidate.pageRange?.pages?.join(', ') || `${candidate.likelyStartPage || ''}-${candidate.likelyEndPage || ''}`,
-      warnings: (candidate.warnings || []).join('; ') || 'None',
-      status: candidate.reviewStatus || candidate.extractionStatus || 'Detected'
-    })), [
+    catalogActionTable('catalogReviewQueue', (state.catalogProgramCandidates || []).map(candidate => {
+      const detail = catalogDetailForCandidate(candidate.candidateId);
+      const validation = detail ? catalogValidationSummary(detail, candidate) : { blockers: ['No parsed requirement detail saved.'], warnings: candidate.warnings || [] };
+      return {
+        candidateId: candidate.candidateId,
+        program: candidate.programName,
+        award: candidate.awardType,
+        pages: candidate.pageRange?.pages?.join(', ') || `${candidate.likelyStartPage || ''}-${candidate.likelyEndPage || ''}`,
+        blockers: (validation.blockers || []).join('; ') || 'None',
+        warnings: (validation.warnings || candidate.warnings || []).join('; ') || 'None',
+        status: candidate.reviewStatus || candidate.extractionStatus || 'Detected'
+      };
+    }), [
       { key: 'program', label: 'Program' },
       { key: 'award', label: 'Award' },
       { key: 'pages', label: 'Pages' },
+      { key: 'blockers', label: 'Approval Blockers' },
       { key: 'warnings', label: 'Warnings' },
       { key: 'status', label: 'Status' },
       { label: 'Actions', html: row => `<button type="button" data-catalog-action="open-review" data-candidate-id="${escapeAttr(row.candidateId)}">Open Review</button> <button type="button" data-catalog-action="approve" data-candidate-id="${escapeAttr(row.candidateId)}">Approve</button>` }
@@ -9745,7 +9762,7 @@ BUS 180 2 units`)
     } catch (err) {
       const overrideReason = window.prompt?.(`${err.message || 'Approval blocked.'}\nEnter an administrator override reason to approve anyway, or Cancel.`) || '';
       if (!overrideReason) {
-        state.programRequirementsErrors = err.validation?.warnings || [err.message || 'Catalog approval blocked.'];
+        state.programRequirementsErrors = err.validation?.blockers?.length ? err.validation.blockers : (err.validation?.warnings || [err.message || 'Catalog approval blocked.']);
         renderProgramRequirementsAdmin();
         return;
       }
