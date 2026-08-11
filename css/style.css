@@ -468,6 +468,19 @@ button:hover,
   margin: 10px 0;
 }
 
+.catalog-review-confirmation {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #9fd7b4;
+  border-radius: 8px;
+  color: #0f4e2a;
+  background: #eefbf2;
+}
+
+.catalog-review-confirmation ul {
+  margin: 0.35rem 0 0;
+}
+
 .catalog-source-preview {
   max-height: 260px;
   overflow: auto;

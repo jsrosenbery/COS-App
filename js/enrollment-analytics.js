@@ -428,6 +428,7 @@
     programRequirements: [],
     programRequirementsPreview: [],
     programRequirementsErrors: [],
+    programRequirementsMessages: [],
     catalogSources: [],
     catalogPages: [],
     catalogProgramCandidates: [],
@@ -9407,9 +9408,18 @@
       `;
     }
     const errors = document.getElementById('programRequirementsErrors');
-    if (errors) errors.innerHTML = state.programRequirementsErrors.length
-      ? `<strong>Validation Errors</strong><ul>${state.programRequirementsErrors.map(error => `<li>${escapeAttr(error)}</li>`).join('')}</ul>`
-      : '<p class="analytics-empty">No validation errors.</p>';
+    if (errors) {
+      const messages = state.programRequirementsMessages || [];
+      const messageHtml = messages.length
+        ? `<div class="catalog-review-confirmation"><strong>Confirmation</strong><ul>${messages.map(message => `<li>${escapeAttr(message)}</li>`).join('')}</ul></div>`
+        : '';
+      const errorHtml = state.programRequirementsErrors.length
+        ? `<div><strong>Validation Errors</strong><ul>${state.programRequirementsErrors.map(error => `<li>${escapeAttr(error)}</li>`).join('')}</ul></div>`
+        : '';
+      errors.innerHTML = messageHtml || errorHtml
+        ? `${messageHtml}${errorHtml}`
+        : '<p class="analytics-empty">No validation errors.</p>';
+    }
     table('programRequirementsRepositoryTable', programRequirementRows(state.programRequirements), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType', 'importedAt']);
     const pdfStatus = document.getElementById('catalogPdfStatus');
     if (pdfStatus) {
@@ -9830,10 +9840,12 @@ BUS 180 2 units`)
   async function approveCatalogCandidate(candidateId = '') {
     const extractor = catalogExtractionApi();
     const repo = await programRequirementsRepository();
+    const candidate = (state.catalogProgramCandidates || []).find(item => item.candidateId === candidateId) || null;
     const detail = state.catalogRequirementDetails.find(item => item.candidateId === candidateId)
       || await repo.getCatalogRequirementDetail?.(candidateId);
     if (!detail) {
       state.programRequirementsErrors = ['Open or extract a catalog candidate before approval.'];
+      state.programRequirementsMessages = [];
       renderProgramRequirementsAdmin();
       return;
     }
@@ -9844,6 +9856,7 @@ BUS 180 2 units`)
       const overrideReason = window.prompt?.(`${err.message || 'Approval blocked.'}\nEnter an administrator override reason to approve anyway, or Cancel.`) || '';
       if (!overrideReason) {
         state.programRequirementsErrors = err.validation?.blockers?.length ? err.validation.blockers : (err.validation?.warnings || [err.message || 'Catalog approval blocked.']);
+        state.programRequirementsMessages = [];
         renderProgramRequirementsAdmin();
         return;
       }
@@ -9852,8 +9865,21 @@ BUS 180 2 units`)
     await repo.savePrograms([approved.program]);
     await repo.saveCatalogReviewDecision?.(approved.reviewDecision);
     if (approved.revision && repo.saveProgramRequirementRevision) await repo.saveProgramRequirementRevision(approved.revision);
+    if (candidate && repo.saveCatalogProgramCandidates) {
+      const reviewedAt = approved.reviewDecision?.reviewedAt || approved.reviewDecision?.savedAt || new Date().toISOString();
+      await repo.saveCatalogProgramCandidates([{
+        ...candidate,
+        extractionStatus: 'approved',
+        reviewStatus: 'approved',
+        reviewedAt,
+        reviewedBy: approved.reviewDecision?.reviewedBy || 'TIMBER Admin Review'
+      }]);
+    }
     state.selectedCatalogCandidateId = candidateId;
     state.programRequirementsErrors = [];
+    state.programRequirementsMessages = [
+      `Approved ${approved.program?.programName || candidate?.programName || candidateId} and saved the program, review decision, and requirement revision.`
+    ];
     await refreshProgramRequirementsRepository();
   }
 
