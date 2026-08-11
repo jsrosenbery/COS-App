@@ -9170,6 +9170,86 @@
     })));
   }
 
+  function catalogReviewClone(value) {
+    return JSON.parse(JSON.stringify(value || {}));
+  }
+
+  function catalogNumberOrUndefined(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return undefined;
+    const number = Number(text);
+    return Number.isFinite(number) ? number : undefined;
+  }
+
+  function catalogCorrectionFieldName(...parts) {
+    return parts.map(part => String(part).replace(/[^A-Za-z0-9_-]/g, '_')).join('__');
+  }
+
+  function catalogCorrectionValue(form, ...parts) {
+    return form?.elements?.[catalogCorrectionFieldName(...parts)]?.value ?? '';
+  }
+
+  function renderCatalogCorrectionEditor(detail = {}, validation = {}) {
+    const program = detail.program || {};
+    const groups = program.requirementGroups || [];
+    const groupRows = groups.map((group, groupIndex) => {
+      const courseRows = (group.courses || []).map((course, courseIndex) => {
+        const evidence = course.sourceEvidence?.[0] || {};
+        return `
+          <tr>
+            <td><input name="${catalogCorrectionFieldName('courseKey', groupIndex, courseIndex)}" value="${escapeAttr(course.courseKey || '')}" aria-label="Course key"></td>
+            <td><input name="${catalogCorrectionFieldName('courseUnits', groupIndex, courseIndex)}" value="${escapeAttr(course.units ?? '')}" inputmode="decimal" aria-label="Course units"></td>
+            <td><input name="${catalogCorrectionFieldName('coursePage', groupIndex, courseIndex)}" value="${escapeAttr(evidence.pageNumber || group.pageNumber || '')}" inputmode="numeric" aria-label="Course page"></td>
+            <td><textarea name="${catalogCorrectionFieldName('courseSource', groupIndex, courseIndex)}" rows="2" aria-label="Course source text">${escapeAttr(evidence.text || course.sourceCourseKey || course.courseKey || '')}</textarea></td>
+          </tr>
+        `;
+      }).join('');
+      return `
+        <fieldset class="catalog-correction-group">
+          <legend>Requirement Group ${groupIndex + 1}</legend>
+          <div class="catalog-correction-grid">
+            <label>Group Label <input name="${catalogCorrectionFieldName('groupLabel', groupIndex)}" value="${escapeAttr(group.label || '')}"></label>
+            <label>Rule
+              <select name="${catalogCorrectionFieldName('groupRule', groupIndex)}">
+                ${['all', 'or', 'choose-count', 'choose-units'].map(rule => `<option value="${rule}"${group.rule === rule ? ' selected' : ''}>${rule}</option>`).join('')}
+              </select>
+            </label>
+            <label>Choose Count <input name="${catalogCorrectionFieldName('groupChooseCount', groupIndex)}" value="${escapeAttr(group.chooseCount ?? '')}" inputmode="numeric"></label>
+            <label>Units Required <input name="${catalogCorrectionFieldName('groupUnitsRequired', groupIndex)}" value="${escapeAttr(group.unitsRequired ?? '')}" inputmode="decimal"></label>
+            <label>Page <input name="${catalogCorrectionFieldName('groupPage', groupIndex)}" value="${escapeAttr(group.pageNumber || '')}" inputmode="numeric"></label>
+          </div>
+          <label>Group Source Text <textarea name="${catalogCorrectionFieldName('groupSource', groupIndex)}" rows="2">${escapeAttr(group.sourceText || '')}</textarea></label>
+          <div class="analytics-table catalog-correction-course-table">
+            <table>
+              <thead><tr><th>Course</th><th>Units</th><th>Page</th><th>Source Text</th></tr></thead>
+              <tbody>${courseRows || '<tr><td colspan="4">No courses parsed in this group.</td></tr>'}</tbody>
+            </table>
+          </div>
+        </fieldset>
+      `;
+    }).join('');
+    return `
+      <form id="catalogCorrectionEditor" class="catalog-correction-editor" data-candidate-id="${escapeAttr(detail.candidateId || '')}">
+        <h4>Correction Editor</h4>
+        <p class="analytics-chart-note">Use this editor to correct extracted program totals, requirement groups, course units, and page/source references, then save and re-run validation before approval.</p>
+        ${(validation.blockers || []).length ? `<div class="analytics-row-warning"><strong>Fields likely needing correction:</strong><ul>${validation.blockers.map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul></div>` : ''}
+        <div class="catalog-correction-grid">
+          <label>Program Name <input name="${catalogCorrectionFieldName('programName')}" value="${escapeAttr(program.programName || '')}"></label>
+          <label>Award Type <input name="${catalogCorrectionFieldName('awardType')}" value="${escapeAttr(program.awardType || '')}"></label>
+          <label>Catalog Year <input name="${catalogCorrectionFieldName('catalogYear')}" value="${escapeAttr(program.catalogYear || '')}"></label>
+          <label>Department <input name="${catalogCorrectionFieldName('department')}" value="${escapeAttr(program.department || '')}"></label>
+          <label>Division <input name="${catalogCorrectionFieldName('division')}" value="${escapeAttr(program.division || '')}"></label>
+          <label>Total Units Required <input name="${catalogCorrectionFieldName('totalUnitsRequired')}" value="${escapeAttr(program.totalUnitsRequired ?? '')}" inputmode="decimal"></label>
+          <label>Minimum Program Units <input name="${catalogCorrectionFieldName('minimumProgramUnits')}" value="${escapeAttr(program.minimumProgramUnits ?? '')}" inputmode="decimal"></label>
+        </div>
+        ${groupRows || '<p class="analytics-empty">No requirement groups are available to edit.</p>'}
+        <div class="catalog-review-actions">
+          <button type="button" data-catalog-action="save-corrections" data-candidate-id="${escapeAttr(detail.candidateId || '')}">Save Corrections & Revalidate</button>
+        </div>
+      </form>
+    `;
+  }
+
   function renderCatalogProgramDetailPrompt(message = 'Select a program from the Review Queue to inspect its extracted requirements.', warning = false) {
     const status = document.getElementById('catalogProgramDetailStatus');
     const summary = document.getElementById('catalogProgramDetailSummary');
@@ -9227,6 +9307,7 @@
       <div class="catalog-review-actions">${selection.candidateId ? `<button type="button" data-catalog-action="approve" data-candidate-id="${escapeAttr(selection.candidateId)}">Approve Candidate</button>` : '<span class="analytics-empty">No review actions available for this record.</span>'}</div>
       ${(validation.blockers || []).length ? `<div class="analytics-row-warning"><strong>Approval Blockers</strong><ul>${validation.blockers.map(warning => `<li>${escapeAttr(warning)}</li>`).join('')}</ul><p>Resolve these items before approval, or enter an administrator override reason when prompted.</p></div>` : '<p class="analytics-empty">No approval blockers.</p>'}
       ${(validation.warnings || []).length ? `<div class="analytics-row-warning"><strong>Warnings</strong><ul>${validation.warnings.map(warning => `<li>${escapeAttr(warning)}</li>`).join('')}</ul></div>` : '<p class="analytics-empty">No review warnings.</p>'}
+      ${detail ? renderCatalogCorrectionEditor(detail, validation) : ''}
       <details open><summary>Original Source Text</summary><pre class="catalog-source-preview">${sourcePreview}</pre></details>
       ${courseRows.length ? `<h4>Parsed Courses</h4><div class="analytics-table"><table><thead><tr><th>Group</th><th>Course</th><th>Units</th><th>Prerequisites</th><th>Corequisites</th><th>Equivalents</th><th>Page</th></tr></thead><tbody>${courseRows.map(row => `<tr><td>${escapeAttr(row.group)}</td><td>${escapeAttr(row.course)}</td><td>${escapeAttr(row.units)}</td><td>${escapeAttr(row.prerequisites)}</td><td>${escapeAttr(row.corequisites)}</td><td>${escapeAttr(row.equivalents)}</td><td>${escapeAttr(row.page)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="analytics-empty">No parsed courses are available for this selected program.</p>'}
     `;
@@ -9773,6 +9854,81 @@ BUS 180 2 units`)
     if (approved.revision && repo.saveProgramRequirementRevision) await repo.saveProgramRequirementRevision(approved.revision);
     state.selectedCatalogCandidateId = candidateId;
     state.programRequirementsErrors = [];
+    await refreshProgramRequirementsRepository();
+  }
+
+  async function saveCatalogCorrections(candidateId = '') {
+    const form = document.getElementById('catalogCorrectionEditor');
+    const detail = catalogDetailForCandidate(candidateId) || catalogSelectedDetail();
+    if (!form || !detail) {
+      state.programRequirementsErrors = ['Open a catalog candidate before saving corrections.'];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    const corrected = catalogReviewClone(detail);
+    const program = corrected.program || {};
+    program.programName = String(catalogCorrectionValue(form, 'programName')).trim();
+    program.awardType = String(catalogCorrectionValue(form, 'awardType')).trim();
+    program.catalogYear = String(catalogCorrectionValue(form, 'catalogYear')).trim();
+    program.department = String(catalogCorrectionValue(form, 'department')).trim();
+    program.division = String(catalogCorrectionValue(form, 'division')).trim();
+    program.totalUnitsRequired = catalogNumberOrUndefined(catalogCorrectionValue(form, 'totalUnitsRequired'));
+    program.minimumProgramUnits = catalogNumberOrUndefined(catalogCorrectionValue(form, 'minimumProgramUnits'));
+    (program.requirementGroups || []).forEach((group, groupIndex) => {
+      group.label = String(catalogCorrectionValue(form, 'groupLabel', groupIndex)).trim();
+      group.rule = String(catalogCorrectionValue(form, 'groupRule', groupIndex)).trim() || 'all';
+      group.chooseCount = catalogNumberOrUndefined(catalogCorrectionValue(form, 'groupChooseCount', groupIndex));
+      group.unitsRequired = catalogNumberOrUndefined(catalogCorrectionValue(form, 'groupUnitsRequired', groupIndex));
+      group.pageNumber = catalogNumberOrUndefined(catalogCorrectionValue(form, 'groupPage', groupIndex));
+      group.sourceText = String(catalogCorrectionValue(form, 'groupSource', groupIndex)).trim();
+      (group.courses || []).forEach((course, courseIndex) => {
+        course.courseKey = String(catalogCorrectionValue(form, 'courseKey', groupIndex, courseIndex)).trim();
+        course.sourceCourseKey = course.courseKey;
+        course.units = catalogNumberOrUndefined(catalogCorrectionValue(form, 'courseUnits', groupIndex, courseIndex));
+        const pageNumber = catalogNumberOrUndefined(catalogCorrectionValue(form, 'coursePage', groupIndex, courseIndex)) || group.pageNumber;
+        const text = String(catalogCorrectionValue(form, 'courseSource', groupIndex, courseIndex)).trim() || course.courseKey;
+        course.sourceEvidence = [{
+          pageNumber,
+          text,
+          evidenceType: 'admin-corrected-requirement',
+          confidence: 0.95
+        }];
+      });
+    });
+    corrected.program = program;
+    corrected.unitReconciliation = catalogExtractionApi().reconcileUnits?.(program) || corrected.unitReconciliation;
+    corrected.requirementEvidence = (program.requirementGroups || []).flatMap(group => [
+      {
+        pageNumber: group.pageNumber,
+        text: group.sourceText || group.label,
+        evidenceType: 'admin-corrected-requirement-group',
+        confidence: 0.95
+      },
+      ...(group.courses || []).flatMap(course => course.sourceEvidence || [])
+    ]);
+    const correctedWarnings = (corrected.warnings || []).filter(warning => !/Missing unit value|Missing stated program-unit total|Missing page reference|Missing choose-units value|Unit variance beyond tolerance/i.test(warning));
+    (program.requirementGroups || []).forEach(group => {
+      (group.courses || []).forEach(course => {
+        if (catalogNumberOrUndefined(course.units) === undefined) correctedWarnings.push(`Missing unit value for ${course.courseKey || 'course'}.`);
+      });
+    });
+    corrected.warnings = [...new Set(correctedWarnings)];
+    corrected.correctionHistory = [...(corrected.correctionHistory || []), {
+      correctedAt: new Date().toISOString(),
+      correctedBy: 'TIMBER Admin Review',
+      reason: 'Manual extraction correction from Catalog & Program Requirements review editor.'
+    }];
+    const validation = catalogValidationSummary(corrected, (state.catalogProgramCandidates || []).find(candidate => candidate.candidateId === candidateId) || null);
+    const repo = await programRequirementsRepository();
+    await repo.saveCatalogRequirementDetail?.(corrected);
+    state.selectedCatalogCandidateId = candidateId || corrected.candidateId || state.selectedCatalogCandidateId;
+    state.catalogRequirementDetails = (state.catalogRequirementDetails || []).map(item => item.candidateId === corrected.candidateId ? corrected : item);
+    if (!state.catalogRequirementDetails.some(item => item.candidateId === corrected.candidateId)) state.catalogRequirementDetails.push(corrected);
+    state.programRequirementsErrors = validation.blockers?.length
+      ? validation.blockers
+      : validation.warnings?.length
+        ? validation.warnings
+        : [];
     await refreshProgramRequirementsRepository();
   }
 
@@ -25323,6 +25479,15 @@ BUS 180 2 units`)
       .analytics-table tr.analytics-row-warning td{background:#fff7ed;color:#7c2d12;font-weight:800}
       .analytics-table tr.analytics-row-muted td{background:#f3f4f6;color:#4b5563}
       .analytics-table tr.analytics-row-info td{background:#eff6ff;color:#1e3a8a}
+      .catalog-correction-editor{display:grid;gap:12px;margin:14px 0;padding:14px;border:1px solid #d8e1ec;border-radius:12px;background:#f8fbff}
+      .catalog-correction-editor h4{margin:0;color:#123367;font-size:16px}
+      .catalog-correction-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+      .catalog-correction-editor label{display:flex;flex-direction:column;gap:4px;color:#51657c;font-size:12px;font-weight:800}
+      .catalog-correction-editor input,.catalog-correction-editor select,.catalog-correction-editor textarea{width:100%;box-sizing:border-box;border:1px solid #ccd6e2;border-radius:6px;padding:7px 8px;background:#fff;color:#152338;font:inherit;font-size:13px}
+      .catalog-correction-editor textarea{resize:vertical;min-height:42px}
+      .catalog-correction-group{display:grid;gap:10px;margin:0;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#fff}
+      .catalog-correction-group legend{padding:0 6px;color:#123367;font-weight:900}
+      .catalog-correction-course-table{margin-top:0}
       #roomFitReportMetrics button.room-fit-card{border:1px solid #f59e0b;border-radius:18px;padding:14px 16px;background:linear-gradient(135deg,#fff7ed,#fed7aa);box-shadow:0 8px 18px rgba(180,83,9,.16);cursor:pointer;text-align:center}
       #roomFitReportMetrics button.room-fit-card strong{display:block;font-size:24px;color:#7c2d12}
       #roomFitReportMetrics button.room-fit-card span{display:block;margin-top:4px;color:#9a3412;font-size:12px;font-weight:900;letter-spacing:.03em;text-transform:uppercase}
@@ -25691,13 +25856,15 @@ BUS 180 2 units`)
         ? openCatalogProgramReview(candidateId, revisionId)
         : action === 'approve'
           ? approveCatalogCandidate(candidateId)
-          : action === 'publish'
-            ? publishCatalogRevision(revisionId)
-            : action === 'archive'
-              ? archiveCatalogRevision(revisionId)
-              : action === 'rollback'
-                ? rollbackCatalogRevision(revisionId)
-                : Promise.resolve();
+          : action === 'save-corrections'
+            ? saveCatalogCorrections(candidateId)
+            : action === 'publish'
+              ? publishCatalogRevision(revisionId)
+              : action === 'archive'
+                ? archiveCatalogRevision(revisionId)
+                : action === 'rollback'
+                  ? rollbackCatalogRevision(revisionId)
+                  : Promise.resolve();
       task.catch(err => {
         state.programRequirementsErrors = [err.message || String(err)];
         renderProgramRequirementsAdmin();

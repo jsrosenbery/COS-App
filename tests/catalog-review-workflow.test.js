@@ -118,6 +118,9 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /Approval Blockers/);
   assert.match(source, /catalogDetailForCandidate/);
   assert.match(source, /validation\.blockers/);
+  assert.match(source, /Correction Editor/);
+  assert.match(source, /saveCatalogCorrections/);
+  assert.match(source, /data-catalog-action="save-corrections"/);
   assert.equal((source.match(/catalogProgramRequirementsReport'\)\?\.addEventListener\('click'/g) || []).length, 1);
   assert.equal((source.match(/data-catalog-action="open-review"/g) || []).length, 1);
 });
