@@ -103,6 +103,25 @@
     return { pageNumber: Number(pageNumber) || 0, text: String(text ?? '').replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ').trim() };
   }
 
+  function pdfTextItemsToLines(items = []) {
+    const rows = [];
+    (items || []).filter(item => compact(item?.str)).forEach(item => {
+      const x = Number(item.transform?.[4] || 0);
+      const y = Number(item.transform?.[5] || 0);
+      let row = rows.find(candidate => Math.abs(candidate.y - y) <= 2);
+      if (!row) {
+        row = { y, items: [] };
+        rows.push(row);
+      }
+      row.items.push({ x, text: String(item.str || '') });
+    });
+    return rows
+      .sort((a, b) => b.y - a.y)
+      .map(row => row.items.sort((a, b) => a.x - b.x).map(item => item.text).join(' ').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
   async function ingestCatalogPdf(file, options = {}) {
     const started = Date.now();
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
@@ -161,7 +180,7 @@
         throwIfCancelled(signal);
         const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent();
-        const text = (content.items || []).map(item => item.str || '').join(' ');
+        const text = pdfTextItemsToLines(content.items || []);
         pageTexts.push(pageTextRecord(pageNumber, text));
         if (pageNumber % chunkSize === 0) {
           onProgress({ state: 'Extracting page text', pagesProcessed: pageNumber, pageCount });
@@ -184,6 +203,101 @@
       durationMs: Date.now() - started,
       warnings,
       pageTexts
+    };
+  }
+
+  function parseCurriculumProgramExport(pageTexts = [], source = {}) {
+    const pages = pageTexts || [];
+    const text = pages.map(page => page.text || '').join('\n');
+    if (!/Program\s+Award\s*:/i.test(text) || !/Program\s+Requirements\s*:/i.test(text)) return null;
+    const valueAfter = label => compact((text.match(new RegExp(`${label}\\s*:\\s*([^\\n]+)`, 'i')) || [])[1]);
+    const programName = valueAfter('Program Title') || compact((text.match(/Viewing\s*:\s*([^\n]+)/i) || [])[1]);
+    const awardType = valueAfter('Program Award');
+    const effectiveTerm = valueAfter('Effective Term');
+    const department = valueAfter('Department');
+    if (!programName || !awardType) return null;
+
+    const warnings = ['Imported from a single-program PDF. Review every requirement group before approval or publication.'];
+    const groups = [];
+    let current = null;
+    const pushCurrent = () => {
+      if (current?.courses?.length || current?.subgroups?.length) groups.push(current);
+      current = null;
+    };
+    const headingFor = line => {
+      if (/^(?:General Education|Units for|State Requirements|TOTAL|Program Learning)/i.test(line)) return null;
+      if (!/(Required|Restricted Elective|List [A-Z]|Concentration|Movement Based)/i.test(line)) return null;
+      const chooseUnits = line.match(/(?:select|choose).*?(\d+(?:\.\d+)?)\s*units/i);
+      const chooseCount = line.match(/(?:select|choose)\s+(one|two|three|four|\d+)/i);
+      const words = { one: 1, two: 2, three: 3, four: 4 };
+      return {
+        groupId: `pdf-group-${groups.length + 1}`,
+        label: line,
+        rule: chooseUnits ? 'choose-units' : chooseCount ? 'choose-count' : 'all',
+        unitsRequired: chooseUnits ? Number(chooseUnits[1]) : undefined,
+        chooseCount: chooseCount ? (words[chooseCount[1].toLowerCase()] || Number(chooseCount[1])) : undefined,
+        courses: [],
+        sourceText: line,
+        pageNumber: pageForLine(pages, line)
+      };
+    };
+    text.split(/\r?\n/).map(compact).filter(Boolean).forEach(line => {
+      const heading = headingFor(line);
+      if (heading) {
+        pushCurrent();
+        current = heading;
+        if (/maximum of one course from each area/i.test(line)) warnings.push('Movement-area maximum requires administrator validation; the imported choose-count rule does not enforce one course per area.');
+        return;
+      }
+      if (!current) return;
+      const match = line.match(/^([A-Z]{2,6}(?:\/[A-Z]{2,6})?)\s+([A-Z]?\d{1,4}[A-Z]?|C\d{4}[A-Z]?)\b(.*)$/i);
+      if (!match) return;
+      const subjects = match[1].toUpperCase().split('/');
+      const courseKey = normalizeCatalogCourseKey(`${subjects[0]} ${match[2]}`);
+      const unitMatch = match[3].match(/(\d+(?:\.\d+)?)\s*$/);
+      current.courses.push({
+        courseKey,
+        sourceCourseKey: `${match[1]} ${match[2]}`,
+        units: unitMatch ? Number(unitMatch[1]) : undefined,
+        equivalentCourseKeys: [...new Set(subjects.flatMap(subject => equivalentCourseKeys(`${subject} ${match[2]}`)))],
+        sourceEvidence: [createEvidence(pageForLine(pages, line), line, 'program-export-requirement', unitMatch ? 0.9 : 0.6)]
+      });
+    });
+    pushCurrent();
+    if (!groups.length) warnings.push('No explicit course requirements were detected.');
+    const totalMatch = text.match(/\bTOTAL\s+(\d+(?:\.\d+)?)(?:\s*[-–]\s*(\d+(?:\.\d+)?))?/i);
+    const sourceRecord = normalizeCatalogSource(source);
+    const candidateId = `candidate-${fingerprint({ programName, awardType, effectiveTerm, filename: sourceRecord.filename })}`;
+    const program = programRequirements.normalizeProgram({
+      programId: `${programName}-${awardType}`.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toUpperCase(),
+      catalogYear: sourceRecord.catalogYear || effectiveTerm,
+      programName,
+      awardType,
+      department,
+      division: department,
+      totalUnitsRequired: totalMatch ? Number(totalMatch[1]) : undefined,
+      minimumProgramUnits: groups.flatMap(group => group.courses || []).reduce((sum, course) => sum + Number(course.units || 0), 0),
+      requirementGroups: groups,
+      source: { sourceType: 'catalog-pdf', filename: sourceRecord.filename, catalogTitle: sourceRecord.catalogTitle, pageNumbers: pages.map(page => page.pageNumber), originalText: text, importedAt: new Date().toISOString(), extractionVersion: CATALOG_EXTRACTION_VERSION },
+      reviewStatus: 'needs-review'
+    });
+    const candidate = {
+      candidateId, catalogSourceId: sourceRecord.catalogSourceId, catalogYear: program.catalogYear,
+      programName, awardType, areaOfStudy: department, likelyStartPage: 1,
+      likelyEndPage: pages.length, detailedSourceFound: true,
+      pageRange: { startPage: 1, endPage: pages.length, pages: pages.map(page => page.pageNumber), boundaryConfidence: 0.95, boundaryWarnings: [] },
+      sourceEvidence: [createEvidence(1, `${programName} | ${awardType}`, 'program-export-header', 0.95)]
+    };
+    return {
+      candidate,
+      detail: {
+        candidateId, program, pageRange: candidate.pageRange,
+        requirementRows: parseRequirementTableRows(pages),
+        unitReconciliation: reconcileUnits(program),
+        requirementEvidence: groups.flatMap(group => (group.courses || []).flatMap(course => course.sourceEvidence || [])),
+        confidence: confidenceFromWarnings(warnings, groups), warnings, extractionStatus: 'needs-review'
+      },
+      effectiveTerm
     };
   }
 
@@ -664,7 +778,9 @@
     equivalentCourseKeys,
     createEvidence,
     pageTextRecord,
+    pdfTextItemsToLines,
     ingestCatalogPdf,
+    parseCurriculumProgramExport,
     extractProgramInventory,
     parseAwardHeading,
     detectProgramPageRange,

@@ -422,6 +422,8 @@
     scheduleBuilderTermRows: {},
     scheduleBuilderTermMetadata: {},
     scheduleBuilderTermStatus: '',
+    scheduleBuilderSourceCache: null,
+    scheduleBuilderSectionCache: null,
     programRequirementsRepository: null,
     programRequirements: [],
     programRequirementsPreview: [],
@@ -2854,7 +2856,7 @@
               <div class="analytics-toolbar catalog-upload-toolbar">
                 <label>Catalog Year <input id="catalogPdfYear" type="text" value="2026-2027" aria-label="Catalog year"></label>
                 <label>Catalog Title <input id="catalogPdfTitle" type="text" value="College of the Sequoias 2026-2027 Catalog" aria-label="Catalog title"></label>
-                <label>Upload Catalog PDF <input id="catalogPdfFile" type="file" accept="application/pdf,.pdf" aria-label="Upload catalog PDF"></label>
+                <label>Upload Catalog or Program PDF <input id="catalogPdfFile" type="file" accept="application/pdf,.pdf" aria-label="Upload catalog or single-program PDF"></label>
                 <button id="extractCatalogPdf" type="button">Upload / Extract PDF</button>
                 <button id="cancelCatalogPdfExtraction" type="button">Cancel Extraction</button>
                 <button id="exportProgramRequirements" type="button">Export Catalog Backup</button>
@@ -2862,7 +2864,7 @@
                 <button id="importCatalogBackup" type="button">Restore Backup</button>
                 <button id="clearProgramRequirementsPreview" type="button">Clear Draft Extraction</button>
               </div>
-              <div id="catalogPdfDropZone" class="dashboard-scope-panel" role="button" tabindex="0" aria-label="Drop catalog PDF here or use the file picker">Drop catalog PDF here or choose a file above. PDF files are processed locally in this browser.</div>
+              <div id="catalogPdfDropZone" class="dashboard-scope-panel" role="button" tabindex="0" aria-label="Drop catalog or program PDF here or use the file picker">Drop a catalog PDF or CurrIQ single-program export here. PDF files are processed locally in this browser and require review before publication.</div>
               <div id="catalogPdfStatus" class="dashboard-scope-panel" aria-live="polite"></div>
               <div id="programRequirementsStatus" class="dashboard-scope-panel"></div>
               <div id="programRequirementsErrors" class="analytics-warning-list"></div>
@@ -8691,14 +8693,25 @@
   }
 
   function scheduleBuilderCurrentRows() {
-    return currentRows()
-      .filter(row => !isOmittedInstructionalMethod(row));
+    const rawRows = window.COSScheduleApp?.getCurrentData?.() || window.currentData || [];
+    if (state.scheduleBuilderSourceCache?.rawRows === rawRows && state.scheduleBuilderSourceCache?.length === rawRows.length) {
+      return state.scheduleBuilderSourceCache.rows;
+    }
+    const rows = rawRows.map(normalize).filter(row => !isOmittedInstructionalMethod(row));
+    state.scheduleBuilderSourceCache = { rawRows, length: rawRows.length, rows };
+    state.scheduleBuilderSectionCache = null;
+    return rows;
   }
 
   function scheduleBuilderCurrentRowsForTerm(term) {
     const normalizedTerm = normalizeTermLabel(term);
-    return scheduleBuilderCurrentRows()
-      .filter(row => !normalizedTerm || normalizeTermLabel(row.term) === normalizedTerm);
+    const rows = scheduleBuilderCurrentRows();
+    const cache = state.scheduleBuilderSourceCache;
+    cache.rowsByTerm = cache.rowsByTerm || {};
+    if (!cache.rowsByTerm[normalizedTerm]) {
+      cache.rowsByTerm[normalizedTerm] = rows.filter(row => !normalizedTerm || normalizeTermLabel(row.term) === normalizedTerm);
+    }
+    return cache.rowsByTerm[normalizedTerm];
   }
 
   function scheduleBuilderAllRows() {
@@ -8768,6 +8781,7 @@
     const rows = (await loadScheduleTermRows(requestedTerm, options))
       .filter(row => !isOmittedInstructionalMethod(row));
     state.scheduleBuilderTermRows = { ...(state.scheduleBuilderTermRows || {}), [requestedTerm]: rows };
+    state.scheduleBuilderSectionCache = null;
     const metadata = state.scheduleTermMetadataCache?.[requestedTerm] || {};
     state.scheduleBuilderTermMetadata = {
       ...(state.scheduleBuilderTermMetadata || {}),
@@ -8784,7 +8798,11 @@
   }
 
   function scheduleBuilderSections() {
-    return scheduleBuilderEngine().normalizeSections(scheduleBuilderSourceRows());
+    const rows = scheduleBuilderSourceRows();
+    if (state.scheduleBuilderSectionCache?.rows === rows) return state.scheduleBuilderSectionCache.sections;
+    const sections = scheduleBuilderEngine().normalizeSections(rows);
+    state.scheduleBuilderSectionCache = { rows, sections };
+    return sections;
   }
 
   function scheduleBuilderTimestamp(rows = scheduleBuilderSourceRows()) {
@@ -8792,9 +8810,9 @@
     return stamps[stamps.length - 1] || 'Not available from loaded data';
   }
 
-  function scheduleBuilderCourseOptions() {
+  function scheduleBuilderCourseOptions(sections = scheduleBuilderSections()) {
     const map = new Map();
-    scheduleBuilderSections().forEach(section => {
+    sections.forEach(section => {
       const labelText = [section.courseKey, section.title].filter(Boolean).join(' - ');
       if (!map.has(section.courseKey)) map.set(section.courseKey, { value: section.courseKey, label: labelText || section.courseKey });
     });
@@ -8805,7 +8823,7 @@
     const effectiveTerm = updateScheduleBuilderTermOptions();
     const rows = scheduleBuilderSourceRows();
     const sections = scheduleBuilderSections();
-    const courses = scheduleBuilderCourseOptions();
+    const courses = scheduleBuilderCourseOptions(sections);
     const loadedTerms = collectRowTerms(scheduleBuilderAllRows()).map(normalizeTermLabel).filter(Boolean);
     const loadedTermText = loadedTerms.length ? loadedTerms.join(', ') : 'No loaded schedule terms detected';
     const sourceStatus = rows.length
@@ -9512,6 +9530,18 @@
       });
       await repo.saveCatalogSource(source);
       if (repo.saveCatalogPages) await repo.saveCatalogPages(source.catalogSourceId, state.catalogPageTexts);
+      const programExport = extractor.parseCurriculumProgramExport?.(state.catalogPageTexts, source);
+      if (programExport) {
+        await repo.saveCatalogProgramCandidates([{ ...programExport.candidate, catalogSourceId: source.catalogSourceId }]);
+        await repo.saveCatalogRequirementDetail(programExport.detail);
+        state.catalogPdfExtraction = { ...extraction, state: 'Ready for Review', programsDetected: 1, sourceType: 'single-program-export' };
+        state.catalogProgramCandidates = [programExport.candidate];
+        state.catalogRequirementDetails = [programExport.detail];
+        state.programRequirementsPreview = [programExport.detail.program];
+        state.programRequirementsErrors = programExport.detail.warnings || [];
+        await refreshProgramRequirementsRepository();
+        return;
+      }
       const inventory = extractor.extractProgramInventory(state.catalogPageTexts, source).map(candidate => ({ ...candidate, catalogSourceId: source.catalogSourceId }));
       await repo.saveCatalogProgramCandidates(inventory);
       state.catalogPdfExtraction = { ...extraction, state: 'Ready for Review', programsDetected: inventory.length };
@@ -25136,14 +25166,20 @@ BUS 180 2 units`)
       document.getElementById('optimizationPriorityAudit').innerHTML = '<p class="analytics-empty">Room priority audit appears after running the lab.</p>';
     }
     if (selected === REPORTS.scheduleBuilder) {
-      updateScheduleBuilderSourceStatus();
-      renderScheduleBuilderResults();
-      loadScheduleBuilderEffectiveTermRows()
-        .then(() => renderScheduleBuilderResults())
-        .catch(err => {
-          state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
-          renderScheduleBuilderResults();
-        });
+      const sourceNode = document.getElementById('scheduleBuilderSourceStatus');
+      if (sourceNode) sourceNode.innerHTML = '<p class="analytics-empty">Preparing Schedule Builder data...</p>';
+      const prepareScheduleBuilder = () => {
+        if (selectedEnrollmentReport() !== REPORTS.scheduleBuilder) return;
+        renderScheduleBuilderResults();
+        loadScheduleBuilderEffectiveTermRows()
+          .then(() => renderScheduleBuilderResults())
+          .catch(err => {
+            state.scheduleBuilderTermStatus = err.message || 'Schedule Builder term load failed.';
+            renderScheduleBuilderResults();
+          });
+      };
+      if (typeof document.createTextNode === 'function') requestAnimationFrame(prepareScheduleBuilder);
+      else prepareScheduleBuilder();
     }
     if (selected === REPORTS.twoYearProgramFeasibility) {
       refreshProgramRequirementsRepository()
