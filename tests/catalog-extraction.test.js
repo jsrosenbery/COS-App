@@ -302,6 +302,30 @@ BUS 20 or BUS 21
   assert.equal((await repo.getProgramRequirementRevisions(approved.program.programId, approved.program.catalogYear)).length, 1);
 });
 
+test('approval allows non-blocking single-program review warnings without override', () => {
+  const parsed = catalog.parseCurriculumProgramExport([
+    page(1, `
+Program Award: Certificate of Achievement
+Program Title: Accounting
+Effective Term: 2026-2027
+Department: Business
+Program Requirements:
+Required Core
+ACCT 001 Financial Accounting 4
+TOTAL 4
+    `)
+  ], { catalogYear: '2026-2027', filename: 'accounting-program.pdf', catalogTitle: 'CurrIQ Program Export' });
+
+  assert.ok(parsed.detail.warnings.some(warning => /single-program PDF/i.test(warning)));
+  const validation = catalog.validateExtractionCandidate(parsed.candidate, parsed.detail);
+  assert.equal(validation.valid, true);
+  assert.deepEqual(validation.blockers, []);
+
+  const approved = catalog.approveExtractedProgram(parsed.detail, 'Reviewer');
+  assert.equal(approved.program.reviewStatus, 'approved');
+  assert.equal(approved.reviewDecision.overrideReason, '');
+});
+
 test('catalog review workflow keeps extracted records out of feasibility until approved', async () => {
   const repo = COSProgramRequirements.createMemoryRepository();
   const candidate = catalog.extractProgramInventory(pilotPages, { catalogYear: '2026-2027' })

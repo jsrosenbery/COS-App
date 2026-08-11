@@ -676,7 +676,7 @@
       if (group.rule === 'choose-units' && !group.unitsRequired) warnings.push(`Missing choose-units value for ${group.label}.`);
     });
     const highSeverity = warnings.filter(warning => /Ambiguous|Missing|unmatched|cycle|variance|No detailed/i.test(warning));
-    return { valid: warnings.length === 0 && highSeverity.length === 0, warnings };
+    return { valid: highSeverity.length === 0, warnings, blockers: highSeverity };
   }
 
   function approveExtractedProgram(detail = {}, reviewer = '', options = {}) {
