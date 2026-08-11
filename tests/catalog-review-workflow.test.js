@@ -126,6 +126,13 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /reviewStatus: 'approved'/);
   assert.match(source, /saveCatalogProgramCandidates/);
   assert.match(source, /Approved \$\{approved\.program\?\.programName/);
+  assert.match(source, /renderCatalogCorrectionGroup/);
+  assert.match(source, /Nested Requirements/);
+  assert.match(source, /Auto-nest Area\/Sub-area Groups/);
+  assert.match(source, /autoNestCatalogRequirementGroups/);
+  assert.match(source, /catalogRequirementGroupsInTree/);
+  assert.match(source, /nestingLevel/);
+  assert.match(source, /groupNotes/);
   assert.equal((source.match(/catalogProgramRequirementsReport'\)\?\.addEventListener\('click'/g) || []).length, 1);
   assert.equal((source.match(/data-catalog-action="open-review"/g) || []).length, 1);
 });

@@ -9159,9 +9159,20 @@
       || { ok: false, error: 'Catalog review workflow module is not loaded.' };
   }
 
+  function catalogRequirementGroupsInTree(groups = [], parentLabel = '', depth = 0) {
+    return (groups || []).flatMap(group => {
+      const pathLabel = [parentLabel, group.label].filter(Boolean).join(' > ');
+      return [
+        { group, pathLabel: pathLabel || group.label || 'Requirement', depth },
+        ...catalogRequirementGroupsInTree(group.subgroups || [], pathLabel, depth + 1)
+      ];
+    });
+  }
+
   function catalogCourseRows(program = {}) {
-    return (program.requirementGroups || []).flatMap(group => (group.courses || []).map(course => ({
-      group: group.label,
+    return catalogRequirementGroupsInTree(program.requirementGroups || []).flatMap(({ group, pathLabel, depth }) => (group.courses || []).map(course => ({
+      group: pathLabel,
+      depth,
       course: course.courseKey,
       units: course.units ?? '',
       prerequisites: (course.prerequisiteCourseKeys || []).join('; ') || 'None',
@@ -9190,49 +9201,55 @@
     return form?.elements?.[catalogCorrectionFieldName(...parts)]?.value ?? '';
   }
 
-  function renderCatalogCorrectionEditor(detail = {}, validation = {}) {
-    const program = detail.program || {};
-    const groups = program.requirementGroups || [];
-    const groupRows = groups.map((group, groupIndex) => {
-      const courseRows = (group.courses || []).map((course, courseIndex) => {
-        const evidence = course.sourceEvidence?.[0] || {};
-        return `
+  function renderCatalogCorrectionGroup(group = {}, path = [], depth = 0) {
+    const pathLabel = path.map(part => Number(part) + 1).join('.');
+    const courseRows = (group.courses || []).map((course, courseIndex) => {
+      const evidence = course.sourceEvidence?.[0] || {};
+      return `
           <tr>
-            <td><input name="${catalogCorrectionFieldName('courseKey', groupIndex, courseIndex)}" value="${escapeAttr(course.courseKey || '')}" aria-label="Course key"></td>
-            <td><input name="${catalogCorrectionFieldName('courseUnits', groupIndex, courseIndex)}" value="${escapeAttr(course.units ?? '')}" inputmode="decimal" aria-label="Course units"></td>
-            <td><input name="${catalogCorrectionFieldName('coursePage', groupIndex, courseIndex)}" value="${escapeAttr(evidence.pageNumber || group.pageNumber || '')}" inputmode="numeric" aria-label="Course page"></td>
-            <td><textarea name="${catalogCorrectionFieldName('courseSource', groupIndex, courseIndex)}" rows="2" aria-label="Course source text">${escapeAttr(evidence.text || course.sourceCourseKey || course.courseKey || '')}</textarea></td>
+            <td><input name="${catalogCorrectionFieldName('courseKey', ...path, courseIndex)}" value="${escapeAttr(course.courseKey || '')}" aria-label="Course key"></td>
+            <td><input name="${catalogCorrectionFieldName('courseUnits', ...path, courseIndex)}" value="${escapeAttr(course.units ?? '')}" inputmode="decimal" aria-label="Course units"></td>
+            <td><input name="${catalogCorrectionFieldName('coursePage', ...path, courseIndex)}" value="${escapeAttr(evidence.pageNumber || group.pageNumber || '')}" inputmode="numeric" aria-label="Course page"></td>
+            <td><textarea name="${catalogCorrectionFieldName('courseSource', ...path, courseIndex)}" rows="2" aria-label="Course source text">${escapeAttr(evidence.text || course.sourceCourseKey || course.courseKey || '')}</textarea></td>
           </tr>
         `;
-      }).join('');
-      return `
-        <fieldset class="catalog-correction-group">
-          <legend>Requirement Group ${groupIndex + 1}</legend>
+    }).join('');
+    const subgroupRows = (group.subgroups || []).map((subgroup, subgroupIndex) => renderCatalogCorrectionGroup(subgroup, [...path, subgroupIndex], depth + 1)).join('');
+    return `
+        <fieldset class="catalog-correction-group catalog-correction-level-${Math.min(depth, 4)}">
+          <legend>${escapeAttr(pathLabel ? `Requirement ${pathLabel}` : 'Requirement')}</legend>
           <div class="catalog-correction-grid">
-            <label>Group Label <input name="${catalogCorrectionFieldName('groupLabel', groupIndex)}" value="${escapeAttr(group.label || '')}"></label>
+            <label>Group Label <input name="${catalogCorrectionFieldName('groupLabel', ...path)}" value="${escapeAttr(group.label || '')}"></label>
             <label>Rule
-              <select name="${catalogCorrectionFieldName('groupRule', groupIndex)}">
-                ${['all', 'or', 'choose-count', 'choose-units'].map(rule => `<option value="${rule}"${group.rule === rule ? ' selected' : ''}>${rule}</option>`).join('')}
+              <select name="${catalogCorrectionFieldName('groupRule', ...path)}">
+                ${['all', 'or', 'choose-count', 'choose-units', 'one-from-each-list'].map(rule => `<option value="${rule}"${group.rule === rule ? ' selected' : ''}>${rule}</option>`).join('')}
               </select>
             </label>
-            <label>Choose Count <input name="${catalogCorrectionFieldName('groupChooseCount', groupIndex)}" value="${escapeAttr(group.chooseCount ?? '')}" inputmode="numeric"></label>
-            <label>Units Required <input name="${catalogCorrectionFieldName('groupUnitsRequired', groupIndex)}" value="${escapeAttr(group.unitsRequired ?? '')}" inputmode="decimal"></label>
-            <label>Page <input name="${catalogCorrectionFieldName('groupPage', groupIndex)}" value="${escapeAttr(group.pageNumber || '')}" inputmode="numeric"></label>
+            <label>Choose Count <input name="${catalogCorrectionFieldName('groupChooseCount', ...path)}" value="${escapeAttr(group.chooseCount ?? '')}" inputmode="numeric"></label>
+            <label>Units Required <input name="${catalogCorrectionFieldName('groupUnitsRequired', ...path)}" value="${escapeAttr(group.unitsRequired ?? '')}" inputmode="decimal"></label>
+            <label>Page <input name="${catalogCorrectionFieldName('groupPage', ...path)}" value="${escapeAttr(group.pageNumber || '')}" inputmode="numeric"></label>
           </div>
-          <label>Group Source Text <textarea name="${catalogCorrectionFieldName('groupSource', groupIndex)}" rows="2">${escapeAttr(group.sourceText || '')}</textarea></label>
+          <label>Group Source Text <textarea name="${catalogCorrectionFieldName('groupSource', ...path)}" rows="2">${escapeAttr(group.sourceText || '')}</textarea></label>
+          <label>Notes / Special Handling <textarea name="${catalogCorrectionFieldName('groupNotes', ...path)}" rows="2" placeholder="Example: Optional advisory group, course can count in one area only, CSU AI note, GE certificate requirement.">${escapeAttr(group.notes || '')}</textarea></label>
           <div class="analytics-table catalog-correction-course-table">
             <table>
               <thead><tr><th>Course</th><th>Units</th><th>Page</th><th>Source Text</th></tr></thead>
-              <tbody>${courseRows || '<tr><td colspan="4">No courses parsed in this group.</td></tr>'}</tbody>
+              <tbody>${courseRows || '<tr><td colspan="4">No courses parsed directly in this group.</td></tr>'}</tbody>
             </table>
           </div>
+          ${subgroupRows ? `<div class="catalog-correction-subgroups"><strong>Nested Requirements</strong>${subgroupRows}</div>` : ''}
         </fieldset>
       `;
-    }).join('');
+  }
+
+  function renderCatalogCorrectionEditor(detail = {}, validation = {}) {
+    const program = detail.program || {};
+    const groups = program.requirementGroups || [];
+    const groupRows = groups.map((group, groupIndex) => renderCatalogCorrectionGroup(group, [groupIndex], 0)).join('');
     return `
       <form id="catalogCorrectionEditor" class="catalog-correction-editor" data-candidate-id="${escapeAttr(detail.candidateId || '')}">
         <h4>Correction Editor</h4>
-        <p class="analytics-chart-note">Use this editor to correct extracted program totals, requirement groups, course units, and page/source references, then save and re-run validation before approval.</p>
+        <p class="analytics-chart-note">Use this editor to correct extracted program totals, requirement groups, nested sub-areas, course units, notes, and page/source references, then save and re-run validation before approval.</p>
         ${(validation.blockers || []).length ? `<div class="analytics-row-warning"><strong>Fields likely needing correction:</strong><ul>${validation.blockers.map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul></div>` : ''}
         <div class="catalog-correction-grid">
           <label>Program Name <input name="${catalogCorrectionFieldName('programName')}" value="${escapeAttr(program.programName || '')}"></label>
@@ -9245,6 +9262,7 @@
         </div>
         ${groupRows || '<p class="analytics-empty">No requirement groups are available to edit.</p>'}
         <div class="catalog-review-actions">
+          <button type="button" data-catalog-action="auto-nest-requirements" data-candidate-id="${escapeAttr(detail.candidateId || '')}">Auto-nest Area/Sub-area Groups</button>
           <button type="button" data-catalog-action="save-corrections" data-candidate-id="${escapeAttr(detail.candidateId || '')}">Save Corrections & Revalidate</button>
         </div>
       </form>
@@ -9298,7 +9316,8 @@
         <div><dt>Revision ID</dt><dd>${escapeAttr(selection.revisionId || 'N/A')}</dd></div>
         <div><dt>Extraction Status</dt><dd>${escapeAttr(detail?.extractionStatus || candidate?.extractionStatus || 'N/A')}</dd></div>
         <div><dt>Review Status</dt><dd>${escapeAttr(program.reviewStatus || candidate?.reviewStatus || 'N/A')}</dd></div>
-        <div><dt>Requirement Groups</dt><dd>${requirementGroups.length}</dd></div>
+        <div><dt>Top-level Groups</dt><dd>${requirementGroups.length}</dd></div>
+        <div><dt>Requirement Nodes</dt><dd>${catalogRequirementGroupsInTree(requirementGroups).length}</dd></div>
         <div><dt>Courses Parsed</dt><dd>${courseRows.length}</dd></div>
         <div><dt>Stated Units</dt><dd>${escapeAttr(program.totalUnitsRequired ?? 'N/A')}</dd></div>
         <div><dt>Parsed Units</dt><dd>${escapeAttr(unit.parsedUnits ?? unit.calculatedUnits ?? 'N/A')}</dd></div>
@@ -9312,16 +9331,18 @@
       <details open><summary>Original Source Text</summary><pre class="catalog-source-preview">${sourcePreview}</pre></details>
       ${courseRows.length ? `<h4>Parsed Courses</h4><div class="analytics-table"><table><thead><tr><th>Group</th><th>Course</th><th>Units</th><th>Prerequisites</th><th>Corequisites</th><th>Equivalents</th><th>Page</th></tr></thead><tbody>${courseRows.map(row => `<tr><td>${escapeAttr(row.group)}</td><td>${escapeAttr(row.course)}</td><td>${escapeAttr(row.units)}</td><td>${escapeAttr(row.prerequisites)}</td><td>${escapeAttr(row.corequisites)}</td><td>${escapeAttr(row.equivalents)}</td><td>${escapeAttr(row.page)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="analytics-empty">No parsed courses are available for this selected program.</p>'}
     `;
-    table('catalogRequirementReview', requirementGroups.map(group => ({
+    table('catalogRequirementReview', catalogRequirementGroupsInTree(requirementGroups).map(({ group, pathLabel, depth }) => ({
       program: program.programName,
-      requirementGroup: group.label,
+      requirementGroup: pathLabel,
+      nestingLevel: depth + 1,
       originalText: group.sourceText,
       parsedRule: group.rule,
       courses: (group.courses || []).map(course => course.courseKey).join('; '),
       units: group.unitsRequired || (group.courses || []).reduce((sum, course) => sum + (Number(course.units) || 0), 0),
       page: group.pageNumber,
+      notes: group.notes || '',
       confidence: 'Needs admin review'
-    })), ['program', 'requirementGroup', 'originalText', 'parsedRule', 'courses', 'units', 'page', 'confidence']);
+    })), ['program', 'requirementGroup', 'nestingLevel', 'originalText', 'parsedRule', 'courses', 'units', 'page', 'notes', 'confidence']);
     table('programRequirementsPreview', programRequirementRows([program]), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType']);
   }
 
@@ -9883,6 +9904,115 @@ BUS 180 2 units`)
     await refreshProgramRequirementsRepository();
   }
 
+  function updateCatalogCorrectionGroupFromForm(form, group = {}, path = []) {
+    group.label = String(catalogCorrectionValue(form, 'groupLabel', ...path)).trim();
+    group.rule = String(catalogCorrectionValue(form, 'groupRule', ...path)).trim() || 'all';
+    group.chooseCount = catalogNumberOrUndefined(catalogCorrectionValue(form, 'groupChooseCount', ...path));
+    group.unitsRequired = catalogNumberOrUndefined(catalogCorrectionValue(form, 'groupUnitsRequired', ...path));
+    group.pageNumber = catalogNumberOrUndefined(catalogCorrectionValue(form, 'groupPage', ...path));
+    group.sourceText = String(catalogCorrectionValue(form, 'groupSource', ...path)).trim();
+    group.notes = String(catalogCorrectionValue(form, 'groupNotes', ...path)).trim();
+    (group.courses || []).forEach((course, courseIndex) => {
+      course.courseKey = String(catalogCorrectionValue(form, 'courseKey', ...path, courseIndex)).trim();
+      course.sourceCourseKey = course.courseKey;
+      course.units = catalogNumberOrUndefined(catalogCorrectionValue(form, 'courseUnits', ...path, courseIndex));
+      const pageNumber = catalogNumberOrUndefined(catalogCorrectionValue(form, 'coursePage', ...path, courseIndex)) || group.pageNumber;
+      const text = String(catalogCorrectionValue(form, 'courseSource', ...path, courseIndex)).trim() || course.courseKey;
+      course.sourceEvidence = [{ pageNumber, text, evidenceType: 'admin-corrected-requirement', confidence: 0.95 }];
+    });
+    (group.subgroups || []).forEach((subgroup, subgroupIndex) => updateCatalogCorrectionGroupFromForm(form, subgroup, [...path, subgroupIndex]));
+  }
+
+  function catalogRequirementEvidenceForGroups(groups = []) {
+    return catalogRequirementGroupsInTree(groups).flatMap(({ group }) => [
+      { pageNumber: group.pageNumber, text: group.sourceText || group.label, evidenceType: 'admin-corrected-requirement-group', confidence: 0.95 },
+      ...(group.courses || []).flatMap(course => course.sourceEvidence || [])
+    ]);
+  }
+
+  function catalogRequirementCoursesForGroups(groups = []) {
+    return catalogRequirementGroupsInTree(groups).flatMap(({ group }) => group.courses || []);
+  }
+
+  function catalogFlattenRequirementGroups(groups = []) {
+    return (groups || []).flatMap(group => {
+      const clone = catalogReviewClone(group);
+      const children = catalogFlattenRequirementGroups(clone.subgroups || []);
+      clone.subgroups = [];
+      return [clone, ...children];
+    });
+  }
+
+  function catalogRequirementHeadingType(group = {}) {
+    const label = String(group.label || '').trim();
+    const text = `${label}\n${String(group.sourceText || '').trim()}`;
+    if (/^GENERAL EDUCATION REQUIREMENTS\b/i.test(label)) return 'root';
+    if (/^AREA\s+\d+\s*:/i.test(label)) return 'area';
+    if (/^\d+[A-Z]\s*:/i.test(label) || /^US\s+\d+\s*:/i.test(label)) return 'subarea';
+    if (/not required for Cal-GETC|ADVISING NOTE|Language Other Than English|CSU American Institutions/i.test(text)) return 'advisory';
+    return 'standalone';
+  }
+
+  function catalogAutoNestRequirementGroups(groups = []) {
+    const nested = [];
+    let root = null;
+    let currentArea = null;
+    let currentAdvisory = null;
+    catalogFlattenRequirementGroups(groups).forEach(group => {
+      const type = catalogRequirementHeadingType(group);
+      if (type === 'root') {
+        nested.push(group);
+        root = group;
+        currentArea = null;
+        currentAdvisory = null;
+      } else if (type === 'area') {
+        if (root) root.subgroups.push(group);
+        else nested.push(group);
+        currentArea = group;
+        currentAdvisory = null;
+      } else if (type === 'subarea') {
+        if (currentAdvisory) currentAdvisory.subgroups.push(group);
+        else if (currentArea) currentArea.subgroups.push(group);
+        else if (root) root.subgroups.push(group);
+        else nested.push(group);
+      } else if (type === 'advisory') {
+        group.notes = group.notes || 'Advisory or supplemental requirement. Review whether this should count toward the core program requirement.';
+        nested.push(group);
+        currentAdvisory = group;
+        currentArea = null;
+      } else {
+        nested.push(group);
+        currentArea = null;
+        currentAdvisory = null;
+      }
+    });
+    return nested;
+  }
+
+  async function autoNestCatalogRequirementGroups(candidateId = '') {
+    const repo = await programRequirementsRepository();
+    const detail = catalogDetailForCandidate(candidateId) || catalogSelectedDetail() || await repo.getCatalogRequirementDetail?.(candidateId);
+    if (!detail?.program) {
+      state.programRequirementsErrors = ['Open a catalog candidate before auto-nesting requirements.'];
+      state.programRequirementsMessages = [];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    const corrected = catalogReviewClone(detail);
+    corrected.program.requirementGroups = catalogAutoNestRequirementGroups(corrected.program.requirementGroups || []);
+    corrected.requirementEvidence = catalogRequirementEvidenceForGroups(corrected.program.requirementGroups || []);
+    corrected.correctionHistory = [...(corrected.correctionHistory || []), {
+      correctedAt: new Date().toISOString(),
+      correctedBy: 'TIMBER Admin Review',
+      reason: 'Auto-nested area and sub-area requirement groups from Catalog & Program Requirements review editor.'
+    }];
+    await repo.saveCatalogRequirementDetail?.(corrected);
+    state.selectedCatalogCandidateId = candidateId || corrected.candidateId || state.selectedCatalogCandidateId;
+    state.programRequirementsErrors = [];
+    state.programRequirementsMessages = ['Auto-nested recognizable area and sub-area requirement groups. Review the hierarchy, notes, and rules before approval.'];
+    await refreshProgramRequirementsRepository();
+  }
+
   async function saveCatalogCorrections(candidateId = '') {
     const form = document.getElementById('catalogCorrectionEditor');
     const detail = catalogDetailForCandidate(candidateId) || catalogSelectedDetail();
@@ -9900,43 +10030,13 @@ BUS 180 2 units`)
     program.division = String(catalogCorrectionValue(form, 'division')).trim();
     program.totalUnitsRequired = catalogNumberOrUndefined(catalogCorrectionValue(form, 'totalUnitsRequired'));
     program.minimumProgramUnits = catalogNumberOrUndefined(catalogCorrectionValue(form, 'minimumProgramUnits'));
-    (program.requirementGroups || []).forEach((group, groupIndex) => {
-      group.label = String(catalogCorrectionValue(form, 'groupLabel', groupIndex)).trim();
-      group.rule = String(catalogCorrectionValue(form, 'groupRule', groupIndex)).trim() || 'all';
-      group.chooseCount = catalogNumberOrUndefined(catalogCorrectionValue(form, 'groupChooseCount', groupIndex));
-      group.unitsRequired = catalogNumberOrUndefined(catalogCorrectionValue(form, 'groupUnitsRequired', groupIndex));
-      group.pageNumber = catalogNumberOrUndefined(catalogCorrectionValue(form, 'groupPage', groupIndex));
-      group.sourceText = String(catalogCorrectionValue(form, 'groupSource', groupIndex)).trim();
-      (group.courses || []).forEach((course, courseIndex) => {
-        course.courseKey = String(catalogCorrectionValue(form, 'courseKey', groupIndex, courseIndex)).trim();
-        course.sourceCourseKey = course.courseKey;
-        course.units = catalogNumberOrUndefined(catalogCorrectionValue(form, 'courseUnits', groupIndex, courseIndex));
-        const pageNumber = catalogNumberOrUndefined(catalogCorrectionValue(form, 'coursePage', groupIndex, courseIndex)) || group.pageNumber;
-        const text = String(catalogCorrectionValue(form, 'courseSource', groupIndex, courseIndex)).trim() || course.courseKey;
-        course.sourceEvidence = [{
-          pageNumber,
-          text,
-          evidenceType: 'admin-corrected-requirement',
-          confidence: 0.95
-        }];
-      });
-    });
+    (program.requirementGroups || []).forEach((group, groupIndex) => updateCatalogCorrectionGroupFromForm(form, group, [groupIndex]));
     corrected.program = program;
     corrected.unitReconciliation = catalogExtractionApi().reconcileUnits?.(program) || corrected.unitReconciliation;
-    corrected.requirementEvidence = (program.requirementGroups || []).flatMap(group => [
-      {
-        pageNumber: group.pageNumber,
-        text: group.sourceText || group.label,
-        evidenceType: 'admin-corrected-requirement-group',
-        confidence: 0.95
-      },
-      ...(group.courses || []).flatMap(course => course.sourceEvidence || [])
-    ]);
+    corrected.requirementEvidence = catalogRequirementEvidenceForGroups(program.requirementGroups || []);
     const correctedWarnings = (corrected.warnings || []).filter(warning => !/Missing unit value|Missing stated program-unit total|Missing page reference|Missing choose-units value|Unit variance beyond tolerance/i.test(warning));
-    (program.requirementGroups || []).forEach(group => {
-      (group.courses || []).forEach(course => {
-        if (catalogNumberOrUndefined(course.units) === undefined) correctedWarnings.push(`Missing unit value for ${course.courseKey || 'course'}.`);
-      });
+    catalogRequirementCoursesForGroups(program.requirementGroups || []).forEach(course => {
+      if (catalogNumberOrUndefined(course.units) === undefined) correctedWarnings.push(`Missing unit value for ${course.courseKey || 'course'}.`);
     });
     corrected.warnings = [...new Set(correctedWarnings)];
     corrected.correctionHistory = [...(corrected.correctionHistory || []), {
@@ -25513,6 +25613,10 @@ BUS 180 2 units`)
       .catalog-correction-editor textarea{resize:vertical;min-height:42px}
       .catalog-correction-group{display:grid;gap:10px;margin:0;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#fff}
       .catalog-correction-group legend{padding:0 6px;color:#123367;font-weight:900}
+      .catalog-correction-subgroups{display:grid;gap:10px;padding-left:12px;border-left:3px solid #cfe0ef}
+      .catalog-correction-level-1{background:#fbfdff}
+      .catalog-correction-level-2{background:#fffdf8}
+      .catalog-correction-level-3,.catalog-correction-level-4{background:#fff}
       .catalog-correction-course-table{margin-top:0}
       #roomFitReportMetrics button.room-fit-card{border:1px solid #f59e0b;border-radius:18px;padding:14px 16px;background:linear-gradient(135deg,#fff7ed,#fed7aa);box-shadow:0 8px 18px rgba(180,83,9,.16);cursor:pointer;text-align:center}
       #roomFitReportMetrics button.room-fit-card strong{display:block;font-size:24px;color:#7c2d12}
@@ -25884,13 +25988,15 @@ BUS 180 2 units`)
           ? approveCatalogCandidate(candidateId)
           : action === 'save-corrections'
             ? saveCatalogCorrections(candidateId)
-            : action === 'publish'
-              ? publishCatalogRevision(revisionId)
-              : action === 'archive'
-                ? archiveCatalogRevision(revisionId)
-                : action === 'rollback'
-                  ? rollbackCatalogRevision(revisionId)
-                  : Promise.resolve();
+            : action === 'auto-nest-requirements'
+              ? autoNestCatalogRequirementGroups(candidateId)
+              : action === 'publish'
+                ? publishCatalogRevision(revisionId)
+                : action === 'archive'
+                  ? archiveCatalogRevision(revisionId)
+                  : action === 'rollback'
+                    ? rollbackCatalogRevision(revisionId)
+                    : Promise.resolve();
       task.catch(err => {
         state.programRequirementsErrors = [err.message || String(err)];
         renderProgramRequirementsAdmin();
