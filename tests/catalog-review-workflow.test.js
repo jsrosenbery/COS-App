@@ -133,6 +133,11 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /catalogRequirementGroupsInTree/);
   assert.match(source, /nestingLevel/);
   assert.match(source, /groupNotes/);
+  assert.match(source, /Create Update Draft/);
+  assert.match(source, /data-catalog-action="deactivate-program"/);
+  assert.match(source, /deactivateCatalogProgram/);
+  assert.match(source, /createCatalogProgramUpdateDraft/);
+  assert.match(source, /reviewStatus: 'archived'/);
   assert.equal((source.match(/catalogProgramRequirementsReport'\)\?\.addEventListener\('click'/g) || []).length, 1);
   assert.equal((source.match(/data-catalog-action="open-review"/g) || []).length, 1);
 });

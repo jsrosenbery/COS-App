@@ -9121,8 +9121,30 @@
       reviewStatus: program.reviewStatus,
       requirementGroups: (program.requirementGroups || []).length,
       sourceType: program.source?.sourceType || '',
-      importedAt: program.source?.importedAt || ''
+      importedAt: program.source?.importedAt || '',
+      actions: ''
     }));
+  }
+
+  function programRequirementActionColumns() {
+    return [
+      { key: 'programId', label: 'programId' },
+      { key: 'catalogYear', label: 'catalogYear' },
+      { key: 'programName', label: 'programName' },
+      { key: 'awardType', label: 'awardType' },
+      { key: 'reviewStatus', label: 'reviewStatus' },
+      { key: 'requirementGroups', label: 'requirementGroups' },
+      { key: 'sourceType', label: 'sourceType' },
+      { key: 'importedAt', label: 'importedAt' },
+      {
+        key: 'actions',
+        label: 'Actions',
+        html: row => `
+          <button type="button" data-catalog-action="revise-program" data-program-id="${escapeAttr(row.programId)}" data-catalog-year="${escapeAttr(row.catalogYear)}">Create Update Draft</button>
+          <button type="button" data-catalog-action="deactivate-program" data-program-id="${escapeAttr(row.programId)}" data-catalog-year="${escapeAttr(row.catalogYear)}">Deactivate</button>
+        `
+      }
+    ];
   }
 
   function catalogActionTable(id, rows = [], columns = []) {
@@ -9441,7 +9463,7 @@
         ? `${messageHtml}${errorHtml}`
         : '<p class="analytics-empty">No validation errors.</p>';
     }
-    table('programRequirementsRepositoryTable', programRequirementRows(state.programRequirements), ['programId', 'catalogYear', 'programName', 'awardType', 'reviewStatus', 'requirementGroups', 'sourceType', 'importedAt']);
+    catalogActionTable('programRequirementsRepositoryTable', programRequirementRows(state.programRequirements), programRequirementActionColumns());
     const pdfStatus = document.getElementById('catalogPdfStatus');
     if (pdfStatus) {
       const extraction = state.catalogPdfExtraction || {};
@@ -10080,6 +10102,89 @@ BUS 180 2 units`)
     if (!revisionId) return;
     const repo = await programRequirementsRepository();
     await repo.rollbackProgramRevision?.(revisionId, { createdBy: 'TIMBER Admin Review', reason: 'Rollback created as new draft from Catalog & Program Requirements.' });
+    await refreshProgramRequirementsRepository();
+  }
+
+  function catalogProgramByKey(programId = '', catalogYear = '') {
+    return (state.programRequirements || []).find(program =>
+      String(program.programId || '') === String(programId || '')
+      && String(program.catalogYear || '') === String(catalogYear || '')
+    ) || null;
+  }
+
+  async function deactivateCatalogProgram(programId = '', catalogYear = '') {
+    const program = catalogProgramByKey(programId, catalogYear);
+    if (!program) {
+      state.programRequirementsErrors = ['Program record could not be found for deactivation.'];
+      state.programRequirementsMessages = [];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    if (window.confirm && !window.confirm(`Deactivate ${program.programName || program.programId} for catalog ${program.catalogYear || 'N/A'}? This keeps the record but removes it from active feasibility use.`)) return;
+    const repo = await programRequirementsRepository();
+    const archivedAt = new Date().toISOString();
+    const archived = {
+      ...program,
+      reviewStatus: 'archived',
+      isActiveRevision: false,
+      archivedAt
+    };
+    await repo.savePrograms([archived]);
+    if (program.revisionId && repo.archiveProgramRevision) {
+      await repo.archiveProgramRevision(program.revisionId, { reason: 'Program deactivated from Catalog & Program Requirements.' });
+    } else if (repo.saveProgramRequirementRevision) {
+      await repo.saveProgramRequirementRevision({
+        revisionId: `revision-${Date.now()}-archive`,
+        programId: archived.programId,
+        catalogYear: archived.catalogYear,
+        status: 'archived',
+        isActive: false,
+        archivedAt,
+        reason: 'Program deactivated from Catalog & Program Requirements.',
+        programSnapshot: archived
+      });
+    }
+    window.COSAcademicPlanningPlatform?.clearPlanningCache?.();
+    state.programRequirementsErrors = [];
+    state.programRequirementsMessages = [`Deactivated ${archived.programName || archived.programId}. The record remains archived for history and can be replaced by a future revision.`];
+    await refreshProgramRequirementsRepository();
+  }
+
+  async function createCatalogProgramUpdateDraft(programId = '', catalogYear = '') {
+    const program = catalogProgramByKey(programId, catalogYear);
+    if (!program) {
+      state.programRequirementsErrors = ['Program record could not be found for revision.'];
+      state.programRequirementsMessages = [];
+      renderProgramRequirementsAdmin();
+      return;
+    }
+    const repo = await programRequirementsRepository();
+    const createdAt = new Date().toISOString();
+    const draft = {
+      ...catalogReviewClone(program),
+      reviewStatus: 'draft',
+      previousRevisionId: program.revisionId || program.activeRevisionId || '',
+      revisionId: `revision-${Date.now()}-draft`,
+      reviewedAt: '',
+      publishedAt: '',
+      archivedAt: '',
+      isActiveRevision: false
+    };
+    await repo.saveProgramRequirementRevision?.({
+      revisionId: draft.revisionId,
+      previousRevisionId: draft.previousRevisionId,
+      programId: draft.programId,
+      catalogYear: draft.catalogYear,
+      status: 'draft',
+      isActive: false,
+      createdAt,
+      createdBy: 'TIMBER Admin Review',
+      reason: 'Update draft created from active program requirements.',
+      programSnapshot: draft
+    });
+    state.selectedProgramRevisionId = draft.revisionId;
+    state.programRequirementsErrors = [];
+    state.programRequirementsMessages = [`Created an update draft for ${draft.programName || draft.programId}. Edit the draft requirements, then approve or publish when ready.`];
     await refreshProgramRequirementsRepository();
   }
 
@@ -25982,6 +26087,8 @@ BUS 180 2 units`)
       const action = button.dataset.catalogAction;
       const candidateId = button.dataset.candidateId || '';
       const revisionId = button.dataset.revisionId || '';
+      const programId = button.dataset.programId || '';
+      const catalogYear = button.dataset.catalogYear || '';
       const task = action === 'open-review'
         ? openCatalogProgramReview(candidateId, revisionId)
         : action === 'approve'
@@ -25991,12 +26098,16 @@ BUS 180 2 units`)
             : action === 'auto-nest-requirements'
               ? autoNestCatalogRequirementGroups(candidateId)
               : action === 'publish'
-                ? publishCatalogRevision(revisionId)
-                : action === 'archive'
-                  ? archiveCatalogRevision(revisionId)
-                  : action === 'rollback'
-                    ? rollbackCatalogRevision(revisionId)
-                    : Promise.resolve();
+              ? publishCatalogRevision(revisionId)
+              : action === 'archive'
+                ? archiveCatalogRevision(revisionId)
+                : action === 'rollback'
+                  ? rollbackCatalogRevision(revisionId)
+                  : action === 'deactivate-program'
+                    ? deactivateCatalogProgram(programId, catalogYear)
+                    : action === 'revise-program'
+                      ? createCatalogProgramUpdateDraft(programId, catalogYear)
+                      : Promise.resolve();
       task.catch(err => {
         state.programRequirementsErrors = [err.message || String(err)];
         renderProgramRequirementsAdmin();

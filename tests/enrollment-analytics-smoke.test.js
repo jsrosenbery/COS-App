@@ -50,6 +50,7 @@ function loadEnrollmentAnalyticsRuntime() {
     document: {
       readyState: 'loading',
       addEventListener() {},
+      createTextNode(text = '') { return { nodeType: 3, textContent: String(text), parentNode: null, children: [] }; },
       getElementById() { return null; },
       querySelectorAll() { return []; }
     },
@@ -210,6 +211,9 @@ function loadCollapsibleUtilsRuntime() {
     createElement(tag) {
       return new Element(tag, document);
     },
+    createTextNode(text = '') {
+      return { nodeType: 3, textContent: String(text), parentNode: null, children: [] };
+    },
     getElementById(id) {
       return document.elementsById.get(id) || null;
     },
@@ -323,6 +327,9 @@ function loadScheduleAppRuntime() {
       querySelector: selector => element(selector),
       querySelectorAll: () => [],
       createElement: tag => element(`created:${tag}:${Math.random()}`),
+      createTextNode(text = '') {
+        return { nodeType: 3, textContent: String(text), parentNode: null, children: [] };
+      },
       addEventListener(event, handler) {
         if (event === 'DOMContentLoaded') handler();
       }
@@ -7704,7 +7711,7 @@ test('room availability grid uses centralized modality display badges without ch
   assert.match(css, /\.class-block\.modality-sync-online/);
   assert.match(css, /border: 2px dashed #0f766e/);
   assert.match(css, /\.class-modality-badge/);
-  assert.match(app, /\.filter\(i => isValidRoom\(i\.Building \|\| i\.BUILDING, i\.Room \|\| i\.ROOM\)\)/);
+  assert.match(app, /if \(!isValidRoom\(i\.Building \|\| i\.BUILDING, i\.Room \|\| i\.ROOM\)\) return/);
 });
 
 test('room availability popups show aggregated hybrid meeting dates', () => {
@@ -7915,19 +7922,27 @@ test('index owns enrollment analytics script order', () => {
     'js/core/day-utils.js',
     'js/core/csv-normalizer.js',
     'js/core/formatters.js',
+    'js/core/modality-normalizer.js',
+    'js/core/campus-classification.js',
     'js/core/physical-time.js',
     'js/core/faculty-utils.js',
     'js/core/faculty-model.js',
     'js/core/faculty-parser.js',
     'js/core/section-model.js',
+    'js/core/room-availability-data.js',
+    'js/core/event-layer.js',
+    'js/core/archive-service.js',
     'js/core/metric-definitions.js',
     'js/core/metric-help.js',
+    'js/core/schedule-optimization.js',
+    'js/core/schedule-builder.js',
+    'js/core/program-requirements.js',
+    'js/core/catalog-extraction.js',
+    'js/core/catalog-review-workflow.js',
+    'js/core/feasibility-term-window.js',
+    'js/core/program-feasibility.js',
+    'js/core/academic-planning-platform.js',
     'js/shared/utils.js',
-    'js/admin.js',
-    'js/availability.js',
-    'js/heatmap.js',
-    'js/modality.js',
-    'js/utilization.js',
     'js/parser.js',
     'js/cal_getc_mapping.js',
     'js/curriculum_crosswalk.js',
@@ -7937,9 +7952,15 @@ test('index owns enrollment analytics script order', () => {
     'js/enrollment/filters.js',
     'js/enrollment/consolidation.js',
     'js/enrollment/dashboard.js',
+    'js/enrollment/trend-projection.js',
+    'js/enrollment/historical-institutional.js',
+    'js/low-enrollment-tracker.js',
     'js/enrollment-analytics.js'
   ];
-  const positions = expectedOrder.map(script => index.indexOf(`src="${script}"`));
+  const positions = expectedOrder.map(script => {
+    const match = index.match(new RegExp(`src="${script.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\?[^"]*)?"`));
+    return match ? match.index : -1;
+  });
 
   assert.equal(positions.every(position => position >= 0), true);
   assert.deepEqual([...positions].sort((a, b) => a - b), positions);
