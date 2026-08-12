@@ -128,6 +128,10 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /Approved \$\{approved\.program\?\.programName/);
   assert.match(source, /renderCatalogCorrectionGroup/);
   assert.match(source, /Nested Requirements/);
+  assert.match(source, /data-catalog-action="remove-course"/);
+  assert.match(source, /removeCatalogRequirementCourse/);
+  assert.match(source, /AND — every listed course\/subgroup is required/);
+  assert.match(source, /OR — choose one listed course or subgroup/);
   assert.match(source, /Auto-nest Area\/Sub-area Groups/);
   assert.match(source, /autoNestCatalogRequirementGroups/);
   assert.match(source, /catalogRequirementGroupsInTree/);
