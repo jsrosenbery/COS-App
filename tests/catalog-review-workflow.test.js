@@ -112,6 +112,12 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   const source = fs.readFileSync(path.join(root, 'js/enrollment-analytics.js'), 'utf8');
 
   assert.match(source, /data-catalog-action="open-review"/);
+  assert.match(source, /id="catalogPendingReviewQueue"/);
+  assert.match(source, /id="catalogApprovedImportQueue"/);
+  assert.match(source, /data-catalog-action="reject-candidate"/);
+  assert.match(source, /async function rejectCatalogCandidate/);
+  assert.match(source, /Approved imports cannot be rejected or deleted/);
+  assert.match(source, /The uploaded source PDF was preserved/);
   assert.match(source, /data-candidate-id="\$\{escapeAttr\(row\.candidateId\)\}"/);
   assert.match(source, /async function openCatalogProgramReview/);
   assert.match(source, /revealCatalogProgramDetail/);
@@ -157,5 +163,5 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /createCatalogProgramUpdateDraft/);
   assert.match(source, /reviewStatus: 'archived'/);
   assert.equal((source.match(/catalogProgramRequirementsReport'\)\?\.addEventListener\('click'/g) || []).length, 1);
-  assert.equal((source.match(/data-catalog-action="open-review"/g) || []).length, 1);
+  assert.equal((source.match(/data-catalog-action="open-review"/g) || []).length, 2);
 });

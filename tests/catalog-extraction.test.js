@@ -397,6 +397,23 @@ test('catalog review workflow keeps extracted records out of feasibility until a
   assert.equal((await repo.getCatalogReviewDecisions()).length, 1);
 });
 
+test('rejecting a pending import removes its candidate and detail but preserves source evidence', async () => {
+  const repo = COSProgramRequirements.createMemoryRepository();
+  const source = await repo.saveCatalogSource({ catalogSourceId: 'source-rejected-draft', catalogYear: '2026-2027', filename: 'draft-program.pdf' });
+  await repo.saveCatalogPages(source.catalogSourceId, [page(1, 'Incomplete program source page')]);
+  await repo.saveCatalogProgramCandidates([{ candidateId: 'candidate-rejected-draft', catalogSourceId: source.catalogSourceId, programName: 'Incomplete Draft', extractionStatus: 'needs-review' }]);
+  await repo.saveCatalogRequirementDetail({ candidateId: 'candidate-rejected-draft', catalogSourceId: source.catalogSourceId, program: { programName: 'Incomplete Draft' } });
+  await repo.saveCatalogReviewDecision({ candidateId: 'candidate-rejected-draft', decision: 'rejected', reason: 'Incomplete program.' });
+
+  assert.equal(await repo.deleteCatalogProgramCandidate('candidate-rejected-draft'), true);
+  assert.deepEqual(await repo.getCatalogProgramCandidates(), []);
+  assert.equal(await repo.getCatalogRequirementDetail('candidate-rejected-draft'), null);
+  assert.equal((await repo.getCatalogSources()).length, 1);
+  assert.equal((await repo.getCatalogPages(source.catalogSourceId)).length, 1);
+  assert.equal((await repo.getCatalogReviewDecisions()).length, 1);
+  assert.equal(await repo.deleteCatalogProgramCandidate('candidate-rejected-draft'), false);
+});
+
 test('catalog repository persists page text revisions and active published pointers', async () => {
   const repo = COSProgramRequirements.createMemoryRepository();
   const source = catalog.normalizeCatalogSource({ catalogYear: '2026-2027', filename: 'COS Catalog.pdf', pageCount: 2 });

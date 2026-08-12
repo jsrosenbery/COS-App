@@ -5003,7 +5003,8 @@ test('two-year program feasibility foundation is registered and uses structured 
   assert.match(text, /id="catalogPdfDropZone"/);
   assert.match(text, /data-collapsible-title="Catalog Source"/);
   assert.match(text, /data-collapsible-title="Program Inventory"/);
-  assert.match(text, /data-collapsible-title="Review Queue"/);
+  assert.match(text, /data-collapsible-title="Pending Program Review"/);
+  assert.match(text, /data-collapsible-title="Approved Program Imports"/);
   assert.match(text, /data-collapsible-title="Revision History"/);
   assert.match(text, /id="importCatalogBackup"/);
   assert.match(text, /function approveCatalogCandidate/);
