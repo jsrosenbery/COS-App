@@ -9280,6 +9280,7 @@
           <div class="catalog-review-actions">
             <button type="button" data-catalog-action="add-course" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}">Add Course Row</button>
             <button type="button" data-catalog-action="add-subgroup" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}">Add Nested Requirement</button>
+            <button type="button" class="danger-button" data-catalog-action="remove-requirement" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}">Remove Requirement ${escapeAttr(pathLabel)}</button>
           </div>
           ${subgroupRows ? `<div class="catalog-correction-subgroups"><strong>Nested Requirements</strong>${subgroupRows}</div>` : ''}
         </fieldset>
@@ -10197,6 +10198,39 @@ BUS 180 2 units`)
       : validation.warnings?.length
         ? `Corrections saved. Revalidation completed with ${validation.warnings.length} warning(s) and no approval blockers.`
         : 'Corrections saved. Revalidation passed with no remaining errors.'];
+    await refreshProgramRequirementsRepository();
+  }
+
+  async function removeCatalogRequirementGroup(candidateId = '', groupPath = '') {
+    const detail = catalogDetailForCandidate(candidateId) || catalogSelectedDetail();
+    const form = document.getElementById('catalogCorrectionEditor');
+    if (!detail?.program || !form) throw new Error('Open a program draft before removing a requirement.');
+    const corrected = catalogCorrectionsFromForm(detail, form);
+    const path = String(groupPath).split('.').filter(part => /^\d+$/.test(part)).map(Number);
+    if (!path.length) throw new Error('The selected requirement could not be identified.');
+    const index = path[path.length - 1];
+    const parentPath = path.slice(0, -1);
+    const parent = parentPath.length ? catalogRequirementGroupAtPath(corrected.program.requirementGroups || [], parentPath) : null;
+    const collection = parent ? parent.subgroups : corrected.program.requirementGroups;
+    const group = collection?.[index];
+    if (!group) throw new Error('The selected requirement could not be found. Refresh the review and try again.');
+    const label = group.label || `Requirement ${path.map(part => part + 1).join('.')}`;
+    if (!window.confirm(`Remove ${label} and all of its course rows and nested requirements from this draft? This does not change the source PDF.`)) return;
+    collection.splice(index, 1);
+    corrected.unitReconciliation = catalogExtractionApi().reconcileUnits?.(corrected.program) || corrected.unitReconciliation;
+    corrected.requirementEvidence = catalogRequirementEvidenceForGroups(corrected.program.requirementGroups || []);
+    corrected.warnings = (corrected.warnings || []).filter(warning => !/Missing unit value|Missing course key|Missing courses or nested requirements|Missing page reference|Missing choose-units value|Unit variance beyond tolerance/i.test(warning));
+    corrected.correctionHistory = [...(corrected.correctionHistory || []), {
+      correctedAt: new Date().toISOString(),
+      correctedBy: 'TIMBER Admin Review',
+      reason: `Removed unnecessary requirement group ${label}.`
+    }];
+    const validation = catalogValidationSummary(corrected, (state.catalogProgramCandidates || []).find(candidate => candidate.candidateId === candidateId) || null);
+    const repo = await programRequirementsRepository();
+    await repo.saveCatalogRequirementDetail?.(corrected);
+    state.selectedCatalogCandidateId = candidateId || corrected.candidateId || state.selectedCatalogCandidateId;
+    state.programRequirementsErrors = validation.blockers?.length ? validation.blockers : validation.warnings || [];
+    state.programRequirementsMessages = [`Removed ${label} from the draft and revalidated the remaining requirements.`];
     await refreshProgramRequirementsRepository();
   }
 
@@ -26286,6 +26320,8 @@ BUS 180 2 units`)
             ? saveCatalogCorrections(candidateId)
             : action === 'remove-course'
               ? removeCatalogRequirementCourse(candidateId, groupPath, courseIndex)
+            : action === 'remove-requirement'
+              ? removeCatalogRequirementGroup(candidateId, groupPath)
             : action === 'add-requirement'
               ? addCatalogRequirementNode(candidateId, '', 'requirement')
             : action === 'add-subgroup'
