@@ -92,6 +92,15 @@ test('regression baseline: critical first-party scripts use the current Timber b
   });
 });
 
+test('regression baseline: report unlock uses a 30-minute sliding inactivity window', () => {
+  const analytics = read('js/enrollment-analytics.js');
+  assert.match(analytics, /ROLE_IDLE_TIMEOUT_MS\s*=\s*30\s*\*\s*60\s*\*\s*1000/);
+  assert.match(analytics, /api\/auth\/refresh/);
+  assert.match(analytics, /\['pointerdown', 'keydown', 'input', 'change'\]/);
+  assert.match(analytics, /scheduleRoleIdleLock\(expiresAt\)/);
+  assert.match(analytics, /lockEnrollmentReports\(\)/);
+});
+
 test('regression baseline: report navigation registry keeps representative reports wired', () => {
   const analytics = read('js/enrollment-analytics.js');
 

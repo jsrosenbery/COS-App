@@ -333,6 +333,11 @@
   const ROLE_EXPIRES_KEY = 'cos-role-token-expires-at';
   const LEGACY_EM_TOKEN_KEY = 'cos-em-token';
   const LEGACY_EM_EXPIRES_KEY = 'cos-em-token-expires-at';
+  const ROLE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+  const ROLE_REFRESH_THROTTLE_MS = 60 * 1000;
+  let roleIdleTimer = null;
+  let lastRoleRefreshAt = 0;
+  let roleRefreshInFlight = null;
   const ACCOUNTING_METHODS = {
     W: { category: 'weekly', label: 'Weekly Census', reportable: true },
     D: { category: 'daily', label: 'Daily Census', reportable: true },
@@ -9223,6 +9228,18 @@
     return form?.elements?.[catalogCorrectionFieldName(...parts)]?.value ?? '';
   }
 
+  const CATALOG_RULE_LABELS = Object.freeze({
+    all: 'AND — every listed course/subgroup is required',
+    or: 'OR — choose one listed course or subgroup',
+    'choose-count': 'CHOOSE COUNT — select the stated number',
+    'choose-units': 'CHOOSE UNITS — complete the stated units',
+    'one-from-each-list': 'ONE FROM EACH LIST — choose from every nested subgroup'
+  });
+
+  function catalogRuleLabel(rule = 'all') {
+    return CATALOG_RULE_LABELS[rule] || CATALOG_RULE_LABELS.all;
+  }
+
   function renderCatalogCorrectionGroup(group = {}, path = [], depth = 0) {
     const pathLabel = path.map(part => Number(part) + 1).join('.');
     const courseRows = (group.courses || []).map((course, courseIndex) => {
@@ -9233,6 +9250,7 @@
             <td><input name="${catalogCorrectionFieldName('courseUnits', ...path, courseIndex)}" value="${escapeAttr(course.units ?? '')}" inputmode="decimal" aria-label="Course units"></td>
             <td><input name="${catalogCorrectionFieldName('coursePage', ...path, courseIndex)}" value="${escapeAttr(evidence.pageNumber || group.pageNumber || '')}" inputmode="numeric" aria-label="Course page"></td>
             <td><textarea name="${catalogCorrectionFieldName('courseSource', ...path, courseIndex)}" rows="2" aria-label="Course source text">${escapeAttr(evidence.text || course.sourceCourseKey || course.courseKey || '')}</textarea></td>
+            <td><button type="button" class="danger-button" data-catalog-action="remove-course" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}" data-course-index="${courseIndex}" aria-label="Remove ${escapeAttr(course.courseKey || 'course')} from this draft">Remove</button></td>
           </tr>
         `;
     }).join('');
@@ -9244,7 +9262,7 @@
             <label>Group Label <input name="${catalogCorrectionFieldName('groupLabel', ...path)}" value="${escapeAttr(group.label || '')}"></label>
             <label>Rule
               <select name="${catalogCorrectionFieldName('groupRule', ...path)}">
-                ${['all', 'or', 'choose-count', 'choose-units', 'one-from-each-list'].map(rule => `<option value="${rule}"${group.rule === rule ? ' selected' : ''}>${rule}</option>`).join('')}
+                ${['all', 'or', 'choose-count', 'choose-units', 'one-from-each-list'].map(rule => `<option value="${rule}"${group.rule === rule ? ' selected' : ''}>${escapeAttr(catalogRuleLabel(rule))}</option>`).join('')}
               </select>
             </label>
             <label>Choose Count <input name="${catalogCorrectionFieldName('groupChooseCount', ...path)}" value="${escapeAttr(group.chooseCount ?? '')}" inputmode="numeric"></label>
@@ -9255,7 +9273,7 @@
           <label>Notes / Special Handling <textarea name="${catalogCorrectionFieldName('groupNotes', ...path)}" rows="2" placeholder="Example: Optional advisory group, course can count in one area only, CSU AI note, GE certificate requirement.">${escapeAttr(group.notes || '')}</textarea></label>
           <div class="analytics-table catalog-correction-course-table">
             <table>
-              <thead><tr><th>Course</th><th>Units</th><th>Page</th><th>Source Text</th></tr></thead>
+              <thead><tr><th>Course</th><th>Units</th><th>Page</th><th>Source Text</th><th>Action</th></tr></thead>
               <tbody>${courseRows || '<tr><td colspan="4">No courses parsed directly in this group.</td></tr>'}</tbody>
             </table>
           </div>
@@ -9358,7 +9376,7 @@
       requirementGroup: pathLabel,
       nestingLevel: depth + 1,
       originalText: group.sourceText,
-      parsedRule: group.rule,
+      parsedRule: catalogRuleLabel(group.rule),
       courses: (group.courses || []).map(course => course.courseKey).join('; '),
       units: group.unitsRequired || (group.courses || []).reduce((sum, course) => sum + (Number(course.units) || 0), 0),
       page: group.pageNumber,
@@ -9954,6 +9972,43 @@ BUS 180 2 units`)
 
   function catalogRequirementCoursesForGroups(groups = []) {
     return catalogRequirementGroupsInTree(groups).flatMap(({ group }) => group.courses || []);
+  }
+
+  function catalogRequirementGroupAtPath(groups = [], path = []) {
+    let collection = groups;
+    let group = null;
+    for (const index of path) {
+      group = collection?.[Number(index)] || null;
+      if (!group) return null;
+      collection = group.subgroups || [];
+    }
+    return group;
+  }
+
+  async function removeCatalogRequirementCourse(candidateId = '', groupPath = '', courseIndex = -1) {
+    const detail = catalogDetailForCandidate(candidateId) || catalogSelectedDetail();
+    if (!detail?.program) throw new Error('Open a program draft before removing a course row.');
+    const corrected = catalogReviewClone(detail);
+    const path = String(groupPath).split('.').filter(part => /^\d+$/.test(part)).map(Number);
+    const group = catalogRequirementGroupAtPath(corrected.program.requirementGroups || [], path);
+    const index = Number(courseIndex);
+    const course = group?.courses?.[index];
+    if (!course) throw new Error('The selected generated course row could not be found. Refresh the review and try again.');
+    if (!window.confirm(`Remove ${course.courseKey || 'this course'} from the imported draft? This does not change the source PDF.`)) return;
+    group.courses.splice(index, 1);
+    corrected.unitReconciliation = catalogExtractionApi().reconcileUnits?.(corrected.program) || corrected.unitReconciliation;
+    corrected.requirementEvidence = catalogRequirementEvidenceForGroups(corrected.program.requirementGroups || []);
+    corrected.correctionHistory = [...(corrected.correctionHistory || []), {
+      correctedAt: new Date().toISOString(),
+      correctedBy: 'TIMBER Admin Review',
+      reason: `Removed auto-generated course row ${course.courseKey || '(blank)'} from ${group.label || 'requirement group'}.`
+    }];
+    const repo = await programRequirementsRepository();
+    await repo.saveCatalogRequirementDetail?.(corrected);
+    state.selectedCatalogCandidateId = candidateId || corrected.candidateId || state.selectedCatalogCandidateId;
+    state.programRequirementsErrors = [];
+    state.programRequirementsMessages = [`Removed ${course.courseKey || 'the selected course'} from the draft. Review the group rule and revalidate before approval.`];
+    await refreshProgramRequirementsRepository();
   }
 
   function catalogFlattenRequirementGroups(groups = []) {
@@ -25152,6 +25207,71 @@ BUS 180 2 units`)
     [ROLE_STORAGE_KEY, ROLE_TOKEN_KEY, ROLE_EXPIRES_KEY, LEGACY_EM_TOKEN_KEY, LEGACY_EM_EXPIRES_KEY, 'cos-em-unlocked'].forEach(key => {
       sessionStorage.removeItem(key);
     });
+    if (roleIdleTimer) clearTimeout(roleIdleTimer);
+    roleIdleTimer = null;
+    lastRoleRefreshAt = 0;
+  }
+
+  function storeRoleExpiration(expiresAt) {
+    const value = String(expiresAt);
+    sessionStorage.setItem(ROLE_EXPIRES_KEY, value);
+    sessionStorage.setItem(LEGACY_EM_EXPIRES_KEY, value);
+    const expiration = document.getElementById('currentAccessExpiration');
+    if (expiration) expiration.textContent = `Locks after inactivity at ${new Date(Number(expiresAt)).toLocaleString()}`;
+  }
+
+  function scheduleRoleIdleLock(expiresAt = Number(sessionStorage.getItem(ROLE_EXPIRES_KEY) || 0)) {
+    if (roleIdleTimer) clearTimeout(roleIdleTimer);
+    roleIdleTimer = null;
+    if (!expiresAt) return;
+    roleIdleTimer = setTimeout(() => {
+      if (Number(sessionStorage.getItem(ROLE_EXPIRES_KEY) || 0) > Date.now()) {
+        scheduleRoleIdleLock();
+        return;
+      }
+      lockEnrollmentReports();
+    }, Math.max(0, expiresAt - Date.now()) + 25);
+  }
+
+  async function refreshRoleSession() {
+    const token = sessionStorage.getItem(ROLE_TOKEN_KEY) || sessionStorage.getItem(LEGACY_EM_TOKEN_KEY) || '';
+    if (!token || !window.BACKEND_BASE_URL) return false;
+    if (roleRefreshInFlight) return roleRefreshInFlight;
+    roleRefreshInFlight = fetch(`${window.BACKEND_BASE_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(async response => {
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) lockEnrollmentReports();
+        return false;
+      }
+      const payload = await response.json();
+      const expiresAt = Date.parse(payload.expiresAt || '') || Date.now() + ROLE_IDLE_TIMEOUT_MS;
+      storeRoleExpiration(expiresAt);
+      scheduleRoleIdleLock(expiresAt);
+      lastRoleRefreshAt = Date.now();
+      return true;
+    }).catch(() => false).finally(() => {
+      roleRefreshInFlight = null;
+    });
+    return roleRefreshInFlight;
+  }
+
+  function noteUnlockedActivity() {
+    const token = sessionStorage.getItem(ROLE_TOKEN_KEY) || sessionStorage.getItem(LEGACY_EM_TOKEN_KEY) || '';
+    if (!token) return;
+    const expiresAt = Date.now() + ROLE_IDLE_TIMEOUT_MS;
+    storeRoleExpiration(expiresAt);
+    scheduleRoleIdleLock(expiresAt);
+    if (Date.now() - lastRoleRefreshAt >= ROLE_REFRESH_THROTTLE_MS) refreshRoleSession();
+  }
+
+  function initializeRoleIdleTimeout() {
+    ['pointerdown', 'keydown', 'input', 'change'].forEach(eventName => {
+      document.addEventListener(eventName, noteUnlockedActivity, { passive: true });
+    });
+    const session = roleSession();
+    if (session.token) scheduleRoleIdleLock(session.expiresAt);
   }
 
   function roleSession() {
@@ -25178,7 +25298,7 @@ BUS 180 2 units`)
     const session = roleSession();
     if (!session.token) return 'No active unlock session';
     if (!session.expiresAt) return 'Session expiration unavailable';
-    return `Expires ${new Date(session.expiresAt).toLocaleString()}`;
+    return `Locks after inactivity at ${new Date(session.expiresAt).toLocaleString()}`;
   }
 
   function canAccessRole(requiredRole) {
@@ -25258,11 +25378,13 @@ BUS 180 2 units`)
     }
     const payload = await response.json();
     const role = normalizeRole(payload.role || (ROLE_LEVEL[requestedRole] <= ROLE_LEVEL.dean ? 'dean' : requestedRole));
+    const expiresAt = Date.parse(payload.expiresAt || '') || Date.now() + ROLE_IDLE_TIMEOUT_MS;
     sessionStorage.setItem(ROLE_STORAGE_KEY, role);
     sessionStorage.setItem(ROLE_TOKEN_KEY, payload.token || '');
-    sessionStorage.setItem(ROLE_EXPIRES_KEY, String(Date.parse(payload.expiresAt || '') || Date.now()));
+    storeRoleExpiration(expiresAt);
     sessionStorage.setItem(LEGACY_EM_TOKEN_KEY, payload.token || '');
-    sessionStorage.setItem(LEGACY_EM_EXPIRES_KEY, String(Date.parse(payload.expiresAt || '') || Date.now()));
+    lastRoleRefreshAt = Date.now();
+    scheduleRoleIdleLock(expiresAt);
     if (input) input.value = '';
     if (panel) panel.hidden = true;
     state.pendingAccessRole = '';
@@ -26089,12 +26211,16 @@ BUS 180 2 units`)
       const revisionId = button.dataset.revisionId || '';
       const programId = button.dataset.programId || '';
       const catalogYear = button.dataset.catalogYear || '';
+      const groupPath = button.dataset.groupPath || '';
+      const courseIndex = button.dataset.courseIndex ?? -1;
       const task = action === 'open-review'
         ? openCatalogProgramReview(candidateId, revisionId)
         : action === 'approve'
           ? approveCatalogCandidate(candidateId)
           : action === 'save-corrections'
             ? saveCatalogCorrections(candidateId)
+            : action === 'remove-course'
+              ? removeCatalogRequirementCourse(candidateId, groupPath, courseIndex)
             : action === 'auto-nest-requirements'
               ? autoNestCatalogRequirementGroups(candidateId)
               : action === 'publish'
@@ -26618,6 +26744,7 @@ BUS 180 2 units`)
     injectStyle();
     registerEnrollmentCollapsibleSections();
     wire();
+    initializeRoleIdleTimeout();
     refreshAnalyticsArchiveOptions();
     refreshWorkExperienceArchives();
     refreshFacultyScheduleArchives();

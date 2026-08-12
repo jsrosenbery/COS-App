@@ -249,6 +249,21 @@ MATH 21 Statistics
   assert.equal(catalog.validateExtractionCandidate(candidate, detail).valid, false);
 });
 
+test('catalog validation blocks an empty requirement group after an extracted row is removed', () => {
+  const detail = {
+    program: COSProgramRequirements.normalizeProgram({
+      programId: 'EMPTY-GROUP', catalogYear: '2026-2027', programName: 'Empty Group', awardType: 'Certificate of Achievement',
+      totalUnitsRequired: 3,
+      requirementGroups: [{ groupId: 'required', label: 'Required Courses', rule: 'all', courses: [], subgroups: [], pageNumber: 1 }],
+      source: { sourceType: 'catalog-pdf', filename: 'program.pdf' }, reviewStatus: 'needs-review'
+    }),
+    pageRange: { boundaryConfidence: 0.9 }, warnings: []
+  };
+  const validation = catalog.validateExtractionCandidate({ catalogYear: '2026-2027', detailedSourceFound: true }, detail);
+  assert.equal(validation.valid, false);
+  assert.ok(validation.warnings.some(warning => /Missing courses or nested requirements/.test(warning)));
+});
+
 test('course-key reconciliation handles zero padding, CCN keys, ambiguous matches, and unmatched courses', () => {
   const rows = [
     section({ crn: '1', subject: 'BUS', course: '020' }),

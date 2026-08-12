@@ -452,7 +452,8 @@
   }
 
   function scfAuthorizationHeaders() {
-    const expiresAt = Date.parse(sessionStorage.getItem('cos-role-token-expires-at') || '');
+    const storedExpiration = sessionStorage.getItem('cos-role-token-expires-at') || '';
+    const expiresAt = Number(storedExpiration) || Date.parse(storedExpiration);
     const token = sessionStorage.getItem('cos-role-token') || '';
     if (!token || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return {};
     return { Authorization: `Bearer ${token}` };
