@@ -264,6 +264,24 @@ test('catalog validation blocks an empty requirement group after an extracted ro
   assert.ok(validation.warnings.some(warning => /Missing courses or nested requirements/.test(warning)));
 });
 
+test('CurrIQ extraction does not create an empty trailing requirement group', () => {
+  const parsed = catalog.parseCurriculumProgramExport([page(1, `
+Program Award: Skill Certificate
+Program Title: Simple Certificate
+Effective Term: Fall 2026
+Department: Arts
+Program Requirements:
+Required Courses
+ARCH 070 Architectural History 3
+Additional Required Courses
+TOTAL 3
+  `)], { catalogYear: '2026-2027', filename: 'simple-certificate.pdf' });
+
+  assert.equal(parsed.detail.program.requirementGroups.length, 1);
+  assert.equal(parsed.detail.program.requirementGroups[0].courses.length, 1);
+  assert.equal(parsed.detail.program.requirementGroups[0].courses[0].courseKey, 'ARCH 70');
+});
+
 test('catalog validation blocks a newly added course row until its key and units are completed', () => {
   const detail = {
     program: COSProgramRequirements.normalizeProgram({

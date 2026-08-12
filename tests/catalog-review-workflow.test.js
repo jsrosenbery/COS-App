@@ -130,6 +130,9 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /Nested Requirements/);
   assert.match(source, /data-catalog-action="remove-course"/);
   assert.match(source, /removeCatalogRequirementCourse/);
+  assert.match(source, /data-catalog-action="remove-requirement"/);
+  assert.match(source, /removeCatalogRequirementGroup/);
+  assert.match(source, /Removed unnecessary requirement group/);
   assert.match(source, /data-catalog-action="add-requirement"/);
   assert.match(source, /data-catalog-action="add-subgroup"/);
   assert.match(source, /data-catalog-action="add-course"/);
