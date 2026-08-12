@@ -250,6 +250,7 @@
         return;
       }
       if (!current) return;
+      if (/^(?:TOTAL|Units for|State Requirements|General Education)\b/i.test(line)) return;
       const match = line.match(/^([A-Z]{2,6}(?:\/[A-Z]{2,6})?)\s+([A-Z]?\d{1,4}[A-Z]?|C\d{4}[A-Z]?)\b(.*)$/i);
       if (!match) return;
       const subjects = match[1].toUpperCase().split('/');
@@ -675,6 +676,10 @@
       if (!group.sourceText && !group.pageNumber) warnings.push(`Missing page reference for ${group.label}.`);
       if (group.rule === 'choose-units' && !group.unitsRequired) warnings.push(`Missing choose-units value for ${group.label}.`);
       if (!(group.courses || []).length && !(group.subgroups || []).length) warnings.push(`Missing courses or nested requirements for ${group.label}.`);
+      (group.courses || []).forEach(course => {
+        if (!compact(course.courseKey)) warnings.push(`Missing course key in ${group.label}.`);
+        if (!Number.isFinite(Number(course.units))) warnings.push(`Missing unit value for ${course.courseKey || 'new course'} in ${group.label}.`);
+      });
       validateGroups(group.subgroups || []);
     });
     validateGroups(program.requirementGroups || []);

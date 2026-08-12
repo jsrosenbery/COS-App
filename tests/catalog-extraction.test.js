@@ -264,6 +264,23 @@ test('catalog validation blocks an empty requirement group after an extracted ro
   assert.ok(validation.warnings.some(warning => /Missing courses or nested requirements/.test(warning)));
 });
 
+test('catalog validation blocks a newly added course row until its key and units are completed', () => {
+  const detail = {
+    program: COSProgramRequirements.normalizeProgram({
+      programId: 'NEW-ROW', catalogYear: '2026-2027', programName: 'New Row', awardType: 'Certificate of Achievement',
+      totalUnitsRequired: 3,
+      requirementGroups: [{ groupId: 'required', label: 'Required Courses', rule: 'all', courses: [{ courseKey: '', units: undefined }], pageNumber: 1 }],
+      source: { sourceType: 'catalog-pdf', filename: 'program.pdf' }, reviewStatus: 'needs-review'
+    }),
+    pageRange: { boundaryConfidence: 0.9 }, warnings: []
+  };
+  detail.program.requirementGroups[0].courses = [{ courseKey: '', units: undefined }];
+  const validation = catalog.validateExtractionCandidate({ catalogYear: '2026-2027', detailedSourceFound: true }, detail);
+  assert.equal(validation.valid, false);
+  assert.ok(validation.warnings.some(warning => /Missing course key/.test(warning)));
+  assert.ok(validation.warnings.some(warning => /Missing unit value/.test(warning)));
+});
+
 test('course-key reconciliation handles zero padding, CCN keys, ambiguous matches, and unmatched courses', () => {
   const rows = [
     section({ crn: '1', subject: 'BUS', course: '020' }),
