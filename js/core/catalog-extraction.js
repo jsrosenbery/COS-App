@@ -671,10 +671,13 @@
     if (!candidate.detailedSourceFound && !(detail.pageRange?.boundaryConfidence >= 0.75)) warnings.push('No detailed source page confirmed.');
     if (!program.totalUnitsRequired) warnings.push('Missing stated program-unit total.');
     if (detail.unitReconciliation?.status === 'Variance requires review') warnings.push('Unit variance beyond tolerance.');
-    (program.requirementGroups || []).forEach(group => {
+    const validateGroups = groups => (groups || []).forEach(group => {
       if (!group.sourceText && !group.pageNumber) warnings.push(`Missing page reference for ${group.label}.`);
       if (group.rule === 'choose-units' && !group.unitsRequired) warnings.push(`Missing choose-units value for ${group.label}.`);
+      if (!(group.courses || []).length && !(group.subgroups || []).length) warnings.push(`Missing courses or nested requirements for ${group.label}.`);
+      validateGroups(group.subgroups || []);
     });
+    validateGroups(program.requirementGroups || []);
     const highSeverity = warnings.filter(warning => /Ambiguous|Missing|unmatched|cycle|variance|No detailed/i.test(warning));
     return { valid: highSeverity.length === 0, warnings, blockers: highSeverity };
   }
