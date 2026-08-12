@@ -9278,7 +9278,12 @@
             </table>
           </div>
           <div class="catalog-review-actions">
-            <button type="button" data-catalog-action="add-course" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}">Add Course Row</button>
+            <label class="catalog-inline-control">Rows
+              <select data-course-row-count aria-label="Number of course rows to add">
+                ${[1, 2, 5, 10, 15, 20].map(count => `<option value="${count}"${count === 5 ? ' selected' : ''}>${count}</option>`).join('')}
+              </select>
+            </label>
+            <button type="button" data-catalog-action="add-course" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}">Add Course Rows</button>
             <button type="button" data-catalog-action="add-subgroup" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}">Add Nested Requirement</button>
             <button type="button" class="danger-button" data-catalog-action="remove-requirement" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}">Remove Requirement ${escapeAttr(pathLabel)}</button>
           </div>
@@ -9998,7 +10003,7 @@ BUS 180 2 units`)
     };
   }
 
-  async function addCatalogRequirementNode(candidateId = '', groupPath = '', nodeType = 'requirement') {
+  async function addCatalogRequirementNode(candidateId = '', groupPath = '', nodeType = 'requirement', requestedCount = 1) {
     const detail = catalogDetailForCandidate(candidateId) || catalogSelectedDetail();
     const form = document.getElementById('catalogCorrectionEditor');
     if (!detail?.program || !form) throw new Error('Open a program draft before adding requirements.');
@@ -10009,8 +10014,11 @@ BUS 180 2 units`)
     if (nodeType === 'course') {
       if (!parent) throw new Error('Choose a requirement group before adding a course row.');
       parent.courses = parent.courses || [];
-      parent.courses.push({ courseKey: '', units: undefined, sourceCourseKey: '', sourceEvidence: [] });
-      message = `Added a blank course row to ${parent.label || 'the selected requirement'}.`;
+      const count = Math.max(1, Math.min(20, Number(requestedCount) || 1));
+      for (let index = 0; index < count; index += 1) {
+        parent.courses.push({ courseKey: '', units: undefined, sourceCourseKey: '', sourceEvidence: [] });
+      }
+      message = `Added ${count} blank course row${count === 1 ? '' : 's'} to ${parent.label || 'the selected requirement'}.`;
     } else {
       const collection = parent ? (parent.subgroups = parent.subgroups || []) : (corrected.program.requirementGroups = corrected.program.requirementGroups || []);
       collection.push(newCatalogRequirementGroup(parent ? `Alternative ${collection.length + 1}` : `Requirement ${collection.length + 1}`));
@@ -25944,6 +25952,8 @@ BUS 180 2 units`)
       .catalog-correction-level-2{background:#fffdf8}
       .catalog-correction-level-3,.catalog-correction-level-4{background:#fff}
       .catalog-correction-course-table{margin-top:0}
+      .catalog-inline-control{display:inline-flex!important;flex-direction:row!important;align-items:center;gap:6px}
+      .catalog-inline-control select{width:auto!important;min-width:64px}
       #roomFitReportMetrics button.room-fit-card{border:1px solid #f59e0b;border-radius:18px;padding:14px 16px;background:linear-gradient(135deg,#fff7ed,#fed7aa);box-shadow:0 8px 18px rgba(180,83,9,.16);cursor:pointer;text-align:center}
       #roomFitReportMetrics button.room-fit-card strong{display:block;font-size:24px;color:#7c2d12}
       #roomFitReportMetrics button.room-fit-card span{display:block;margin-top:4px;color:#9a3412;font-size:12px;font-weight:900;letter-spacing:.03em;text-transform:uppercase}
@@ -26312,6 +26322,7 @@ BUS 180 2 units`)
       const catalogYear = button.dataset.catalogYear || '';
       const groupPath = button.dataset.groupPath || '';
       const courseIndex = button.dataset.courseIndex ?? -1;
+      const courseRowCount = button.closest('.catalog-review-actions')?.querySelector('[data-course-row-count]')?.value || 1;
       const task = action === 'open-review'
         ? openCatalogProgramReview(candidateId, revisionId)
         : action === 'approve'
@@ -26327,7 +26338,7 @@ BUS 180 2 units`)
             : action === 'add-subgroup'
               ? addCatalogRequirementNode(candidateId, groupPath, 'subgroup')
             : action === 'add-course'
-              ? addCatalogRequirementNode(candidateId, groupPath, 'course')
+              ? addCatalogRequirementNode(candidateId, groupPath, 'course', courseRowCount)
             : action === 'auto-nest-requirements'
               ? autoNestCatalogRequirementGroups(candidateId)
               : action === 'publish'
