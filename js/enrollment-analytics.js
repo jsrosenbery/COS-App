@@ -333,6 +333,11 @@
   const ROLE_EXPIRES_KEY = 'cos-role-token-expires-at';
   const LEGACY_EM_TOKEN_KEY = 'cos-em-token';
   const LEGACY_EM_EXPIRES_KEY = 'cos-em-token-expires-at';
+  const ROLE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+  const ROLE_REFRESH_THROTTLE_MS = 60 * 1000;
+  let roleIdleTimer = null;
+  let lastRoleRefreshAt = 0;
+  let roleRefreshInFlight = null;
   const ACCOUNTING_METHODS = {
     W: { category: 'weekly', label: 'Weekly Census', reportable: true },
     D: { category: 'daily', label: 'Daily Census', reportable: true },
@@ -25152,6 +25157,71 @@ BUS 180 2 units`)
     [ROLE_STORAGE_KEY, ROLE_TOKEN_KEY, ROLE_EXPIRES_KEY, LEGACY_EM_TOKEN_KEY, LEGACY_EM_EXPIRES_KEY, 'cos-em-unlocked'].forEach(key => {
       sessionStorage.removeItem(key);
     });
+    if (roleIdleTimer) clearTimeout(roleIdleTimer);
+    roleIdleTimer = null;
+    lastRoleRefreshAt = 0;
+  }
+
+  function storeRoleExpiration(expiresAt) {
+    const value = String(expiresAt);
+    sessionStorage.setItem(ROLE_EXPIRES_KEY, value);
+    sessionStorage.setItem(LEGACY_EM_EXPIRES_KEY, value);
+    const expiration = document.getElementById('currentAccessExpiration');
+    if (expiration) expiration.textContent = `Locks after inactivity at ${new Date(Number(expiresAt)).toLocaleString()}`;
+  }
+
+  function scheduleRoleIdleLock(expiresAt = Number(sessionStorage.getItem(ROLE_EXPIRES_KEY) || 0)) {
+    if (roleIdleTimer) clearTimeout(roleIdleTimer);
+    roleIdleTimer = null;
+    if (!expiresAt) return;
+    roleIdleTimer = setTimeout(() => {
+      if (Number(sessionStorage.getItem(ROLE_EXPIRES_KEY) || 0) > Date.now()) {
+        scheduleRoleIdleLock();
+        return;
+      }
+      lockEnrollmentReports();
+    }, Math.max(0, expiresAt - Date.now()) + 25);
+  }
+
+  async function refreshRoleSession() {
+    const token = sessionStorage.getItem(ROLE_TOKEN_KEY) || sessionStorage.getItem(LEGACY_EM_TOKEN_KEY) || '';
+    if (!token || !window.BACKEND_BASE_URL) return false;
+    if (roleRefreshInFlight) return roleRefreshInFlight;
+    roleRefreshInFlight = fetch(`${window.BACKEND_BASE_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(async response => {
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) lockEnrollmentReports();
+        return false;
+      }
+      const payload = await response.json();
+      const expiresAt = Date.parse(payload.expiresAt || '') || Date.now() + ROLE_IDLE_TIMEOUT_MS;
+      storeRoleExpiration(expiresAt);
+      scheduleRoleIdleLock(expiresAt);
+      lastRoleRefreshAt = Date.now();
+      return true;
+    }).catch(() => false).finally(() => {
+      roleRefreshInFlight = null;
+    });
+    return roleRefreshInFlight;
+  }
+
+  function noteUnlockedActivity() {
+    const token = sessionStorage.getItem(ROLE_TOKEN_KEY) || sessionStorage.getItem(LEGACY_EM_TOKEN_KEY) || '';
+    if (!token) return;
+    const expiresAt = Date.now() + ROLE_IDLE_TIMEOUT_MS;
+    storeRoleExpiration(expiresAt);
+    scheduleRoleIdleLock(expiresAt);
+    if (Date.now() - lastRoleRefreshAt >= ROLE_REFRESH_THROTTLE_MS) refreshRoleSession();
+  }
+
+  function initializeRoleIdleTimeout() {
+    ['pointerdown', 'keydown', 'input', 'change'].forEach(eventName => {
+      document.addEventListener(eventName, noteUnlockedActivity, { passive: true });
+    });
+    const session = roleSession();
+    if (session.token) scheduleRoleIdleLock(session.expiresAt);
   }
 
   function roleSession() {
@@ -25178,7 +25248,7 @@ BUS 180 2 units`)
     const session = roleSession();
     if (!session.token) return 'No active unlock session';
     if (!session.expiresAt) return 'Session expiration unavailable';
-    return `Expires ${new Date(session.expiresAt).toLocaleString()}`;
+    return `Locks after inactivity at ${new Date(session.expiresAt).toLocaleString()}`;
   }
 
   function canAccessRole(requiredRole) {
@@ -25258,11 +25328,13 @@ BUS 180 2 units`)
     }
     const payload = await response.json();
     const role = normalizeRole(payload.role || (ROLE_LEVEL[requestedRole] <= ROLE_LEVEL.dean ? 'dean' : requestedRole));
+    const expiresAt = Date.parse(payload.expiresAt || '') || Date.now() + ROLE_IDLE_TIMEOUT_MS;
     sessionStorage.setItem(ROLE_STORAGE_KEY, role);
     sessionStorage.setItem(ROLE_TOKEN_KEY, payload.token || '');
-    sessionStorage.setItem(ROLE_EXPIRES_KEY, String(Date.parse(payload.expiresAt || '') || Date.now()));
+    storeRoleExpiration(expiresAt);
     sessionStorage.setItem(LEGACY_EM_TOKEN_KEY, payload.token || '');
-    sessionStorage.setItem(LEGACY_EM_EXPIRES_KEY, String(Date.parse(payload.expiresAt || '') || Date.now()));
+    lastRoleRefreshAt = Date.now();
+    scheduleRoleIdleLock(expiresAt);
     if (input) input.value = '';
     if (panel) panel.hidden = true;
     state.pendingAccessRole = '';
@@ -26618,6 +26690,7 @@ BUS 180 2 units`)
     injectStyle();
     registerEnrollmentCollapsibleSections();
     wire();
+    initializeRoleIdleTimeout();
     refreshAnalyticsArchiveOptions();
     refreshWorkExperienceArchives();
     refreshFacultyScheduleArchives();
