@@ -253,12 +253,13 @@
     const highest = toNumber(row.highestEnrollment ?? row.latestEnrollment ?? row.initialEnrollment);
     if (row.manualReview) return 'Manual Review';
     if (highest !== null && threshold !== null && highest >= threshold) return 'Threshold Met';
+    if (row.presumedCancelled) return 'Presumed Cancelled';
     if (row.latestEnrollment === null || row.latestEnrollment === undefined || row.latestEnrollment === '') return 'Missing Update';
     return 'Below Threshold';
   }
 
   function removedFromActiveWatchlist(row) {
-    return Boolean(row?.missingFromLatestWorkbook) || statusForRow(row) === 'Threshold Met';
+    return Boolean(row?.missingFromLatestWorkbook) || Boolean(row?.presumedCancelled) || statusForRow(row) === 'Threshold Met';
   }
 
   function removedReason(row) {
@@ -270,6 +271,11 @@
       reasons.push(exclusionParts.filter(Boolean).join(': '));
     }
     if (statusForRow(row) === 'Threshold Met') reasons.push('Threshold Met');
+    if (row?.presumedCancelled) {
+      const cancelledParts = ['Missing from Latest Enrollment Upload - Presumed Cancelled'];
+      if (row.presumedCancelledSnapshotDate) cancelledParts.push(formatShortDate(row.presumedCancelledSnapshotDate));
+      reasons.push(cancelledParts.join(': '));
+    }
     if (row?.missingFromLatestWorkbook) reasons.push('Removed from Latest Baseline');
     return reasons.join('; ') || '';
   }
@@ -541,6 +547,8 @@
       else completelyMissingRows += 1;
       const updated = {
         ...row,
+        presumedCancelled: value === null ? true : false,
+        presumedCancelledSnapshotDate: value === null ? snapshotDate : '',
         latestEnrollment: value,
         currentEnrollment: value === null ? row.currentEnrollment : value,
         highestEnrollment: (() => {
@@ -809,6 +817,7 @@
       if (removedFromActiveWatchlist(row)) counts.removed += 1;
       else counts.active += 1;
       if (status === 'Threshold Met') counts.met += 1;
+      else if (status === 'Presumed Cancelled') counts.missing += 1;
       else if (status === 'Missing Update') counts.missing += 1;
       else if (status === 'Manual Review') counts.manual += 1;
       else counts.below += 1;
@@ -1335,7 +1344,7 @@
     const campuses = distinctOptions(workspace?.rows || [], 'campus');
     const instructionalMethods = distinctOptions(workspace?.rows || [], 'instructionalMethod');
     const scheduleTypes = distinctOptions(workspace?.rows || [], 'scheduleType');
-    const statusOptions = ['Below Threshold', 'Threshold Met', 'Missing Update', 'Manual Review'];
+    const statusOptions = ['Below Threshold', 'Threshold Met', 'Missing Update', 'Presumed Cancelled', 'Manual Review'];
     mounted.container.innerHTML = `
       <div class="low-enrollment-tracker">
         <div class="analytics-report-intro">
@@ -1356,7 +1365,7 @@
               <h3>Methodology</h3>
               <ul>
                 <li>Status is based on each row's highest observed enrollment compared with the workbook threshold.</li>
-                <li>Missing Update means no member CRN from that visible workbook row appeared in the dated CSV update.</li>
+                <li>Missing Update means no member CRN from that visible workbook row appeared in the dated CSV update. After an enrollment update upload, those rows are treated as Presumed Cancelled and moved out of the active watchlist while preserving history.</li>
                 <li>This module intentionally stays separate from the central Section Seating archive so low-enrollment tracking can preserve manual comments and workbook-specific context.</li>
               </ul>
             </div>

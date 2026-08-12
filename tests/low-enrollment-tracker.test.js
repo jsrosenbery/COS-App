@@ -63,8 +63,49 @@ test('low enrollment update sums cross-listed member CRNs and reports full/parti
   assert.equal(result.workspace.rows[1].snapshotMatchStatus['2026-08-11'], 'partial');
   assert.deepEqual(result.workspace.rows[1].snapshotMissingCrns['2026-08-11'], ['30002']);
   assert.equal(result.workspace.rows[2].latestEnrollment, null);
-  assert.equal(result.workspace.rows[2].status, 'Missing Update');
+  assert.equal(result.workspace.rows[2].status, 'Presumed Cancelled');
   assert.deepEqual(result.snapshot.values[result.workspace.rows[0].id].matchedCrns, ['10003', '10004']);
+});
+
+test('low enrollment update treats disappeared CRNs as presumed cancelled and preserves safe threshold-met rows', () => {
+  const workspace = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold'],
+    ['COMM C1000', '10003', 'Public Speaking', 18, 30, 21],
+    ['ENGL C1000', '30001', 'Writing', 10, 30, 21],
+    ['MATH 021', '40001', 'Support Algebra', 5, 30, 18]
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' });
+
+  const firstUpdate = tracker.applyEnrollmentSnapshot(workspace, [
+    { CRN: '10003', ACTUAL_ENROLL: '22' },
+    { CRN: '30001', ACTUAL_ENROLL: '12' },
+    { CRN: '40001', ACTUAL_ENROLL: '8' }
+  ], { snapshotDate: '2026-08-11', sourceFilename: 'section-seating-8-11.csv' }).workspace;
+  const secondUpdate = tracker.applyEnrollmentSnapshot(firstUpdate, [
+    { CRN: '30001', ACTUAL_ENROLL: '13' }
+  ], { snapshotDate: '2026-08-18', sourceFilename: 'section-seating-8-18.csv' }).workspace;
+  const [safeRow, activeRow, cancelledRow] = secondUpdate.rows;
+
+  assert.equal(tracker.statusForRow(safeRow), 'Threshold Met');
+  assert.equal(safeRow.presumedCancelled, true);
+  assert.equal(tracker.removedReason(safeRow), 'Threshold Met; Missing from Latest Enrollment Upload - Presumed Cancelled: 8/18/26');
+  assert.equal(tracker.statusForRow(activeRow), 'Below Threshold');
+  assert.equal(activeRow.presumedCancelled, false);
+  assert.equal(tracker.statusForRow(cancelledRow), 'Presumed Cancelled');
+  assert.equal(cancelledRow.presumedCancelledSnapshotDate, '2026-08-18');
+  assert.equal(tracker.removedFromActiveWatchlist(cancelledRow), true);
+  assert.equal(tracker.removedReason(cancelledRow), 'Missing from Latest Enrollment Upload - Presumed Cancelled: 8/18/26');
+
+  const removed = tracker.removedOrExcludedExportRows(secondUpdate);
+  const exportModel = tracker.buildExcelExportModel(secondUpdate, removed);
+  const headers = exportModel.columns.map(column => column.header);
+  const exportedByCourse = new Map(exportModel.rows.map(values => {
+    const row = Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+    return [row.Course, row];
+  }));
+  assert.equal(removed.length, 2);
+  assert.equal(exportedByCourse.get('COMM C1000').Status, 'Threshold Met');
+  assert.equal(exportedByCourse.get('MATH 021').Status, 'Presumed Cancelled');
+  assert.match(exportedByCourse.get('MATH 021')['Removed / Met Minimum Reason'], /Presumed Cancelled/);
 });
 
 test('low enrollment workbook validation rejects missing threshold values', () => {
