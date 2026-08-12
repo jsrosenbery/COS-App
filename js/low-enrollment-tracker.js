@@ -508,6 +508,66 @@
     return JSON.parse(JSON.stringify(workspace || {}));
   }
 
+  function recalculateRowEnrollmentState(row, snapshots = []) {
+    const datedSnapshots = (snapshots || []).filter(snapshot => snapshot.type !== 'initial');
+    const datedValues = datedSnapshots
+      .map(snapshot => row.snapshotValues?.[snapshot.snapshotDate])
+      .filter(value => value !== null && value !== undefined && value !== '')
+      .map(toNumber)
+      .filter(value => value !== null);
+    const latestSnapshot = datedSnapshots.slice().reverse().find(snapshot => {
+      const value = row.snapshotValues?.[snapshot.snapshotDate];
+      return value !== null && value !== undefined && value !== '';
+    });
+    const latestEnrollment = latestSnapshot
+      ? row.snapshotValues[latestSnapshot.snapshotDate]
+      : row.initialEnrollment;
+    const highestValues = [row.initialEnrollment, ...datedValues].map(toNumber).filter(value => value !== null);
+    const next = {
+      ...row,
+      latestEnrollment,
+      currentEnrollment: latestEnrollment === null || latestEnrollment === undefined || latestEnrollment === '' ? row.currentEnrollment : latestEnrollment,
+      highestEnrollment: highestValues.length ? Math.max(...highestValues) : null,
+      presumedCancelled: false,
+      presumedCancelledSnapshotDate: ''
+    };
+    next.status = statusForRow(next);
+    return next;
+  }
+
+  function deleteEnrollmentSnapshot(workspace, snapshotDate) {
+    const date = normalizeDate(snapshotDate);
+    const next = cloneWorkspace(workspace);
+    const removed = (next.snapshots || []).find(snapshot => snapshot.type !== 'initial' && snapshot.snapshotDate === date);
+    if (!removed) throw new Error(`No enrollment update snapshot was found for ${date || 'the selected date'}.`);
+    next.snapshots = (next.snapshots || []).filter(snapshot => !(snapshot.type !== 'initial' && snapshot.snapshotDate === date));
+    next.rows = (next.rows || []).map(row => {
+      const snapshotValues = { ...(row.snapshotValues || {}) };
+      const snapshotMatchStatus = { ...(row.snapshotMatchStatus || {}) };
+      const snapshotMissingCrns = { ...(row.snapshotMissingCrns || {}) };
+      delete snapshotValues[date];
+      delete snapshotMatchStatus[date];
+      delete snapshotMissingCrns[date];
+      const missingSnapshots = (row.missingSnapshots || []).filter(item => item !== date);
+      return recalculateRowEnrollmentState({
+        ...row,
+        snapshotValues,
+        snapshotMatchStatus,
+        snapshotMissingCrns,
+        missingSnapshots
+      }, next.snapshots);
+    });
+    next.uploadHistory = [...(next.uploadHistory || []), {
+      type: 'snapshot-delete',
+      sourceFilename: removed.sourceFilename || '',
+      uploadedAt: new Date().toISOString(),
+      snapshotDate: date,
+      rowsAffected: next.rows.length
+    }];
+    next.updatedAt = new Date().toISOString();
+    return { workspace: next, removedSnapshot: removed };
+  }
+
   function applyEnrollmentSnapshot(workspace, rawRowsOrMap, options = {}) {
     const next = cloneWorkspace(workspace);
     const enrollmentMap = rawRowsOrMap instanceof Map ? rawRowsOrMap : parseEnrollmentCsvRows(rawRowsOrMap);
@@ -1345,6 +1405,7 @@
     const instructionalMethods = distinctOptions(workspace?.rows || [], 'instructionalMethod');
     const scheduleTypes = distinctOptions(workspace?.rows || [], 'scheduleType');
     const statusOptions = ['Below Threshold', 'Threshold Met', 'Missing Update', 'Presumed Cancelled', 'Manual Review'];
+    const datedSnapshots = (workspace?.snapshots || []).filter(snapshot => snapshot.type !== 'initial');
     mounted.container.innerHTML = `
       <div class="low-enrollment-tracker">
         <div class="analytics-report-intro">
@@ -1383,6 +1444,13 @@
           <label>Update date <input id="lowEnrollmentSnapshotDate" type="date" value="${escapeHtml(mounted.snapshotDate || localDateInputValue())}"></label>
           <label>Enrollment update CSV <input id="lowEnrollmentCsvFile" type="file" accept=".csv"></label>
           <button id="uploadLowEnrollmentSnapshot" type="button"${workspace ? '' : ' disabled'}>Upload Enrollment Update</button>
+          <label>Delete update column
+            <select id="lowEnrollmentDeleteSnapshotDate"${datedSnapshots.length ? '' : ' disabled'}>
+              <option value="">${datedSnapshots.length ? 'Select dated upload' : 'No dated uploads'}</option>
+              ${datedSnapshots.map(snapshot => `<option value="${escapeHtml(snapshot.snapshotDate)}">${escapeHtml(formatSnapshotColumnLabel(snapshot.snapshotDate || snapshot.label))}</option>`).join('')}
+            </select>
+          </label>
+          <button id="deleteLowEnrollmentSnapshot" type="button"${workspace && datedSnapshots.length ? '' : ' disabled'}>Delete Column</button>
           <button id="refreshLowEnrollmentTerms" type="button">Refresh Terms</button>
           <label>Edited tracker <input id="lowEnrollmentManualWorkbookFile" type="file" accept=".xlsx"></label>
           <button id="importLowEnrollmentManualWorkbook" type="button"${workspace ? '' : ' disabled'}>Import Edited Tracker</button>
@@ -1668,6 +1736,17 @@
     await loadTerms(workspaceToSave.termCode);
   }
 
+  async function replaceSavedWorkspace(workspace) {
+    await ensureAccess();
+    const payload = await fetchJson(`/api/low-enrollment-tracking/${encodeURIComponent(workspace.termCode)}`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ workspace, replaceExisting: true })
+    });
+    mounted.workspace = payload.data;
+    await loadTerms(workspace.termCode);
+  }
+
   async function saveSnapshot(result) {
     await ensureAccess();
     const existing = (mounted.workspace?.snapshots || []).some(snapshot => snapshot.snapshotDate === result.snapshot.snapshotDate && snapshot.type !== 'initial');
@@ -1744,6 +1823,23 @@
     });
     mounted.workspace = payload.data;
     await loadTerms(workspace.termCode);
+  }
+
+  async function confirmDeleteSnapshot(workspace, snapshot) {
+    const body = `
+      <p>This will remove the <strong>${escapeHtml(formatSnapshotColumnLabel(snapshot.snapshotDate))}</strong> column from <strong>${escapeHtml(workspace.displayTerm || workspace.termCode)}</strong>.</p>
+      <p>Enrollment values from that upload will be removed from every row, and Latest, Highest, Status, and presumed-cancelled flags will be recalculated from the remaining snapshots. Justifications and VP comments will remain unchanged.</p>
+      <p>This is the right tool when a dated enrollment upload was saved with the wrong date.</p>
+    `;
+    const decision = await showModal({
+      title: 'Delete Enrollment Update Column?',
+      body,
+      actions: [
+        { value: 'delete', label: 'Delete Snapshot Column', primary: true },
+        { value: 'cancel', label: 'Cancel' }
+      ]
+    });
+    return decision === 'delete';
   }
 
   async function chooseExclusionChange(workspace, row, action) {
@@ -2002,6 +2098,36 @@
         }
       }
     });
+    container.querySelector('#deleteLowEnrollmentSnapshot')?.addEventListener('click', async event => {
+      const workspace = selectedWorkspace();
+      const snapshotDate = container.querySelector('#lowEnrollmentDeleteSnapshotDate')?.value || '';
+      const snapshot = (workspace?.snapshots || []).find(item => item.type !== 'initial' && item.snapshotDate === snapshotDate);
+      if (!workspace) return setStatus('Select a Low Enrollment workspace before deleting an update column.');
+      if (!snapshot) return setStatus('Select a dated enrollment update column to delete.');
+      const button = event.currentTarget;
+      try {
+        const confirmed = await confirmDeleteSnapshot(workspace, snapshot);
+        if (!confirmed) {
+          setStatus('Snapshot column deletion canceled.');
+          return;
+        }
+        button.disabled = true;
+        button.textContent = 'Deleting...';
+        setStatus(`Deleting ${formatSnapshotColumnLabel(snapshot.snapshotDate)}...`);
+        const result = deleteEnrollmentSnapshot(workspace, snapshot.snapshotDate);
+        await replaceSavedWorkspace(result.workspace);
+        mounted.updatedSnapshotDate = '';
+        setStatus(`Deleted ${formatSnapshotColumnLabel(snapshot.snapshotDate)} and recalculated tracker statuses.`);
+        render();
+      } catch (err) {
+        setStatus(err.message || 'Snapshot column deletion failed.');
+      } finally {
+        if (button?.isConnected) {
+          button.disabled = false;
+          button.textContent = 'Delete Column';
+        }
+      }
+    });
     container.querySelectorAll('[data-low-enrollment-field]')?.forEach(input => {
       const eventName = input.tagName === 'TEXTAREA' ? 'blur' : 'change';
       input.addEventListener(eventName, async event => {
@@ -2176,6 +2302,7 @@
     validateImportWorkspace,
     buildImportSummary,
     applyEnrollmentSnapshot,
+    deleteEnrollmentSnapshot,
     refreshBaselineWorkspace,
     workspaceImportPreview,
     statusForRow,

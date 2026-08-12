@@ -108,6 +108,37 @@ test('low enrollment update treats disappeared CRNs as presumed cancelled and pr
   assert.match(exportedByCourse.get('MATH 021')['Removed / Met Minimum Reason'], /Presumed Cancelled/);
 });
 
+test('low enrollment snapshot deletion removes dated column and recalculates row status', () => {
+  const workspace = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold'],
+    ['COMM C1000', '10003', 'Public Speaking', 18, 30, 21],
+    ['ENGL C1000', '30001', 'Writing', 10, 30, 21]
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' });
+  const firstUpdate = tracker.applyEnrollmentSnapshot(workspace, [
+    { CRN: '10003', ACTUAL_ENROLL: '20' },
+    { CRN: '30001', ACTUAL_ENROLL: '12' }
+  ], { snapshotDate: '2026-08-11', sourceFilename: 'good-date.csv' }).workspace;
+  const badDateUpdate = tracker.applyEnrollmentSnapshot(firstUpdate, [
+    { CRN: '10003', ACTUAL_ENROLL: '25' }
+  ], { snapshotDate: '2026-08-99', sourceFilename: 'wrong-date.csv' }).workspace;
+
+  assert.equal(badDateUpdate.rows[0].status, 'Threshold Met');
+  assert.equal(badDateUpdate.rows[0].highestEnrollment, 25);
+  assert.equal(badDateUpdate.rows[1].status, 'Presumed Cancelled');
+  assert.equal(badDateUpdate.snapshots.some(snapshot => snapshot.snapshotDate === '2026-08-99'), true);
+
+  const deleted = tracker.deleteEnrollmentSnapshot(badDateUpdate, '2026-08-99').workspace;
+  assert.equal(deleted.snapshots.some(snapshot => snapshot.snapshotDate === '2026-08-99'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(deleted.rows[0].snapshotValues, '2026-08-99'), false);
+  assert.equal(deleted.rows[0].latestEnrollment, 20);
+  assert.equal(deleted.rows[0].highestEnrollment, 20);
+  assert.equal(deleted.rows[0].status, 'Below Threshold');
+  assert.equal(deleted.rows[1].latestEnrollment, 12);
+  assert.equal(deleted.rows[1].presumedCancelled, false);
+  assert.equal(deleted.rows[1].status, 'Below Threshold');
+  assert.equal(deleted.uploadHistory.at(-1).type, 'snapshot-delete');
+});
+
 test('low enrollment workbook validation rejects missing threshold values', () => {
   assert.throws(() => tracker.parseWorkbookTable([
     ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment'],
