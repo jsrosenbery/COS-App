@@ -2890,7 +2890,8 @@
             </div>
           </section>
           <section class="collapsible-section" data-collapsible-id="catalog-inventory" data-collapsible-title="Program Inventory"><div class="collapsible-section-body"><div id="catalogProgramInventory" class="analytics-table"></div></div></section>
-          <section class="collapsible-section" data-collapsible-id="catalog-review-queue" data-collapsible-title="Review Queue"><div class="collapsible-section-body"><div id="catalogReviewQueue" class="analytics-table"></div></div></section>
+          <section class="collapsible-section" data-collapsible-id="catalog-pending-review" data-collapsible-title="Pending Program Review"><div class="collapsible-section-body"><div id="catalogPendingReviewQueue" class="analytics-table"></div></div></section>
+          <section class="collapsible-section" data-collapsible-id="catalog-approved-imports" data-collapsible-title="Approved Program Imports"><div class="collapsible-section-body"><div id="catalogApprovedImportQueue" class="analytics-table"></div></div></section>
           <section class="collapsible-section" data-collapsible-id="catalog-program-detail" data-collapsible-title="Program Detail"><div class="collapsible-section-body"><div id="catalogProgramDetailStatus"></div><div id="catalogProgramDetailSummary"></div><div id="catalogRequirementReview" class="analytics-table"></div><div id="programRequirementsPreview" class="analytics-table"></div></div></section>
           <section class="collapsible-section" data-collapsible-id="catalog-revision-history" data-collapsible-title="Revision History"><div class="collapsible-section-body"><div id="programRequirementsRepositoryTable" class="analytics-table"></div><div id="programRequirementsRevisionHistory" class="analytics-table"></div></div></section>
           <section class="collapsible-section" data-collapsible-id="catalog-diagnostics" data-collapsible-title="Diagnostics"><div class="collapsible-section-body"><div id="programRequirementsDiagnostics" class="analytics-table"></div><div id="programRequirementsLegend" class="analytics-legend"></div></div></section>
@@ -9548,7 +9549,7 @@
       warnings: (candidate.warnings || []).join('; '),
       reviewStatus: candidate.extractionStatus || candidate.reviewStatus
     })), ['program', 'awardType', 'areaOfStudy', 'sourcePages', 'pageRange', 'confidence', 'warnings', 'reviewStatus']);
-    catalogActionTable('catalogReviewQueue', (state.catalogProgramCandidates || []).map(candidate => {
+    const catalogReviewRows = (state.catalogProgramCandidates || []).map(candidate => {
       const detail = catalogDetailForCandidate(candidate.candidateId);
       const validation = detail ? catalogValidationSummary(detail, candidate) : { blockers: ['No parsed requirement detail saved.'], warnings: candidate.warnings || [] };
       return {
@@ -9560,14 +9561,25 @@
         warnings: (validation.warnings || candidate.warnings || []).join('; ') || 'None',
         status: candidate.reviewStatus || candidate.extractionStatus || 'Detected'
       };
-    }), [
+    });
+    const approvedCatalogRows = catalogReviewRows.filter(row => ['approved', 'published'].includes(String(row.status || '').toLowerCase()));
+    const pendingCatalogRows = catalogReviewRows.filter(row => !approvedCatalogRows.includes(row));
+    catalogActionTable('catalogPendingReviewQueue', pendingCatalogRows, [
       { key: 'program', label: 'Program' },
       { key: 'award', label: 'Award' },
       { key: 'pages', label: 'Pages' },
       { key: 'blockers', label: 'Approval Blockers' },
       { key: 'warnings', label: 'Warnings' },
       { key: 'status', label: 'Status' },
-      { label: 'Actions', html: row => `<button type="button" data-catalog-action="open-review" data-candidate-id="${escapeAttr(row.candidateId)}">Open Review</button> <button type="button" data-catalog-action="approve" data-candidate-id="${escapeAttr(row.candidateId)}">Approve</button>` }
+      { label: 'Actions', html: row => `<button type="button" data-catalog-action="open-review" data-candidate-id="${escapeAttr(row.candidateId)}">Open Review</button> <button type="button" data-catalog-action="approve" data-candidate-id="${escapeAttr(row.candidateId)}">Approve</button> <button type="button" data-catalog-action="reject-candidate" data-candidate-id="${escapeAttr(row.candidateId)}">Reject / Delete Draft</button>` }
+    ]);
+    catalogActionTable('catalogApprovedImportQueue', approvedCatalogRows, [
+      { key: 'program', label: 'Program' },
+      { key: 'award', label: 'Award' },
+      { key: 'pages', label: 'Pages' },
+      { key: 'warnings', label: 'Warnings' },
+      { key: 'status', label: 'Status' },
+      { label: 'Actions', html: row => `<button type="button" data-catalog-action="open-review" data-candidate-id="${escapeAttr(row.candidateId)}">Open Review</button>` }
     ]);
     renderCatalogProgramDetail();
     catalogActionTable('programRequirementsRevisionHistory', (state.programRequirementRevisions || []).map(revision => ({
@@ -10036,6 +10048,35 @@ BUS 180 2 units`)
     state.selectedCatalogCandidateId = candidateId || corrected.candidateId || state.selectedCatalogCandidateId;
     state.programRequirementsErrors = [];
     state.programRequirementsMessages = [`${message} Complete the new fields, then click Save Corrections & Revalidate.`];
+    await refreshProgramRequirementsRepository();
+  }
+
+  async function rejectCatalogCandidate(candidateId = '') {
+    const repo = await programRequirementsRepository();
+    const candidate = (state.catalogProgramCandidates || []).find(item => item.candidateId === candidateId) || null;
+    if (!candidate) throw new Error('The pending catalog import could not be found.');
+    const status = String(candidate.reviewStatus || candidate.extractionStatus || '').toLowerCase();
+    if (['approved', 'published'].includes(status)) {
+      throw new Error('Approved imports cannot be rejected or deleted from the review dashboard.');
+    }
+    const label = candidate.programName || candidateId;
+    if (!window.confirm?.(`Reject and remove ${label} from Pending Program Review? The uploaded source PDF will be preserved.`)) return;
+    const reviewedAt = new Date().toISOString();
+    await repo.saveCatalogReviewDecision?.({
+      id: `rejected-${candidateId}-${Date.now()}`,
+      candidateId,
+      catalogSourceId: candidate.catalogSourceId || '',
+      decision: 'rejected',
+      reviewedAt,
+      reviewedBy: 'TIMBER Admin Review',
+      reason: 'Rejected and removed from the pending import review queue.',
+      sourceEvidencePreserved: true
+    });
+    const deleted = await repo.deleteCatalogProgramCandidate?.(candidateId);
+    if (!deleted) throw new Error('The pending catalog import could not be removed.');
+    if (state.selectedCatalogCandidateId === candidateId) state.selectedCatalogCandidateId = '';
+    state.programRequirementsErrors = [];
+    state.programRequirementsMessages = [`Rejected and removed ${label} from Pending Program Review. The uploaded source PDF was preserved.`];
     await refreshProgramRequirementsRepository();
   }
 
@@ -26327,6 +26368,8 @@ BUS 180 2 units`)
         ? openCatalogProgramReview(candidateId, revisionId)
         : action === 'approve'
           ? approveCatalogCandidate(candidateId)
+          : action === 'reject-candidate'
+            ? rejectCatalogCandidate(candidateId)
           : action === 'save-corrections'
             ? saveCatalogCorrections(candidateId)
             : action === 'remove-course'

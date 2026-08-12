@@ -368,6 +368,13 @@
       async getCatalogProgramCandidates(catalogSourceId = '') {
         return [...catalogCandidates.values()].filter(record => !catalogSourceId || record.catalogSourceId === catalogSourceId).map(clone);
       },
+      async deleteCatalogProgramCandidate(candidateId = '') {
+        const id = compact(candidateId);
+        if (!id) return false;
+        const existed = catalogCandidates.delete(id);
+        catalogDetails.delete(id);
+        return existed;
+      },
       async saveCatalogRequirementDetail(detail = {}) {
         const id = compact(detail.candidateId);
         if (!id) throw new Error('candidateId is required for catalog requirement detail.');
@@ -560,6 +567,15 @@
       async getCatalogProgramCandidates(catalogSourceId = '') {
         const records = (await requestPromise((await store('readonly', STORE_CATALOG_CANDIDATES)).getAll())).map(clone);
         return records.filter(record => !catalogSourceId || record.catalogSourceId === catalogSourceId);
+      },
+      async deleteCatalogProgramCandidate(candidateId = '') {
+        const id = compact(candidateId);
+        if (!id) return false;
+        const existing = await requestPromise((await store('readonly', STORE_CATALOG_CANDIDATES)).get(id));
+        if (!existing) return false;
+        await requestPromise((await store('readwrite', STORE_CATALOG_CANDIDATES)).delete(id));
+        await requestPromise((await store('readwrite', STORE_CATALOG_DETAILS)).delete(id));
+        return true;
       },
       async saveCatalogRequirementDetail(detail = {}) {
         const id = compact(detail.candidateId);
