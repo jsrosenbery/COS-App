@@ -9274,8 +9274,12 @@
           <div class="analytics-table catalog-correction-course-table">
             <table>
               <thead><tr><th>Course</th><th>Units</th><th>Page</th><th>Source Text</th><th>Action</th></tr></thead>
-              <tbody>${courseRows || '<tr><td colspan="4">No courses parsed directly in this group.</td></tr>'}</tbody>
+              <tbody>${courseRows || '<tr><td colspan="5">No courses parsed directly in this group.</td></tr>'}</tbody>
             </table>
+          </div>
+          <div class="catalog-review-actions">
+            <button type="button" data-catalog-action="add-course" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}">Add Course Row</button>
+            <button type="button" data-catalog-action="add-subgroup" data-candidate-id="${escapeAttr(catalogSelectedDetail()?.candidateId || '')}" data-group-path="${escapeAttr(path.join('.'))}">Add Nested Requirement</button>
           </div>
           ${subgroupRows ? `<div class="catalog-correction-subgroups"><strong>Nested Requirements</strong>${subgroupRows}</div>` : ''}
         </fieldset>
@@ -9302,9 +9306,11 @@
         </div>
         ${groupRows || '<p class="analytics-empty">No requirement groups are available to edit.</p>'}
         <div class="catalog-review-actions">
+          <button type="button" data-catalog-action="add-requirement" data-candidate-id="${escapeAttr(detail.candidateId || '')}">Add Top-Level Requirement</button>
           <button type="button" data-catalog-action="auto-nest-requirements" data-candidate-id="${escapeAttr(detail.candidateId || '')}">Auto-nest Area/Sub-area Groups</button>
           <button type="button" data-catalog-action="save-corrections" data-candidate-id="${escapeAttr(detail.candidateId || '')}">Save Corrections & Revalidate</button>
         </div>
+        <div id="catalogCorrectionStatus" class="catalog-review-confirmation" aria-live="polite"></div>
       </form>
     `;
   }
@@ -9963,6 +9969,67 @@ BUS 180 2 units`)
     (group.subgroups || []).forEach((subgroup, subgroupIndex) => updateCatalogCorrectionGroupFromForm(form, subgroup, [...path, subgroupIndex]));
   }
 
+  function catalogCorrectionsFromForm(detail = {}, form = document.getElementById('catalogCorrectionEditor')) {
+    const corrected = catalogReviewClone(detail);
+    if (!form) return corrected;
+    const program = corrected.program || {};
+    program.programName = String(catalogCorrectionValue(form, 'programName')).trim();
+    program.awardType = String(catalogCorrectionValue(form, 'awardType')).trim();
+    program.catalogYear = String(catalogCorrectionValue(form, 'catalogYear')).trim();
+    program.department = String(catalogCorrectionValue(form, 'department')).trim();
+    program.division = String(catalogCorrectionValue(form, 'division')).trim();
+    program.totalUnitsRequired = catalogNumberOrUndefined(catalogCorrectionValue(form, 'totalUnitsRequired'));
+    program.minimumProgramUnits = catalogNumberOrUndefined(catalogCorrectionValue(form, 'minimumProgramUnits'));
+    (program.requirementGroups || []).forEach((group, groupIndex) => updateCatalogCorrectionGroupFromForm(form, group, [groupIndex]));
+    corrected.program = program;
+    return corrected;
+  }
+
+  function newCatalogRequirementGroup(label = 'New Requirement') {
+    return {
+      groupId: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      label,
+      rule: 'all',
+      courses: [],
+      subgroups: [],
+      sourceText: '',
+      notes: 'Added manually during TIMBER Admin Review.'
+    };
+  }
+
+  async function addCatalogRequirementNode(candidateId = '', groupPath = '', nodeType = 'requirement') {
+    const detail = catalogDetailForCandidate(candidateId) || catalogSelectedDetail();
+    const form = document.getElementById('catalogCorrectionEditor');
+    if (!detail?.program || !form) throw new Error('Open a program draft before adding requirements.');
+    const corrected = catalogCorrectionsFromForm(detail, form);
+    const path = String(groupPath).split('.').filter(part => /^\d+$/.test(part)).map(Number);
+    const parent = path.length ? catalogRequirementGroupAtPath(corrected.program.requirementGroups || [], path) : null;
+    let message = '';
+    if (nodeType === 'course') {
+      if (!parent) throw new Error('Choose a requirement group before adding a course row.');
+      parent.courses = parent.courses || [];
+      parent.courses.push({ courseKey: '', units: undefined, sourceCourseKey: '', sourceEvidence: [] });
+      message = `Added a blank course row to ${parent.label || 'the selected requirement'}.`;
+    } else {
+      const collection = parent ? (parent.subgroups = parent.subgroups || []) : (corrected.program.requirementGroups = corrected.program.requirementGroups || []);
+      collection.push(newCatalogRequirementGroup(parent ? `Alternative ${collection.length + 1}` : `Requirement ${collection.length + 1}`));
+      message = parent
+        ? `Added nested requirement ${path.map(index => index + 1).join('.')}.${collection.length}. Set the parent rule to OR, AND, or ONE FROM EACH LIST as appropriate.`
+        : `Added top-level Requirement ${collection.length}.`;
+    }
+    corrected.unitReconciliation = catalogExtractionApi().reconcileUnits?.(corrected.program) || corrected.unitReconciliation;
+    corrected.requirementEvidence = catalogRequirementEvidenceForGroups(corrected.program.requirementGroups || []);
+    corrected.correctionHistory = [...(corrected.correctionHistory || []), {
+      correctedAt: new Date().toISOString(), correctedBy: 'TIMBER Admin Review', reason: message
+    }];
+    const repo = await programRequirementsRepository();
+    await repo.saveCatalogRequirementDetail?.(corrected);
+    state.selectedCatalogCandidateId = candidateId || corrected.candidateId || state.selectedCatalogCandidateId;
+    state.programRequirementsErrors = [];
+    state.programRequirementsMessages = [`${message} Complete the new fields, then click Save Corrections & Revalidate.`];
+    await refreshProgramRequirementsRepository();
+  }
+
   function catalogRequirementEvidenceForGroups(groups = []) {
     return catalogRequirementGroupsInTree(groups).flatMap(({ group }) => [
       { pageNumber: group.pageNumber, text: group.sourceText || group.label, evidenceType: 'admin-corrected-requirement-group', confidence: 0.95 },
@@ -10092,23 +10159,16 @@ BUS 180 2 units`)
 
   async function saveCatalogCorrections(candidateId = '') {
     const form = document.getElementById('catalogCorrectionEditor');
+    const status = document.getElementById('catalogCorrectionStatus');
     const detail = catalogDetailForCandidate(candidateId) || catalogSelectedDetail();
     if (!form || !detail) {
       state.programRequirementsErrors = ['Open a catalog candidate before saving corrections.'];
       renderProgramRequirementsAdmin();
       return;
     }
-    const corrected = catalogReviewClone(detail);
+    if (status) status.textContent = 'Saving corrections and running validation...';
+    const corrected = catalogCorrectionsFromForm(detail, form);
     const program = corrected.program || {};
-    program.programName = String(catalogCorrectionValue(form, 'programName')).trim();
-    program.awardType = String(catalogCorrectionValue(form, 'awardType')).trim();
-    program.catalogYear = String(catalogCorrectionValue(form, 'catalogYear')).trim();
-    program.department = String(catalogCorrectionValue(form, 'department')).trim();
-    program.division = String(catalogCorrectionValue(form, 'division')).trim();
-    program.totalUnitsRequired = catalogNumberOrUndefined(catalogCorrectionValue(form, 'totalUnitsRequired'));
-    program.minimumProgramUnits = catalogNumberOrUndefined(catalogCorrectionValue(form, 'minimumProgramUnits'));
-    (program.requirementGroups || []).forEach((group, groupIndex) => updateCatalogCorrectionGroupFromForm(form, group, [groupIndex]));
-    corrected.program = program;
     corrected.unitReconciliation = catalogExtractionApi().reconcileUnits?.(program) || corrected.unitReconciliation;
     corrected.requirementEvidence = catalogRequirementEvidenceForGroups(program.requirementGroups || []);
     const correctedWarnings = (corrected.warnings || []).filter(warning => !/Missing unit value|Missing stated program-unit total|Missing page reference|Missing choose-units value|Unit variance beyond tolerance/i.test(warning));
@@ -10132,6 +10192,11 @@ BUS 180 2 units`)
       : validation.warnings?.length
         ? validation.warnings
         : [];
+    state.programRequirementsMessages = [validation.blockers?.length
+      ? `Corrections saved. Revalidation found ${validation.blockers.length} remaining blocker(s).`
+      : validation.warnings?.length
+        ? `Corrections saved. Revalidation completed with ${validation.warnings.length} warning(s) and no approval blockers.`
+        : 'Corrections saved. Revalidation passed with no remaining errors.'];
     await refreshProgramRequirementsRepository();
   }
 
@@ -26221,6 +26286,12 @@ BUS 180 2 units`)
             ? saveCatalogCorrections(candidateId)
             : action === 'remove-course'
               ? removeCatalogRequirementCourse(candidateId, groupPath, courseIndex)
+            : action === 'add-requirement'
+              ? addCatalogRequirementNode(candidateId, '', 'requirement')
+            : action === 'add-subgroup'
+              ? addCatalogRequirementNode(candidateId, groupPath, 'subgroup')
+            : action === 'add-course'
+              ? addCatalogRequirementNode(candidateId, groupPath, 'course')
             : action === 'auto-nest-requirements'
               ? autoNestCatalogRequirementGroups(candidateId)
               : action === 'publish'

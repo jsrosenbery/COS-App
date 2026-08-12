@@ -130,6 +130,12 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /Nested Requirements/);
   assert.match(source, /data-catalog-action="remove-course"/);
   assert.match(source, /removeCatalogRequirementCourse/);
+  assert.match(source, /data-catalog-action="add-requirement"/);
+  assert.match(source, /data-catalog-action="add-subgroup"/);
+  assert.match(source, /data-catalog-action="add-course"/);
+  assert.match(source, /addCatalogRequirementNode/);
+  assert.match(source, /Corrections saved\. Revalidation passed with no remaining errors/);
+  assert.match(source, /id="catalogCorrectionStatus"/);
   assert.match(source, /AND — every listed course\/subgroup is required/);
   assert.match(source, /OR — choose one listed course or subgroup/);
   assert.match(source, /Auto-nest Area\/Sub-area Groups/);
