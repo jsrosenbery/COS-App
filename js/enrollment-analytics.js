@@ -9094,10 +9094,84 @@
 
   async function programRequirementsRepository() {
     if (!state.programRequirementsRepository) {
-      state.programRequirementsRepository = programRequirementsApi().createIndexedDbRepository();
+      state.programRequirementsRepository = createProgramRequirementsRepository();
       await state.programRequirementsRepository.initialize();
     }
     return state.programRequirementsRepository;
+  }
+
+  function programRequirementsAuthHeaders() {
+    const token = roleSession().token || sessionStorage.getItem(LEGACY_EM_TOKEN_KEY) || '';
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  function createProgramRequirementsRepository() {
+    const api = programRequirementsApi();
+    const localRepo = api.createIndexedDbRepository();
+    const backendUrl = window.BACKEND_BASE_URL ? `${window.BACKEND_BASE_URL}/api/catalog-program-requirements` : '';
+    let backendAvailable = Boolean(backendUrl);
+    let initialized = false;
+    async function syncToBackend() {
+      if (!backendAvailable || !backendUrl) return false;
+      try {
+        const payload = await api.exportRepositoryData(localRepo);
+        const response = await fetch(backendUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...programRequirementsAuthHeaders()
+          },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error(`Catalog backend save failed (${response.status}).`);
+        return true;
+      } catch (err) {
+        backendAvailable = false;
+        console.warn('Catalog & Program Requirements backend persistence unavailable; using local browser storage.', err);
+        return false;
+      }
+    }
+    async function runWrite(method, args) {
+      const result = await localRepo[method](...args);
+      await syncToBackend();
+      return result;
+    }
+    function repositoryHasRecords(payload = {}) {
+      return ['catalogSources', 'catalogPages', 'catalogProgramCandidates', 'catalogRequirementDetails', 'catalogReviewDecisions', 'programs', 'programRequirementRevisions', 'programActiveRevisionPointers', 'programReviewHistory']
+        .some(key => Array.isArray(payload[key]) && payload[key].length);
+    }
+    return new Proxy(localRepo, {
+      get(target, prop) {
+        if (prop === 'initialize') {
+          return async () => {
+            if (initialized) return;
+            await target.initialize();
+            if (backendUrl) {
+              try {
+                const response = await fetch(backendUrl, { headers: programRequirementsAuthHeaders() });
+                if (response.ok) {
+                  const payload = await response.json();
+                  if (payload?.data && repositoryHasRecords(payload.data)) await api.importRepositoryData(target, payload.data);
+                  backendAvailable = true;
+                  const localPayload = await api.exportRepositoryData(target);
+                  if (!repositoryHasRecords(payload?.data || {}) && repositoryHasRecords(localPayload)) await syncToBackend();
+                } else if (response.status !== 404) {
+                  backendAvailable = false;
+                }
+              } catch (err) {
+                backendAvailable = false;
+                console.warn('Catalog & Program Requirements backend load unavailable; using local browser storage.', err);
+              }
+            }
+            initialized = true;
+          };
+        }
+        if (['saveProgram', 'savePrograms', 'saveImportBatch', 'setMetadata', 'saveCatalogSource', 'saveCatalogPages', 'saveCatalogProgramCandidates', 'deleteCatalogProgramCandidate', 'saveCatalogRequirementDetail', 'saveCatalogReviewDecision', 'saveProgramRequirementRevision', 'publishProgramRevision', 'archiveProgramRevision', 'rollbackProgramRevision', 'deleteProgram', 'clearAll'].includes(prop)) {
+          return (...args) => runWrite(prop, args);
+        }
+        return target[prop];
+      }
+    });
   }
 
   async function refreshProgramRequirementsRepository() {
@@ -10396,17 +10470,7 @@ BUS 180 2 units`)
   async function exportProgramRequirementsRepository() {
     const repo = await programRequirementsRepository();
     const backup = {
-      schemaVersion: 1,
-      exportedAt: new Date().toISOString(),
-      catalogSources: repo.getCatalogSources ? await repo.getCatalogSources() : state.catalogSources,
-      catalogPages: repo.getCatalogPages ? await repo.getCatalogPages() : state.catalogPages,
-      catalogProgramCandidates: repo.getCatalogProgramCandidates ? await repo.getCatalogProgramCandidates() : state.catalogProgramCandidates,
-      catalogRequirementDetails: state.catalogRequirementDetails,
-      catalogReviewDecisions: repo.getCatalogReviewDecisions ? await repo.getCatalogReviewDecisions() : state.catalogReviewDecisions,
-      programs: repo.getPrograms ? await repo.getPrograms() : state.programRequirements,
-      programRequirementRevisions: repo.getProgramRequirementRevisions ? await repo.getProgramRequirementRevisions() : state.programRequirementRevisions,
-      programActiveRevisionPointers: repo.getProgramActiveRevisionPointers ? await repo.getProgramActiveRevisionPointers() : state.programActiveRevisionPointers,
-      programReviewHistory: repo.getProgramReviewHistory ? await repo.getProgramReviewHistory() : state.programReviewHistory,
+      ...await programRequirementsApi().exportRepositoryData(repo),
       diagnosticsMetadata: { validationRows: catalogDiagnosticsRows() }
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8;' });
@@ -10432,16 +10496,7 @@ BUS 180 2 units`)
     }
     if (window.confirm && !window.confirm('Restore catalog backup data? Existing matching records may be replaced.')) return;
     const repo = await programRequirementsRepository();
-    for (const source of parsed.catalogSources || []) await repo.saveCatalogSource?.(source);
-    for (const source of parsed.catalogSources || []) {
-      const pages = (parsed.catalogPages || []).filter(page => page.catalogSourceId === source.catalogSourceId);
-      if (pages.length) await repo.saveCatalogPages?.(source.catalogSourceId, pages);
-    }
-    await repo.saveCatalogProgramCandidates?.(parsed.catalogProgramCandidates || []);
-    for (const detail of parsed.catalogRequirementDetails || []) await repo.saveCatalogRequirementDetail?.(detail);
-    for (const decision of parsed.catalogReviewDecisions || []) await repo.saveCatalogReviewDecision?.(decision);
-    await repo.savePrograms?.(parsed.programs || []);
-    for (const revision of parsed.programRequirementRevisions || []) await repo.saveProgramRequirementRevision?.(revision);
+    await programRequirementsApi().importRepositoryData(repo, parsed);
     state.programRequirementsErrors = [];
     await refreshProgramRequirementsRepository();
   }

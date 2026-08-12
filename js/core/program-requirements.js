@@ -742,6 +742,37 @@
     };
   }
 
+  async function exportRepositoryData(repo) {
+    return {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      catalogSources: repo.getCatalogSources ? await repo.getCatalogSources() : [],
+      catalogPages: repo.getCatalogPages ? await repo.getCatalogPages() : [],
+      catalogProgramCandidates: repo.getCatalogProgramCandidates ? await repo.getCatalogProgramCandidates() : [],
+      catalogRequirementDetails: repo.getCatalogProgramCandidates && repo.getCatalogRequirementDetail
+        ? (await Promise.all((await repo.getCatalogProgramCandidates()).map(candidate => repo.getCatalogRequirementDetail(candidate.candidateId)))).filter(Boolean)
+        : [],
+      catalogReviewDecisions: repo.getCatalogReviewDecisions ? await repo.getCatalogReviewDecisions() : [],
+      programs: repo.getPrograms ? await repo.getPrograms() : [],
+      programRequirementRevisions: repo.getProgramRequirementRevisions ? await repo.getProgramRequirementRevisions() : [],
+      programActiveRevisionPointers: repo.getProgramActiveRevisionPointers ? await repo.getProgramActiveRevisionPointers() : [],
+      programReviewHistory: repo.getProgramReviewHistory ? await repo.getProgramReviewHistory() : []
+    };
+  }
+
+  async function importRepositoryData(repo, parsed = {}) {
+    for (const source of parsed.catalogSources || []) await repo.saveCatalogSource?.(source);
+    for (const source of parsed.catalogSources || []) {
+      const pages = (parsed.catalogPages || []).filter(page => page.catalogSourceId === source.catalogSourceId);
+      if (pages.length) await repo.saveCatalogPages?.(source.catalogSourceId, pages);
+    }
+    await repo.saveCatalogProgramCandidates?.(parsed.catalogProgramCandidates || []);
+    for (const detail of parsed.catalogRequirementDetails || []) await repo.saveCatalogRequirementDetail?.(detail);
+    for (const decision of parsed.catalogReviewDecisions || []) await repo.saveCatalogReviewDecision?.(decision);
+    await repo.savePrograms?.(parsed.programs || []);
+    for (const revision of parsed.programRequirementRevisions || []) await repo.saveProgramRequirementRevision?.(revision);
+  }
+
   const templatePrograms = Object.freeze([
     {
       programId: 'BUS-AS-TEMPLATE',
@@ -824,6 +855,8 @@
     parseProgramJson,
     createMemoryRepository,
     createIndexedDbRepository,
+    exportRepositoryData,
+    importRepositoryData,
     templatePrograms
   });
 });

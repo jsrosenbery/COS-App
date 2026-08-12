@@ -101,6 +101,29 @@ test('program repository persists records without localStorage', async () => {
   assert.deepEqual(await repo.getMetadata('lastImport'), { id: 'batch-1' });
 });
 
+test('program repository export/import shape supports backend persistence roundtrip', async () => {
+  const sourceRepo = COSProgramRequirements.createMemoryRepository();
+  await sourceRepo.savePrograms([COSProgramRequirements.templatePrograms[0]]);
+  await sourceRepo.saveCatalogSource({ catalogSourceId: 'source-1', filename: 'catalog.pdf' });
+  await sourceRepo.saveCatalogPages('source-1', [{ pageNumber: 1, text: 'Program page' }]);
+  await sourceRepo.saveCatalogProgramCandidates([{ candidateId: 'candidate-1', catalogSourceId: 'source-1', programName: 'Business Administration AS Template' }]);
+  await sourceRepo.saveCatalogRequirementDetail({ candidateId: 'candidate-1', program: COSProgramRequirements.templatePrograms[0] });
+  await sourceRepo.saveCatalogReviewDecision({ id: 'decision-1', candidateId: 'candidate-1', decision: 'approved' });
+
+  const payload = await COSProgramRequirements.exportRepositoryData(sourceRepo);
+  const targetRepo = COSProgramRequirements.createMemoryRepository();
+  await COSProgramRequirements.importRepositoryData(targetRepo, payload);
+
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal((await targetRepo.getPrograms()).length, 1);
+  assert.equal((await targetRepo.getCatalogSources()).length, 1);
+  assert.equal((await targetRepo.getCatalogPages('source-1')).length, 1);
+  assert.equal((await targetRepo.getCatalogProgramCandidates()).length, 1);
+  assert.equal((await targetRepo.getCatalogRequirementDetail('candidate-1')).program.programName, 'Business Administration AS Template');
+  assert.equal((await targetRepo.getCatalogReviewDecisions()).length, 1);
+  assert.equal((await targetRepo.getProgramRequirementRevisions()).length >= 1, true);
+});
+
 test('most recent approved catalog year is selected and draft newer catalog is ignored', () => {
   const programs = [
     COSProgramRequirements.normalizeProgram({ programId: 'A', catalogYear: '2025-2026', programName: 'A Old', awardType: 'AS', reviewStatus: 'approved', requirementGroups: [{ label: 'Core', rule: 'all', courses: [{ courseKey: 'BUS 001', units: 3 }] }] }),
