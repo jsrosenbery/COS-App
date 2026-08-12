@@ -136,6 +136,11 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /data-catalog-action="add-requirement"/);
   assert.match(source, /data-catalog-action="add-subgroup"/);
   assert.match(source, /data-catalog-action="add-course"/);
+  assert.match(source, /data-course-row-count/);
+  assert.match(source, /\[1, 2, 5, 10, 15, 20\]/);
+  assert.match(source, /Math\.max\(1, Math\.min\(20, Number\(requestedCount\) \|\| 1\)\)/);
+  assert.match(source, /for \(let index = 0; index < count; index \+= 1\)/);
+  assert.match(source, /Add Course Rows/);
   assert.match(source, /addCatalogRequirementNode/);
   assert.match(source, /Corrections saved\. Revalidation passed with no remaining errors/);
   assert.match(source, /id="catalogCorrectionStatus"/);
