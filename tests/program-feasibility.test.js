@@ -36,6 +36,55 @@ test('program requirements validate all, alternatives, electives, and prerequisi
   assert.equal(result.program.requirementGroups.flatMap(group => group.courses).some(course => course.prerequisiteCourseKeys.length), true);
 });
 
+test('ADT can reference the approved CAL-GETC certificate without copying its requirements', () => {
+  const adt = COSProgramRequirements.normalizeProgram({
+    programId: 'BUS-AS-T',
+    catalogYear: '2026-2027',
+    programName: 'Business Administration for Transfer',
+    awardType: 'AS-T',
+    reviewStatus: 'approved',
+    includeCalGetcRequirements: true,
+    totalUnitsRequired: 60,
+    requirementGroups: [{ groupId: 'major', label: 'Major', rule: 'all', courses: [{ courseKey: 'BUS 020', units: 3 }] }]
+  });
+  const calGetc = COSProgramRequirements.normalizeProgram({
+    programId: 'CAL-GETC-COA',
+    catalogYear: '2026-2027',
+    programName: 'Certificate of Achievement in Cal-GETC',
+    awardType: 'Certificate of Achievement',
+    reviewStatus: 'approved',
+    requirementGroups: [{ groupId: 'area-2', label: 'Area 2', rule: 'or', courses: [{ courseKey: 'BUS 020', units: 3 }, { courseKey: 'MATH 035', units: 3 }] }]
+  });
+
+  const resolved = COSProgramRequirements.resolveCalGetcRequirements(adt, [adt, calGetc]);
+
+  assert.equal(resolved.included, true);
+  assert.equal(resolved.program.calGetcSourceProgramId, 'CAL-GETC-COA');
+  assert.equal(resolved.program.requirementGroups.length, 2);
+  assert.match(resolved.program.requirementGroups[1].label, /^CAL-GETC/);
+  assert.equal(adt.requirementGroups.length, 1, 'the saved ADT remains a reference rather than a copied requirement set');
+});
+
+test('CAL-GETC inclusion prefers the matching catalog year and warns when no approved certificate exists', () => {
+  const adt = COSProgramRequirements.normalizeProgram({
+    programId: 'HIST-AA-T', catalogYear: '2026-2027', programName: 'History for Transfer', awardType: 'AA-T',
+    reviewStatus: 'approved', includeCalGetcRequirements: true,
+    requirementGroups: [{ label: 'Major', rule: 'all', courses: [{ courseKey: 'HIST 017', units: 3 }] }]
+  });
+  const certificate = (catalogYear, reviewStatus) => COSProgramRequirements.normalizeProgram({
+    programId: `CAL-GETC-${catalogYear}`, catalogYear, programName: 'Certificate of Achievement in Cal-GETC',
+    awardType: 'Certificate of Achievement', reviewStatus,
+    requirementGroups: [{ label: 'Area 1', rule: 'all', courses: [{ courseKey: 'ENGL C1000', units: 4 }] }]
+  });
+
+  const resolved = COSProgramRequirements.resolveCalGetcRequirements(adt, [certificate('2025-2026', 'published'), certificate('2026-2027', 'approved')]);
+  assert.equal(resolved.sourceProgram.catalogYear, '2026-2027');
+
+  const missing = COSProgramRequirements.resolveCalGetcRequirements(adt, [certificate('2026-2027', 'draft')]);
+  assert.equal(missing.included, false);
+  assert.match(missing.warning, /no approved or published/i);
+});
+
 test('program repository persists records without localStorage', async () => {
   const repo = COSProgramRequirements.createMemoryRepository();
   await repo.savePrograms(COSProgramRequirements.templatePrograms);

@@ -125,6 +125,10 @@ test('catalog review queue uses one delegated handler and candidate ID attribute
   assert.match(source, /catalogDetailForCandidate/);
   assert.match(source, /validation\.blockers/);
   assert.match(source, /Correction Editor/);
+  assert.match(source, /Include approved Certificate of Achievement in Cal-GETC requirements/);
+  assert.match(source, /includeCalGetcRequirements/);
+  assert.match(source, /resolveCalGetcRequirements/);
+  assert.match(source, /CAL-GETC Requirements Could Not Be Included/);
   assert.match(source, /saveCatalogCorrections/);
   assert.match(source, /data-catalog-action="save-corrections"/);
   assert.match(source, /programRequirementsMessages/);
