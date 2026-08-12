@@ -1031,6 +1031,8 @@
       awardType: program.awardType,
       totalUnitsRequired: program.totalUnitsRequired,
       minimumProgramUnits: program.minimumProgramUnits,
+      includeCalGetcRequirements: program.includeCalGetcRequirements === true,
+      calGetcSourceRevisionId: program.calGetcSourceRevisionId || '',
       reviewStatus: program.reviewStatus,
       requirementGroups: program.requirementGroups || [],
       source: program.source || {}
@@ -1268,6 +1270,9 @@
       structuredUnitsRepresented,
       awardTotalUnitsRequired,
       unmodeledUnits,
+      generalEducationIncluded: program.calGetcRequirementsIncluded === true,
+      generalEducationSource: program.calGetcSourceProgramName || '',
+      generalEducationCatalogYear: program.calGetcSourceCatalogYear || '',
       programOnlyAnalysis: !fullAwardAnalysis,
       fullAwardAnalysis,
       blockers

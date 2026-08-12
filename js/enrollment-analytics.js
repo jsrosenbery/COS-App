@@ -9310,6 +9310,7 @@
           <label>Division <input name="${catalogCorrectionFieldName('division')}" value="${escapeAttr(program.division || '')}"></label>
           <label>Total Units Required <input name="${catalogCorrectionFieldName('totalUnitsRequired')}" value="${escapeAttr(program.totalUnitsRequired ?? '')}" inputmode="decimal"></label>
           <label>Minimum Program Units <input name="${catalogCorrectionFieldName('minimumProgramUnits')}" value="${escapeAttr(program.minimumProgramUnits ?? '')}" inputmode="decimal"></label>
+          <label class="analytics-check"><input type="checkbox" name="${catalogCorrectionFieldName('includeCalGetcRequirements')}"${program.includeCalGetcRequirements === true ? ' checked' : ''}> Include approved Certificate of Achievement in Cal-GETC requirements</label>
         </div>
         ${groupRows || '<p class="analytics-empty">No requirement groups are available to edit.</p>'}
         <div class="catalog-review-actions">
@@ -9998,6 +9999,7 @@ BUS 180 2 units`)
     program.division = String(catalogCorrectionValue(form, 'division')).trim();
     program.totalUnitsRequired = catalogNumberOrUndefined(catalogCorrectionValue(form, 'totalUnitsRequired'));
     program.minimumProgramUnits = catalogNumberOrUndefined(catalogCorrectionValue(form, 'minimumProgramUnits'));
+    program.includeCalGetcRequirements = form?.elements?.namedItem(catalogCorrectionFieldName('includeCalGetcRequirements'))?.checked === true;
     (program.requirementGroups || []).forEach((group, groupIndex) => updateCatalogCorrectionGroupFromForm(form, group, [groupIndex]));
     corrected.program = program;
     return corrected;
@@ -10572,6 +10574,22 @@ BUS 180 2 units`)
       `;
       return;
     }
+    const calGetcResolution = programRequirementsApi().resolveCalGetcRequirements
+      ? programRequirementsApi().resolveCalGetcRequirements(program, state.programRequirements)
+      : { program, included: false, requested: false, warning: '' };
+    if (calGetcResolution.requested && !calGetcResolution.included) {
+      state.programFeasibilityResult = null;
+      metric('programFeasibilityMetrics', [['Programs Loaded', state.programRequirements.length], ['Configuration Count', 0], ['Status', 'CAL-GETC requirements unavailable']]);
+      document.getElementById('programFeasibilityCoverage').innerHTML = `
+        <div class="analytics-warning-list">
+          <strong>CAL-GETC Requirements Could Not Be Included</strong>
+          <p>${escapeAttr(calGetcResolution.warning)}</p>
+          <button id="openCatalogRequirementsFromViability" type="button">Open Catalog & Program Requirements</button>
+        </div>
+      `;
+      return;
+    }
+    const effectiveProgram = calGetcResolution.program;
     const selectedTerm = document.getElementById('programFeasibilityTerm')?.value || normalizeTermLabel(currentTerm());
     await loadScheduleBuilderEffectiveTermRows(selectedTerm).catch(() => []);
     const rows = programFeasibilityRows();
@@ -10592,7 +10610,11 @@ BUS 180 2 units`)
       ...programFeasibilityTransitionOptions()
     };
     const eligibleStatuses = includeApprovedPilot ? new Set(['published', 'approved']) : new Set(['published']);
-    const portfolioPrograms = (state.programRequirements || []).filter(item => String(item.catalogYear || '') === String(catalogYear || '') && eligibleStatuses.has(String(item.reviewStatus || '').toLowerCase()));
+    const portfolioPrograms = (state.programRequirements || [])
+      .filter(item => String(item.catalogYear || '') === String(catalogYear || '') && eligibleStatuses.has(String(item.reviewStatus || '').toLowerCase()))
+      .map(item => programRequirementsApi().resolveCalGetcRequirements
+        ? programRequirementsApi().resolveCalGetcRequirements(item, state.programRequirements).program
+        : item);
     state.programFeasibilityAbortController = typeof AbortController !== 'undefined' ? new AbortController() : { signal: { aborted: false }, abort() { this.signal.aborted = true; } };
     const portfolioStatus = document.getElementById('programFeasibilityPortfolioMetrics');
     if (portfolioStatus) portfolioStatus.innerHTML = '<div class="analytics-note">Programs evaluated: 0 of ' + portfolioPrograms.length + '</div>';
@@ -10622,7 +10644,7 @@ BUS 180 2 units`)
         : null;
     const result = programFeasibilityApi().evaluateProgram({
       analysisType: 'program',
-      program,
+      program: effectiveProgram,
       sectionRows: rows,
       selectedTerm,
       termWindowType: sharedOptions.windowType,
@@ -10713,7 +10735,7 @@ BUS 180 2 units`)
         <div><dt>Catalog Program Units</dt><dd>${escapeAttr(result.program.minimumProgramUnits ?? result.analysisScope?.structuredUnitsRepresented ?? 'N/A')}</dd></div>
         <div><dt>Award Total Units Required</dt><dd>${escapeAttr(result.analysisScope?.awardTotalUnitsRequired ?? 'N/A')}</dd></div>
         <div><dt>Unmodeled Units</dt><dd>${escapeAttr(result.analysisScope?.unmodeledUnits ?? 'N/A')}</dd></div>
-        <div><dt>General Education Included</dt><dd>${result.analysisScope?.fullAwardAnalysis ? 'Yes' : 'No / not yet modeled'}</dd></div>
+        <div><dt>General Education Included</dt><dd>${result.analysisScope?.generalEducationIncluded ? `Yes — ${escapeAttr(result.analysisScope.generalEducationSource || 'CAL-GETC')}${result.analysisScope.generalEducationCatalogYear ? ` (${escapeAttr(result.analysisScope.generalEducationCatalogYear)})` : ''}` : 'No / not yet modeled'}</dd></div>
         <div><dt>Graduation Requirements Included</dt><dd>${result.analysisScope?.fullAwardAnalysis ? 'Yes' : 'No / not yet modeled'}</dd></div>
         <div><dt>Full Award Analysis</dt><dd>${escapeAttr(result.analysisScope?.fullAwardAnalysis ? 'Complete' : 'Partial - general education not yet modeled')}</dd></div>
       </dl>

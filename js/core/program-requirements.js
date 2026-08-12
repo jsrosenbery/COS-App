@@ -81,6 +81,7 @@
       catalogYear: program.catalogYear,
       programName: program.programName,
       awardType: program.awardType,
+      includeCalGetcRequirements: program.includeCalGetcRequirements === true,
       requirementGroups: program.requirementGroups,
       source: program.source
     });
@@ -155,6 +156,7 @@
       totalUnitsRequired: numberOrUndefined(program.totalUnitsRequired),
       minimumProgramUnits: numberOrUndefined(program.minimumProgramUnits),
       minimumGrade: program.minimumGrade == null ? null : compact(program.minimumGrade),
+      includeCalGetcRequirements: program.includeCalGetcRequirements === true,
       requirementGroups: (program.requirementGroups || []).map(normalizeRequirementGroup),
       source: normalizeSource(program.source),
       reviewStatus: VALID_REVIEW_STATUSES.has(program.reviewStatus) ? program.reviewStatus : 'draft',
@@ -239,6 +241,60 @@
     if (!normalized.requirementGroups.length) errors.push('At least one requirement group is required.');
     normalized.requirementGroups.forEach(group => validateGroup(group, errors, `Requirement group "${group.label}"`));
     return { valid: errors.length === 0, errors, program: normalized };
+  }
+
+  function normalizedProgramTitle(value = '') {
+    return compact(value).toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+  }
+
+  function resolveCalGetcRequirements(program = {}, availablePrograms = []) {
+    const base = normalizeProgram(program);
+    if (!base.includeCalGetcRequirements) return { program: base, included: false, requested: false, sourceProgram: null, warning: '' };
+    const expectedTitle = normalizedProgramTitle('Certificate of Achievement in Cal-GETC');
+    const candidates = (availablePrograms || [])
+      .map(normalizeProgram)
+      .filter(item => item.programId !== base.programId
+        && normalizedProgramTitle(item.programName) === expectedTitle
+        && ['approved', 'published'].includes(String(item.reviewStatus || '').toLowerCase()))
+      .sort((left, right) => {
+        const leftSameYear = left.catalogYear === base.catalogYear ? 1 : 0;
+        const rightSameYear = right.catalogYear === base.catalogYear ? 1 : 0;
+        if (leftSameYear !== rightSameYear) return rightSameYear - leftSameYear;
+        const yearOrder = catalogYearSortValue(right.catalogYear) - catalogYearSortValue(left.catalogYear);
+        if (yearOrder) return yearOrder;
+        return Number(right.reviewStatus === 'published') - Number(left.reviewStatus === 'published');
+      });
+    const sourceProgram = candidates[0] || null;
+    if (!sourceProgram) {
+      return {
+        program: base,
+        included: false,
+        requested: true,
+        sourceProgram: null,
+        warning: 'Include CAL-GETC is selected, but no approved or published "Certificate of Achievement in Cal-GETC" could be found.'
+      };
+    }
+    const referencedGroups = sourceProgram.requirementGroups.map(group => ({
+      ...group,
+      groupId: `cal-getc-${sourceProgram.programId}-${group.groupId}`,
+      label: `CAL-GETC: ${group.label}`,
+      notes: [group.notes, `Referenced from ${sourceProgram.programName} (${sourceProgram.catalogYear}).`].filter(Boolean).join(' ')
+    }));
+    return {
+      program: {
+        ...base,
+        requirementGroups: [...base.requirementGroups, ...referencedGroups],
+        calGetcRequirementsIncluded: true,
+        calGetcSourceProgramId: sourceProgram.programId,
+        calGetcSourceProgramName: sourceProgram.programName,
+        calGetcSourceCatalogYear: sourceProgram.catalogYear,
+        calGetcSourceRevisionId: sourceProgram.activeRevisionId || sourceProgram.revisionId || ''
+      },
+      included: true,
+      requested: true,
+      sourceProgram,
+      warning: ''
+    };
   }
 
   function validateGroup(group, errors, path) {
@@ -763,6 +819,7 @@
     getMostRecentApprovedCatalogYear,
     getMostRecentPublishedCatalogYear,
     normalizeProgram,
+    resolveCalGetcRequirements,
     validateProgram,
     parseProgramJson,
     createMemoryRepository,
