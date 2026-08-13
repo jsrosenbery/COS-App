@@ -2765,10 +2765,11 @@
               <p>Regular schedule and enrollment source used by Room Availability, enrollment reports, schedule builder, room planning, and most heatmaps.</p>
               <div class="analytics-toolbar">
                 <label>Section Seating CSV(s) <input id="dataHubSectionCsv" type="file" accept=".csv" multiple></label>
+                <label>Upload as term <select id="dataHubSectionTerm"></select></label>
                 <button id="dataHubArchiveSectionUploads" type="button">Archive Section Seating</button>
                 <button id="dataHubRefreshArchives" type="button">Refresh Archives</button>
               </div>
-              <p id="dataHubSectionStatus" class="analytics-note">Backend archive list not refreshed yet.</p>
+              <p id="dataHubSectionStatus" class="analytics-note">Backend archive list not refreshed yet. If a filename does not include a Banner term code such as 202710, choose the upload term here.</p>
             </section>
             <section class="source-data-card" data-source-type="faculty-schedule">
               <h3>Faculty Schedule Data</h3>
@@ -12081,6 +12082,7 @@ BUS 180 2 units`)
       const options = terms
         .map(item => ({ value: item.termCode || item.term, label: item.displayTerm || item.termCode || item.term }))
         .filter(item => item.value);
+      updateDataHubSectionTermOptions(options);
       setSelectOptions('attrArchiveTerms', options);
       setSelectOptions('conArchiveTerms', options);
       setSelectOptions('dashArchiveTerms', options);
@@ -12106,6 +12108,31 @@ BUS 180 2 units`)
       renderOptimizationArchiveStatus(`Section Seating archive list failed: ${err?.message || err}`);
       renderSourceDataHubStatus(`Section Seating archive list failed: ${err?.message || err}`);
     }
+  }
+
+  function updateDataHubSectionTermOptions(archiveOptions = []) {
+    const select = document.getElementById('dataHubSectionTerm');
+    if (!select) return;
+    const prior = normalizeTermLabel(select.value);
+    const active = normalizeTermLabel(currentTerm());
+    const terms = new Map();
+    visibleScheduleTerms().forEach(term => {
+      const normalized = normalizeTermLabel(term);
+      if (normalized) terms.set(normalized, normalized);
+    });
+    archiveOptions.forEach(option => {
+      const normalized = normalizeTermLabel(option.value || option.label);
+      if (normalized) terms.set(normalized, option.label || normalized);
+    });
+    if (active) terms.set(active, active);
+    const options = [...terms.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => termSortValue(a.value) - termSortValue(b.value));
+    select.replaceChildren();
+    options.forEach(option => select.appendChild(new Option(option.label, option.value)));
+    if (prior && options.some(option => option.value === prior)) select.value = prior;
+    else if (active && options.some(option => option.value === active)) select.value = active;
+    else if (options.length) select.value = options[options.length - 1].value;
   }
 
   function setArchiveInspectionTermOptions() {
@@ -12208,6 +12235,10 @@ BUS 180 2 units`)
     renderSnapshotManager();
   }
 
+  function dataHubSelectedSectionTerm() {
+    return normalizeTermLabel(document.getElementById('dataHubSectionTerm')?.value || currentTerm());
+  }
+
   async function archiveUploads(inputId) {
     if (!window.BACKEND_BASE_URL) {
       alert('Backend is not configured, so uploads cannot be archived.');
@@ -12227,9 +12258,11 @@ BUS 180 2 units`)
     }
     const saved = [];
     for (const file of files) {
-      const term = termFromFilename(file.name);
+      const filenameTerm = termFromFilename(file.name);
+      const selectedTerm = inputId === 'dataHubSectionCsv' ? dataHubSelectedSectionTerm() : '';
+      const term = normalizeTermLabel(filenameTerm || selectedTerm);
       if (!term) {
-        alert(`Could not infer a term from ${file.name}. Use Banner-style filenames such as 202710.csv.`);
+        alert(`Could not infer a term from ${file.name}. Choose an Upload as term value or use Banner-style filenames such as 202710.csv.`);
         continue;
       }
       const csv = await file.text();
@@ -12261,7 +12294,10 @@ BUS 180 2 units`)
       state.scheduleTermMetadataCache = { ...(state.scheduleTermMetadataCache || {}) };
       delete state.scheduleTermCache[normalizeTermLabel(term)];
       delete state.scheduleTermMetadataCache[normalizeTermLabel(term)];
-      saved.push(term);
+      if (normalizeTermLabel(currentTerm()) === normalizeTermLabel(term)) {
+        await window.COSScheduleApp?.loadScheduleTerm?.(term);
+      }
+      saved.push(filenameTerm ? term : `${term} (${file.name})`);
     }
     if (window.COSArchiveService?.clearArchiveMemoryCache) window.COSArchiveService.clearArchiveMemoryCache();
     if (window.COSArchiveService?.refreshArchiveManifest) await window.COSArchiveService.refreshArchiveManifest();
@@ -25829,6 +25865,7 @@ BUS 180 2 units`)
       renderHistoricalInstitutionalModel().catch(err => console.warn(err));
     }
     if (selected === REPORTS.dataHub) {
+      updateDataHubSectionTermOptions();
       Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), refreshWorkExperienceArchives(), loadEnrollmentSnapshots(), ensureHistoricalInstitutionalReady().catch(err => {
         console.warn('Historical Institutional Results IndexedDB initialization skipped:', err);
       })])

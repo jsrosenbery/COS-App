@@ -1133,6 +1133,8 @@ document.addEventListener('DOMContentLoaded', () => {
   window.COSScheduleApp = {
     getCurrentData: () => currentData,
     getCurrentTerm: () => currentTerm,
+    reloadCurrentSchedule: () => loadScheduleFromBackend(currentTerm, { showBusy: false }),
+    loadScheduleTerm: term => loadScheduleFromBackend(term, { showBusy: false }),
     renderUtilizationMap: () => renderUtilizationMap(),
     renderHeatmapAnalytics: () => {
       feedHeatmapTool(getScheduleAnalysisRows());

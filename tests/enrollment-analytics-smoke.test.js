@@ -4648,6 +4648,12 @@ test('source data hub centralizes upload controls while keeping datasets separat
   assert.match(app, /source-data-admin-imports/);
   assert.match(app, /dataHubMount\.appendChild\(adminTools\)/);
   assert.match(app, /id="dataHubSectionCsv"/);
+  assert.match(app, /id="dataHubSectionTerm"/);
+  assert.match(app, /function updateDataHubSectionTermOptions/);
+  assert.match(app, /function dataHubSelectedSectionTerm/);
+  assert.match(app, /termFromFilename\(file\.name\)/);
+  assert.match(app, /filenameTerm \|\| selectedTerm/);
+  assert.match(app, /COSScheduleApp\?\.loadScheduleTerm\?\.\(term\)/);
   assert.match(app, /archiveUploads\('dataHubSectionCsv'\)/);
   assert.match(app, /api\/section-seating\/\$\{encodeURIComponent\(term\)\}\/current/);
   assert.match(app, /api\/analytics-archive\/\$\{encodeURIComponent\(term\)\}/);
