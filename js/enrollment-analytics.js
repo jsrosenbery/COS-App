@@ -13669,6 +13669,20 @@ BUS 180 2 units`)
         };
       }
       if (!directOrDeterministic) {
+        if (Number.isFinite(Number(currentCalculatedFtes))) {
+          return {
+            ...common,
+            classification: 'estimated',
+            displayValue: currentCalculatedFtes,
+            estimatedFtes: currentCalculatedFtes,
+            projectedFinalFtes: currentCalculatedFtes,
+            confidence: 'high',
+            derivation: 'current-actual-hours-calculation',
+            reason: `${prediction.reason || 'No historical prediction was available for this prediction-eligible section.'} Current row-level inputs support the existing production FTES calculation, so the current calculated FTES remains included as an estimate.`,
+            predictionDetail: prediction,
+            predictionDiagnostics
+          };
+        }
         return {
           ...common,
           classification: 'unavailable',

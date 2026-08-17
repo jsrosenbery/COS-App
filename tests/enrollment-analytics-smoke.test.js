@@ -5629,6 +5629,41 @@ test('current enrollment pending FTES diagnostic still reports insufficient stat
   assert.ok(exportRows.some(row => row.rowType === 'Diagnostic Total Projection'));
 });
 
+test('current enrollment and FTES keeps current-calculable P E rows estimated when historical prediction is unavailable', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({
+      term: 'FALL 2026',
+      crn: 'P-CURRENT',
+      subject: 'AUTO',
+      course: '120',
+      accountingMethod: 'P',
+      actual: 25,
+      census: null,
+      totalContactHours: 54,
+      hasDirectFtesData: false,
+      hasFtesData: true,
+      ftesMaturity: 'Actual Hours Pending'
+    })
+  ];
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, {
+    focusTerm: 'FALL 2026',
+    historicalModel: { groups: [] }
+  });
+  const [detail] = summary.rows;
+  const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
+  const exportDetail = exportRows.find(row => row.Section === 'Detail' && row.CRN === 'P-CURRENT');
+
+  assert.equal(summary.ftesClassification.focus.unavailableSectionCount, 0);
+  assert.equal(summary.ftesClassification.focus.estimatedSections, 1);
+  assert.ok(summary.ftesClassification.focus.estimatedFtesTotal > 0);
+  assert.equal(detail.ftesClassification, 'Estimated');
+  assert.equal(detail.derivation, 'current-actual-hours-calculation');
+  assert.match(detail.reason, /historical basis|historical prediction/i);
+  assert.equal(exportDetail['FTES Classification'], 'Estimated');
+  assert.equal(Number(exportDetail['Projected Final FTES']), Number(exportDetail['Current Calculated FTES']));
+});
+
 test('current enrollment and FTES comparison defaults to exact prior-year like term only', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const terms = ['FALL 2023', 'FALL 2024', 'SPRING 2025', 'FALL 2026', 'SPRING 2027'];
