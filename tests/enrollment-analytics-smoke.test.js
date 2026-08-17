@@ -5759,6 +5759,153 @@ test('current enrollment and FTES classifies CRN-level maturity from census and 
   assert.ok(exportRows.some(row => row.Section === 'Detail' && row.CRN === '10001' && row.CENSUS_ENRL_DATE === '9/10/2026' && row['FTES Maturity Status'] === 'Estimated - Census Pending'));
 });
 
+test('current enrollment FTES basis follows census maturity rules', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const asOf = iso => ({ iso, display: iso, source: 'Test as-of date' });
+  const row = overrides => COSEnrollmentAnalytics.normalizeRow({
+    Term: 'FALL 2026',
+    CRN: overrides.CRN || 'BASIS1',
+    Subject: 'ENGL',
+    Course: 'C1000',
+    ACTUAL_ENROLL: overrides.ACTUAL_ENROLL ?? '30',
+    MAX_ENROLL: '35',
+    HOURS_PER_WEEK: '3',
+    ACCOUNTING_METHOD: overrides.ACCOUNTING_METHOD || 'W',
+    CENSUS_ENRL_DATE: overrides.CENSUS_ENRL_DATE ?? '09/10/2026',
+    ...(Object.hasOwn(overrides, 'CENSUS_ENROLL') ? { CENSUS_ENROLL: overrides.CENSUS_ENROLL } : {}),
+    ...(overrides.FTES ? { FTES: overrides.FTES } : {}),
+    ...(overrides.TOTAL_CONTACT_HOURS ? { TOTAL_CONTACT_HOURS: overrides.TOTAL_CONTACT_HOURS } : {})
+  });
+
+  const beforeMissing = row({ ACTUAL_ENROLL: '30' });
+  assert.deepEqual(
+    {
+      value: COSEnrollmentAnalytics.getFtesEnrollmentBasis(beforeMissing, asOf('2026-09-01')).value,
+      sourceCode: COSEnrollmentAnalytics.getFtesEnrollmentBasis(beforeMissing, asOf('2026-09-01')).sourceCode,
+      status: COSEnrollmentAnalytics.getFtesEnrollmentBasis(beforeMissing, asOf('2026-09-01')).censusStatus
+    },
+    { value: 30, sourceCode: 'actual', status: 'pre-census' }
+  );
+
+  const beforePopulated = row({ ACTUAL_ENROLL: '31', CENSUS_ENROLL: '29' });
+  assert.equal(COSEnrollmentAnalytics.getFtesEnrollmentBasis(beforePopulated, asOf('2026-09-01')).value, 31);
+  assert.equal(COSEnrollmentAnalytics.getFtesEnrollmentBasis(beforePopulated, asOf('2026-09-01')).sourceCode, 'actual');
+
+  const onCensus = row({ ACTUAL_ENROLL: '31', CENSUS_ENROLL: '29' });
+  assert.equal(COSEnrollmentAnalytics.getFtesEnrollmentBasis(onCensus, asOf('2026-09-10')).value, 29);
+  assert.equal(COSEnrollmentAnalytics.getFtesEnrollmentBasis(onCensus, asOf('2026-09-10')).sourceCode, 'census');
+
+  const after = row({ ACTUAL_ENROLL: '24', CENSUS_ENROLL: '29' });
+  assert.equal(COSEnrollmentAnalytics.getFtesEnrollmentBasis(after, asOf('2026-09-15')).value, 29);
+  assert.equal(COSEnrollmentAnalytics.getFtesEnrollmentBasis(after, asOf('2026-09-15')).source, 'Census Enrollment');
+
+  const missingPostCensus = row({ CRN: 'MISS1', ACTUAL_ENROLL: '24' });
+  const missingBasis = COSEnrollmentAnalytics.getFtesEnrollmentBasis(missingPostCensus, asOf('2026-09-15'));
+  assert.equal(missingBasis.available, false);
+  assert.equal(missingBasis.sourceCode, 'census-missing-after-census');
+  assert.equal(COSEnrollmentAnalytics.currentEnrollmentFtesUnavailable(missingPostCensus, asOf('2026-09-15')), true);
+  assert.equal(COSEnrollmentAnalytics.currentEnrollmentFtesValue(missingPostCensus, asOf('2026-09-15')), 0);
+  assert.match(missingBasis.warning, /ACTUAL_ENROLL was not substituted/);
+
+  const zeroCensus = row({ ACTUAL_ENROLL: '12', CENSUS_ENROLL: '0' });
+  const zeroBasis = COSEnrollmentAnalytics.getFtesEnrollmentBasis(zeroCensus, asOf('2026-09-15'));
+  assert.equal(zeroBasis.available, true);
+  assert.equal(zeroBasis.value, 0);
+  assert.equal(zeroBasis.sourceCode, 'census');
+
+  const missingDate = row({ ACTUAL_ENROLL: '18', CENSUS_ENRL_DATE: '' });
+  const missingDateBasis = COSEnrollmentAnalytics.getFtesEnrollmentBasis(missingDate, asOf('2026-09-15'));
+  assert.equal(missingDateBasis.available, false);
+  assert.equal(missingDateBasis.sourceCode, 'census-date-missing');
+  assert.match(missingDateBasis.warning, /CENSUS_ENRL_DATE is missing/);
+
+  ['D', 'IW', 'ID'].forEach(method => {
+    const methodRow = row({ ACCOUNTING_METHOD: method, ACTUAL_ENROLL: '17', CENSUS_ENROLL: '13', TOTAL_CONTACT_HOURS: method === 'D' || method === 'ID' ? '54' : '' });
+    assert.equal(COSEnrollmentAnalytics.getFtesEnrollmentBasis(methodRow, asOf('2026-09-01')).value, 17, `${method} before census`);
+    assert.equal(COSEnrollmentAnalytics.getFtesEnrollmentBasis(methodRow, asOf('2026-09-15')).value, 13, `${method} after census`);
+  });
+
+  ['P', 'E'].forEach(method => {
+    const positive = row({ ACCOUNTING_METHOD: method, ACTUAL_ENROLL: '11', CENSUS_ENROLL: '7', TOTAL_CONTACT_HOURS: '54' });
+    const basis = COSEnrollmentAnalytics.getFtesEnrollmentBasis(positive, asOf('2026-09-15'));
+    assert.equal(basis.available, true);
+    assert.equal(basis.sourceCode, 'actual');
+    assert.equal(basis.value, 11);
+  });
+
+  const direct = row({ ACTUAL_ENROLL: '20', FTES: '2.5' });
+  const directBasis = COSEnrollmentAnalytics.getFtesEnrollmentBasis(direct, asOf('2026-09-15'));
+  assert.equal(directBasis.available, true);
+  assert.equal(directBasis.sourceCode, 'direct-ftes');
+});
+
+test('current enrollment executive comparison uses full calculated comparison FTES basis', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2026',
+      CRN: 'F26',
+      Subject: 'MATH',
+      Course: '001',
+      ACCOUNTING_METHOD: 'W',
+      CENSUS_ENROLL: '80',
+      ACTUAL_ENROLL: '80',
+      HOURS_PER_WEEK: '3',
+      CENSUS_ENRL_DATE: '09/10/2026'
+    }),
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2025',
+      CRN: 'W25',
+      Subject: 'MATH',
+      Course: '001',
+      ACCOUNTING_METHOD: 'W',
+      CENSUS_ENROLL: '30',
+      ACTUAL_ENROLL: '30',
+      HOURS_PER_WEEK: '3',
+      CENSUS_ENRL_DATE: '09/10/2025'
+    }),
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2025',
+      CRN: 'P25',
+      Subject: 'AUTO',
+      Course: '100',
+      ACCOUNTING_METHOD: 'P',
+      ACTUAL_ENROLL: '20',
+      TOTAL_CONTACT_HOURS: '52.5',
+      Start_Date: '08/11/2025',
+      End_Date: '12/16/2025'
+    }),
+    COSEnrollmentAnalytics.normalizeRow({
+      Term: 'FALL 2025',
+      CRN: 'E25',
+      Subject: 'OPEN',
+      Course: '200',
+      ACCOUNTING_METHOD: 'E',
+      ACTUAL_ENROLL: '15',
+      TOTAL_CONTACT_HOURS: '70',
+      Start_Date: '08/11/2025',
+      End_Date: '12/16/2025'
+    })
+  ];
+
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, {
+    focusTerm: 'FALL 2026',
+    comparisonTerm: 'FALL 2025',
+    effectiveAsOfDate: '2026-08-17',
+    comparisonEffectiveAsOfDate: '2025-10-01'
+  });
+  const exportRows = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
+  const metric = name => exportRows.find(row => row.Section === 'Summary' && row.Metric === name)?.Value;
+
+  assert.equal(Number(summary.comparison.ftes.toFixed(6)), 7);
+  assert.equal(Number(summary.maturity.comparison.confirmedFinalFtes.toFixed(6)), 3);
+  assert.equal(Number(summary.maturity.comparison.estimatedFtes.toFixed(6)), 4);
+  assert.equal(COSEnrollmentAnalytics.currentEnrollmentExecutivePrimaryComparisonFtes(summary), summary.comparison.ftes);
+  assert.equal(Number(metric('Executive Comparison FTES Basis')), 7);
+  assert.equal(Number(metric('Comparison Confirmed/Final FTES')), 3);
+  assert.equal(Number(metric('Comparison Estimated/Pending FTES')), 4);
+});
+
 test('current enrollment FTES classification separates confirmed estimated predicted and unavailable values', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const historicalModel = {
@@ -6260,18 +6407,18 @@ test('current enrollment and FTES applies CRN-level authoritative census maturit
   assert.equal(byCrn['40003'].ftesMaturityStatus, 'Census Confirmed');
   assert.equal(byCrn['40004'].ftesMaturityStatus, 'Census Confirmed');
   assert.equal(byCrn['40005'].ftesMaturityStatus, 'Estimated - Census Pending');
-  assert.equal(byCrn['40006'].ftesMaturityStatus, 'Census Data Incomplete');
+  assert.equal(byCrn['40006'].ftesMaturityStatus, 'FTES Unavailable');
   assert.equal(byCrn['40006'].censusEnrollment, null);
   assert.equal(byCrn['40007'].ftesMaturityStatus, 'Estimated - Actual Hours Pending');
   assert.equal(byCrn['40008'].ftesMaturityStatus, 'Work Experience Estimated');
   assert.match(byCrn['40008'].ftesMaturityReason, /Work Experience FTES is estimated/i);
-  assert.equal(byCrn['40009'].ftesMaturityStatus, 'Maturity Unknown');
+  assert.equal(byCrn['40009'].ftesMaturityStatus, 'FTES Unavailable');
   assert.equal(byCrn['40001'].censusEnrollmentDate, '09/10/2026');
   assert.equal(byCrn['40001'].partOfTerm, 'F1');
   assert.equal(byCrn['40001'].startDate, '08/17/2026');
   assert.equal(byCrn['40001'].endDate, '12/11/2026');
   assert.equal(byCrn['40001'].activityDate, '09/01/2026');
-  assert.ok(summary.breakdowns.ftesMaturityStatus.some(row => row.name === 'Census Data Incomplete'));
+  assert.ok(summary.breakdowns.ftesMaturityStatus.some(row => row.name === 'FTES Unavailable'));
   assert.match(summary.context.censusDateSource, /CENSUS_ENRL_DATE/);
   assert.match(summary.context.censusEnrollmentSource, /CENSUS_ENROLL/);
   assert.equal(summary.maturity.focus.asOf.display, '2026-09-15');
