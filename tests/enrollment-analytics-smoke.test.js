@@ -1226,7 +1226,7 @@ test('custom enrollment snapshots default to date labels and retain multiple dat
 test('stored first-day snapshots merge into lifecycle rows by term and CRN', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '20', CENSUS_ENROLL: '25' })
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '20', CENSUS_ENROLL: '25', 'Start Date': '2027-08-16' })
   ];
   const snapshots = COSEnrollmentAnalytics.buildSnapshotRecords([
     { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '12' }
@@ -1237,19 +1237,65 @@ test('stored first-day snapshots merge into lifecycle rows by term and CRN', () 
   assert.equal(snapshots[0].sourceFieldUsed, 'ACTUAL_ENROLL');
   assert.equal(merged[0].firstDay, 12);
   assert.match(merged[0].firstDaySource, /Stored FIRST DAY snapshot/);
+  assert.equal(merged[0].firstDaySnapshotDateIso, '2027-08-16');
+  assert.equal(COSEnrollmentAnalytics.firstDaySnapshotAlignment(merged[0]).valid, true);
 });
 
 test('snapshot coverage counts missing first-day sections', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
-    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000' }),
-    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10002', Subject: 'MATH', Course: '021' })
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', 'Start Date': '2027-08-16' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10002', Subject: 'MATH', Course: '021', 'Start Date': '2027-08-16' })
   ];
   const snapshots = COSEnrollmentAnalytics.buildSnapshotRecords([
     { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '12' }
   ], { term: 'FALL 2027', snapshotType: 'First Day', snapshotDate: '2027-08-16' });
 
   const coverage = COSEnrollmentAnalytics.snapshotCoverage(rows, snapshots, 'FALL 2027');
+
+  assert.equal(coverage.sectionsInFocusTerm, 2);
+  assert.equal(coverage.sectionsWithFirstDaySnapshot, 1);
+  assert.equal(coverage.sectionsMissingFirstDaySnapshot, 1);
+  assert.equal(coverage.firstDayCoveragePct, 0.5);
+});
+
+test('first-day coverage requires snapshot date to match each section start date', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', 'Start Date': '2027-08-16', CENSUS_ENROLL: '25' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10002', Subject: 'MATH', Course: '021', 'Start Date': '2027-09-05', CENSUS_ENROLL: '18' })
+  ];
+  const snapshots = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '12' },
+    { CRN: '10002', Subject: 'MATH', Course: '021', ACTUAL_ENROLL: '10' }
+  ], { term: 'FALL 2027', snapshotType: 'First Day', snapshotDate: '2027-08-16' });
+
+  const merged = COSEnrollmentAnalytics.mergeSnapshotsIntoRows(rows, snapshots);
+  const record = COSEnrollmentAnalytics.emptyAttritionRecord('Overall');
+  merged.forEach(row => COSEnrollmentAnalytics.addAttritionLifecycle(record, 'decision', row));
+  const coverage = COSEnrollmentAnalytics.snapshotCoverage(merged, snapshots, 'FALL 2027');
+  const metrics = COSEnrollmentAnalytics.lifecycleMetrics('decision', record, 2);
+
+  assert.equal(coverage.sectionsInFocusTerm, 2);
+  assert.equal(coverage.sectionsWithFirstDaySnapshot, 1);
+  assert.equal(coverage.sectionsWithFirstDaySnapshotDateMismatch, 1);
+  assert.equal(coverage.sectionsMissingFirstDaySnapshot, 1);
+  assert.equal(coverage.firstDayCoveragePct, 0.5);
+  assert.equal(COSEnrollmentAnalytics.firstDaySnapshotAlignment(merged[1]).reason, 'snapshot-date-does-not-match-section-start-date');
+  assert.equal(metrics.decisionStartToCensus1MatchedCrns, 1);
+});
+
+test('first-day coverage does not reuse a same CRN snapshot across different terms', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: '10001', Subject: 'ENGL', Course: 'C1000', 'Start Date': '2026-08-17' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', 'Start Date': '2027-08-16' })
+  ];
+  const snapshots = COSEnrollmentAnalytics.buildSnapshotRecords([
+    { CRN: '10001', Subject: 'ENGL', Course: 'C1000', ACTUAL_ENROLL: '12' }
+  ], { term: 'FALL 2026', snapshotType: 'First Day', snapshotDate: '2026-08-17' });
+
+  const coverage = COSEnrollmentAnalytics.snapshotCoverage(rows, snapshots, '');
 
   assert.equal(coverage.sectionsInFocusTerm, 2);
   assert.equal(coverage.sectionsWithFirstDaySnapshot, 1);
@@ -1389,7 +1435,10 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
 
   assert.match(text, /Enrollment Attrition/);
   assert.match(text, /Diagnostic Attrition Rates/);
-  assert.match(text, /Planning Term Excluded/);
+  assert.match(text, /Active\/Planning Term Excluded/);
+  assert.match(text, /attrExcludePlanningTerm/);
+  assert.match(text, /Single Term/);
+  assert.match(text, /Late-start sections require their own First Day snapshot/);
   assert.match(text, /Attrition Executive Summary/);
   assert.match(text, /Data Quality & Coverage/);
   assert.doesNotMatch(text, /attrIncludeHistory/);
@@ -1445,8 +1494,11 @@ test('dashboard focus term scopes current metrics and excludes focus from histor
   assert.equal(summary.health.expectedEnrollment, 125);
   assert.match(summary.health.expectedEnrollmentMethod, /growth-adjusted projection/);
   assert.equal(summary.health.previousLikeTermEnrollment, 100);
+  assert.equal(summary.health.previousLikeTermCensusEnrollment, 100);
+  assert.equal(summary.health.previousLikeTermCurrentFinalEnrollment, 95);
   assert.equal(summary.health.previousLikeTerm, 'SPRING 2026');
   assert.equal(summary.health.previousLikeTermVariance, -100);
+  assert.equal(summary.health.previousLikeTermCurrentFinalVariance, -95);
   const campusPace = summary.pace.find(row => row.dimension === 'Campus' && row.name === 'VIS');
   assert.equal(campusPace.currentEnrollment, 0);
   assert.equal(campusPace.expectedEnrollment, 125);
@@ -2141,8 +2193,10 @@ test('dashboard summary export includes methodology and context rows', () => {
   assert.ok(rows.some(row => row.Section === 'Context' && row.Metric === 'Selected Division Filter' && row.Value === 'Arts'));
   assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Current Enrollment'));
   assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Expected Enrollment (Growth-Adjusted)'));
-  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Previous Like-Term Enrollment'));
-  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Variance vs Previous Like-Term'));
+  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Previous Like-Term Census Enrollment'));
+  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Variance vs Previous Like-Term Census'));
+  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Previous Like-Term Current/Final Enrollment'));
+  assert.ok(rows.some(row => row.Section === 'Enrollment Health' && row.Metric === 'Variance vs Previous Like-Term Current/Final'));
 });
 
 test('dashboard summary export respects selected division filter', () => {
@@ -8116,8 +8170,10 @@ test('dashboard compact tables use short headers and nowrap CSS', () => {
   assert.match(text, /estimatedFtesImpact: 'FTES Impact'/);
   assert.match(text, /Expected Enrollment \(Growth-Adjusted\)/);
   assert.match(text, /Variance vs Expected/);
-  assert.match(text, /Previous Like-Term Enrollment/);
-  assert.match(text, /Variance vs Previous Like-Term/);
+  assert.match(text, /Previous Like-Term Census Enrollment/);
+  assert.match(text, /Variance vs Previous Like-Term Census/);
+  assert.match(text, /Previous Like-Term Current\/Final Enrollment/);
+  assert.match(text, /Variance vs Previous Like-Term Current\/Final/);
   assert.match(text, /Work Experience Rows Loaded/);
   assert.match(text, /Work Experience Enrollment Included/);
   assert.match(text, /Work Experience FTES Included/);

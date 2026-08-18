@@ -1919,6 +1919,10 @@
         if (record && Number.isFinite(Number(record.enrollment))) {
           base[valueKey] = Number(record.enrollment);
           base[sourceKey] = `Stored ${type} snapshot ${record.snapshotDate}`;
+          base[`${valueKey}SnapshotDate`] = record.snapshotDate || '';
+          base[`${valueKey}SnapshotDateIso`] = dateIso(record.snapshotDate || '');
+          base[`${valueKey}SnapshotType`] = record.snapshotType || type;
+          base[`${valueKey}SnapshotBatchId`] = record.batchId || '';
         } else if (base[valueKey] != null && base[valueKey] !== '') {
           base[sourceKey] = 'Uploaded section seating field';
         }
@@ -1930,10 +1934,33 @@
   function snapshotCoverage(rows = [], snapshots = [], term = '') {
     const termKey = canon(term);
     const focusRows = dedupeEnrollmentRows(rows).filter(row => !termKey || canon(row.term) === termKey);
-    const focusCrns = new Set(focusRows.map(row => row.crn).filter(Boolean));
+    const coverageKey = (termLabel, crn) => `${canon(termLabel)}|${canon(crn)}`;
+    const focusCrns = new Set(focusRows.map(row => coverageKey(row.term, row.crn)).filter(key => key !== '|'));
     const firstDay = (snapshots || []).filter(record => normalizeSnapshotType(record.snapshotType) === 'FIRST DAY' && (!term || canon(record.term) === canon(term)));
-    const firstDayCrns = new Set(firstDay.map(record => canon(record.crn)).filter(Boolean));
-    const covered = [...focusCrns].filter(crn => firstDayCrns.has(crn)).length;
+    const firstDayByCrn = new Map();
+    firstDay.forEach(record => {
+      const key = coverageKey(record.term, record.crn);
+      if (key === '|') return;
+      if (!firstDayByCrn.has(key)) firstDayByCrn.set(key, []);
+      firstDayByCrn.get(key).push(record);
+    });
+    let covered = 0;
+    let presentButStartDateMismatch = 0;
+    let presentButSectionStartMissing = 0;
+    focusRows.forEach(row => {
+      const key = coverageKey(row.term, row.crn);
+      if (key === '|') return;
+      const records = firstDayByCrn.get(key) || [];
+      if (!records.length) return;
+      const sectionStart = dateIso(row.startDate || row.raw?.Start_Date || row.raw?.START_DATE || row.raw?.['Start Date'] || '');
+      if (!sectionStart) {
+        presentButSectionStartMissing += 1;
+        return;
+      }
+      const hasAlignedSnapshot = records.some(record => dateIso(record.snapshotDate || '') === sectionStart);
+      if (hasAlignedSnapshot) covered += 1;
+      else presentButStartDateMismatch += 1;
+    });
     const dates = (snapshots || []).map(record => record.snapshotDate).filter(Boolean).sort();
     const batches = new Set((snapshots || []).map(record => record.batchId || [record.term, record.snapshotType, record.snapshotDate].join('|')).filter(Boolean));
     return {
@@ -1941,6 +1968,8 @@
       sectionsWithFirstDaySnapshot: covered,
       firstDayCoveragePct: focusCrns.size ? covered / focusCrns.size : 0,
       sectionsMissingFirstDaySnapshot: Math.max(0, focusCrns.size - covered),
+      sectionsWithFirstDaySnapshotDateMismatch: presentButStartDateMismatch,
+      sectionsWithFirstDaySnapshotButMissingStartDate: presentButSectionStartMissing,
       snapshotBatchesUploaded: batches.size,
       latestSnapshotDate: dates[dates.length - 1] || '',
       snapshotRecordsStored: snapshots.length
@@ -3904,10 +3933,11 @@
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
                   <li>Use historical enrollment files loaded through the Source Data Hub, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
-                  <li>Use the planning term controls only to exclude an active, future, or otherwise non-final term from the historical trend. No current/decision term is required for this report.</li>
+                  <li>Select one archived term for a single-term attrition view, or multiple archived terms for a trend view.</li>
+                  <li>Use the active/planning term exclusion only when an active, future, or otherwise non-final term should be removed from the analysis.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
                   <li>Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled sections and can contain non-comparable milestone values. Clear the checkbox only when intentionally auditing those rows.</li>
-                  <li>First Day comes from stored First Day snapshots when available. If First Day snapshots are missing, start-based lifecycle calculations show N/A instead of zero.</li>
+                  <li>First Day comes from stored First Day snapshots only when the snapshot date matches that section's own start date. Late-start sections need their own first-day snapshot.</li>
                 </ul>
               </div>
               <div>
@@ -3920,7 +3950,7 @@
                   <li>Lifecycle intervals shown are First Day to Census 1, First Day to End/Final, and Census 1 to End/Final. Each interval uses matched CRNs that have both required milestone values.</li>
                   <li>Attrition is signed: (start enrollment - end enrollment) / start enrollment. Enrollment gains display as negative attrition rather than being clamped to zero.</li>
                   <li>If milestone populations differ, the report shows a data-quality warning but still calculates each attrition interval from its matched CRN population.</li>
-                  <li>Historical Attrition uses selected completed terms only. The excluded planning term never contributes to the trend rates.</li>
+                  <li>Attrition uses the selected completed terms. When active/planning term exclusion is enabled, the excluded term never contributes to the rates.</li>
                   <li>Min sections controls the minimum section count a grouped row must have before it appears in the report.</li>
                 </ul>
               </div>
@@ -3928,7 +3958,8 @@
           </div>
           <div class="analytics-toolbar">
             <label>Archived terms <select id="attrArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
-            <label>Planning term to exclude
+            <label><input id="attrExcludePlanningTerm" type="checkbox" checked> Exclude active/planning term</label>
+            <label>Active/planning term
               <select id="attrDecisionSeason">
                 <option value="SUMMER">Summer</option>
                 <option value="FALL">Fall</option>
@@ -12356,6 +12387,11 @@ BUS 180 2 units`)
     return `${season || 'FALL'} ${year}`;
   }
 
+  function attritionPlanningTermExclusionEnabled() {
+    const control = document.getElementById('attrExcludePlanningTerm');
+    return control ? control.checked !== false : true;
+  }
+
   function snapshotTerm() {
     const season = canon(document.getElementById('snapSeason')?.value || 'FALL');
     const year = Number(document.getElementById('snapYear')?.value || termParts(attritionDecisionTerm()).year || termParts(currentTerm()).year || new Date().getFullYear());
@@ -12819,8 +12855,10 @@ BUS 180 2 units`)
       ['Current Enrollment', health.currentEnrollment ?? 0],
       ['Expected Enrollment (Growth-Adjusted)', health.expectedEnrollment == null ? 'N/A' : health.expectedEnrollment],
       ['Variance vs Expected', health.expectedVariance == null ? 'N/A' : health.expectedVariance],
-      ['Previous Like-Term Enrollment', health.previousLikeTermEnrollment == null ? 'N/A' : health.previousLikeTermEnrollment],
-      ['Variance vs Previous Like-Term', health.previousLikeTermVariance == null ? 'N/A' : health.previousLikeTermVariance],
+      ['Previous Like-Term Census Enrollment', health.previousLikeTermCensusEnrollment == null ? 'N/A' : health.previousLikeTermCensusEnrollment],
+      ['Variance vs Previous Like-Term Census', health.previousLikeTermVariance == null ? 'N/A' : health.previousLikeTermVariance],
+      ['Previous Like-Term Current/Final Enrollment', health.previousLikeTermCurrentFinalEnrollment == null ? 'N/A' : health.previousLikeTermCurrentFinalEnrollment],
+      ['Variance vs Previous Like-Term Current/Final', health.previousLikeTermCurrentFinalVariance == null ? 'N/A' : health.previousLikeTermCurrentFinalVariance],
       ['Courses Reviewed', health.coursesReviewed ?? 0],
       ['Sections Reviewed', health.sectionsReviewed ?? 0],
       ['FTES', round1(health.ftes || 0)],
@@ -17872,8 +17910,23 @@ BUS 180 2 units`)
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  function firstDaySnapshotAlignment(row = {}) {
+    const value = finiteOrNull(row?.firstDay);
+    if (value == null) return { valid: false, reason: 'missing-first-day' };
+    const source = canon(row?.firstDaySource || '');
+    const snapshotDate = dateIso(row?.firstDaySnapshotDateIso || row?.firstDaySnapshotDate || '');
+    if (!source.includes('STORED FIRST DAY SNAPSHOT') && !snapshotDate) return { valid: true, reason: 'uploaded-field' };
+    const startDate = dateIso(row?.startDate || row?.raw?.Start_Date || row?.raw?.START_DATE || row?.raw?.['Start Date'] || '');
+    if (!startDate) return { valid: false, reason: 'missing-section-start-date', snapshotDate };
+    if (!snapshotDate) return { valid: false, reason: 'missing-snapshot-date', startDate };
+    if (snapshotDate !== startDate) return { valid: false, reason: 'snapshot-date-does-not-match-section-start-date', startDate, snapshotDate };
+    return { valid: true, reason: 'snapshot-date-matches-section-start-date', startDate, snapshotDate };
+  }
+
   function rowFirstDay(row) {
-    return finiteOrNull(row?.firstDay);
+    const value = finiteOrNull(row?.firstDay);
+    if (value == null) return null;
+    return firstDaySnapshotAlignment(row).valid ? value : null;
   }
 
   function rowCensus1(row) {
@@ -18241,7 +18294,8 @@ BUS 180 2 units`)
     state.attritionRan = true;
     setAttritionStatus('Running enrollment attrition/lifecycle report...', true);
     const allEnrollment = await loadAttritionFiles();
-    const excludedPlanningTerm = attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms);
+    const excludePlanningTerm = attritionPlanningTermExclusionEnabled();
+    const excludedPlanningTerm = excludePlanningTerm ? (attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms)) : '';
     const excludedPlanningTermKey = canon(excludedPlanningTerm);
     const diagnostics = standardExclusionDiagnostics(allEnrollment, 'attr');
     const enrollment = applyFilters(allEnrollment, 'attr')
@@ -18255,9 +18309,10 @@ BUS 180 2 units`)
       }));
       renderAttritionSummarySections({
         executive: [
-          ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
-          ['Historical Terms Included', 0],
-          ['Historical Sections / CRNs Included', 0],
+          ['Analysis Mode', 'No matching terms'],
+          ['Active/Planning Term Excluded', excludedPlanningTerm || 'None'],
+          ['Terms Included', 0],
+          ['Sections / CRNs Included', 0],
           ['First Day to Census 1 Attrition', 'N/A'],
           ['First Day to End/Final Attrition', 'N/A'],
           ['Census 1 to End/Final Attrition', 'N/A']
@@ -18384,6 +18439,12 @@ BUS 180 2 units`)
     if (coverage.firstDayCoveragePct === 0 && historicalSummary.sections > 0) {
       dataQualityWarnings.push('First Day snapshots are unavailable for the selected historical terms.');
     }
+    if (coverage.sectionsWithFirstDaySnapshotDateMismatch > 0) {
+      dataQualityWarnings.push(`${coverage.sectionsWithFirstDaySnapshotDateMismatch} First Day snapshot(s) exist but do not match the section start date. Late-start sections require their own First Day snapshot.`);
+    }
+    if (coverage.sectionsWithFirstDaySnapshotButMissingStartDate > 0) {
+      dataQualityWarnings.push(`${coverage.sectionsWithFirstDaySnapshotButMissingStartDate} First Day snapshot(s) could not be validated because the section start date is missing.`);
+    }
     state.attritionRows = state.attritionRows.map(row => ({
       ...row,
       courseHistoricalAverage: lifecycleMetricLabel(row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate),
@@ -18400,9 +18461,10 @@ BUS 180 2 units`)
     }));
     renderAttritionSummarySections({
       executive: [
-        ['Planning Term Excluded', excludedPlanningTerm || 'N/A'],
-        ['Historical Terms Included', historicalTerms.length],
-        ['Historical Sections / CRNs Included', historicalSummary.sections],
+        ['Analysis Mode', historicalTerms.length === 1 ? 'Single Term' : 'Multiple Terms'],
+        ['Active/Planning Term Excluded', excludedPlanningTerm || 'None'],
+        ['Terms Included', historicalTerms.length],
+        ['Sections / CRNs Included', historicalSummary.sections],
         ['First Day to Census 1 Attrition', lifecycleMetricLabel(historicalSummary.startToCensus1Rate)],
         ['First Day to End/Final Attrition', lifecycleMetricLabel(historicalSummary.startToEndRate)],
         ['Census 1 to End/Final Attrition', lifecycleMetricLabel(historicalSummary.census1ToEndRate)]
@@ -18416,6 +18478,8 @@ BUS 180 2 units`)
         ['Historical CRNs with End/Final', historicalMilestones.final.count],
         ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
         ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
+        ['First Day Date Mismatches', coverage.sectionsWithFirstDaySnapshotDateMismatch],
+        ['First Day Missing Section Start Date', coverage.sectionsWithFirstDaySnapshotButMissingStartDate],
         ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
         ['Distinct CRNs with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Crns],
         ['Tutoring/Open Lab Rows Excluded', diagnostics.tutoringOpenLabRowsExcluded],
@@ -18463,17 +18527,17 @@ BUS 180 2 units`)
       distinctCrns: summary.distinctCrns ?? summary.historicalSections ?? '',
       exclusions: [
         ...collectExclusionChips('attr'),
-        { label: 'Planning Term Excluded', value: excludedPlanningTerm || 'None' },
+        { label: 'Active/Planning Term Excluded', value: excludedPlanningTerm || 'None' },
         { label: 'Tutoring/Open Lab', value: `${diagnostics.tutoringOpenLabRowsExcluded || 0} rows excluded` },
         ...(SHOW_CENSUS2 ? [{ label: 'Invalid Census 2', value: `${diagnostics.invalidNegativeCensus2Rows || 0} rows treated as missing` }] : [])
       ],
       method: [
         { label: 'Aggregation mode', value: document.getElementById('attrGroup')?.value || 'COURSE' },
         { label: 'Enrollment basis', value: 'Census preferred, actual/current fallback' },
-        { label: 'Planning Term Excluded', value: 'Selected future/planning term is not used as historical evidence' },
-        { label: 'Historical Terms Used', value: historicalTerms.join(', ') || 'None' },
+        { label: 'Active/Planning Term Exclusion', value: excludedPlanningTerm ? 'Enabled' : 'Disabled' },
+        { label: 'Terms Used', value: historicalTerms.join(', ') || 'None' },
         { label: 'Scheduled Class Offerings', value: 'Unique CRNs' },
-        { label: 'Attrition basis', value: 'Matched CRNs for each lifecycle interval' }
+        { label: 'Attrition basis', value: 'Matched CRNs for each lifecycle interval; First Day requires snapshot date to match section start date' }
       ]
     };
   }
@@ -26860,6 +26924,7 @@ BUS 180 2 units`)
     document.getElementById('runAttrition')?.addEventListener('click', () => runAttrition().catch(handleAttritionError));
     document.getElementById('dashIncludeWorkExperience')?.addEventListener('change', rerunDashboard);
     document.getElementById('attrIncludeWorkExperience')?.addEventListener('change', () => runAttrition().catch(handleAttritionError));
+    document.getElementById('attrExcludePlanningTerm')?.addEventListener('change', () => runAttrition().catch(handleAttritionError));
     ['demIncludePhysicalCampuses', 'demIncludeDualEnrollment', 'demIncludeWorkExperience'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', runDemand);
     });
@@ -27419,6 +27484,7 @@ BUS 180 2 units`)
     snapshotCoverage,
     snapshotSourceValue,
     normalizeSnapshotType,
+    firstDaySnapshotAlignment,
     lifecycleMetrics,
     emptyAttritionRecord,
     addAttritionLifecycle,
