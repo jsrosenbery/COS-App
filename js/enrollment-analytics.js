@@ -20127,16 +20127,53 @@ BUS 180 2 units`)
     return activeRows;
   }
 
-  function demandCurrentTotals(rows = []) {
+  function demandCurrentFtesClassificationBasis(rows = [], options = {}) {
+    if (!rows.length) {
+      return {
+        ftes: 0,
+        currentCalculatedFtes: 0,
+        confirmedFtes: 0,
+        estimatedFtes: 0,
+        predictedFtes: 0,
+        confirmedSections: 0,
+        estimatedSections: 0,
+        predictedSections: 0,
+        unavailableSections: 0,
+        predictionPendingSections: 0
+      };
+    }
+    const asOfContext = resolveFtesAsOfDate(rows, options);
+    const historicalModel = options.historicalModel || state.historicalInstitutionalModel || null;
+    const classifiedRows = ftesClassificationRows(rows, { asOfContext, historicalModel });
+    const summary = ftesClassificationSummary(classifiedRows);
+    return {
+      ftes: summary.projectedFinalFtesTotal,
+      currentCalculatedFtes: currentEnrollmentFtesTotals(rows, asOfContext).ftes,
+      confirmedFtes: summary.confirmedFtesTotal,
+      estimatedFtes: summary.estimatedFtesTotal,
+      predictedFtes: summary.predictedFtesTotal,
+      confirmedSections: summary.confirmedSections,
+      estimatedSections: summary.estimatedSections,
+      predictedSections: summary.predictedSections,
+      unavailableSections: summary.unavailableSectionCount,
+      predictionPendingSections: summary.predictionPendingSectionCount,
+      asOfContext
+    };
+  }
+
+  function demandCurrentTotals(rows = [], options = {}) {
     const distinct = distinctDemandSections(rows);
     const enrollment = rows.reduce((total, row) => total + (Number.isFinite(Number(row.census)) && Number(row.census) > 0 ? Number(row.census) : Number(row.actual || 0)), 0);
+    const ftesBasis = demandCurrentFtesClassificationBasis(rows, options);
     return {
       enrollment,
       censusEnrollment: rows.reduce((total, row) => total + (Number.isFinite(Number(row.census)) ? Math.max(0, Number(row.census)) : 0), 0),
       actualEnrollment: sum(rows, 'actual'),
       seatsOffered: sum(rows, 'cap'),
       scheduledClassOfferings: distinct.length || rows.length,
-      ftes: sum(rows, 'ftes')
+      ftes: ftesBasis.ftes,
+      currentCalculatedFtes: ftesBasis.currentCalculatedFtes,
+      ftesClassificationBasis: ftesBasis
     };
   }
 
@@ -20664,7 +20701,8 @@ BUS 180 2 units`)
     const currentEnrollment = activeRows.reduce((total, row) => total + (Number.isFinite(Number(row.actual)) ? Number(row.actual) : Number(row.census || 0)), 0);
     const censusEnrollment = activeRows.reduce((total, row) => total + (Number.isFinite(Number(row.census)) ? Number(row.census) : 0), 0);
     const seatsOffered = sum(activeRows, 'cap');
-    const estimatedFtes = sum(activeRows, 'ftes');
+    const ftesBasis = demandCurrentFtesClassificationBasis(activeRows, { historicalModel: target.historicalModel });
+    const estimatedFtes = ftesBasis.ftes;
     const waitlist = sum(activeRows, 'waitlist');
     const snapshotDates = [...new Set(activeRows.map(row => row.snapshotDate || row.asOfDate || row.uploadDate || '').filter(Boolean))].sort();
     const uploadDates = [...new Set(activeRows.map(row => row.sourceUploadedAt || row.uploadedAt || '').filter(Boolean))].sort();
@@ -20689,7 +20727,10 @@ BUS 180 2 units`)
       sourceFiles,
       isIncompleteActiveTerm: activeRows.length > 0 && censusEnrollment <= 0 && currentEnrollment > 0,
       hasRows: activeRows.length > 0,
-      ftesMethodology: estimatedFtes > 0 ? 'Current snapshot estimated FTES from source/direct or fallback FTES fields' : 'Current snapshot FTES unavailable'
+      ftesClassificationBasis: ftesBasis,
+      ftesMethodology: estimatedFtes > 0
+        ? 'Current snapshot FTES uses the Current Enrollment & FTES classification basis: Confirmed + Estimated + Predicted, with current-calculable P/E rows retained as Estimated when historical prediction is unavailable.'
+        : 'Current snapshot FTES unavailable'
     };
   }
 

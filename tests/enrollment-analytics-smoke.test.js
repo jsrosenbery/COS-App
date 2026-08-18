@@ -3514,6 +3514,32 @@ test('demand active snapshot uses upload timestamp when explicit snapshot date i
   assert.equal(snapshot.isIncompleteActiveTerm, true);
 });
 
+test('demand active snapshot uses current enrollment FTES classification basis for current-calculable P E rows', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({
+      term: 'FALL 2026',
+      crn: 'P-DEMAND',
+      subject: 'AUTO',
+      course: '120',
+      accountingMethod: 'P',
+      actual: 25,
+      census: null,
+      totalContactHours: 54,
+      hasDirectFtesData: false,
+      hasFtesData: true,
+      ftesMaturity: 'Actual Hours Pending'
+    })
+  ];
+  const snapshot = COSEnrollmentAnalytics.demandActiveSnapshot(rows, { label: 'FALL 2026', historicalModel: { groups: [] } });
+
+  assert.equal(snapshot.ftesClassificationBasis.unavailableSections, 0);
+  assert.equal(snapshot.ftesClassificationBasis.estimatedSections, 1);
+  assert.ok(snapshot.estimatedFtes > 0);
+  assert.equal(snapshot.estimatedFtes, snapshot.ftesClassificationBasis.ftes);
+  assert.match(snapshot.ftesMethodology, /Current Enrollment & FTES classification basis/);
+});
+
 test('demand sustainable projection dampens recovery spikes and does not let schedule shortfall reduce demand', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const termRows = [
