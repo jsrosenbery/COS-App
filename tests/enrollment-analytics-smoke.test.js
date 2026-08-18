@@ -2446,6 +2446,9 @@ test('enrollment planning forecast exposes population toggles sections and metad
   assert.match(text, /id="demIncludePhysicalCampuses"/);
   assert.match(text, /id="demIncludeDualEnrollment"/);
   assert.match(text, /id="demIncludeWorkExperience"/);
+  assert.match(text, /id="demConstrainByCapacity"/);
+  assert.match(text, /function demandCapacityConstraintEnabled/);
+  assert.match(text, /constrainByCapacity: context\.constrainByCapacity/);
   [
     'Executive Summary',
     'FTES Analysis',
@@ -2461,6 +2464,8 @@ test('enrollment planning forecast exposes population toggles sections and metad
   assert.match(text, /Instructional FTES/);
   assert.match(text, /Dual Enrollment FTES/);
   assert.match(text, /Work Experience FTES/);
+  assert.match(text, /Unconstrained Expected Enrollment/);
+  assert.match(text, /Capacity-Constrained Expected Enrollment/);
   assert.match(text, /enrollment-planning-forecast-/);
   assert.match(text, /data-collapsible-id="demand-executive-summary" data-collapsible-default-open="true"/);
   assert.match(text, /data-collapsible-id="demand-ftes-analysis" data-collapsible-default-open="true"/);
@@ -3604,6 +3609,30 @@ test('demand sustainable projection reports material schedule increase as readin
   assert.ok(projection.finalExpectedProjection.enrollment >= projection.uncappedExpectedEnrollment - 0.001);
 });
 
+test('demand capacity constraint toggle caps growth at current schedule seats', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const termRows = [
+    { term: 'FALL 2023', census: 100, final: 98, ftes: 10, capacity: 130, sections: 5, fillRate: 0.77 },
+    { term: 'FALL 2024', census: 110, final: 106, ftes: 11, capacity: 135, sections: 5, fillRate: 0.81 },
+    { term: 'FALL 2025', census: 120, final: 116, ftes: 12, capacity: 140, sections: 5, fillRate: 0.86 }
+  ];
+  const currentTotals = { enrollment: 90, scheduledClassOfferings: 5, seatsOffered: 125, ftes: 9 };
+  const unconstrained = COSEnrollmentAnalytics.demandHistoricalBenchmarkProjection(termRows, currentTotals);
+  const constrained = COSEnrollmentAnalytics.demandHistoricalBenchmarkProjection(termRows, currentTotals, { constrainByCapacity: true });
+
+  assert.equal(unconstrained.forecastConstraintMode, 'Unconstrained demand potential');
+  assert.equal(unconstrained.scheduleAdjustmentUsedAsDemandFactor, false);
+  assert.ok(unconstrained.finalExpectedProjection.enrollment > currentTotals.seatsOffered);
+  assert.equal(constrained.forecastConstraintMode, 'Capacity constrained');
+  assert.equal(constrained.capacityConstrained, true);
+  assert.equal(constrained.scheduleAdjustmentUsedAsDemandFactor, true);
+  assert.equal(Math.round(constrained.finalExpectedProjection.enrollment), currentTotals.seatsOffered);
+  assert.equal(Math.round(constrained.expectedRange.high), currentTotals.seatsOffered);
+  assert.ok(constrained.unconstrainedExpectedEnrollment > constrained.constrainedExpectedEnrollment);
+  assert.ok(constrained.unconstrainedExpectedFtes > constrained.constrainedExpectedFtes);
+  assert.ok(constrained.ftesProjectionWarnings.some(item => /Constrained mode is enabled/.test(item)));
+});
+
 test('demand redesign helpers distinguish lifecycle expected enrollment and confidence', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const trends = [
@@ -3638,7 +3667,7 @@ test('demand executive summary recommendations and diagnostics support decision 
     { term: 'FALL 2023', census: 120, final: 118, fillRate: 0.85, waitlist: 4, ftes: 36 },
     { term: 'FALL 2024', census: 140, final: 138, fillRate: 0.94, waitlist: 9, ftes: 44 }
   ];
-  const summary = COSEnrollmentAnalytics.demandExecutiveSummary(rows, trends, { target: { term: 'FALL 2026' }, ftesCap: 50, annualFtes: 52 }, {});
+  const summary = COSEnrollmentAnalytics.demandExecutiveSummary(rows, trends, { target: { term: 'FALL 2026' }, ftesCap: 60, forecastFtes: 52, annualFtes: 57, annualFtesDetails: { companionFtes: 5, includedTerms: 'FALL forecast + SPRING known/projected' } }, {});
   const findings = COSEnrollmentAnalytics.demandRecommendationSummary(rows, [{ pattern: 'M | 10:00 | HYBRID | COS', fillRate: 0.96, waitlist: 5, sections: 2 }], summary);
   const pattern = COSEnrollmentAnalytics.parseDemandPattern('M | 10:00 | HYBRID | COS');
   const diagnostics = COSEnrollmentAnalytics.demandTermDiagnostics({
@@ -3652,6 +3681,11 @@ test('demand executive summary recommendations and diagnostics support decision 
 
   assert.match(summary.health, /Watch|Intervention Recommended|On Track/);
   assert.ok(summary.drivers.length >= 3);
+  assert.equal(summary.projectedFtes, 52);
+  assert.equal(summary.companionFtes, 5);
+  assert.equal(summary.capComparisonFtes, 57);
+  assert.equal(summary.ftesCap, 60);
+  assert.equal(summary.capDelta, 3);
   assert.ok(findings.some(row => row.category === 'Expansion Candidate'));
   assert.ok(findings.some(row => row.category === 'Waitlist Pressure'));
   assert.equal(pattern.day, 'M');
@@ -3681,6 +3715,10 @@ test('demand redesign sections and metric definitions are wired', () => {
     assert.ok(registry.get(id), `${id} definition missing`);
   });
   assert.match(text, /Conservative-High FTES Range/);
+  assert.match(text, /Known\/Projected Companion FTES/);
+  assert.match(text, /Annual FTES for Cap Comparison/);
+  assert.match(text, /Entered FTES Cap/);
+  assert.match(text, /FTES Over\/Under Cap/);
   assert.match(text, /expectedFtesRangeDisplay/);
   assert.match(text, /expectedFtesRangeLow/);
   assert.match(text, /expectedFtesRangeHigh/);

@@ -2262,6 +2262,10 @@
     };
   }
 
+  function demandCapacityConstraintEnabled() {
+    return Boolean(document.getElementById('demConstrainByCapacity')?.checked);
+  }
+
   function demandAnnualFtesProjection(target, forecastFtes) {
     if (target.scope === 'year') {
       return {
@@ -4045,6 +4049,7 @@
             ${filters('dem', { includeGroup: false, includeCancelled: false, includeOrg: true })}
             <label>Analysis window <input id="demWindow" type="number" min="1" max="10" value="5"></label>
             <label>Overall enrollment modifier % <input id="demGrowthModifier" type="number" min="-50" max="100" step="0.1" value="0" title="Optional planning adjustment applied after historical growth, such as 3 for an expected 3% overall enrollment increase."></label>
+            <label><input id="demConstrainByCapacity" type="checkbox"> Constrain growth to current seat capacity</label>
             <label>FTES cap <input id="demFtesCap" type="number" min="0" step="0.1" value="" placeholder="optional" title="Optional state-sanctioned FTES cap used to show forecast room remaining or amount over cap."></label>
             <label>Known/projected Summer FTES <input id="demKnownSummerFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
             <label>Known/projected Fall FTES <input id="demKnownFallFtes" type="number" min="0" step="0.1" value="" placeholder="optional"></label>
@@ -19568,6 +19573,8 @@ BUS 180 2 units`)
     const projectedFtes = Number(college.expectedFtesNextTerm || context.forecastFtes || 0);
     const currentFtes = Number(context.activeSnapshot?.estimatedFtes || 0);
     const ftesVariance = projectedFtes - currentFtes;
+    const companionFtes = Number((context.annualFtesDetails?.companionFtes ?? Math.max(0, Number(context.annualFtes || projectedFtes) - projectedFtes)) || 0);
+    const capComparisonFtes = Number(context.annualFtes || projectedFtes || 0);
     let risk = 0;
     if (expected && projected < expected * 0.95) risk += 2;
     else if (expected && projected < expected) risk += 1;
@@ -19611,6 +19618,10 @@ BUS 180 2 units`)
       currentFtes,
       projectedFtes,
       ftesVariance,
+      companionFtes,
+      capComparisonFtes,
+      ftesCap: Number(context.ftesCap || 0),
+      forecastConstraintMode: college.forecastConstraintMode || 'Unconstrained demand potential',
       currentWaitlist: Number(context.activeSnapshot?.waitlist || 0),
       growthRateApplied: college.adjustedForecastGrowth || 0
     };
@@ -19682,6 +19693,10 @@ BUS 180 2 units`)
         ['Most Likely Estimate', Math.round(collegeRow.expectedRangeMostLikely ?? collegeRow.expectedEnrollmentNextTerm ?? summary.projected ?? 0), 'projected-final-enrollment'],
         ['High Enrollment Estimate', Math.round(collegeRow.expectedRangeHigh ?? summary.projected ?? 0), 'expected-projection-range'],
         ['Conservative-High FTES Range', formatDemandFtesRange(collegeRow.expectedFtesRangeLow ?? config.forecastFtes ?? 0, collegeRow.expectedFtesRangeHigh ?? config.forecastFtes ?? 0), 'expected-ftes-range'],
+        ['Forecast Constraint Mode', collegeRow.forecastConstraintMode || 'Unconstrained demand potential', 'scheduled-class-offerings'],
+        ['Unconstrained Expected Enrollment', Math.round(collegeRow.unconstrainedExpectedEnrollment ?? collegeRow.expectedEnrollmentNextTerm ?? 0), 'expected-projection-range'],
+        ['Capacity-Constrained Expected Enrollment', Math.round(collegeRow.constrainedExpectedEnrollment ?? collegeRow.expectedEnrollmentNextTerm ?? 0), 'scheduled-class-offerings'],
+        ['Enrollment Reduced by Capacity Constraint', Math.round(collegeRow.constrainedEnrollmentReduction || 0), 'projected-variance'],
         ['Recovery Spike Cap', pct(collegeRow.recoverySpikeGrowthCap ?? DEMAND_RECOVERY_SPIKE_CAP), 'trend-projection'],
         ['Historical Average Growth', pct(collegeRow.historicalAverageGrowth || 0), 'trend-projection'],
         ['Historical CAGR', pct(collegeRow.historicalCagr || 0), 'trend-projection'],
@@ -19691,6 +19706,7 @@ BUS 180 2 units`)
         ['Current Snapshot Enrollment', Math.round(activeSnapshot.currentEnrollment || 0), 'current-enrollment'],
         ['Current Snapshot Section Count', activeSnapshot.sectionCount || 0, 'scheduled-class-offerings'],
         ['Current Snapshot Seats Offered', activeSnapshot.seatsOffered || 0, 'seats-offered'],
+        ['Schedule Capacity Limit', Math.round(collegeRow.scheduleCapacityLimit || activeSnapshot.seatsOffered || 0), 'seats-offered'],
         ['Current Snapshot Fill Rate', pct(activeSnapshot.fillRate || 0), 'fill-rate'],
         ['Current Snapshot Estimated FTES', activeSnapshot.estimatedFtes ? round1(activeSnapshot.estimatedFtes) : 'N/A', 'ftes'],
         ['Snapshot Date / As-of Date', activeSnapshot.snapshotDate || 'N/A', 'snapshot-date']
@@ -19703,6 +19719,8 @@ BUS 180 2 units`)
         ['Current Snapshot Estimated FTES', activeSnapshot.estimatedFtes ? round1(activeSnapshot.estimatedFtes) : 'N/A', 'ftes'],
         ['FTES Difference from Current Snapshot', round1((config.forecastFtes || 0) - (activeSnapshot.estimatedFtes || 0)), 'ftes'],
         ['Conservative-High FTES Range', formatDemandFtesRange(collegeRow.expectedFtesRangeLow ?? config.forecastFtes ?? 0, collegeRow.expectedFtesRangeHigh ?? config.forecastFtes ?? 0), 'expected-ftes-range'],
+        ['Known/Projected Companion FTES', round1(config.annualFtes?.companionFtes || 0), 'ftes'],
+        ['Annual FTES for Cap Comparison', round1(config.capComparisonFtes || config.forecastFtes || 0), 'ftes'],
         ['FTES Cap', config.ftesCapDelta == null ? 'No cap entered' : round1(Number(document.getElementById('demFtesCap')?.value || 0)), 'ftes'],
         ['FTES Over/Under Cap', config.ftesCapDelta == null ? 'No cap entered' : (config.ftesCapDelta >= 0 ? `${round1(config.ftesCapDelta)} under` : `${round1(Math.abs(config.ftesCapDelta))} over`), 'ftes-cap-position'],
         ['Expected Fill Rate', pct(collegeRow.expectedFillRate || 0), 'fill-rate'],
@@ -19775,7 +19793,8 @@ BUS 180 2 units`)
       method: [
         { label: 'Forecast type', value: 'Sustainable Growth Projection' },
         { label: 'Forecast method', value: 'Most recent comparable benchmark with dampened sustainable growth' },
-        { label: 'Projection method', value: 'Recovery spikes are capped, negative routine-growth assumptions are floored at zero, and current schedule size is schedule-readiness context only' },
+        { label: 'Projection method', value: demandCapacityConstraintEnabled() ? 'Recovery spikes are capped, negative routine-growth assumptions are floored at zero, and growth is capped at current target schedule seat capacity when loaded' : 'Recovery spikes are capped, negative routine-growth assumptions are floored at zero, and current schedule size is schedule-readiness context only' },
+        { label: 'Forecast constraint mode', value: demandCapacityConstraintEnabled() ? 'Capacity constrained by current target schedule seats' : 'Unconstrained demand potential' },
         { label: 'Forecast scope', value: document.getElementById('demForecastScope')?.value === 'year' ? 'Academic year' : 'Single term' },
         { label: 'Active term rows', value: activeSnapshot.rows ?? 'N/A' },
         { label: 'Active term distinct CRNs', value: activeSnapshot.distinctCrns ?? 'N/A' },
@@ -19994,8 +20013,9 @@ BUS 180 2 units`)
       }
       const growthModifier = Number(document.getElementById('demGrowthModifier')?.value || 0) / 100;
       const ftesCap = Number(document.getElementById('demFtesCap')?.value || 0);
+      const constrainByCapacity = demandCapacityConstraintEnabled();
       const activeTargetRows = filtered.filter(row => new Set(demandTargetTerms(target)).has(normalizeTermLabel(row.sourceTerm || row.term)));
-      const context = { ...demandGrowthContext(rows, target), activeRows: activeTargetRows, activeSnapshot };
+      const context = { ...demandGrowthContext(rows, target), activeRows: activeTargetRows, activeSnapshot, constrainByCapacity };
       state.demandRows = demandForecastRowsForLevels(rows, context, growthModifier);
       const expanding = state.demandRows.filter(row => /expanding|increase/i.test(row.capacityGuidance));
       const softening = state.demandRows.filter(row => /softening/i.test(row.capacityGuidance));
@@ -20011,7 +20031,7 @@ BUS 180 2 units`)
       const confidenceDetails = demandConfidenceDetails(state.demandRows, trends, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, populationSelections }, termDiagnostics, activeSnapshot);
       const projectionWarnings = demandProjectionWarnings({}, collegeRow || {}, activeSnapshot);
       termDiagnostics.growthAudit = demandForecastGrowthAudit(collegeRow, target);
-      const executiveSummary = demandExecutiveSummary(state.demandRows, trends, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, activeSnapshot, confidenceDetails, projectionWarnings }, termDiagnostics);
+      const executiveSummary = demandExecutiveSummary(state.demandRows, trends, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, annualFtesDetails: annualFtes, activeSnapshot, confidenceDetails, projectionWarnings }, termDiagnostics);
       renderDemandMetricGroups({
         target,
         executiveSummary,
@@ -20038,7 +20058,7 @@ BUS 180 2 units`)
         populationSummary
       });
       renderDemandDiagnosticsPanel(termDiagnostics);
-      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), trends, yearSeasonForecast, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, executiveSummary, growthModifier, diagnostics: termDiagnostics, context, populationSelections, populationSummary, rows, activeSnapshot, confidenceDetails, projectionWarnings });
+      renderDemandInsights(state.demandRows, dayTimeDemandRows(rows), trends, yearSeasonForecast, { target, ftesCap, forecastFtes, annualFtes: annualFtes.annualFtes, annualFtesDetails: annualFtes, executiveSummary, growthModifier, diagnostics: termDiagnostics, context, populationSelections, populationSummary, rows, activeSnapshot, confidenceDetails, projectionWarnings });
       renderDemandCalculationDetails(state.demandRows);
       renderDemandLegend();
     } catch (err) {
@@ -20092,7 +20112,7 @@ BUS 180 2 units`)
   }
 
   function demandColumns() {
-    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'growthSeriesUsed', 'growthTermsUsed', 'finalEnrollmentGrowthRateUsed', 'finalFtesGrowthRateUsed', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'historicalAverageBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'expectedEnrollmentNextTerm', 'expectedRangeConservative', 'expectedRangeMostLikely', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeMostLikely', 'expectedFtesRangeHigh', 'historicalFtesPerEnrollment', 'currentFtesPerEnrollment', 'projectedFtesPerEnrollment', 'ftesProjectionMethod', 'ftesProjectionFormula', 'ftesProjectionWarningSummary', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'projectedWaitlistLabel', 'projectedWaitlistMethod', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'historicalAverageGrowth', 'historicalCagr', 'historicalMaxGrowth', 'recencyWeightedGrowth', 'sustainableGrowthRate', 'recoverySpikeGrowthThreshold', 'recoverySpikeGrowthCap', 'cappedRecoverySpikeCount', 'negativeGrowthFlooredCount', 'scheduleSupplyReadinessFactor', 'scheduleAdjustmentUsedAsDemandFactor', 'uncappedAdjustedForecastGrowth', 'adjustedForecastGrowth', 'projectedGrowthCapped', 'materialScheduleIncrease', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'growthSeriesUsed', 'growthTermsUsed', 'finalEnrollmentGrowthRateUsed', 'finalFtesGrowthRateUsed', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'historicalAverageBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'forecastConstraintMode', 'currentSeatCapacity', 'scheduleCapacityLimit', 'unconstrainedExpectedEnrollment', 'constrainedExpectedEnrollment', 'constrainedEnrollmentReduction', 'expectedEnrollmentNextTerm', 'expectedRangeConservative', 'expectedRangeMostLikely', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'unconstrainedExpectedFtes', 'constrainedExpectedFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeMostLikely', 'expectedFtesRangeHigh', 'historicalFtesPerEnrollment', 'currentFtesPerEnrollment', 'projectedFtesPerEnrollment', 'ftesProjectionMethod', 'ftesProjectionFormula', 'ftesProjectionWarningSummary', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'projectedWaitlistLabel', 'projectedWaitlistMethod', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'historicalAverageGrowth', 'historicalCagr', 'historicalMaxGrowth', 'recencyWeightedGrowth', 'sustainableGrowthRate', 'recoverySpikeGrowthThreshold', 'recoverySpikeGrowthCap', 'cappedRecoverySpikeCount', 'negativeGrowthFlooredCount', 'scheduleSupplyReadinessFactor', 'scheduleAdjustmentUsedAsDemandFactor', 'uncappedAdjustedForecastGrowth', 'adjustedForecastGrowth', 'projectedGrowthCapped', 'materialScheduleIncrease', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
   }
 
   function demandExportColumns() {
@@ -20282,9 +20302,14 @@ BUS 180 2 units`)
     const projectedGrowthCapped = sustainable.cappedOutlierCount > 0 || sustainable.negativeFlooredCount > 0;
     const scheduleFactor = Number(scheduleAdjustment.combinedFactor || 1);
     const currentEnrollment = Number(currentTotals.enrollment || 0);
+    const currentSeatCapacity = Number(currentTotals.seatsOffered || 0);
+    const capacityLimit = currentSeatCapacity > 0 ? Math.max(currentSeatCapacity, currentEnrollment) : 0;
+    const constrainByCapacity = Boolean(options.constrainByCapacity);
     const hasCensus = Number(currentTotals.censusEnrollment || 0) > 0;
     const historicalFtesPerEnrollment = safeDiv(baselineFtes, baselineEnrollment);
-    const mostLikely = Math.max(baselineEnrollment, baselineEnrollment * (1 + cappedGrowth));
+    const unconstrainedMostLikely = Math.max(baselineEnrollment, baselineEnrollment * (1 + cappedGrowth));
+    const capacityConstrained = constrainByCapacity && capacityLimit > 0 && unconstrainedMostLikely > capacityLimit;
+    const mostLikely = capacityConstrained ? capacityLimit : unconstrainedMostLikely;
     const confidenceFactors = demandBenchmarkConfidenceFactors(termRows, currentTotals, trend, {
       stats,
       materialScheduleIncrease,
@@ -20295,9 +20320,10 @@ BUS 180 2 units`)
     const volatility = average((sustainable.rows || []).map(row => Math.abs(Number(row.adjustedRate || 0) - Number(sustainable.sustainableGrowthRate || 0))));
     const confidenceSpread = confidenceFactors.label === 'High' ? 0.03 : confidenceFactors.label === 'Medium' ? 0.05 : 0.07;
     const rangeSpread = Math.min(DEMAND_EXPECTED_RANGE_MAX_SPREAD, Math.max(DEMAND_EXPECTED_RANGE_MIN_SPREAD, confidenceSpread, volatility || 0));
-    const conservative = Math.max(baselineEnrollment, mostLikely * (1 - rangeSpread));
-    let high = mostLikely * (1 + rangeSpread);
-    if (mostLikely > 0 && high <= mostLikely) high = mostLikely * 1.03;
+    const unconstrainedConservative = Math.max(baselineEnrollment, unconstrainedMostLikely * (1 - rangeSpread));
+    const conservative = capacityConstrained ? Math.min(unconstrainedConservative, capacityLimit) : unconstrainedConservative;
+    let high = capacityConstrained ? capacityLimit : mostLikely * (1 + rangeSpread);
+    if (!capacityConstrained && mostLikely > 0 && high <= mostLikely) high = mostLikely * 1.03;
     const currentFtes = Number(currentTotals.ftes || currentTotals.estimatedFtes || 0);
     const currentFtesPerEnrollment = safeDiv(currentFtes, currentEnrollment);
     const mostLikelyFtes = historicalFtesPerEnrollment > 0 ? mostLikely * historicalFtesPerEnrollment : baselineFtes;
@@ -20307,9 +20333,12 @@ BUS 180 2 units`)
     if (currentFtes > 0 && currentEnrollment > 0 && mostLikely > currentEnrollment && mostLikelyFtes < currentFtes) {
       ftesWarnings.push('Projected enrollment is higher than the current snapshot while projected FTES is lower; review FTES-per-enrollment ratio before using this as an FTES target.');
     }
-    if (currentFtes > 0 && currentEnrollment > 0 && mostLikely >= currentEnrollment && highFtes < currentFtes) {
+    if (!capacityConstrained && currentFtes > 0 && currentEnrollment > 0 && mostLikely >= currentEnrollment && highFtes < currentFtes) {
       highFtes = currentFtes;
       ftesWarnings.push('High FTES estimate was floored at current snapshot estimated FTES because projected enrollment is at or above the current snapshot.');
+    }
+    if (capacityConstrained) {
+      ftesWarnings.push('Constrained mode is enabled: expected enrollment and FTES were capped at the current target schedule seat capacity.');
     }
     if (historicalFtesPerEnrollment > 0 && currentFtesPerEnrollment > 0 && Math.abs(safeDiv(currentFtesPerEnrollment - historicalFtesPerEnrollment, historicalFtesPerEnrollment)) > 0.1) {
       ftesWarnings.push('Current FTES per enrollment differs from the historical FTES per enrollment ratio by more than 10%.');
@@ -20352,7 +20381,16 @@ BUS 180 2 units`)
       materialScheduleIncrease,
       scheduleIncreaseThreshold: threshold,
       scheduleSupplyReadinessFactor: scheduleFactor,
-      scheduleAdjustmentUsedAsDemandFactor: false,
+      scheduleAdjustmentUsedAsDemandFactor: capacityConstrained,
+      forecastConstraintMode: constrainByCapacity ? 'Capacity constrained' : 'Unconstrained demand potential',
+      capacityConstrained,
+      currentSeatCapacity,
+      scheduleCapacityLimit: capacityLimit,
+      unconstrainedExpectedEnrollment: unconstrainedMostLikely,
+      constrainedExpectedEnrollment: mostLikely,
+      constrainedEnrollmentReduction: Math.max(0, unconstrainedMostLikely - mostLikely),
+      unconstrainedExpectedFtes: historicalFtesPerEnrollment > 0 ? unconstrainedMostLikely * historicalFtesPerEnrollment : baselineFtes,
+      constrainedExpectedFtes: mostLikelyFtes,
       finalExpectedProjection: {
         ...(trend.finalExpectedProjection || {}),
         enrollment: mostLikely,
@@ -20382,11 +20420,18 @@ BUS 180 2 units`)
           baselineBeforeSustainableGrowth: baselineEnrollment,
           sustainableGrowthRate: sustainable.sustainableGrowthRate,
           sustainableGrowthRows: sustainable.rows,
-          scheduleAdjustmentUsedAsDemandFactor: false,
+          scheduleAdjustmentUsedAsDemandFactor: capacityConstrained,
+          forecastConstraintMode: constrainByCapacity ? 'Capacity constrained' : 'Unconstrained demand potential',
+          currentSeatCapacity,
+          scheduleCapacityLimit: capacityLimit,
+          unconstrainedExpectedEnrollment: unconstrainedMostLikely,
+          constrainedExpectedEnrollment: mostLikely,
           finalExpectedProjection: mostLikely
         },
         ftes: {
           ...trend.audit.ftes,
+          unconstrainedExpectedFtes: historicalFtesPerEnrollment > 0 ? unconstrainedMostLikely * historicalFtesPerEnrollment : baselineFtes,
+          constrainedExpectedFtes: mostLikelyFtes,
           finalExpectedProjection: mostLikelyFtes
         }
       } : null
@@ -20448,7 +20493,8 @@ BUS 180 2 units`)
     const trendModel = demandHistoricalBenchmarkProjection(termRows, currentTotals, {
       growthModifier: modifierGrowth,
       selectedGrowthSeries,
-      forecastScopeLabel: selectedGrowthSeries
+      forecastScopeLabel: selectedGrowthSeries,
+      constrainByCapacity: context.constrainByCapacity
     });
     const hasWaitlistData = rows.some(row => row.hasWaitlistData);
     const divisionGrowth = level === 'Division'
@@ -20566,6 +20612,15 @@ BUS 180 2 units`)
       negativeGrowthFlooredCount: trendModel?.negativeGrowthFlooredCount || 0,
       scheduleSupplyReadinessFactor: trendModel?.scheduleSupplyReadinessFactor ?? trendModel?.scheduleAdjustment?.combinedFactor ?? 1,
       scheduleAdjustmentUsedAsDemandFactor: Boolean(trendModel?.scheduleAdjustmentUsedAsDemandFactor),
+      forecastConstraintMode: trendModel?.forecastConstraintMode || (context.constrainByCapacity ? 'Capacity constrained' : 'Unconstrained demand potential'),
+      capacityConstrained: Boolean(trendModel?.capacityConstrained),
+      currentSeatCapacity: trendModel?.currentSeatCapacity ?? currentTotals.seatsOffered,
+      scheduleCapacityLimit: trendModel?.scheduleCapacityLimit ?? 0,
+      unconstrainedExpectedEnrollment: Math.round(trendModel?.unconstrainedExpectedEnrollment ?? expectedEnrollmentNextTerm),
+      constrainedExpectedEnrollment: Math.round(trendModel?.constrainedExpectedEnrollment ?? expectedEnrollmentNextTerm),
+      constrainedEnrollmentReduction: Math.round(trendModel?.constrainedEnrollmentReduction ?? 0),
+      unconstrainedExpectedFtes: trendModel?.unconstrainedExpectedFtes ?? expectedFtesNextTerm,
+      constrainedExpectedFtes: trendModel?.constrainedExpectedFtes ?? expectedFtesNextTerm,
       uncappedAdjustedForecastGrowth: trendModel?.uncappedAdjustedForecastGrowth ?? adjustedForecastGrowth,
       uncappedExpectedEnrollmentNextTerm: Math.round(trendModel?.uncappedExpectedEnrollment ?? expectedEnrollmentNextTerm),
       projectedGrowthCapped: Boolean(trendModel?.projectedGrowthCapped),
@@ -23529,6 +23584,11 @@ BUS 180 2 units`)
       ['Most Likely FTES Estimate', round1(college.expectedFtesRangeMostLikely || college.expectedFtesNextTerm || 0)],
       ['High FTES Estimate', round1(college.expectedFtesRangeHigh || 0)],
       ['Conservative-High FTES Range', formatDemandFtesRange(college.expectedFtesRangeLow || 0, college.expectedFtesRangeHigh || 0)],
+      ['Known/Projected Companion FTES', round1(context.annualFtesDetails?.companionFtes || 0)],
+      ['Annual FTES for Cap Comparison', round1(context.annualFtes || college.expectedFtesNextTerm || 0)],
+      ['Annual FTES Terms Included', context.annualFtesDetails?.includedTerms || 'Forecast only'],
+      ['Entered FTES Cap', context.ftesCap > 0 ? round1(context.ftesCap) : 'No cap entered'],
+      ['FTES Over/Under Cap', context.ftesCap > 0 ? ((Number(context.ftesCap) - Number(context.annualFtes || 0)) >= 0 ? `${round1(Number(context.ftesCap) - Number(context.annualFtes || 0))} under` : `${round1(Math.abs(Number(context.ftesCap) - Number(context.annualFtes || 0)))} over`) : 'No cap entered'],
       ['FTES Methodology Label', college.ftesProjectionMethod || 'Historical FTES per Enrollment Ratio'],
       ['FTES Formula', college.ftesProjectionFormula || 'Historical Trend Estimated FTES = Historical Trend Expected Enrollment x Historical FTES per Enrollment Ratio'],
       ['Historical FTES per Enrollment Ratio', round1(Number(college.historicalFtesPerEnrollment || 0) * 1000) / 1000],
@@ -23540,6 +23600,14 @@ BUS 180 2 units`)
       ['Previous Comparable Benchmark', Math.round(college.historicalBaselineEnrollment || 0)],
       ['Schedule Readiness Factor', college.scheduleSupplyReadinessFactor == null ? 'N/A' : `${round1(Number(college.scheduleSupplyReadinessFactor) * 100)}%`],
       ['Schedule Readiness Affects Demand Forecast', college.scheduleAdjustmentUsedAsDemandFactor ? 'Yes' : 'No'],
+      ['Forecast Constraint Mode', college.forecastConstraintMode || 'Unconstrained demand potential'],
+      ['Current Seat Capacity', Math.round(college.currentSeatCapacity || 0)],
+      ['Schedule Capacity Limit', Math.round(college.scheduleCapacityLimit || 0)],
+      ['Unconstrained Expected Enrollment', Math.round(college.unconstrainedExpectedEnrollment || college.expectedEnrollmentNextTerm || 0)],
+      ['Capacity-Constrained Expected Enrollment', Math.round(college.constrainedExpectedEnrollment || college.expectedEnrollmentNextTerm || 0)],
+      ['Enrollment Reduced by Capacity Constraint', Math.round(college.constrainedEnrollmentReduction || 0)],
+      ['Unconstrained Expected FTES', round1(college.unconstrainedExpectedFtes || college.expectedFtesNextTerm || 0)],
+      ['Capacity-Constrained Expected FTES', round1(college.constrainedExpectedFtes || college.expectedFtesNextTerm || 0)],
       ['Historical Average Growth', pct(college.historicalAverageGrowth || 0)],
       ['Historical CAGR', pct(college.historicalCagr || 0)],
       ['Historical Max Year-over-Year Growth', pct(college.historicalMaxGrowth || 0)],
@@ -23565,6 +23633,14 @@ BUS 180 2 units`)
       ['Trend Projection', Math.round(college.trendProjectionEnrollment || 0)],
       ['Schedule Readiness Factor', college.scheduleAdjustment?.combinedFactor == null ? 'N/A' : `${round1(Number(college.scheduleAdjustment.combinedFactor) * 100)}%`],
       ['Schedule Readiness Affects Demand Forecast', college.scheduleAdjustmentUsedAsDemandFactor ? 'Yes' : 'No'],
+      ['Forecast Constraint Mode', college.forecastConstraintMode || 'Unconstrained demand potential'],
+      ['Current Seat Capacity', Math.round(college.currentSeatCapacity || 0)],
+      ['Schedule Capacity Limit', Math.round(college.scheduleCapacityLimit || 0)],
+      ['Unconstrained Expected Enrollment', Math.round(college.unconstrainedExpectedEnrollment || college.expectedEnrollmentNextTerm || 0)],
+      ['Capacity-Constrained Expected Enrollment', Math.round(college.constrainedExpectedEnrollment || college.expectedEnrollmentNextTerm || 0)],
+      ['Enrollment Reduced by Capacity Constraint', Math.round(college.constrainedEnrollmentReduction || 0)],
+      ['Unconstrained Expected FTES', round1(college.unconstrainedExpectedFtes || college.expectedFtesNextTerm || 0)],
+      ['Capacity-Constrained Expected FTES', round1(college.constrainedExpectedFtes || college.expectedFtesNextTerm || 0)],
       ['Material Schedule Increase', college.materialScheduleIncrease ? 'Yes' : 'No'],
       ['Uncapped Projected Value', Math.round(college.uncappedExpectedEnrollmentNextTerm || college.expectedEnrollmentNextTerm || 0)],
       ['Final Projected Value', Math.round(college.expectedEnrollmentNextTerm || 0)]
@@ -23606,6 +23682,7 @@ BUS 180 2 units`)
         <dl>
           <div><dt>Term lifecycle</dt><dd>${escapeAttr(summary.lifecycle?.label || 'Future term')}</dd></div>
           <div><dt>Projected Enrollment</dt><dd>${summary.expectedLow === summary.expectedHigh ? Math.round(summary.centralEstimate || summary.projected || 0) : `${Math.round(summary.expectedLow || 0)}-${Math.round(summary.expectedHigh || 0)} students`}</dd></div>
+          <div><dt>Forecast constraint mode</dt><dd>${escapeAttr(summary.forecastConstraintMode || 'Unconstrained demand potential')}</dd></div>
           <div><dt>Central Estimate</dt><dd>${Math.round(summary.centralEstimate || summary.projected || 0)}</dd></div>
           <div><dt>Forecast confidence</dt><dd>${escapeAttr(demandConfidenceDisplay(summary.confidence?.label || 'Low'))}</dd></div>
           <div><dt>Comparable Terms</dt><dd>${summary.comparableTerms || 0}</dd></div>
@@ -23616,6 +23693,10 @@ BUS 180 2 units`)
           <div><dt>Current snapshot FTES</dt><dd>${round1(summary.currentFtes || 0)}</dd></div>
           <div><dt>Historical trend FTES</dt><dd>${round1(summary.projectedFtes || 0)}</dd></div>
           <div><dt>FTES difference</dt><dd>${(summary.ftesVariance || 0) >= 0 ? '+' : ''}${round1(summary.ftesVariance || 0)}</dd></div>
+          <div><dt>Known/projected companion FTES</dt><dd>${round1(summary.companionFtes || 0)}</dd></div>
+          <div><dt>Annual FTES for cap comparison</dt><dd>${round1(summary.capComparisonFtes || summary.projectedFtes || 0)}</dd></div>
+          <div><dt>Entered FTES cap</dt><dd>${summary.ftesCap > 0 ? round1(summary.ftesCap) : 'No cap entered'}</dd></div>
+          <div><dt>FTES over/under cap</dt><dd>${summary.capDelta == null ? 'No cap entered' : (summary.capDelta >= 0 ? `${round1(summary.capDelta)} under` : `${round1(Math.abs(summary.capDelta))} over`)}</dd></div>
           <div><dt>Forecast growth rate applied</dt><dd>${pct(summary.growthRateApplied || 0)}</dd></div>
         </dl>
       </div>
@@ -23691,6 +23772,7 @@ BUS 180 2 units`)
       <p>This projection estimates what enrollment/FTES would be expected based on completed like-term history, current active-term snapshot, current section count, current seats offered, historical enrollment per section, historical fill rate, and historical year-over-year growth. It is not the same as actual current enrollment.</p>
       <dl>
         <div><dt>Historical terms used</dt><dd>${escapeAttr(termListLabel(context.diagnostics?.termsUsedInForecast || []))}</dd></div>
+        <div><dt>Constraint mode</dt><dd>${context.constrainByCapacity ? 'Capacity constrained by current target schedule seats' : 'Unconstrained demand potential; current schedule capacity is context only'}</dd></div>
         <div><dt>FTES methodology</dt><dd>Historical Trend Estimated FTES = Historical Trend Expected Enrollment x Historical FTES per Enrollment Ratio; planning estimate, not reportable FTES</dd></div>
         <div><dt>Dual Enrollment treatment</dt><dd>${context.populationSelections?.dual ? 'Included as a subset/breakout of total enrollment/FTES' : 'Excluded from total enrollment/FTES'}</dd></div>
       </dl>
@@ -23777,7 +23859,7 @@ BUS 180 2 units`)
     const scheduleFactor = college.scheduleAdjustment?.combinedFactor == null ? 'N/A' : `${round1(Number(college.scheduleAdjustment.combinedFactor) * 100)}%`;
     return `<section class="demand-method-card" data-collapsible-title="How This Projection Was Calculated" data-collapsible-id="demand-projection-calculation-path" data-collapsible-default-open="false">
       <h4>How This Projection Was Calculated</h4>
-      <p>${escapeAttr(context.target?.label || 'Forecast')} expected enrollment starts from the most recent comparable completed term or FY/AY, then applies a sustainable growth rate. Unusually high recovery spikes are capped, negative routine-growth assumptions are floored at zero, and current schedule size is shown as readiness context rather than reducing demand.</p>
+      <p>${escapeAttr(context.target?.label || 'Forecast')} expected enrollment starts from the most recent comparable completed term or FY/AY, then applies a sustainable growth rate. Unusually high recovery spikes are capped and negative routine-growth assumptions are floored at zero. In unconstrained mode, current schedule size is readiness context; in constrained mode, expected growth is capped at current target schedule seat capacity.</p>
       <dl>
         <div><dt>Historical terms included</dt><dd>${escapeAttr(termListLabel(terms))}</dd></div>
         <div><dt>Historical values by term</dt><dd>${escapeAttr(historicalValues.join('; ') || 'N/A')}</dd></div>
@@ -23799,6 +23881,14 @@ BUS 180 2 units`)
         <div><dt>Trend projection</dt><dd>${Math.round(college.trendProjectionEnrollment || 0)}</dd></div>
         <div><dt>Schedule readiness factor</dt><dd>${escapeAttr(scheduleFactor)}</dd></div>
         <div><dt>Schedule readiness reduces demand forecast</dt><dd>${college.scheduleAdjustmentUsedAsDemandFactor ? 'Yes' : 'No'}</dd></div>
+        <div><dt>Forecast constraint mode</dt><dd>${escapeAttr(college.forecastConstraintMode || 'Unconstrained demand potential')}</dd></div>
+        <div><dt>Current seat capacity</dt><dd>${Math.round(college.currentSeatCapacity || 0)}</dd></div>
+        <div><dt>Schedule capacity limit</dt><dd>${Math.round(college.scheduleCapacityLimit || 0)}</dd></div>
+        <div><dt>Unconstrained expected enrollment</dt><dd>${Math.round(college.unconstrainedExpectedEnrollment || college.expectedEnrollmentNextTerm || 0)}</dd></div>
+        <div><dt>Capacity-constrained expected enrollment</dt><dd>${Math.round(college.constrainedExpectedEnrollment || college.expectedEnrollmentNextTerm || 0)}</dd></div>
+        <div><dt>Enrollment reduced by capacity constraint</dt><dd>${Math.round(college.constrainedEnrollmentReduction || 0)}</dd></div>
+        <div><dt>Unconstrained expected FTES</dt><dd>${round1(college.unconstrainedExpectedFtes || college.expectedFtesNextTerm || 0)}</dd></div>
+        <div><dt>Capacity-constrained expected FTES</dt><dd>${round1(college.constrainedExpectedFtes || college.expectedFtesNextTerm || 0)}</dd></div>
         <div><dt>Material schedule increase threshold</dt><dd>${pct(college.scheduleIncreaseThreshold ?? 0.05)}</dd></div>
         <div><dt>Material schedule increase detected</dt><dd>${college.materialScheduleIncrease ? 'Yes' : 'No'}</dd></div>
         <div><dt>Growth modifier</dt><dd>${pct(context.growthModifier || 0)}</dd></div>
@@ -23823,6 +23913,7 @@ BUS 180 2 units`)
         <div><dt>Forecast method used</dt><dd>Sustainable Growth Projection</dd></div>
         <div><dt>Historical aggregation mode</dt><dd>${target.scope === 'year' ? 'Academic-year buckets' : 'Same-season terms'}</dd></div>
         <div><dt>Trend model</dt><dd>Most recent comparable benchmark plus sustainable growth. Recovery spikes are capped, normal-planning negative growth is floored at zero, and current schedule size is readiness context.</dd></div>
+        <div><dt>Constraint mode</dt><dd>${context.constrainByCapacity ? 'Capacity constrained by current target schedule seats' : 'Unconstrained demand potential'}</dd></div>
         <div><dt>Registration pace</dt><dd>Not used because weekly enrollment snapshots are not loaded.</dd></div>
         <div><dt>Growth modifier</dt><dd>${pct(context.growthModifier || 0)}</dd></div>
         <div><dt>Schedule basis</dt><dd>Scheduled Class Offerings use unique CRNs; enrollment uses census first and actual/current fallback</dd></div>
@@ -25292,6 +25383,15 @@ BUS 180 2 units`)
       negativeGrowthFlooredCount: 'Negative Growth Rates Floored',
       scheduleSupplyReadinessFactor: 'Schedule Readiness Factor',
       scheduleAdjustmentUsedAsDemandFactor: 'Schedule Readiness Affects Demand Forecast',
+      forecastConstraintMode: 'Forecast Constraint Mode',
+      capacityConstrained: 'Capacity Constraint Applied',
+      currentSeatCapacity: 'Current Seat Capacity',
+      scheduleCapacityLimit: 'Schedule Capacity Limit',
+      unconstrainedExpectedEnrollment: 'Unconstrained Expected Enrollment',
+      constrainedExpectedEnrollment: 'Capacity-Constrained Expected Enrollment',
+      constrainedEnrollmentReduction: 'Enrollment Reduced by Capacity Constraint',
+      unconstrainedExpectedFtes: 'Unconstrained Expected FTES',
+      constrainedExpectedFtes: 'Capacity-Constrained Expected FTES',
       uncappedAdjustedForecastGrowth: 'Uncapped Growth',
       projectedGrowthCapped: 'Growth Capped',
       materialScheduleIncrease: 'Material Schedule Increase',
@@ -25404,6 +25504,14 @@ BUS 180 2 units`)
       adjustedForecastGrowth: 'Projection Growth vs Historical Average',
       sustainableGrowthRate: 'Sustainable Growth Rate',
       scheduleSupplyReadinessFactor: 'Schedule Readiness Factor',
+      forecastConstraintMode: 'Forecast Constraint Mode',
+      currentSeatCapacity: 'Current Seat Capacity',
+      scheduleCapacityLimit: 'Schedule Capacity Limit',
+      unconstrainedExpectedEnrollment: 'Unconstrained Expected Enrollment',
+      constrainedExpectedEnrollment: 'Capacity-Constrained Expected Enrollment',
+      constrainedEnrollmentReduction: 'Enrollment Reduced by Capacity Constraint',
+      unconstrainedExpectedFtes: 'Unconstrained Expected FTES',
+      constrainedExpectedFtes: 'Capacity-Constrained Expected FTES',
       expectedEnrollmentNextTerm: 'Historical Trend Expected Enrollment',
       expectedFtesNextTerm: 'Historical Trend Estimated FTES',
       expectedRangeConservative: 'Conservative Enrollment Estimate',
