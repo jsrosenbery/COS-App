@@ -262,6 +262,11 @@
     return Boolean(row?.missingFromLatestWorkbook) || Boolean(row?.presumedCancelled) || statusForRow(row) === 'Threshold Met';
   }
 
+  function needsDocumentation(row) {
+    if (!row || row.exclusion?.excluded || removedFromActiveWatchlist(row)) return false;
+    return !cleanString(row.justification) && !cleanString(row.vpComments);
+  }
+
   function removedReason(row) {
     const reasons = [];
     if (row?.exclusion?.excluded) {
@@ -866,13 +871,14 @@
   }
 
   function statusCounts(workspace) {
-    const counts = { all: 0, active: 0, removed: 0, below: 0, met: 0, missing: 0, manual: 0, excluded: 0 };
+    const counts = { all: 0, active: 0, removed: 0, below: 0, met: 0, missing: 0, manual: 0, excluded: 0, needsDocumentation: 0 };
     (workspace?.rows || []).forEach(row => {
       if (row.exclusion?.excluded) {
         counts.excluded += 1;
         return;
       }
       counts.all += 1;
+      if (needsDocumentation(row)) counts.needsDocumentation += 1;
       const status = statusForRow(row);
       if (removedFromActiveWatchlist(row)) counts.removed += 1;
       else counts.active += 1;
@@ -896,6 +902,7 @@
         <button type="button" data-status-card="met"><strong>${counts.met}</strong><span>Threshold Met</span></button>
         <button type="button" data-status-card="missing"><strong>${counts.missing}</strong><span>Missing Update</span></button>
         <button type="button" data-status-card="manual"><strong>${counts.manual}</strong><span>Manual Review</span></button>
+        <div title="Active rows that have neither a justification nor a VP comment."><strong>${counts.needsDocumentation}</strong><span>No Justification / VP</span></div>
         <button type="button" data-excluded-view="true"><strong>${counts.excluded}</strong><span>Excluded Rows</span></button>
         <div><strong>${(workspace?.snapshots || []).length}</strong><span>Dated Snapshots</span></div>
       </div>
@@ -2308,6 +2315,7 @@
     statusForRow,
     removedFromActiveWatchlist,
     removedReason,
+    needsDocumentation,
     calculateTimelineScrollLimits,
     calculateTimelineNavigationScroll,
     displayTermFromCode,

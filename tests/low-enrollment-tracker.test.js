@@ -31,6 +31,33 @@ test('low enrollment tracker parses the workbook shape and hidden reasons fallba
   assert.deepEqual(reasons, ['Custom reason']);
 });
 
+test('low enrollment documentation count includes only active rows with no manual context', () => {
+  const workspace = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold', 'Justification', 'Comments to VPs Office'],
+    ['COMM C1000', '10003', 'Public Speaking', 18, 30, 21, '', ''],
+    ['ENGL C1000', '10004', 'Writing', 18, 30, 21, 'Dual Enrollment', ''],
+    ['MATH 021', '10005', 'Support Algebra', 22, 30, 21, '', ''],
+    ['HIST 017', '10006', 'History', 10, 30, 21, '', 'Watching']
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' });
+
+  workspace.rows[0].exclusion = { excluded: true, reason: 'Approved exception', note: '' };
+
+  assert.equal(tracker.needsDocumentation(workspace.rows[0]), false);
+  assert.equal(tracker.needsDocumentation(workspace.rows[1]), false);
+  assert.equal(tracker.needsDocumentation(workspace.rows[2]), false);
+  assert.equal(tracker.needsDocumentation(workspace.rows[3]), false);
+});
+
+test('low enrollment documentation count includes active below-threshold rows with blank justification and VP comment', () => {
+  const workspace = tracker.parseWorkbookTable([
+    ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold', 'Justification', 'Comments to VPs Office'],
+    ['COMM C1000', '10003', 'Public Speaking', 18, 30, 21, '', ''],
+    ['MATH 021', '10005', 'Support Algebra', 8, 30, 21, ' ', '']
+  ], { filename: '202710 FA26 Low Enrolled Watchlist_8-4-26.xlsx' });
+
+  assert.equal(workspace.rows.filter(tracker.needsDocumentation).length, 2);
+});
+
 test('low enrollment update sums cross-listed member CRNs and reports full/partial/missing matches', () => {
   const workspace = tracker.parseWorkbookTable([
     ['Course(s)', 'CRN(s)', 'Title', 'Current Enrollment', 'Max Enrollment', 'Threshold'],
