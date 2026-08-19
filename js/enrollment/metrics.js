@@ -6,6 +6,10 @@
   }
 
   function finalEnrollment(row) {
+    if (row?.finalEnrollment !== null && row?.finalEnrollment !== undefined && row?.finalEnrollment !== '') {
+      const finalValue = Number(row.finalEnrollment);
+      if (Number.isFinite(finalValue)) return finalValue;
+    }
     return row?.actual || 0;
   }
 

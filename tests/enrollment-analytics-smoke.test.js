@@ -1491,7 +1491,7 @@ test('dashboard focus term scopes current metrics and excludes focus from histor
   assert.equal(summary.health.sectionsReviewed, 1);
   assert.equal(summary.health.coursesReviewed, 1);
   assert.equal(summary.health.ftes, 0);
-  assert.equal(summary.health.expectedEnrollment, 125);
+  assert.equal(summary.health.expectedEnrollment, 120);
   assert.match(summary.health.expectedEnrollmentMethod, /growth-adjusted projection/);
   assert.equal(summary.health.previousLikeTermEnrollment, 100);
   assert.equal(summary.health.previousLikeTermCensusEnrollment, 100);
@@ -1529,6 +1529,45 @@ test('dashboard expected enrollment is N/A without comparable same-season histor
   assert.equal(campusPace.status, 'N/A');
 });
 
+test('dashboard uses current enrollment, explicit final history, shared FTES classification, and true missing milestones', () => {
+  const { COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
+  const currentRows = [section({
+    term: 'FALL 2026', crn: '10001', actual: 110, census: 100,
+    firstDay: null, census1: null, finalEnrollment: null,
+    accountingMethodLabel: 'Weekly Census'
+  })];
+  const historicalRows = [section({
+    term: 'FALL 2025', crn: '90001', actual: 95, census: 100, finalEnrollment: 90
+  })];
+  const ftesSummary = {
+    ftesClassification: {
+      focus: {
+        projectedFinalFtesTotal: 56,
+        confirmedFtesTotal: 20,
+        estimatedFtesTotal: 30,
+        predictedFtesTotal: 6,
+        unavailableSectionCount: 0
+      },
+      rows: [{ row: currentRows[0], classification: 'estimated', projectedFinalFtes: 56 }]
+    }
+  };
+  const summary = COSEnrollmentDashboard.dashboardSummary(currentRows, historicalRows, [], { ftesSummary });
+
+  assert.equal(summary.health.currentEnrollment, 110);
+  assert.equal(summary.health.expectedEnrollment, 90);
+  assert.equal(summary.health.previousLikeTermCensusEnrollment, 100);
+  assert.equal(summary.health.previousLikeTermCurrentFinalEnrollment, 90);
+  assert.equal(summary.health.ftes, 56);
+  assert.equal(summary.health.ftesMetricLabel, 'Projected Final FTES');
+  assert.equal(summary.health.ftesByAccountingMethod[0].estimatedFtesRows, 1);
+  assert.deepEqual(Array.from(summary.health.lifecycle, item => [item.label, item.value]), [
+    ['First Day', null], ['Census 1', null], ['Census 2', null], ['Final', null]
+  ]);
+  const exportRows = COSEnrollmentDashboard.dashboardSummaryExportRows(summary);
+  assert.ok(exportRows.some(row => row.Metric === 'Projected Final FTES' && row.Value === 56));
+  assert.ok(exportRows.some(row => row.Metric === 'Confirmed FTES' && row.Value === 20));
+});
+
 test('registration pace separates scheduled time blocks from asynchronous and TBA rows', () => {
   const { COSEnrollmentDashboard } = loadEnrollmentAnalyticsRuntime();
   const rows = [
@@ -1552,7 +1591,8 @@ test('registration pace separates scheduled time blocks from asynchronous and TB
   assert.equal(asyncRows.find(row => row.name === 'Online (Asynchronous)').currentEnrollment, 30);
   assert.equal(asyncRows.find(row => row.name === 'TBA').currentEnrollment, 10);
   assert.equal(asyncRows.find(row => row.name === 'Unknown Meeting Time').currentEnrollment, 5);
-  assert.equal(timeRows.reduce((total, row) => total + row.currentEnrollment, 0) + asyncRows.reduce((total, row) => total + row.currentEnrollment, 0), summary.health.currentEnrollment);
+  assert.equal(timeRows.reduce((total, row) => total + row.currentEnrollment, 0) + asyncRows.reduce((total, row) => total + row.currentEnrollment, 0), 65);
+  assert.equal(summary.health.currentEnrollment, 48);
   assert.equal(summary.pace.find(row => row.dimension === 'Campus' && row.name === 'VIS').currentEnrollment, 35);
   assert.equal(summary.pace.find(row => row.dimension === 'Time Block' && row.name === '09:00-09:59').status, 'Ahead of Pace');
   assert.equal(Number(summary.pace.find(row => row.dimension === 'Time Block' && row.name === '09:00-09:59').estimatedFtesImpact.toFixed(1)), 0.5);
@@ -1568,7 +1608,7 @@ test('dashboard all loaded terms is explicit gross-total mode', () => {
   const allRows = COSEnrollmentAnalytics.dashboardCurrentRows(rows, '');
   const summary = COSEnrollmentDashboard.dashboardSummary(allRows, [], []);
 
-  assert.equal(summary.health.currentEnrollment, 90);
+  assert.equal(summary.health.currentEnrollment, 85);
   assert.equal(summary.health.sectionsReviewed, 2);
 });
 
@@ -1810,7 +1850,7 @@ test('dashboard summary loads decision-support sections', () => {
 
   const summary = COSEnrollmentDashboard.dashboardSummary(rows, historical, [{ course: 'PS 200M', type: 'In-Person Consolidation' }]);
 
-  assert.equal(summary.health.currentEnrollment, 35);
+  assert.equal(summary.health.currentEnrollment, 32);
   assert.ok(summary.pace.length > 0);
   assert.ok(summary.growth.length > 0);
   assert.equal(summary.reduction.length, 1);

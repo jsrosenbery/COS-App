@@ -12644,7 +12644,13 @@ BUS 180 2 units`)
     const currentRows = applyFilters(dashboardCurrentRows(sourceRows, selectedFocusTerm), 'dash');
     const historicalRows = applyFilters(dashboardHistoricalRows(sourceRows, selectedFocusTerm), 'dash');
     const reductionRows = dashboardReductionRows(selectedFocusTerm);
-    const summary = dashboard.dashboardSummary(currentRows, historicalRows, reductionRows);
+    const ftesSummary = buildCurrentEnrollmentFtesSummary(currentRows, {
+      focusTerm: selectedFocusTerm,
+      historicalModel: state.historicalInstitutionalModel || null,
+      includeWorkExperience: true,
+      includeDualEnrollment: true
+    });
+    const summary = dashboard.dashboardSummary(currentRows, historicalRows, reductionRows, { ftesSummary });
     summary.diagnostics = diagnostics;
     state.dashboardRows = currentRows;
     state.dashboardSummary = summary;
@@ -12682,14 +12688,18 @@ BUS 180 2 units`)
       exportedAt: new Date().toLocaleString(),
       selectedTerm: dashboardFocusTerm() || 'All Loaded Terms',
       divisionFilter: filterUtils.divisionFilterLabel(getSelectedValues('dashDivision')),
-      campusFilter: filterUtils.divisionFilterLabel(getSelectedValues('dashCampus')),
-      modalityFilter: filterUtils.divisionFilterLabel(getSelectedValues('dashModality')),
+      campusFilter: dashboardSelectionLabel(getSelectedValues('dashCampus'), 'All campuses'),
+      modalityFilter: dashboardSelectionLabel(getSelectedValues('dashModality'), 'All modalities'),
       disciplineCourseFilter: [
         discipline.length ? `Discipline: ${discipline.join(', ')}` : '',
         course.length ? `Course: ${course.join(', ')}` : ''
       ].filter(Boolean).join('; ') || 'All disciplines/courses',
       dataSourceNote: dashboardDataSourceLabel()
     };
+  }
+
+  function dashboardSelectionLabel(values = [], fallback = 'All') {
+    return values.length ? values.join(', ') : fallback;
   }
 
   function dashboardScopeContext(currentRows, historicalRows, focusTerm) {
@@ -12733,9 +12743,9 @@ BUS 180 2 units`)
   }
 
   function dashboardLifecycleStatus(currentRows = [], historicalRows = [], focusTerm = '') {
-    const hasCurrent = currentRows.some(row => Number.isFinite(Number(row.actual)));
-    const hasCensus = currentRows.some(row => Number.isFinite(Number(row.census)));
-    const hasFinal = currentRows.some(row => Number.isFinite(Number(row.finalEnrollment)));
+    const hasCurrent = currentRows.some(row => finiteOrNull(row.actual) != null);
+    const hasCensus = currentRows.some(row => finiteOrNull(row.census) != null);
+    const hasFinal = currentRows.some(row => finiteOrNull(row.finalEnrollment) != null);
     const unavailable = [];
     if (!hasCensus) unavailable.push('Census Enrollment');
     if (!hasFinal) unavailable.push('End-of-Term Enrollment');
@@ -12778,7 +12788,7 @@ BUS 180 2 units`)
       ['Final', 'finalEnrollment']
     ];
     const missing = milestones
-      .filter(([, key]) => !rows.some(row => Number.isFinite(Number(row?.[key]))))
+      .filter(([, key]) => !rows.some(row => finiteOrNull(row?.[key]) != null))
       .map(([label]) => label);
     return { missing };
   }
@@ -12861,7 +12871,13 @@ BUS 180 2 units`)
       ['Variance vs Previous Like-Term Current/Final', health.previousLikeTermCurrentFinalVariance == null ? 'N/A' : health.previousLikeTermCurrentFinalVariance],
       ['Courses Reviewed', health.coursesReviewed ?? 0],
       ['Sections Reviewed', health.sectionsReviewed ?? 0],
-      ['FTES', round1(health.ftes || 0)],
+      [health.ftesMetricLabel || 'FTES', round1(health.ftes || 0)],
+      ...(health.ftesClassification ? [
+        ['Confirmed FTES', round1(health.ftesClassification.confirmedFtesTotal || 0)],
+        ['Estimated FTES', round1(health.ftesClassification.estimatedFtesTotal || 0)],
+        ['Predicted FTES', round1(health.ftesClassification.predictedFtesTotal || 0)],
+        ['Unavailable FTES Sections', health.ftesClassification.unavailableSectionCount || 0]
+      ] : []),
       ['Work Experience Rows Included', workExperience.rows],
       ['Work Experience Enrollment Included', workExperience.enrollment],
       ['Work Experience FTES Included', round1(workExperience.ftes || 0)],
@@ -12914,8 +12930,14 @@ BUS 180 2 units`)
   }
 
   function ftesAccountingBreakdownHtml(rows = []) {
-    const note = '<p class="dashboard-note">FTES is grouped by attendance accounting method where available. Work Experience rows are shown separately; estimated rows use available units/contact-hour inputs when direct FTES is not provided.</p>';
-    return `${note}${miniTable(rows, ['accountingMethod', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows'], 'ftes')}`;
+    const classified = rows.some(row => row.confirmedFtesRows != null);
+    const note = classified
+      ? '<p class="dashboard-note">Projected Final FTES uses the shared Current Enrollment &amp; FTES classification and is grouped by attendance accounting method. Confirmed, estimated, predicted, and unavailable counts are mutually exclusive.</p>'
+      : '<p class="dashboard-note">FTES is grouped by attendance accounting method where available. Work Experience rows are shown separately; estimated rows use available units/contact-hour inputs when direct FTES is not provided.</p>';
+    const columns = classified
+      ? ['accountingMethod', 'classOfferings', 'enrollment', 'ftes', 'confirmedFtesRows', 'estimatedFtesRows', 'predictedFtesRows', 'unavailableFtesRows']
+      : ['accountingMethod', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows'];
+    return `${note}${miniTable(rows, columns, 'ftes')}`;
   }
 
   function registrationPaceMonitorHtml(rows) {
