@@ -27,6 +27,15 @@
     return censusEnrollment(row);
   }
 
+  function currentEnrollment(row) {
+    const current = row?.actual ?? row?.currentEnrollment ?? row?.enrollment;
+    if (current !== null && current !== undefined && current !== '') {
+      const value = Number(current);
+      if (Number.isFinite(value)) return value;
+    }
+    return censusEnrollment(row);
+  }
+
   function ftes(row) {
     return ftesValue(row);
   }
@@ -176,33 +185,56 @@
     });
   }
 
-  function enrollmentHealth(rows, historicalRows = []) {
-    const currentEnrollment = sum(rows.map(row => ({ value: enrollment(row) })), 'value');
+  function sharedFtesAccountingRows(ftesSummary) {
+    const classifiedRows = ftesSummary?.ftesClassification?.rows || [];
+    if (!classifiedRows.length) return null;
+    return [...group(classifiedRows, item => ftesAccountingLabel(item.row)).entries()]
+      .map(([accountingMethod, items]) => ({
+        accountingMethod,
+        rows: items.length,
+        classOfferings: distinctCrnCount(items.map(item => item.row)),
+        enrollment: items.reduce((total, item) => total + currentEnrollment(item.row), 0),
+        ftes: items.reduce((total, item) => total + (Number(item.projectedFinalFtes) || 0), 0),
+        confirmedFtesRows: items.filter(item => item.classification === 'confirmed').length,
+        estimatedFtesRows: items.filter(item => item.classification === 'estimated').length,
+        predictedFtesRows: items.filter(item => item.classification === 'predicted').length,
+        unavailableFtesRows: items.filter(item => ['unavailable', 'prediction-pending'].includes(item.classification)).length
+      }))
+      .sort((a, b) => b.ftes - a.ftes || b.enrollment - a.enrollment);
+  }
+
+  function enrollmentHealth(rows, historicalRows = [], options = {}) {
+    const currentEnrollmentTotal = sum(rows.map(row => ({ value: currentEnrollment(row) })), 'value');
     const expected = expectedTotalEnrollment(historicalRows);
     const expectedEnrollment = expected?.value ?? null;
-    const previous = previousLikeTermEnrollment(historicalRows);
+    const previous = previousLikeTermEnrollment(historicalRows, censusEnrollment);
     const previousCurrentFinal = previousLikeTermEnrollment(historicalRows, finalEnrollment);
     const previousEnrollment = previous?.value ?? null;
     const previousCurrentFinalEnrollment = previousCurrentFinal?.value ?? null;
+    const ftesSummary = options.ftesSummary || null;
+    const classification = ftesSummary?.ftesClassification?.focus || null;
+    const projectedFtes = Number(classification?.projectedFinalFtesTotal);
     return {
-      currentEnrollment,
+      currentEnrollment: currentEnrollmentTotal,
       expectedEnrollment,
       expectedEnrollmentMethod: expected?.method || 'No comparable historical terms',
       expectedEnrollmentBasis: expected?.basis || '',
-      variance: expectedEnrollment == null ? null : currentEnrollment - expectedEnrollment,
-      expectedVariance: expectedEnrollment == null ? null : currentEnrollment - expectedEnrollment,
+      variance: expectedEnrollment == null ? null : currentEnrollmentTotal - expectedEnrollment,
+      expectedVariance: expectedEnrollment == null ? null : currentEnrollmentTotal - expectedEnrollment,
       previousLikeTermEnrollment: previousEnrollment,
       previousLikeTermCensusEnrollment: previousEnrollment,
       previousLikeTermCurrentFinalEnrollment: previousCurrentFinalEnrollment,
       previousLikeTerm: previous?.term || '',
-      previousLikeTermVariance: previousEnrollment == null ? null : currentEnrollment - previousEnrollment,
-      previousLikeTermVariancePct: previousEnrollment ? (currentEnrollment - previousEnrollment) / previousEnrollment : null,
-      previousLikeTermCurrentFinalVariance: previousCurrentFinalEnrollment == null ? null : currentEnrollment - previousCurrentFinalEnrollment,
-      previousLikeTermCurrentFinalVariancePct: previousCurrentFinalEnrollment ? (currentEnrollment - previousCurrentFinalEnrollment) / previousCurrentFinalEnrollment : null,
+      previousLikeTermVariance: previousEnrollment == null ? null : currentEnrollmentTotal - previousEnrollment,
+      previousLikeTermVariancePct: previousEnrollment ? (currentEnrollmentTotal - previousEnrollment) / previousEnrollment : null,
+      previousLikeTermCurrentFinalVariance: previousCurrentFinalEnrollment == null ? null : currentEnrollmentTotal - previousCurrentFinalEnrollment,
+      previousLikeTermCurrentFinalVariancePct: previousCurrentFinalEnrollment ? (currentEnrollmentTotal - previousCurrentFinalEnrollment) / previousCurrentFinalEnrollment : null,
       coursesReviewed: group(rows, courseKey).size,
       sectionsReviewed: rows.length,
-      ftes: sumFtes(rows),
-      ftesByAccountingMethod: ftesByAccountingMethod(rows),
+      ftes: Number.isFinite(projectedFtes) ? projectedFtes : sumFtes(rows),
+      ftesMetricLabel: classification ? 'Projected Final FTES' : 'FTES',
+      ftesClassification: classification,
+      ftesByAccountingMethod: sharedFtesAccountingRows(ftesSummary) || ftesByAccountingMethod(rows),
       lifecycle: enrollmentLifecycle(rows)
     };
   }
@@ -211,7 +243,7 @@
     const byTerm = group(historicalRows, row => row.term || 'UNKNOWN');
     if (!byTerm.size) return null;
     const series = [...byTerm.entries()]
-      .map(([term, termRows]) => ({ term, value: termRows.reduce((total, row) => total + enrollment(row), 0) }))
+      .map(([term, termRows]) => ({ term, value: termRows.reduce((total, row) => total + finalEnrollment(row), 0) }))
       .sort((a, b) => termValue(a.term) - termValue(b.term));
     return growthAdjustedExpected(series, true);
   }
@@ -290,7 +322,11 @@
       ['Final', 'finalEnrollment']
     ];
     return milestones.map(([label, key]) => {
-      const values = rows.map(row => Number(row?.[key])).filter(Number.isFinite);
+      const values = rows
+        .map(row => row?.[key])
+        .filter(value => value !== null && value !== undefined && value !== '')
+        .map(Number)
+        .filter(Number.isFinite);
       return { label, value: values.length ? values.reduce((total, value) => total + value, 0) : null };
     });
   }
@@ -791,9 +827,9 @@
     return 'On Cycle';
   }
 
-  function dashboardSummary(rows, historicalRows = [], consolidationRows = []) {
+  function dashboardSummary(rows, historicalRows = [], consolidationRows = [], options = {}) {
     return {
-      health: enrollmentHealth(rows, historicalRows),
+      health: enrollmentHealth(rows, historicalRows, options),
       pace: registrationPace(rows, historicalRows),
       growth: growthOpportunities(rows),
       reduction: (consolidationRows || []).slice(0, 8),
@@ -837,9 +873,18 @@
     add('Enrollment Health', 'Variance vs Previous Like-Term Current/Final', health.previousLikeTerm || 'Most Recent Comparable Term', health.previousLikeTermCurrentFinalVariance == null ? 'N/A' : health.previousLikeTermCurrentFinalVariance, health.previousLikeTermCurrentFinalVariancePct == null ? 'N/A' : `${(health.previousLikeTermCurrentFinalVariancePct * 100).toFixed(1)}%`);
     add('Enrollment Health', 'Courses Reviewed', 'All Selected Rows', health.coursesReviewed);
     add('Enrollment Health', 'Sections Reviewed', 'All Selected Rows', health.sectionsReviewed);
-      add('Enrollment Health', 'FTES', 'All Selected Rows', health.ftes);
+    add('Enrollment Health', health.ftesMetricLabel || 'FTES', 'All Selected Rows', health.ftes);
+    if (health.ftesClassification) {
+      add('Enrollment Health', 'Confirmed FTES', 'FTES Classification', health.ftesClassification.confirmedFtesTotal);
+      add('Enrollment Health', 'Estimated FTES', 'FTES Classification', health.ftesClassification.estimatedFtesTotal);
+      add('Enrollment Health', 'Predicted FTES', 'FTES Classification', health.ftesClassification.predictedFtesTotal);
+      add('Enrollment Health', 'Unavailable FTES Sections', 'FTES Classification', health.ftesClassification.unavailableSectionCount);
+    }
     (health.ftesByAccountingMethod || []).forEach(row => {
-      add('Enrollment Health', 'FTES by Attendance Accounting Method', row.accountingMethod, row.ftes, `Enrollment: ${row.enrollment}; Class offerings: ${row.classOfferings}`, `Direct FTES rows: ${row.directFtesRows}; Estimated FTES rows: ${row.estimatedFtesRows}; Unavailable FTES rows: ${row.unavailableFtesRows}`);
+      const notes = row.confirmedFtesRows == null
+        ? `Direct FTES rows: ${row.directFtesRows}; Estimated FTES rows: ${row.estimatedFtesRows}; Unavailable FTES rows: ${row.unavailableFtesRows}`
+        : `Confirmed FTES rows: ${row.confirmedFtesRows}; Estimated FTES rows: ${row.estimatedFtesRows}; Predicted FTES rows: ${row.predictedFtesRows}; Unavailable FTES rows: ${row.unavailableFtesRows}`;
+      add('Enrollment Health', 'FTES by Attendance Accounting Method', row.accountingMethod, row.ftes, `Enrollment: ${row.enrollment}; Class offerings: ${row.classOfferings}`, notes);
     });
     (health.lifecycle || []).forEach(item => add('Enrollment Health', item.label, 'Lifecycle Milestone', item.value == null ? 'N/A' : item.value));
 

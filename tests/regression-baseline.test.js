@@ -170,7 +170,7 @@ test('regression baseline: one enrollment report calculation returns renderable 
     section({ crn: '10002', subject: 'MATH', course: '010', census: 20, cap: 25 })
   ], [], []);
 
-  assert.equal(summary.health.currentEnrollment, 45);
+  assert.equal(summary.health.currentEnrollment, 48);
   assert.equal(summary.health.sectionsReviewed, 2);
   assert.ok(Array.isArray(summary.pace));
 });
