@@ -12293,6 +12293,7 @@ BUS 180 2 units`)
       return;
     }
     const saved = [];
+    const roomAvailabilityRefreshWarnings = [];
     for (const file of files) {
       const filenameTerm = termFromFilename(file.name);
       const selectedTerm = inputId === 'dataHubSectionCsv' ? dataHubSelectedSectionTerm() : '';
@@ -12314,6 +12315,17 @@ BUS 180 2 units`)
         const detail = await currentResponse.text();
         throw new Error(detail || `Current Section Seating save failed for ${term}`);
       }
+      state.scheduleTermCache = { ...(state.scheduleTermCache || {}) };
+      state.scheduleTermMetadataCache = { ...(state.scheduleTermMetadataCache || {}) };
+      delete state.scheduleTermCache[normalizeTermLabel(term)];
+      delete state.scheduleTermMetadataCache[normalizeTermLabel(term)];
+      if (normalizeTermLabel(window.COSScheduleApp?.getCurrentTerm?.()) === normalizeTermLabel(term)) {
+        try {
+          await window.COSScheduleApp?.loadScheduleTerm?.(term);
+        } catch (err) {
+          roomAvailabilityRefreshWarnings.push(`${term}: ${err?.message || 'Room Availability refresh failed'}`);
+        }
+      }
       const response = await fetch(`${window.BACKEND_BASE_URL}/api/analytics-archive/${encodeURIComponent(term)}`, {
         method: 'POST',
         headers: {
@@ -12326,18 +12338,15 @@ BUS 180 2 units`)
         const detail = await response.text();
         throw new Error(detail || `Archive failed for ${term}`);
       }
-      state.scheduleTermCache = { ...(state.scheduleTermCache || {}) };
-      state.scheduleTermMetadataCache = { ...(state.scheduleTermMetadataCache || {}) };
-      delete state.scheduleTermCache[normalizeTermLabel(term)];
-      delete state.scheduleTermMetadataCache[normalizeTermLabel(term)];
-      if (normalizeTermLabel(currentTerm()) === normalizeTermLabel(term)) {
-        await window.COSScheduleApp?.loadScheduleTerm?.(term);
-      }
       saved.push(filenameTerm ? term : `${term} (${file.name})`);
     }
     if (window.COSArchiveService?.clearArchiveMemoryCache) window.COSArchiveService.clearArchiveMemoryCache();
     if (window.COSArchiveService?.refreshArchiveManifest) await window.COSArchiveService.refreshArchiveManifest();
     await refreshAnalyticsArchiveOptions();
+    if (roomAvailabilityRefreshWarnings.length) {
+      alert(`The current Section Seating upload was saved, but Room Availability could not refresh automatically. ${roomAvailabilityRefreshWarnings.join('; ')} Use Retry latest upload in Room Availability.`);
+      return;
+    }
     alert(saved.length ? `Archived ${saved.length} term file(s): ${saved.join(', ')}` : 'No files were archived.');
   }
 
