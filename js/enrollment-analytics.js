@@ -632,7 +632,7 @@
     closed: ['Closed Prior to Census', 'CLOSED_PRIOR_TO_CENSUS', 'Closed Before Census', 'Closed', 'CLOSED'],
     status: ['Status', 'STATUS', 'Section Status'],
     crossList: ['CROSS_LIST', 'Cross List', 'Cross_List', 'Cross Listed', 'Cross-Listed', 'XLIST', 'X_LIST'],
-    scheduleType: ['SCHD_CODE_SSRMEET', 'SCHD CODE SSRMEET', 'Schedule Type', 'SCHEDULE_TYPE', 'Schedule Code', 'SCHD_CODE', 'Meeting Type', 'MEETING_TYPE']
+    scheduleType: ['SCHD_CODE_SSRMEET', 'SCHD CODE SSRMEET', 'Schedule Type', 'SCHEDULE TYPE', 'SCHEDULE_TYPE', 'Schedule Code', 'SCHD_CODE', 'Meeting Type', 'MEETING_TYPE']
   };
   fields.startDate = ['Start_Date', 'START_DATE', 'START DATE', 'Start Date', 'Class Start Date', 'CLASS START DATE', 'Begin Date', 'BEGIN DATE'];
   fields.endDate = ['End_Date', 'END_DATE', 'END DATE', 'End Date', 'Class End Date', 'CLASS END DATE', 'Stop Date', 'STOP DATE'];

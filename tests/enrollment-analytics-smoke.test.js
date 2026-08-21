@@ -6905,6 +6905,29 @@ test('W and IW FTES contact-hour aggregation distinguishes components from repea
   assert.ok(dateRangeControl.componentsExcluded.some(row => /date-aware review|date-range/i.test(row.reason)));
 });
 
+test('Fall 2026 standardized FTES recognizes the actual All Columns SCHEDULE TYPE header', () => {
+  const { COSEnrollmentAnalytics, COSCsvNormalizer } = loadEnrollmentAnalyticsRuntime();
+  const raw = {
+    TERM: 'FALL 2026',
+    CRN: '50501',
+    'SUBJECT/COURSE': 'MATH 010',
+    UNITS: '3',
+    'SCHEDULE TYPE': '02',
+    'ACCOUNTING METHOD': 'W',
+    ACTUAL_ENROLL: '30'
+  };
+  const row = COSEnrollmentAnalytics.normalizeRow(raw);
+  const canonical = COSCsvNormalizer.normalizeCsvRow(raw);
+
+  assert.equal(canonical.scheduleType, '02');
+  assert.equal(row.scheduleType, '02');
+  assert.equal(row.standardizedLectureUnits, 3);
+  assert.equal(row.standardizedLabUnits, 0);
+  assert.equal(row.standardizedActivityUnits, 0);
+  assert.equal(row.ftesUnavailable, false);
+  assert.ok(Math.abs(row.ftes - ((30 * 3 * 18) / 525)) < 0.000001);
+});
+
 test('W and IW production FTES uses component aggregation while non-W methods remain unchanged', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const cubeRows = [

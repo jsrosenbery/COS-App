@@ -136,7 +136,7 @@
     waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WAIT COUNT', 'WAIT_COUNT', 'WL Count', 'WAITLISTED'],
     accountingMethod: ['ACCOUNTING METHOD', 'Accounting Method', 'ACCOUNTING_METHOD'],
     crossList: ['CROSS_LIST', 'Cross List', 'Cross_List', 'Cross Listed', 'Cross-Listed', 'XLIST', 'X_LIST'],
-    scheduleType: ['SCHD_CODE_SSRMEET', 'SCHD CODE SSRMEET', 'Schedule Type', 'SCHEDULE_TYPE', 'Schedule Code', 'SCHD_CODE', 'Meeting Type', 'MEETING_TYPE']
+    scheduleType: ['SCHD_CODE_SSRMEET', 'SCHD CODE SSRMEET', 'Schedule Type', 'SCHEDULE TYPE', 'SCHEDULE_TYPE', 'Schedule Code', 'SCHD_CODE', 'Meeting Type', 'MEETING_TYPE']
   };
 
   function normalizeCsvRow(row, options = {}) {
