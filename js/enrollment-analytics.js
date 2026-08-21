@@ -604,6 +604,7 @@
     building: ['Building', 'BUILDING'],
     cap: ['cap', 'Capacity', 'CAPACITY', 'Seats', 'SEATS', 'Max Enrollment', 'Maximum Enrollment', 'MAX ENROLL'],
     units: ['Units', 'UNITS', 'Credit Hours', 'CREDIT_HOURS', 'Credits', 'CREDITS', 'SESSION_CREDIT_HOURS', 'Session Credit Hours'],
+    sessionCreditHours: ['SESSION_CREDIT_HOURS', 'SESSION CREDIT HOURS', 'Session Credit Hours'],
     lectureUnits: ['Lecture Units', 'LECTURE_UNITS', 'Lecture Credit Hours', 'LEC_UNITS'],
     labUnits: ['Lab Units', 'LAB_UNITS', 'Lab Credit Hours'],
     activityUnits: ['Activity Units', 'ACTIVITY_UNITS', 'Activity Credit Hours'],
@@ -787,6 +788,7 @@
     const finalEnrollmentValue = val(row, fields.finalEnrollment);
     const waitlistValue = val(row, fields.waitlist);
     const units = num(val(row, fields.units));
+    const sessionCreditHours = num(val(row, fields.sessionCreditHours));
     const lectureUnits = num(val(row, fields.lectureUnits));
     const labUnits = num(val(row, fields.labUnits));
     const activityUnits = num(val(row, fields.activityUnits));
@@ -848,6 +850,7 @@
       room: canon([building, roomOnly].filter(Boolean).join(' ')),
       cap,
       units,
+      sessionCreditHours,
       lectureUnits,
       labUnits,
       activityUnits,
@@ -924,7 +927,7 @@
       weeklyHours: row.weeklyHours || 0,
       dailyHours: row.dailyHours || 0,
       totalContactHours: row.totalContactHours || 0,
-      sessionCreditHours: row.units || 0,
+      sessionCreditHours: row.sessionCreditHours || 0,
       lectureUnits: row.lectureUnits || 0,
       labUnits: row.labUnits || 0,
       activityUnits: row.activityUnits || 0,
@@ -984,10 +987,19 @@
     const directLab = Math.max(Number(details.labUnits || 0), ...rows.map(row => Number(row.labUnits || 0)));
     const directActivity = Math.max(Number(details.activityUnits || 0), ...rows.map(row => Number(row.activityUnits || 0)));
     const directHours = Math.max(Number(details.standardizedHours || 0), ...rows.map(row => Number(row.standardizedHours || 0)));
-    let lectureUnits = directLecture;
-    let labUnits = directLab;
-    let activityUnits = directActivity;
-    let source = lectureUnits || labUnits || activityUnits ? 'explicit component unit fields' : '';
+    const meetingUnits = rows.reduce((components, row) => {
+      const component = scheduleTypeComponent(row.scheduleType);
+      const units = Number(row.sessionCreditHours || 0);
+      if (component && units > 0) components[component] = Math.max(components[component] || 0, units);
+      return components;
+    }, {});
+    let lectureUnits = Math.max(directLecture, meetingUnits.lecture || 0);
+    let labUnits = Math.max(directLab, meetingUnits.lab || 0);
+    let activityUnits = Math.max(directActivity, meetingUnits.activity || 0);
+    const sourceParts = [];
+    if (directLecture || directLab || directActivity) sourceParts.push('explicit component unit fields');
+    if (meetingUnits.lecture || meetingUnits.lab || meetingUnits.activity) sourceParts.push('SCHEDULE TYPE + SESSION_CREDIT_HOURS');
+    let source = sourceParts.join('; ');
     const units = Number(details.units || details.sessionCreditHours || 0);
     if (!source && directHours > 0) {
       return {
@@ -1290,6 +1302,7 @@
     row.weeklyHours = hours.weeklyHours || row.weeklyHours || 0;
     row.dailyHours = hours.dailyHours || row.dailyHours || 0;
     row.totalContactHours = hours.totalContactHours || row.totalContactHours || 0;
+    row.sessionCreditHours = hours.sessionCreditHours || row.sessionCreditHours || 0;
     row.units = row.units || hours.sessionCreditHours || 0;
     row.ftesContactHourDiagnostic = hours;
     const calculation = ftesCalculationDetails(row.census == null ? row.actual : row.census, {
