@@ -2531,7 +2531,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         showAppBusy(`Loading ${term} schedule data...`, 'TIMBER is loading backend schedule rows and rebuilding the schedule views.');
         await nextPaint();
       }
-      const currentSourceUrl = `${BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current?_=${Date.now()}`;
+      // Backend storage is case-sensitive. Use one canonical API key so a
+      // Banner-derived "FALL 2026" upload is also found by the "Fall 2026" UI tab.
+      const currentSourceTerm = String(term || '').trim().toUpperCase();
+      const currentSourceUrl = `${BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(currentSourceTerm)}/current?_=${Date.now()}`;
       const requestOptions = { cache: 'no-store' };
       const payload = fetchJson
         ? await fetchJson(currentSourceUrl, requestOptions)

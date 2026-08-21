@@ -2027,7 +2027,7 @@
       let source = 'schedule';
       let scheduleError = '';
       try {
-        const response = await fetch(`${window.BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(requestedTerm)}/current`);
+        const response = await fetch(`${window.BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(requestedTerm.toUpperCase())}/current`);
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
         payload = await response.json();
       } catch (err) {
@@ -12303,7 +12303,7 @@ BUS 180 2 units`)
         continue;
       }
       const csv = await file.text();
-      const currentResponse = await fetch(`${window.BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current`, {
+      const currentResponse = await fetch(`${window.BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term.toUpperCase())}/current`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
