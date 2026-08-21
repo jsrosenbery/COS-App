@@ -6905,6 +6905,66 @@ test('W and IW FTES contact-hour aggregation distinguishes components from repea
   assert.ok(dateRangeControl.componentsExcluded.some(row => /date-aware review|date-range/i.test(row.reason)));
 });
 
+test('Fall 2026 standardized FTES recognizes the actual All Columns SCHEDULE TYPE header', () => {
+  const { COSEnrollmentAnalytics, COSCsvNormalizer } = loadEnrollmentAnalyticsRuntime();
+  const raw = {
+    TERM: 'FALL 2026',
+    CRN: '50501',
+    'SUBJECT/COURSE': 'MATH 010',
+    UNITS: '3',
+    SESSION_CREDIT_HOURS: '3',
+    'SCHEDULE TYPE': '02',
+    'ACCOUNTING METHOD': 'W',
+    ACTUAL_ENROLL: '30'
+  };
+  const row = COSEnrollmentAnalytics.normalizeRow(raw);
+  const canonical = COSCsvNormalizer.normalizeCsvRow(raw);
+
+  assert.equal(canonical.scheduleType, '02');
+  assert.equal(canonical.units, 3);
+  assert.equal(canonical.sessionCreditHours, 3);
+  assert.equal(row.scheduleType, '02');
+  assert.equal(row.sessionCreditHours, 3);
+  assert.equal(row.standardizedLectureUnits, 3);
+  assert.equal(row.standardizedLabUnits, 0);
+  assert.equal(row.standardizedActivityUnits, 0);
+  assert.equal(row.ftesUnavailable, false);
+  assert.ok(Math.abs(row.ftes - ((30 * 3 * 18) / 525)) < 0.000001);
+});
+
+test('Fall 2026 mixed components use reconciled Session Credit Hours without guessing', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const reconciled = COSEnrollmentAnalytics.standardizedFtes(30, {
+    term: 'FALL 2026',
+    units: 4,
+    accountingMethod: 'W',
+    meetingRows: [
+      { scheduleType: '02', sessionCreditHours: 3 },
+      { scheduleType: '02', sessionCreditHours: 3 },
+      { scheduleType: '04', sessionCreditHours: 1 }
+    ]
+  });
+  assert.equal(reconciled.unavailable, false);
+  assert.equal(reconciled.lectureUnits, 3);
+  assert.equal(reconciled.labUnits, 1);
+  assert.equal(reconciled.activityUnits, 0);
+  assert.equal(reconciled.standardizedHours, 108);
+  assert.equal(reconciled.source, 'SCHEDULE TYPE + SESSION_CREDIT_HOURS');
+  assert.ok(Math.abs(reconciled.ftes - ((30 * 108) / 525)) < 0.000001);
+
+  const unreconciled = COSEnrollmentAnalytics.standardizedFtes(30, {
+    term: 'FALL 2026',
+    units: 3,
+    accountingMethod: 'W',
+    meetingRows: [
+      { scheduleType: '02', sessionCreditHours: 2 },
+      { scheduleType: '04', sessionCreditHours: 0.5 }
+    ]
+  });
+  assert.equal(unreconciled.unavailable, true);
+  assert.equal(unreconciled.unitStatus, 'STANDARDIZED UNIT DATA INCOMPLETE');
+});
+
 test('W and IW production FTES uses component aggregation while non-W methods remain unchanged', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const cubeRows = [

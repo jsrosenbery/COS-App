@@ -136,8 +136,10 @@
     waitlist: ['Waitlist', 'WAITLIST', 'Waitlist Count', 'WAITLIST_COUNT', 'WAIT COUNT', 'WAIT_COUNT', 'WL Count', 'WAITLISTED'],
     accountingMethod: ['ACCOUNTING METHOD', 'Accounting Method', 'ACCOUNTING_METHOD'],
     crossList: ['CROSS_LIST', 'Cross List', 'Cross_List', 'Cross Listed', 'Cross-Listed', 'XLIST', 'X_LIST'],
-    scheduleType: ['SCHD_CODE_SSRMEET', 'SCHD CODE SSRMEET', 'Schedule Type', 'SCHEDULE_TYPE', 'Schedule Code', 'SCHD_CODE', 'Meeting Type', 'MEETING_TYPE']
+    scheduleType: ['SCHD_CODE_SSRMEET', 'SCHD CODE SSRMEET', 'Schedule Type', 'SCHEDULE TYPE', 'SCHEDULE_TYPE', 'Schedule Code', 'SCHD_CODE', 'Meeting Type', 'MEETING_TYPE']
   };
+  fields.units = ['Units', 'UNITS', 'Credit Hours', 'CREDIT_HOURS', 'Credits', 'CREDITS'];
+  fields.sessionCreditHours = ['SESSION_CREDIT_HOURS', 'SESSION CREDIT HOURS', 'Session Credit Hours'];
 
   function normalizeCsvRow(row, options = {}) {
     const subjectCourse = extractField(row, fields.subjectCourse);
@@ -179,6 +181,8 @@
       activityDate: extractField(row, fields.activityDate),
       crossList: canon(extractField(row, fields.crossList)),
       scheduleType: canon(extractField(row, fields.scheduleType)),
+      units: numberValue(extractField(row, fields.units)),
+      sessionCreditHours: numberValue(extractField(row, fields.sessionCreditHours)),
       startDate: extractField(row, fields.startDate),
       endDate: extractField(row, fields.endDate)
     };
