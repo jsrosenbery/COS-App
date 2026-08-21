@@ -127,7 +127,8 @@ test('regression baseline: backend schedule load and room availability rendering
   const app = read('js/app.js');
 
   assert.match(app, /async function loadScheduleFromBackend\(term/);
-  assert.match(app, /\/api\/section-seating\/\$\{encodeURIComponent\(term\)\}\/current/);
+  assert.match(app, /const currentSourceTerm = String\(term \|\| ''\)\.trim\(\)\.toUpperCase\(\)/);
+  assert.match(app, /\/api\/section-seating\/\$\{encodeURIComponent\(currentSourceTerm\)\}\/current/);
   assert.match(app, /currentData = \(data \|\| \[\]\)\.map\(row => normalizeRow\(\{ \.\.\.row, __uploadedAt: authoritativeUpdatedAt/);
   assert.match(app, /renderSchedule\(\)/);
   assert.match(app, /function handleAvailability\(/);
@@ -139,7 +140,7 @@ test('regression baseline: current Section Seating upload refreshes Room Availab
   const app = read('js/app.js');
   const analytics = read('js/enrollment-analytics.js');
   const uploadWorkflow = analytics.indexOf('async function archiveUploads');
-  const currentSave = analytics.indexOf("/api/section-seating/${encodeURIComponent(term)}/current", uploadWorkflow);
+  const currentSave = analytics.indexOf("/api/section-seating/${encodeURIComponent(term.toUpperCase())}/current", uploadWorkflow);
   const activeRefresh = analytics.indexOf('window.COSScheduleApp?.loadScheduleTerm?.(term)', currentSave);
   const archiveSave = analytics.indexOf("/api/analytics-archive/${encodeURIComponent(term)}", currentSave);
 
