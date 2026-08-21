@@ -128,11 +128,27 @@ test('regression baseline: backend schedule load and room availability rendering
 
   assert.match(app, /async function loadScheduleFromBackend\(term/);
   assert.match(app, /\/api\/section-seating\/\$\{encodeURIComponent\(term\)\}\/current/);
-  assert.match(app, /currentData = \(data \|\| \[\]\)\.map\(row => normalizeRow\(\{ \.\.\.row, __uploadedAt: lastUpdated/);
+  assert.match(app, /currentData = \(data \|\| \[\]\)\.map\(row => normalizeRow\(\{ \.\.\.row, __uploadedAt: authoritativeUpdatedAt/);
   assert.match(app, /renderSchedule\(\)/);
   assert.match(app, /function handleAvailability\(/);
   assert.match(app, /document\.getElementById\('avail-check-btn'\)/);
   assert.match(app, /window\.COSScheduleApp = \{/);
+});
+
+test('regression baseline: current Section Seating upload refreshes Room Availability without a cached GET', () => {
+  const app = read('js/app.js');
+  const analytics = read('js/enrollment-analytics.js');
+  const uploadWorkflow = analytics.indexOf('async function archiveUploads');
+  const currentSave = analytics.indexOf("/api/section-seating/${encodeURIComponent(term)}/current", uploadWorkflow);
+  const activeRefresh = analytics.indexOf('window.COSScheduleApp?.loadScheduleTerm?.(term)', currentSave);
+  const archiveSave = analytics.indexOf("/api/analytics-archive/${encodeURIComponent(term)}", currentSave);
+
+  assert.match(app, /current\?_\=\$\{Date\.now\(\)\}/);
+  assert.match(app, /const requestOptions = \{ cache: 'no-store' \}/);
+  assert.match(app, /source\?\.uploadedAt \|\| source\?\.updatedAt \|\| lastUpdated/);
+  assert.ok(currentSave >= 0, 'Source Data Hub should save the shared current Section Seating source');
+  assert.ok(activeRefresh > currentSave, 'Room Availability should refresh after the current source save');
+  assert.ok(archiveSave > activeRefresh, 'Room Availability refresh must not wait for the historical archive save');
 });
 
 test('regression baseline: Schedule Builder accepts course inputs and produces options', () => {

@@ -2531,23 +2531,26 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         showAppBusy(`Loading ${term} schedule data...`, 'TIMBER is loading backend schedule rows and rebuilding the schedule views.');
         await nextPaint();
       }
+      const currentSourceUrl = `${BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current?_=${Date.now()}`;
+      const requestOptions = { cache: 'no-store' };
       const payload = fetchJson
-        ? await fetchJson(`${BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current`)
-        : await fetch(`${BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(term)}/current`).then(res => {
+        ? await fetchJson(currentSourceUrl, requestOptions)
+        : await fetch(currentSourceUrl, requestOptions).then(res => {
             if (!res.ok) throw new Error('Schedule fetch failed');
             return res.json();
           });
       const { data, lastUpdated, source } = payload || {};
+      const authoritativeUpdatedAt = source?.uploadedAt || source?.updatedAt || lastUpdated || '';
       // PATCH: Normalize backend data fields to frontend expectations
-      if (lastUpdated) scheduleLastUpdatedByTerm[term] = lastUpdated;
+      if (authoritativeUpdatedAt) scheduleLastUpdatedByTerm[term] = authoritativeUpdatedAt;
       else delete scheduleLastUpdatedByTerm[term];
-      currentData = (data || []).map(row => normalizeRow({ ...row, __uploadedAt: lastUpdated || row.__uploadedAt || row.uploadedAt || row.UploadedAt || '' }));
+      currentData = (data || []).map(row => normalizeRow({ ...row, __uploadedAt: authoritativeUpdatedAt || row.__uploadedAt || row.uploadedAt || row.UploadedAt || '' }));
       const roomDataset = window.COSRoomAvailabilityData?.buildRoomAvailabilityDataset
         ? window.COSRoomAvailabilityData.buildRoomAvailabilityDataset(data || [], { term, isValidRoom })
         : { meetings: currentData.filter(isRoomGridSection), diagnostics: { sourceRows: currentData.length } };
       roomMeetingData = roomDataset.meetings;
-      scheduleSourceByTerm[term] = source || { name: `${term} All Columns`, uploadedAt: lastUpdated, updatedAt: lastUpdated };
-      tsDiv.textContent = lastUpdated ? `Data source: ${scheduleSourceByTerm[term].name || `${term} All Columns`} · Uploaded: ${new Date(lastUpdated).toLocaleString()}` : '';
+      scheduleSourceByTerm[term] = source || { name: `${term} All Columns`, uploadedAt: authoritativeUpdatedAt, updatedAt: authoritativeUpdatedAt };
+      tsDiv.textContent = authoritativeUpdatedAt ? `Data source: ${scheduleSourceByTerm[term].name || `${term} All Columns`} · Uploaded: ${new Date(authoritativeUpdatedAt).toLocaleString()}` : '';
       const developmentMode = Boolean(window.TIMBER_DEBUG) || ['localhost', '127.0.0.1'].includes(window.location?.hostname);
       if (developmentMode && (!roomMeetingData.length || roomDataset.diagnostics.excludedMissingDaysTimes)) {
         console.warn('[Room Availability diagnostics]', roomDataset.diagnostics);
