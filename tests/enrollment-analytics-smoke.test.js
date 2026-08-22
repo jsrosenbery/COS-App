@@ -617,6 +617,38 @@ test('room event parser accepts Room List Events export headers', () => {
   assert.equal(rows[0].valid, true);
 });
 
+test('room event parser accepts TIMBER Events title-case 0/1 weekday columns', () => {
+  const { roomEvents } = loadCoreModules();
+  const rows = roomEvents.normalizeEvents([{
+    'Event ID': 'D2929',
+    'Event Description': 'CVC Girls Tennis - Flores',
+    Campus: 'COS',
+    Building: 'COSEXT',
+    Room: 'COURTS',
+    'Start Date': '2026-08-03',
+    'End Date': '2026-10-30',
+    'Start Time': '15:15',
+    'End Time': '17:15',
+    Monday: '1',
+    Tuesday: '0',
+    Wednesday: '1',
+    Thursday: '0',
+    Friday: '1',
+    Saturday: '0',
+    Sunday: '0'
+  }], { term: 'Fall 2026', source: 'TIMBER_Events_20260821.csv' });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].term, 'FALL 2026');
+  assert.equal(rows[0].roomKey, 'COSEXT-COURTS');
+  assert.deepEqual(rows[0].days, ['Monday', 'Wednesday', 'Friday']);
+  assert.equal(rows[0].start, '15:15');
+  assert.equal(rows[0].end, '17:15');
+  assert.equal(rows[0].startDate, '2026-08-03');
+  assert.equal(rows[0].endDate, '2026-10-30');
+  assert.equal(rows[0].valid, true);
+});
+
 test('room event storage is term-specific and supports replace versus append', () => {
   const { roomEvents } = loadCoreModules();
   const fall = roomEvents.normalizeEvents([{ Term: 'FALL 2026', Building: 'A', Room: '1', Days: 'M', 'Begin Time': '09:00', 'End Time': '10:00' }]);

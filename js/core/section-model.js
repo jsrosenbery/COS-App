@@ -52,15 +52,19 @@
   function normalizeDays(raw, row = {}) {
     if (Array.isArray(row.Days) && row.Days.length) return normalizeDayArray(row.Days);
     if (Array.isArray(row.days) && row.days.length) return normalizeDayArray(row.days);
+    const hasDayFlag = value => {
+      const flag = csv.canon(value);
+      return Boolean(flag && !['0', 'FALSE', 'NO', 'N'].includes(flag));
+    };
     const dayFlags = [
-      ['MONDAY', 'MO'],
-      ['TUESDAY', 'TU'],
-      ['WEDNESDAY', 'WE'],
-      ['THURSDAY', 'TH'],
-      ['FRIDAY', 'FR'],
-      ['SATURDAY', 'SA'],
-      ['SUNDAY', 'SU']
-    ].filter(([column]) => String(row[column] || '').trim()).map(([, code]) => code);
+      [['Monday', 'MONDAY', 'monday'], 'MO'],
+      [['Tuesday', 'TUESDAY', 'tuesday'], 'TU'],
+      [['Wednesday', 'WEDNESDAY', 'wednesday'], 'WE'],
+      [['Thursday', 'THURSDAY', 'thursday'], 'TH'],
+      [['Friday', 'FRIDAY', 'friday'], 'FR'],
+      [['Saturday', 'SATURDAY', 'saturday'], 'SA'],
+      [['Sunday', 'SUNDAY', 'sunday'], 'SU']
+    ].filter(([columns]) => hasDayFlag(csv.extractField(row, columns))).map(([, code]) => code);
     if (dayFlags.length) return dayFlags;
     const text = csv.canon(raw);
     if (!text || /ONLINE|TBA/.test(text)) return [];
