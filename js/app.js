@@ -2601,6 +2601,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     updateRoomEventsStatus();
     renderRoomEventValidation();
     updateRoomAvailabilityFreshnessPanel();
+    loadRoomEventsFromBackend(term);
     loadScheduleFromBackend(term, { showBusy: options.showBusy !== false });
   }
 
@@ -4325,15 +4326,56 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     eventCard?.classList.toggle('freshness-warning', !eventStamp);
   }
 
-  function setRoomEventsForTerm(term, events, mode = 'replace') {
+  function setRoomEventsForTerm(term, events, mode = 'replace', options = {}) {
     if (!window.COSRoomEvents?.storagePayloadByTerm) return;
     roomEventsByTerm = window.COSRoomEvents.storagePayloadByTerm(roomEventsByTerm, term, events, mode);
-    const persisted = saveRoomEventsBackup();
+    const persisted = options.persistLocal === false ? true : saveRoomEventsBackup();
     updateRoomEventsStatus();
     updateRoomAvailabilityFreshnessPanel();
     renderSchedule();
     if (document.getElementById('viewSelect')?.value === 'fullcalendar') renderFullCalendar();
     return persisted;
+  }
+
+  async function loadRoomEventsFromBackend(term) {
+    if (!BACKEND_BASE_URL || !term) return false;
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/api/room-events/${encodeURIComponent(term)}`, { cache: 'no-store' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+      setRoomEventsForTerm(term, Array.isArray(payload.data) ? payload.data : [], 'replace', { persistLocal: false });
+      renderRoomEventValidation(getRoomEventsForTerm(term));
+      return true;
+    } catch (err) {
+      console.warn(`Shared room events could not be loaded for ${term}; retaining browser fallback:`, err);
+      updateRoomEventsStatus();
+      updateRoomAvailabilityFreshnessPanel();
+      return false;
+    }
+  }
+
+  async function saveRoomEventsToBackend(term, events, mode, password, sourceName, importedAt) {
+    const normalizedTerm = normalizeTermLabel(term);
+    const compact = window.COSRoomEvents.storagePayloadByTerm({}, term, events, 'replace')?.[normalizedTerm] || [];
+    const response = await fetch(`${BACKEND_BASE_URL}/api/room-events/${encodeURIComponent(term)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, events: compact, mode, sourceName, importedAt })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+    return payload;
+  }
+
+  async function clearRoomEventsFromBackend(term, password) {
+    const response = await fetch(`${BACKEND_BASE_URL}/api/room-events/${encodeURIComponent(term)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+    return payload;
   }
 
   function setupRoomEventsAdmin() {
@@ -4398,15 +4440,21 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
-        complete: result => {
+        complete: async result => {
           const importedAt = new Date().toISOString();
           const rows = (result.data || []).map(row => ({ ...row, __sourceTerm: currentTerm }));
           const events = window.COSRoomEvents.normalizeEvents(rows, { term: currentTerm, source: file.name, importedAt });
-          if (eventsShowGridInput) eventsShowGridInput.checked = true;
-          const persisted = setRoomEventsForTerm(currentTerm, events, modeSelect.value || 'replace');
-          renderRoomEventValidation(events);
-          if (!persisted) {
-            alert('Room events loaded for this session, but the browser could not save them. Clear browser storage or use a browser profile that allows local storage, then import again.');
+          try {
+            const payload = await saveRoomEventsToBackend(currentTerm, events, modeSelect.value || 'replace', password, file.name, importedAt);
+            if (eventsShowGridInput) eventsShowGridInput.checked = true;
+            setRoomEventsForTerm(currentTerm, Array.isArray(payload.data) ? payload.data : events, 'replace', { persistLocal: false });
+            renderRoomEventValidation(getRoomEventsForCurrentTerm());
+          } catch (err) {
+            const persisted = setRoomEventsForTerm(currentTerm, events, modeSelect.value || 'replace');
+            renderRoomEventValidation(events);
+            alert(persisted
+              ? `Shared event storage failed (${err.message || err}). Events are saved only in this browser.`
+              : `Shared event storage failed (${err.message || err}). Events are available only for this session.`);
           }
           importInput.value = '';
         },
@@ -4429,15 +4477,17 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       const rows = sectionEventSoftConflicts(currentData, getRoomEventsForCurrentTerm());
       downloadTextFile(`room-event-soft-conflicts-${currentTerm || 'term'}.csv`, Papa.unparse(rows), 'text/csv;charset=utf-8');
     });
-    clearBtn.addEventListener('click', () => {
+    clearBtn.addEventListener('click', async () => {
       if (!confirm(`Clear room events for ${currentTerm}?`)) return;
-      roomEventsByTerm = { ...(roomEventsByTerm || {}), [currentTerm]: [] };
-      saveRoomEventsBackup();
-      updateRoomEventsStatus();
-      updateRoomAvailabilityFreshnessPanel();
-      renderRoomEventValidation([]);
-      renderSchedule();
-      if (document.getElementById('viewSelect')?.value === 'fullcalendar') renderFullCalendar();
+      const password = await requestPassword('Enter upload password to clear room events:', 'Room events clear cancelled.');
+      if (!password) return;
+      try {
+        await clearRoomEventsFromBackend(currentTerm, password);
+        setRoomEventsForTerm(currentTerm, [], 'replace', { persistLocal: false });
+        renderRoomEventValidation([]);
+      } catch (err) {
+        alert(`Room events could not be cleared: ${err.message || err}`);
+      }
     });
   }
 
