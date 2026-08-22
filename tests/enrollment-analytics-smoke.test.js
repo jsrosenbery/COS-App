@@ -665,6 +665,16 @@ test('room events render as a distinctly labeled visual layer', () => {
   assert.match(css, /\.event-kind-badge/);
 });
 
+test('successful room event import reveals the grid layer without enabling hard conflicts', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
+  const roomEventsAdmin = app.match(/function setupRoomEventsAdmin[\s\S]*?function updateRoomEventsStatus/)?.[0] || '';
+  const importHandler = roomEventsAdmin.match(/importInput\.addEventListener\('change'[\s\S]*?exportBtn\.addEventListener/)?.[0] || '';
+
+  assert.match(importHandler, /eventsShowGridInput\.checked = true/);
+  assert.doesNotMatch(importHandler, /eventsIncludeSearchInput\.checked = true/);
+  assert.doesNotMatch(importHandler, /eventsHardConflictInput\.checked = true/);
+});
+
 test('room event storage is term-specific and supports replace versus append', () => {
   const { roomEvents } = loadCoreModules();
   const fall = roomEvents.normalizeEvents([{ Term: 'FALL 2026', Building: 'A', Room: '1', Days: 'M', 'Begin Time': '09:00', 'End Time': '10:00' }]);
@@ -675,6 +685,34 @@ test('room event storage is term-specific and supports replace versus append', (
 
   assert.equal(roomEvents.eventsForTerm(store, 'FALL 2026').length, 2);
   assert.equal(roomEvents.eventsForTerm(store, 'SPRING 2027').length, 1);
+});
+
+test('room event storage survives JSON refresh without raw-row duplication or room-key drift', () => {
+  const { roomEvents } = loadCoreModules();
+  const importedAt = '2026-08-21T16:42:00.000Z';
+  const events = roomEvents.normalizeEvents([{
+    'Event ID': 'EVT-SPACE',
+    'Event Description': 'Outdoor Event',
+    Campus: 'COS',
+    Building: 'COSEXT',
+    Room: 'GF COURT',
+    'Start Date': '2026-08-21',
+    'End Date': '2026-08-21',
+    'Start Time': '09:00',
+    'End Time': '10:00',
+    Friday: '1'
+  }], { term: 'Fall 2026', source: 'TIMBER_Events_20260821.csv', importedAt });
+  const stored = roomEvents.storagePayloadByTerm({}, 'Fall 2026', events, 'replace');
+
+  assert.equal(stored['FALL 2026'][0].raw, undefined);
+  assert.ok(JSON.stringify(stored).length < JSON.stringify(events).length);
+
+  const restored = roomEvents.eventsForTerm(JSON.parse(JSON.stringify(stored)), 'Fall 2026');
+  assert.equal(restored[0].valid, true);
+  assert.equal(restored[0].roomKey, 'COSEXT-GF COURT');
+  assert.deepEqual(restored[0].days, ['Friday']);
+  assert.equal(restored[0].source, 'TIMBER_Events_20260821.csv');
+  assert.equal(restored[0].importedAt, importedAt);
 });
 
 test('room event overlap detects soft reservations by room day time and date range', () => {

@@ -4244,8 +4244,10 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function saveRoomEventsBackup() {
     try {
       localStorage.setItem(ROOM_EVENTS_BACKUP_KEY, JSON.stringify(roomEventsByTerm || {}));
+      return true;
     } catch (err) {
       console.warn('Room events backup save failed:', err);
+      return false;
     }
   }
 
@@ -4326,11 +4328,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function setRoomEventsForTerm(term, events, mode = 'replace') {
     if (!window.COSRoomEvents?.storagePayloadByTerm) return;
     roomEventsByTerm = window.COSRoomEvents.storagePayloadByTerm(roomEventsByTerm, term, events, mode);
-    saveRoomEventsBackup();
+    const persisted = saveRoomEventsBackup();
     updateRoomEventsStatus();
     updateRoomAvailabilityFreshnessPanel();
     renderSchedule();
     if (document.getElementById('viewSelect')?.value === 'fullcalendar') renderFullCalendar();
+    return persisted;
   }
 
   function setupRoomEventsAdmin() {
@@ -4399,8 +4402,12 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
           const importedAt = new Date().toISOString();
           const rows = (result.data || []).map(row => ({ ...row, __sourceTerm: currentTerm }));
           const events = window.COSRoomEvents.normalizeEvents(rows, { term: currentTerm, source: file.name, importedAt });
-          setRoomEventsForTerm(currentTerm, events, modeSelect.value || 'replace');
+          if (eventsShowGridInput) eventsShowGridInput.checked = true;
+          const persisted = setRoomEventsForTerm(currentTerm, events, modeSelect.value || 'replace');
           renderRoomEventValidation(events);
+          if (!persisted) {
+            alert('Room events loaded for this session, but the browser could not save them. Clear browser storage or use a browser profile that allows local storage, then import again.');
+          }
           importInput.value = '';
         },
         error: err => {

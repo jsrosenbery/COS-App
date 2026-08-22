@@ -63,12 +63,11 @@
   }
 
   function roomKeyFromParts(building, room, explicitRoomKey) {
-    const explicit = String(explicitRoomKey || '').trim();
-    if (explicit && explicit.includes('-')) return explicit.toUpperCase().replace(/\s+/g, '');
     const b = String(building || '').trim().toUpperCase();
     const r = String(room || '').trim().toUpperCase();
     if (b && r) return `${b}-${r}`;
-    if (explicit) return explicit.toUpperCase().replace(/\s+/g, '');
+    const explicit = String(explicitRoomKey || '').trim();
+    if (explicit) return explicit.toUpperCase().replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ');
     return '';
   }
 
@@ -132,17 +131,33 @@
     return (rows || []).map(row => normalizeEventRow(row, options));
   }
 
+  function compactEvent(event) {
+    const normalized = normalizeEventRow(event, {
+      term: event?.term,
+      source: event?.source,
+      importedAt: event?.importedAt
+    });
+    const { raw, ...compact } = normalized;
+    return compact;
+  }
+
   function storagePayloadByTerm(existing = {}, term, events, mode = 'replace') {
     const normalizedTerm = csv.normalizeTermLabel(term || '');
     const next = { ...(existing || {}) };
-    const incoming = (events || []).filter(event => csv.normalizeTermLabel(event.term || normalizedTerm) === normalizedTerm);
+    const incoming = (events || [])
+      .filter(event => csv.normalizeTermLabel(event.term || normalizedTerm) === normalizedTerm)
+      .map(compactEvent);
     next[normalizedTerm] = mode === 'append' ? [...(next[normalizedTerm] || []), ...incoming] : incoming;
     return next;
   }
 
   function eventsForTerm(store, term) {
     const normalizedTerm = csv.normalizeTermLabel(term || '');
-    return (store?.[normalizedTerm] || []).map(row => normalizeEventRow(row, { term: normalizedTerm, importedAt: row.importedAt || new Date().toISOString() }));
+    return (store?.[normalizedTerm] || []).map(row => normalizeEventRow(row, {
+      term: normalizedTerm,
+      source: row.source || '',
+      importedAt: row.importedAt || new Date().toISOString()
+    }));
   }
 
   function eventsForRoom(events, roomKey) {
@@ -237,6 +252,7 @@
     dateRangesOverlap,
     normalizeEventRow,
     normalizeEvents,
+    compactEvent,
     storagePayloadByTerm,
     eventsForTerm,
     eventsForRoom,
