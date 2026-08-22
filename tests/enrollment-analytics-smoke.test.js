@@ -7408,6 +7408,19 @@ test('configuration exports do not prompt for upload password', () => {
   assert.doesNotMatch(eventsExport, /requestPassword/);
 });
 
+test('room events use shared backend persistence with browser fallback only', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+
+  assert.match(app, /loadRoomEventsFromBackend\(term\)/);
+  assert.match(app, /\/api\/room-events\/\$\{encodeURIComponent\(term\)\}/);
+  assert.match(app, /cache: 'no-store'/);
+  assert.match(app, /method: 'POST'/);
+  assert.match(app, /method: 'DELETE'/);
+  assert.match(app, /persistLocal: false/);
+  assert.match(app, /Events are saved only in this browser/);
+  assert.match(app, /Events are available only for this session/);
+});
+
 test('modality comparison rows include class offering counts and shares', () => {
   const hooks = loadScheduleAppRuntime();
   const current = hooks.calculateModalityBalanceFromItems([
