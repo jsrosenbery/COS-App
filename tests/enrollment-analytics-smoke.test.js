@@ -617,6 +617,54 @@ test('room event parser accepts Room List Events export headers', () => {
   assert.equal(rows[0].valid, true);
 });
 
+test('room event parser accepts TIMBER Events title-case 0/1 weekday columns', () => {
+  const { roomEvents } = loadCoreModules();
+  const rows = roomEvents.normalizeEvents([{
+    'Event ID': 'D2929',
+    'Event Description': 'CVC Girls Tennis - Flores',
+    Campus: 'COS',
+    Building: 'COSEXT',
+    Room: 'COURTS',
+    'Start Date': '2026-08-03',
+    'End Date': '2026-10-30',
+    'Start Time': '15:15',
+    'End Time': '17:15',
+    Monday: '1',
+    Tuesday: '0',
+    Wednesday: '1',
+    Thursday: '0',
+    Friday: '1',
+    Saturday: '0',
+    Sunday: '0'
+  }], { term: 'Fall 2026', source: 'TIMBER_Events_20260821.csv' });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].term, 'FALL 2026');
+  assert.equal(rows[0].roomKey, 'COSEXT-COURTS');
+  assert.deepEqual(rows[0].days, ['Monday', 'Wednesday', 'Friday']);
+  assert.equal(rows[0].start, '15:15');
+  assert.equal(rows[0].end, '17:15');
+  assert.equal(rows[0].startDate, '2026-08-03');
+  assert.equal(rows[0].endDate, '2026-10-30');
+  assert.equal(rows[0].valid, true);
+});
+
+test('room events render as a distinctly labeled visual layer', () => {
+  const root = path.join(__dirname, '..');
+  const app = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'css/style.css'), 'utf8');
+  const eventRenderer = app.match(/function renderRoomEventBlocks[\s\S]*?function showEventTooltip/)?.[0] || '';
+
+  assert.match(eventRenderer, /room-reservation-block/);
+  assert.match(eventRenderer, /dataset\.blockType = 'room-event'/);
+  assert.match(eventRenderer, /event-kind-badge/);
+  assert.match(eventRenderer, /ROOM EVENT/);
+  assert.match(eventRenderer, /aria-label.*Room event:/);
+  assert.match(css, /\.event-block\s*\{[\s\S]*?border:\s*3px dashed/);
+  assert.match(css, /\.event-block\s*\{[\s\S]*?repeating-linear-gradient/);
+  assert.match(css, /\.event-kind-badge/);
+});
+
 test('room event storage is term-specific and supports replace versus append', () => {
   const { roomEvents } = loadCoreModules();
   const fall = roomEvents.normalizeEvents([{ Term: 'FALL 2026', Building: 'A', Room: '1', Days: 'M', 'Begin Time': '09:00', 'End Time': '10:00' }]);
