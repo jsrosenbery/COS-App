@@ -74,6 +74,10 @@ test('regression baseline: critical first-party scripts use the current Timber b
   const html = read('index.html');
   const buildVersion = html.match(/window\.TIMBER_BUILD_VERSION\s*=\s*['"]([^'"]+)['"]/);
   assert.ok(buildVersion, 'window.TIMBER_BUILD_VERSION should expose the deployed frontend build');
+  assert.ok(
+    html.includes(`href="css/style.css?v=${buildVersion[1]}"`),
+    'css/style.css should use the current Timber build version'
+  );
 
   [
     'js/config.js',

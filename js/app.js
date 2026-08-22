@@ -2849,12 +2849,20 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         const widthPx = Math.max(24, columnWidth * 0.88);
         const heightPx = Math.max(22, ((event.endMinutes - event.startMinutes) / 30) * cr.height);
         const block = document.createElement('div');
-        block.className = 'event-block';
+        block.className = 'event-block room-reservation-block';
+        block.dataset.blockType = 'room-event';
         block.style.top = `${topPx}px`;
         block.style.left = `${leftPx}px`;
         block.style.width = `${widthPx}px`;
         block.style.height = `${heightPx}px`;
-        appendLine(block, 'EVENT', true);
+        block.setAttribute('role', 'note');
+        block.setAttribute('aria-label', `Room event: ${event.name || event.type || 'Room Event'}, ${format12(event.start)} to ${format12(event.end)}`);
+        block.title = `ROOM EVENT — ${event.name || event.type || 'Room Event'}`;
+        const eventBadge = document.createElement('span');
+        eventBadge.className = 'event-kind-badge';
+        eventBadge.textContent = 'ROOM EVENT';
+        block.appendChild(eventBadge);
+        block.appendChild(document.createElement('br'));
         appendLine(block, event.name || event.type || 'Room Event');
         appendLine(block, `${format12(event.start)} - ${format12(event.end)}`);
 
@@ -2876,7 +2884,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   function showEventTooltip(block, event, mouseEvent) {
     const tooltip = document.getElementById('class-block-tooltip');
     setTooltipLines(tooltip, [
-      { text: event.name || 'Room Event', bold: true },
+      { text: `ROOM EVENT — ${event.name || 'Room Event'}`, bold: true },
       { text: `Event ID: ${event.eventId || 'N/A'}` },
       { text: `Room: ${event.roomKey || 'N/A'}` },
       { text: `Days: ${event.days.join(', ') || 'N/A'}` },
@@ -3979,6 +3987,16 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       item.append(badge, label);
       node.appendChild(item);
     });
+    const eventItem = document.createElement('span');
+    eventItem.className = 'room-availability-modality-legend-item room-event-legend-item';
+    const eventBadge = document.createElement('span');
+    eventBadge.className = 'event-kind-badge';
+    eventBadge.textContent = 'ROOM EVENT';
+    eventBadge.setAttribute('aria-hidden', 'true');
+    const eventLabel = document.createElement('span');
+    eventLabel.textContent = 'Optional event layer';
+    eventItem.append(eventBadge, eventLabel);
+    node.appendChild(eventItem);
     const note = document.createElement('p');
     note.className = 'room-availability-modality-note';
     note.textContent = 'Hybrid sections are flagged because physical meeting dates may vary. Synchronous Online appears only when a fixed-time online row also has a valid physical room assignment in the loaded schedule data.';

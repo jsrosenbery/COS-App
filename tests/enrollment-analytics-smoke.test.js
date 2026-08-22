@@ -649,6 +649,22 @@ test('room event parser accepts TIMBER Events title-case 0/1 weekday columns', (
   assert.equal(rows[0].valid, true);
 });
 
+test('room events render as a distinctly labeled visual layer', () => {
+  const root = path.join(__dirname, '..');
+  const app = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'css/style.css'), 'utf8');
+  const eventRenderer = app.match(/function renderRoomEventBlocks[\s\S]*?function showEventTooltip/)?.[0] || '';
+
+  assert.match(eventRenderer, /room-reservation-block/);
+  assert.match(eventRenderer, /dataset\.blockType = 'room-event'/);
+  assert.match(eventRenderer, /event-kind-badge/);
+  assert.match(eventRenderer, /ROOM EVENT/);
+  assert.match(eventRenderer, /aria-label.*Room event:/);
+  assert.match(css, /\.event-block\s*\{[\s\S]*?border:\s*3px dashed/);
+  assert.match(css, /\.event-block\s*\{[\s\S]*?repeating-linear-gradient/);
+  assert.match(css, /\.event-kind-badge/);
+});
+
 test('room event storage is term-specific and supports replace versus append', () => {
   const { roomEvents } = loadCoreModules();
   const fall = roomEvents.normalizeEvents([{ Term: 'FALL 2026', Building: 'A', Room: '1', Days: 'M', 'Begin Time': '09:00', 'End Time': '10:00' }]);
