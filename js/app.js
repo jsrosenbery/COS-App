@@ -108,6 +108,90 @@ function nextPaint() {
   return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 }
 
+function visitorCounterElements() {
+  return {
+    count: document.getElementById('timberVisitorCount'),
+    status: document.getElementById('timberVisitorStatus'),
+    widget: document.getElementById('timber-visitor-counter')
+  };
+}
+
+function displayVisitorCount(count, statusText = 'Visits') {
+  const elements = visitorCounterElements();
+  if (!elements.count || !elements.status) return;
+  const numericCount = Number(count);
+  elements.count.textContent = Number.isFinite(numericCount)
+    ? Math.max(0, Math.round(numericCount)).toLocaleString()
+    : '--';
+  elements.status.textContent = statusText;
+  elements.widget?.setAttribute('data-counter-status', statusText);
+}
+
+function visitorCounterStorage(name) {
+  try {
+    return window[name] || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function countLocalTimberVisit() {
+  const localCountKey = 'timber-visitor-count-local-v1';
+  const sessionCountedKey = 'timber-visitor-counted-session-v1';
+  const storage = visitorCounterStorage('localStorage');
+  const session = visitorCounterStorage('sessionStorage');
+  const alreadyCounted = session?.getItem(sessionCountedKey) === 'true';
+  const current = Number(storage?.getItem(localCountKey) || 0);
+  const next = alreadyCounted ? current : current + 1;
+  if (!alreadyCounted) {
+    storage?.setItem(localCountKey, String(next));
+    session?.setItem(sessionCountedKey, 'true');
+  }
+  return next;
+}
+
+function extractVisitorCount(payload) {
+  const candidates = [
+    payload?.count,
+    payload?.visits,
+    payload?.total,
+    payload?.data?.count,
+    payload?.data?.visits,
+    payload?.data?.total
+  ];
+  return candidates.find(value => Number.isFinite(Number(value)));
+}
+
+async function initializeTimberVisitorCounter(backendBaseUrl = window.BACKEND_BASE_URL || '') {
+  const elements = visitorCounterElements();
+  if (!elements.widget) return;
+  displayVisitorCount(null, 'Counting');
+  const sessionCountedKey = 'timber-visitor-counted-session-v1';
+  const session = visitorCounterStorage('sessionStorage');
+  const alreadyCounted = session?.getItem(sessionCountedKey) === 'true';
+  const baseUrl = String(backendBaseUrl || '').replace(/\/$/, '');
+  if (baseUrl) {
+    try {
+      const response = await fetch(`${baseUrl}/api/visitor-count`, {
+        method: alreadyCounted ? 'GET' : 'POST',
+        cache: 'no-store',
+        headers: alreadyCounted ? undefined : { 'Content-Type': 'application/json' },
+        body: alreadyCounted ? undefined : JSON.stringify({ app: 'TIMBER', path: window.location?.pathname || '/' })
+      });
+      if (!response.ok) throw new Error(`Visitor counter unavailable (${response.status})`);
+      const payload = await response.json().catch(() => ({}));
+      const count = extractVisitorCount(payload);
+      if (count === undefined) throw new Error('Visitor counter response did not include a count.');
+      session?.setItem(sessionCountedKey, 'true');
+      displayVisitorCount(count, 'Total visits');
+      return;
+    } catch (err) {
+      if (window.COS_VISITOR_COUNTER_DEBUG) console.warn('TIMBER visitor counter backend unavailable; using local browser count.', err);
+    }
+  }
+  displayVisitorCount(countLocalTimberVisit(), 'Browser count');
+}
+
 // --- Official Term Start Dates ---
 const termStartDates = schedulingConfig.TERM_START_DATES || {};
 
@@ -1024,6 +1108,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const BACKEND_BASE_URL = window.BACKEND_BASE_URL || window.COS_APP_CONFIG?.backendBaseUrl || "https://app-backend-docker-fgh0.onrender.com";
   window.BACKEND_BASE_URL = BACKEND_BASE_URL;
+  initializeTimberVisitorCounter(BACKEND_BASE_URL);
 
   const tabs         = document.getElementById('term-tabs');
   const uploadDiv    = document.getElementById('upload-container');

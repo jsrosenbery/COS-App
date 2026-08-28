@@ -180,3 +180,19 @@ test('index serves PDF.js catalog extraction engine locally', () => {
   assert.equal(fs.existsSync(path.join(root, 'vendor', 'pdfjs', 'pdf.min.js')), true);
   assert.equal(fs.existsSync(path.join(root, 'vendor', 'pdfjs', 'pdf.worker.min.js')), true);
 });
+
+test('TIMBER visitor counter widget and backend contract are present', () => {
+  const root = path.join(__dirname, '..');
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const appSource = fs.readFileSync(path.join(root, 'js', 'app.js'), 'utf8');
+  const cssSource = fs.readFileSync(path.join(root, 'css', 'style.css'), 'utf8');
+
+  assert.match(index, /id="timber-visitor-counter"/);
+  assert.match(index, /images\/timber-visitor-mascot-widget\.png/);
+  assert.match(index, /id="timberVisitorCount"/);
+  assert.match(appSource, /initializeTimberVisitorCounter/);
+  assert.match(appSource, /\/api\/visitor-count/);
+  assert.match(appSource, /timber-visitor-counted-session-v1/);
+  assert.match(cssSource, /\.timber-visitor-sign/);
+  assert.equal(fs.existsSync(path.join(root, 'images', 'timber-visitor-mascot-widget.png')), true);
+});

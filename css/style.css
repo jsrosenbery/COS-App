@@ -28,6 +28,7 @@ body {
 }
 
 .site-header {
+  position: relative;
   color: #fff;
   background: linear-gradient(180deg, #ffffff 0%, #eef5f8 100%);
   box-shadow: 0 8px 24px rgba(16, 32, 51, 0.1);
@@ -80,6 +81,73 @@ h1 {
   background: linear-gradient(135deg, #ffffff, #d9fff5);
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.timber-visitor-counter {
+  position: absolute;
+  right: clamp(12px, 2vw, 28px);
+  bottom: 0.7rem;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: 62px minmax(112px, auto);
+  align-items: center;
+  max-width: min(260px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.timber-visitor-mascot {
+  width: 82px;
+  height: 104px;
+  object-fit: cover;
+  object-position: 50% 18%;
+  border: 2px solid rgba(255, 255, 255, 0.88);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(8, 32, 55, 0.28);
+}
+
+.timber-visitor-sign {
+  transform: rotate(-1deg) translateX(-6px);
+  min-width: 120px;
+  padding: 0.48rem 0.7rem 0.42rem;
+  border: 2px solid #5b351b;
+  border-radius: 7px;
+  color: #2d1a0d;
+  text-align: center;
+  background:
+    linear-gradient(90deg, rgba(85, 47, 20, 0.17), transparent 18%, rgba(255, 255, 255, 0.18) 42%, transparent 66%, rgba(66, 35, 15, 0.2)),
+    linear-gradient(180deg, #c98b48 0%, #a9672e 52%, #8a4f24 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 236, 196, 0.7),
+    inset 0 -3px 0 rgba(70, 35, 13, 0.22),
+    0 8px 18px rgba(8, 32, 55, 0.2);
+  font-family: Georgia, "Times New Roman", serif;
+  text-shadow: 0 1px 0 rgba(255, 230, 176, 0.35);
+}
+
+.timber-visitor-sign span,
+.timber-visitor-sign em {
+  display: block;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.timber-visitor-sign strong {
+  display: block;
+  margin: 0.06rem 0;
+  font-size: clamp(1.25rem, 2vw, 1.8rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.timber-visitor-sign em {
+  color: rgba(45, 26, 13, 0.78);
+  font-size: 0.5rem;
 }
 
 #term-tabs {
@@ -2503,6 +2571,24 @@ button:hover,
 
   .timber-acronym {
     font-size: 0.74rem;
+  }
+
+  .timber-visitor-counter {
+    position: static;
+    grid-template-columns: 54px minmax(108px, 1fr);
+    justify-content: center;
+    width: fit-content;
+    max-width: calc(100% - 1rem);
+    margin: 0.45rem auto 0;
+  }
+
+  .timber-visitor-mascot {
+    width: 70px;
+    height: 88px;
+  }
+
+  .timber-visitor-sign {
+    min-width: 112px;
   }
 
   #term-tabs {
