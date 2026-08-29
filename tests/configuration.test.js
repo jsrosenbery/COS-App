@@ -188,11 +188,13 @@ test('TIMBER visitor counter widget and backend contract are present', () => {
   const cssSource = fs.readFileSync(path.join(root, 'css', 'style.css'), 'utf8');
 
   assert.match(index, /id="timber-visitor-counter"/);
-  assert.match(index, /images\/timber-visitor-mascot-widget\.png/);
+  assert.match(index, /images\/timber-visitor-counter-board\.png/);
   assert.match(index, /id="timberVisitorCount"/);
   assert.match(appSource, /initializeTimberVisitorCounter/);
   assert.match(appSource, /\/api\/visitor-count/);
   assert.match(appSource, /timber-visitor-counted-session-v1/);
+  assert.match(appSource, /timber-counter-digit/);
   assert.match(cssSource, /\.timber-visitor-sign/);
-  assert.equal(fs.existsSync(path.join(root, 'images', 'timber-visitor-mascot-widget.png')), true);
+  assert.match(cssSource, /\.timber-counter-digit/);
+  assert.equal(fs.existsSync(path.join(root, 'images', 'timber-visitor-counter-board.png')), true);
 });

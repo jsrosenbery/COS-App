@@ -120,9 +120,18 @@ function displayVisitorCount(count, statusText = 'Visits') {
   const elements = visitorCounterElements();
   if (!elements.count || !elements.status) return;
   const numericCount = Number(count);
-  elements.count.textContent = Number.isFinite(numericCount)
+  const displayValue = Number.isFinite(numericCount)
     ? Math.max(0, Math.round(numericCount)).toLocaleString()
     : '--';
+  elements.count.replaceChildren();
+  Array.from(displayValue).forEach(character => {
+    const tile = document.createElement('span');
+    tile.className = character === ',' ? 'timber-counter-separator' : 'timber-counter-digit';
+    tile.textContent = character;
+    tile.setAttribute('aria-hidden', 'true');
+    elements.count.appendChild(tile);
+  });
+  elements.count.setAttribute('aria-label', displayValue === '--' ? 'Count unavailable' : `${displayValue} visits`);
   elements.status.textContent = statusText;
   elements.widget?.setAttribute('data-counter-status', statusText);
 }
