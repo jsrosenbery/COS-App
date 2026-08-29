@@ -91,7 +91,7 @@ h1 {
   width: clamp(132px, 12vw, 184px);
   aspect-ratio: 2 / 3;
   pointer-events: none;
-  filter: drop-shadow(0 10px 18px rgba(8, 32, 55, 0.28));
+  filter: drop-shadow(0 8px 12px rgba(8, 32, 55, 0.26));
 }
 
 .timber-visitor-mascot {
@@ -2613,7 +2613,7 @@ button:hover,
   .timber-visitor-counter {
     position: static;
     width: 142px;
-    margin: 0.45rem auto 0;
+    margin: -0.15rem auto -0.65rem;
   }
 
   .timber-visitor-mascot {
