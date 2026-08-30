@@ -1,0 +1,12 @@
+{
+  "standardizedLecture": { "term": "FALL 2026", "CRN": "S1001", "ACCOUNTING_METHOD": "W", "CENSUS_ENROLL": 20, "SESSION_CREDIT_HOURS": 3, "LECTURE_UNITS": 3 },
+  "standardizedLab": { "term": "FALL 2026", "CRN": "S1002", "ACCOUNTING_METHOD": "D", "CENSUS_ENROLL": 10, "SESSION_CREDIT_HOURS": 1, "LAB_UNITS": 1 },
+  "standardizedActivity": { "term": "FALL 2026", "CRN": "S1003", "ACCOUNTING_METHOD": "IW", "CENSUS_ENROLL": 15, "SESSION_CREDIT_HOURS": 1, "ACTIVITY_UNITS": 1 },
+  "standardizedMixed": { "term": "FALL 2026", "CRN": "S1004", "ACCOUNTING_METHOD": "ID", "CENSUS_ENROLL": 12, "SESSION_CREDIT_HOURS": 3, "LECTURE_UNITS": 2, "LAB_UNITS": 1 },
+  "standardizedMissing": { "term": "FALL 2026", "CRN": "S1005", "ACCOUNTING_METHOD": "W", "CENSUS_ENROLL": 10, "SESSION_CREDIT_HOURS": 3 },
+  "reportableCensus": { "term": "FALL 2026", "CRN": "R1001", "ACCOUNTING_METHOD": "W", "CENSUS_ENROLL": 41, "RES_CENSUS": 33, "SESSION_CREDIT_HOURS": 3, "LECTURE_UNITS": 3 },
+  "positiveActual": { "term": "SUMMER 2026", "CRN": "P1001", "ACCOUNTING_METHOD": "P", "CENSUS_ENROLL": 64, "POSITIVE_HOURS": 382.05, "TOTAL_CONTACT_HOURS": 54.25 },
+  "positiveScheduledOnly": { "term": "SUMMER 2026", "CRN": "P1002", "ACCOUNTING_METHOD": "E", "CENSUS_ENROLL": 64, "TOTAL_CONTACT_HOURS": 54.25 },
+  "workExperienceWithoutDirect": { "term": "FALL 2026", "CRN": "X1001", "__sourceType": "WORK_EXPERIENCE", "ACCOUNTING_METHOD": "I", "CENSUS_ENROLL": 10, "SESSION_CREDIT_HOURS": 3 },
+  "directStandardized": { "term": "FALL 2026", "CRN": "D1001", "ACCOUNTING_METHOD": "W", "CENSUS_ENROLL": 20, "SESSION_CREDIT_HOURS": 3, "LECTURE_UNITS": 3, "FTES": 1.95 }
+}

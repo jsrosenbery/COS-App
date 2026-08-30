@@ -39,31 +39,37 @@
       Object.prototype.hasOwnProperty.call(row, 'hasFtesData') ||
       Object.prototype.hasOwnProperty.call(row, 'ftesUnavailable')
     );
+    const provenance = String(row?.ftesProvenance || '').trim().toUpperCase();
+    const maturity = provenance === 'UNAVAILABLE' || unavailable
+      ? 'UNAVAILABLE'
+      : provenance === 'PREDICTED'
+        ? 'PREDICTED'
+        : /CONFIRMED|FINAL/.test(String(row?.ftesMaturity || '').toUpperCase()) ? 'CONFIRMED' : 'ESTIMATED';
 
     if (unavailable && !includeUnavailableRaw) {
       if (includePredicted && predicted != null) {
-        return { value: predicted, source: 'Predicted', unavailable: false, direct: false, estimated: false, predictedOnly: true };
+        return { value: predicted, source: 'Predicted', provenance: 'PREDICTED', maturity: 'PREDICTED', unavailable: false, direct: false, estimated: false, predictedOnly: true };
       }
-      return { value: 0, source: 'Unavailable', unavailable: true, direct: false, estimated: false, predictedOnly: false };
+      return { value: 0, source: 'Unavailable', provenance: 'UNAVAILABLE', maturity: 'UNAVAILABLE', unavailable: true, direct: false, estimated: false, predictedOnly: false };
     }
 
     if (row?.hasDirectFtesData && (direct != null || calculated != null)) {
-      return { value: direct ?? calculated, source: 'Direct', unavailable: false, direct: true, estimated: false, predictedOnly: false };
+      return { value: direct ?? calculated, source: 'Direct', provenance: provenance || 'DIRECT', maturity, unavailable: false, direct: true, estimated: false, predictedOnly: false };
     }
 
     if (row?.hasFtesData && calculated != null) {
-      return { value: calculated, source: row?.hasDirectFtesData ? 'Direct' : 'Estimated', unavailable: false, direct: Boolean(row?.hasDirectFtesData), estimated: !row?.hasDirectFtesData, predictedOnly: false };
+      return { value: calculated, source: row?.hasDirectFtesData ? 'Direct' : 'Estimated', provenance: provenance || (row?.hasDirectFtesData ? 'DIRECT' : 'CALCULATED_LEGACY'), maturity, unavailable: false, direct: Boolean(row?.hasDirectFtesData), estimated: !row?.hasDirectFtesData, predictedOnly: false };
     }
 
     if (!hasExplicitAvailability && calculated != null) {
-      return { value: calculated, source: 'Legacy FTES', unavailable: false, direct: false, estimated: false, predictedOnly: false };
+      return { value: calculated, source: 'Legacy FTES', provenance: provenance || 'CALCULATED_LEGACY', maturity, unavailable: false, direct: false, estimated: false, predictedOnly: false };
     }
 
     if (includePredicted && predicted != null) {
-      return { value: predicted, source: 'Predicted', unavailable: false, direct: false, estimated: false, predictedOnly: true };
+      return { value: predicted, source: 'Predicted', provenance: 'PREDICTED', maturity: 'PREDICTED', unavailable: false, direct: false, estimated: false, predictedOnly: true };
     }
 
-    return { value: 0, source: 'Unavailable', unavailable: true, direct: false, estimated: false, predictedOnly: false };
+    return { value: 0, source: 'Unavailable', provenance: 'UNAVAILABLE', maturity: 'UNAVAILABLE', unavailable: true, direct: false, estimated: false, predictedOnly: false };
   }
 
   function ftesValue(row, options = {}) {

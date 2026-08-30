@@ -3242,7 +3242,7 @@ test('historical pending FTES source quality blocks estimated projected and form
   assert.equal(byCrn.CUBE.historicalSourceQuality, 'FINAL_INSTITUTIONAL_ACTUAL');
   assert.equal(byCrn.HOURS.historicalSourceQuality, 'FINAL_ACTUAL_HOURS');
   assert.equal(byCrn.FORM.eligible, false);
-  assert.equal(byCrn.FORM.historicalSourceQuality, 'FORMULA_CALCULATED');
+  assert.equal(byCrn.FORM.historicalSourceQuality, 'UNAVAILABLE');
   assert.equal(byCrn.EST.eligible, false);
   assert.equal(byCrn.PROJ.eligible, false);
   assert.equal(byCrn.WXBAD.eligible, false);
@@ -3325,7 +3325,7 @@ test('historical pending FTES analysis reports confidence outliers ranges and do
   assert.deepEqual(rows.map(row => row.ftes), before);
   assert.ok(exportRows.some(row => row.rowType === 'Diagnostic Simulation' && row.historicalSourceQuality === 'FINAL_ACTUAL_HOURS'));
   assert.ok(exportRows.some(row => row.rowType === 'Diagnostic Total Projection'));
-  assert.equal(Number(analysis.summary.establishedFtes.toFixed(6)), Number(((54 * 20) / 525).toFixed(6)));
+  assert.equal(Number(analysis.summary.establishedFtes.toFixed(6)), 2);
 });
 
 test('current enrollment FTES calculation labels reflect standardized method without renaming Banner code', () => {
@@ -3481,8 +3481,8 @@ test('standardized attendance uses current enrollment before census and census e
 
 test('standardized attendance keeps positive attendance E Part of Term E work experience and noncredit separate', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
-  const positive = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'P', CENSUS_ENROLL: 10, TOTAL_CONTACT_HOURS: 60, LECTURE_UNITS: 3 });
-  const openEntry = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'E', PTRM: 'E', CENSUS_ENROLL: 10, TOTAL_CONTACT_HOURS: 60, LECTURE_UNITS: 3 });
+  const positive = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'P', CENSUS_ENROLL: 10, POSITIVE_HOURS: 60, TOTAL_CONTACT_HOURS: 60, LECTURE_UNITS: 3 });
+  const openEntry = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'E', PTRM: 'E', CENSUS_ENROLL: 10, POSITIVE_HOURS: 60, TOTAL_CONTACT_HOURS: 60, LECTURE_UNITS: 3 });
   const workExperience = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', __sourceType: 'WORK_EXPERIENCE', 'ACCOUNTING METHOD': 'I', CENSUS_ENROLL: 10, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3 });
   const noncredit = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'W', CREDIT_STATUS: 'Noncredit', CENSUS_ENROLL: 10, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3, HOURS_PER_WEEK: 3 });
 
@@ -3491,6 +3491,56 @@ test('standardized attendance keeps positive attendance E Part of Term E work ex
   assert.equal(openEntry.partOfTerm, 'E');
   assert.equal(workExperience.calculationMethod, 'WORK_EXPERIENCE_SPECIAL');
   assert.notEqual(noncredit.calculationMethod, 'STANDARDIZED_ATTENDANCE');
+});
+
+test('FTES hardening fixtures preserve provenance enrollment basis and unavailable classifications', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'ftes-reconciliation-cases.json'), 'utf8'));
+  const rows = Object.fromEntries(Object.entries(fixtures).map(([name, raw]) => [name, COSEnrollmentAnalytics.normalizeRow(raw)]));
+
+  assert.equal(rows.standardizedLecture.standardizedHours, 54);
+  assert.equal(rows.standardizedLab.standardizedHours, 54);
+  assert.equal(rows.standardizedActivity.standardizedHours, 36);
+  assert.equal(rows.standardizedMixed.standardizedHours, 90);
+  assert.equal(rows.standardizedMissing.ftesUnavailable, true);
+  assert.equal(rows.standardizedLecture.ftesProvenance, 'CALCULATED_STANDARDIZED');
+
+  assert.equal(rows.reportableCensus.reportableCensus, 33);
+  assert.equal(rows.reportableCensus.ftesEnrollmentBasis, 'REPORTABLE/RESIDENT CENSUS');
+  assert.equal(Number(rows.reportableCensus.ftes.toFixed(6)), Number(((33 * 54) / 525).toFixed(6)));
+
+  assert.equal(rows.positiveActual.ftesProvenance, 'POSITIVE_ATTENDANCE_ACTUAL');
+  assert.equal(Number(rows.positiveActual.ftes.toFixed(6)), Number((382.05 / 525).toFixed(6)));
+  assert.equal(rows.positiveScheduledOnly.ftesUnavailable, true);
+  assert.equal(rows.positiveScheduledOnly.ftesProvenance, 'UNAVAILABLE');
+  assert.match(rows.positiveScheduledOnly.ftesWarning, /scheduled contact hours are not substituted/i);
+
+  assert.equal(rows.workExperienceWithoutDirect.ftesUnavailable, true);
+  assert.equal(rows.workExperienceWithoutDirect.ftesProvenance, 'UNAVAILABLE');
+  assert.equal(rows.directStandardized.ftes, 1.95);
+  assert.equal(rows.directStandardized.ftesProvenance, 'DIRECT');
+  assert.equal(rows.directStandardized.calculationMethod, 'DIRECT_SOURCE_FTES');
+});
+
+test('FTES reconciliation exposes institutional intermediate fields and source limitations', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const cube = [{
+    Term: 'FALL 2026', CRN: 'RC100', Subject: 'ENGL', Course: 'C1000', 'Accounting Method': 'W',
+    Enrollment: 41, 'Census Enroll': 41, 'Res Census': 33, WCH: 3, WSCH: 0,
+    'Total Contact Hours': 54, 'Positive Hours': 0, 'Individual FTES': 4.4
+  }];
+  const timber = [COSEnrollmentAnalytics.normalizeRow({
+    term: 'FALL 2026', CRN: 'RC100', Subject: 'ENGL', Course: 'C1000', ACCOUNTING_METHOD: 'W',
+    CENSUS_ENROLL: 41, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3
+  })];
+  const summary = COSEnrollmentAnalytics.buildFtesReconciliation(cube, timber, { term: 'FALL 2026', expectedInstitutionalTotal: 4.4 });
+  const row = summary.crnRows[0];
+
+  assert.equal(row.institutionalReportableCensus, 33);
+  assert.equal(row.institutionalWsch, 0);
+  assert.equal(row.reportableCensus, null);
+  assert.equal(summary.rootCauseAnalysis.materialRows[0].rootCause, 'ENROLLMENT BASIS MISMATCH');
+  assert.ok(summary.crnRows.every((item, index, all) => index === 0 || (all[index - 1].absVariance ?? -1) >= (item.absVariance ?? -1)));
 });
 
 test('demand term diagnostics count selected loaded filtered empty and failed terms', () => {
@@ -6888,7 +6938,7 @@ test('FTES reconciliation builds variance root-cause diagnostics without changin
   assert.equal(analysis.materialRows.find(row => row.crn === '30002').rootCause, 'ACCOUNTING METHOD MISMATCH');
   assert.equal(analysis.materialRows.find(row => row.crn === '30006').rootCause, 'MISSING FROM TIMBER');
   assert.equal(analysis.materialRows.find(row => row.crn === '39999').rootCause, 'TIMBER ONLY');
-  assert.equal(analysis.wVariance.some(row => row.name === 'enrollment mismatch'), true);
+  assert.equal(analysis.wVariance.some(row => row.name === 'enrollment basis mismatch'), true);
   assert.equal(analysis.iwVariance.some(row => row.name === 'FTES formula mismatch'), true);
   assert.equal(analysis.eVariance.some(row => row.name === 'contact hours mismatch'), true);
   assert.equal(analysis.positiveAttendanceVariance.some(row => row.name === 'source data incomplete'), true);

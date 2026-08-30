@@ -87,6 +87,7 @@ test('regression baseline: critical first-party scripts use the current Timber b
     'js/core/room-availability-data.js',
     'js/core/section-model.js',
     'js/core/event-layer.js',
+    'js/enrollment/metrics.js',
     'js/enrollment-analytics.js',
     'js/low-enrollment-tracker.js',
     'js/schedule-change-form.js'

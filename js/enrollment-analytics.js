@@ -618,6 +618,10 @@
     ftes: ['ftes', 'FTES', 'Ftes', 'Full Time Equivalent Students', 'Full-Time Equivalent Students'],
     actual: ['actual', 'Actual_Enroll', 'ACTUAL_ENROLL', 'Actual Enroll', 'Enrollment', 'Enroll', 'ENROLLED', 'Current Enrollment', 'Current Enrollment / ACTUAL_ENROLL', 'Current_Enrollment'],
     census: ['census', 'Census_Enroll', 'CENSUS_ENROLL', 'Census Enroll', 'Census Enrollment', 'Census Enrollment / CENSUS_ENROLL'],
+    reportableCensus: ['reportableCensus', 'REPORTABLE_CENSUS', 'Reportable Census', 'RES_CENSUS', 'Res Census', 'Resident Census', 'RESIDENT_CENSUS', 'FTES Reportable Census'],
+    positiveHours: ['positiveHours', 'POSITIVE_HOURS', 'Positive Hours', 'ACTUAL_POSITIVE_HOURS', 'Actual Positive Hours', 'Actual Student Contact Hours', 'ACTUAL_STUDENT_CONTACT_HOURS'],
+    dsch: ['dsch', 'DSCH', 'Daily Student Contact Hours'],
+    wsch: ['wsch', 'WSCH', 'Weekly Student Contact Hours'],
     censusEnrollmentDate: ['censusEnrollmentDate', 'censusEnrollmentDateIso', 'CENSUS_ENRL_DATE', 'Census Enrl Date', 'Census Enrollment Date', 'Census Date', 'CENSUS DATE'],
     census2Date: ['censusEnrollment2Date', 'censusEnrollment2DateIso', 'CENSUS_ENRL2_DATE', 'Census Enrl 2 Date', 'Census Enrollment 2 Date', 'Census 2 Date', 'CENSUS 2 DATE'],
     snapshotDate: ['snapshotDate', 'snapshotDateIso', 'asOfDate', 'uploadDate', 'SnapshotDate', 'Snapshot Date', 'AS_OF_DATE', 'As Of Date', 'As-of Date', 'Report Date', 'REPORT_DATE', 'Data As Of', 'DATA_AS_OF', 'Extract Date', 'EXTRACT_DATE', 'Effective Date', 'Snapshot Effective Date'],
@@ -779,6 +783,14 @@
     const actual = canonical?.actual ?? num(val(row, fields.actual));
     const censusValue = val(row, fields.census);
     const census = censusValue === '' ? null : num(censusValue);
+    const reportableCensusValue = val(row, fields.reportableCensus);
+    const reportableCensus = reportableCensusValue === '' ? null : num(reportableCensusValue);
+    const positiveHoursValue = val(row, fields.positiveHours);
+    const positiveHours = positiveHoursValue === '' ? null : num(positiveHoursValue);
+    const dschValue = val(row, fields.dsch);
+    const dsch = dschValue === '' ? null : num(dschValue);
+    const wschValue = val(row, fields.wsch);
+    const wsch = wschValue === '' ? null : num(wschValue);
     const firstDayValue = val(row, fields.firstDay);
     const census1Value = val(row, fields.census1);
     const census2Value = val(row, fields.census2);
@@ -805,9 +817,9 @@
     const censusEnrollment2Date = val(row, fields.census2Date);
     const snapshotDate = val(row, fields.snapshotDate);
     const activityDate = val(row, fields.activityDate);
-    const enrollmentForFtes = census == null ? actual : census;
+    const enrollmentForFtes = reportableCensus == null ? (census == null ? actual : census) : reportableCensus;
     const enrollmentForPlanning = census == null ? actual : census;
-    const calculation = ftesCalculationDetails(enrollmentForFtes, { term: canonical?.term || val(row, fields.term) || row.__sourceTerm || currentTerm(), units, lectureUnits, labUnits, activityUnits, weeklyHours, dailyHours, totalContactHours, standardizedHours, termLengthMultiplier, accountingMethod, creditStatus, scheduleType, allowOmitted: isWorkExperienceRow, isWorkExperience: isWorkExperienceRow, hasDirectFtesData: ftesValue !== '', directFtes: ftesValue === '' ? null : num(ftesValue), census, actual });
+    const calculation = ftesCalculationDetails(enrollmentForFtes, { term: canonical?.term || val(row, fields.term) || row.__sourceTerm || currentTerm(), units, lectureUnits, labUnits, activityUnits, weeklyHours, dailyHours, totalContactHours, standardizedHours, termLengthMultiplier, accountingMethod, creditStatus, scheduleType, allowOmitted: isWorkExperienceRow, isWorkExperience: isWorkExperienceRow, hasDirectFtesData: ftesValue !== '', directFtes: ftesValue === '' ? null : num(ftesValue), census, reportableCensus, positiveHours, dsch, wsch, actual });
     const hasFtesEstimationInputs = calculation.hasInputs;
     const ftesUnavailable = calculation.unavailable;
     const normalized = {
@@ -872,7 +884,9 @@
       standardizedFtes: calculation.standardizedFtes,
       calculationMethod: calculation.calculationMethod,
       ftesCalculationMethod: calculation.calculationMethod,
+      ftesProvenance: calculation.provenance,
       ftesMaturity: calculation.maturity,
+      ftesMaturityClass: calculation.unavailable ? 'UNAVAILABLE' : (calculation.provenance === 'POSITIVE_ATTENDANCE_ACTUAL' || census != null ? 'CONFIRMED' : 'ESTIMATED'),
       ftesCalculationWarning: calculation.warning,
       standardizedLectureUnits: calculation.lectureUnits,
       standardizedLabUnits: calculation.labUnits,
@@ -887,6 +901,11 @@
       ftesWarning: calculation.warning || (ftesUnavailable ? 'FTES unavailable: direct FTES, contact hours, and units are missing.' : ''),
       actual,
       census,
+      reportableCensus,
+      ftesEnrollmentBasis: reportableCensus == null ? (census == null ? 'CURRENT ENROLLMENT' : 'CENSUS ENROLLMENT') : 'REPORTABLE/RESIDENT CENSUS',
+      positiveHours,
+      dsch,
+      wsch,
       firstDay: firstDayValue === '' ? null : num(firstDayValue),
       census1: census1Value === '' ? census : num(census1Value),
       census2: invalidNegativeCensus2 ? null : census2Raw,
@@ -1055,6 +1074,64 @@
     const legacyFtes = estimatedFtes(enrollment, details);
     const directFtes = details.directFtes == null ? null : Number(details.directFtes || 0);
     const useStandardized = standardizedEligible(details);
+    const maturity = details.census == null ? 'Estimated - Census Pending' : 'Census Confirmed';
+    if (directFtes != null) {
+      return {
+        ftes: directFtes,
+        legacyFtes,
+        standardizedFtes: null,
+        calculationMethod: 'DIRECT_SOURCE_FTES',
+        provenance: 'DIRECT',
+        maturity,
+        warning: '',
+        unavailable: false,
+        hasInputs: true,
+        lectureUnits: Number(details.lectureUnits || 0),
+        labUnits: Number(details.labUnits || 0),
+        activityUnits: Number(details.activityUnits || 0),
+        lectureHours: 0,
+        labHours: 0,
+        activityHours: 0,
+        standardizedHours: Number(details.standardizedHours || 0),
+        unitStatus: '',
+        componentSource: 'supplied authoritative FTES field',
+        info
+      };
+    }
+    if (details.isWorkExperience) {
+      return {
+        ftes: 0,
+        legacyFtes,
+        standardizedFtes: null,
+        calculationMethod: 'WORK_EXPERIENCE_SPECIAL',
+        provenance: 'UNAVAILABLE',
+        maturity: 'Unavailable - Work Experience Source Pending',
+        warning: 'Work Experience FTES unavailable: a dedicated authoritative FTES value is required; generic census/contact-hour formulas are not used.',
+        unavailable: true,
+        hasInputs: false,
+        lectureUnits: 0, labUnits: 0, activityUnits: 0,
+        lectureHours: 0, labHours: 0, activityHours: 0,
+        standardizedHours: 0, unitStatus: '', componentSource: '', info
+      };
+    }
+    if (info.category === 'positive') {
+      const positiveHours = details.positiveHours == null ? null : Number(details.positiveHours || 0);
+      const available = positiveHours != null;
+      return {
+        ftes: available ? positiveHours / 525 : 0,
+        legacyFtes,
+        standardizedFtes: null,
+        calculationMethod: available ? 'POSITIVE_ATTENDANCE_ACTUAL_HOURS_SPECIAL' : 'POSITIVE_ATTENDANCE_PENDING',
+        provenance: available ? 'POSITIVE_ATTENDANCE_ACTUAL' : 'UNAVAILABLE',
+        maturity: available ? 'Census Confirmed' : 'Unavailable - Actual Positive Hours Pending',
+        warning: available ? '' : 'Positive Attendance FTES unavailable: actual positive-attendance/student-contact hours or direct FTES are required; scheduled contact hours are not substituted.',
+        unavailable: !available,
+        hasInputs: available,
+        lectureUnits: 0, labUnits: 0, activityUnits: 0,
+        lectureHours: 0, labHours: 0, activityHours: 0,
+        standardizedHours: 0, unitStatus: '', componentSource: available ? 'actual positive-attendance hours' : '', info
+      };
+    }
     if (useStandardized) {
       const standardized = standardizedFtes(enrollment, details);
       return {
@@ -1062,7 +1139,8 @@
         legacyFtes,
         standardizedFtes: standardized.unavailable ? null : standardized.ftes,
         calculationMethod: 'STANDARDIZED_ATTENDANCE',
-        maturity: details.census == null ? 'Estimated - Census Pending' : 'Census Confirmed',
+        provenance: 'CALCULATED_STANDARDIZED',
+        maturity,
         warning: standardized.warning,
         unavailable: standardized.unavailable,
         hasInputs: !standardized.unavailable,
@@ -1078,16 +1156,17 @@
         info
       };
     }
-    const fallbackFtes = directFtes == null ? legacyFtes : directFtes;
-    const hasInputs = directFtes != null || details.units > 0 || details.weeklyHours > 0 || details.totalContactHours > 0;
+    const fallbackFtes = legacyFtes;
+    const hasInputs = details.units > 0 || details.weeklyHours > 0 || details.totalContactHours > 0;
     return {
       ftes: fallbackFtes,
       legacyFtes,
       standardizedFtes: null,
       calculationMethod: details.isWorkExperience ? 'WORK_EXPERIENCE_SPECIAL' : legacyCalculationMethodName(details.accountingMethod),
-      maturity: details.census == null ? 'Estimated - Census Pending' : 'Census Confirmed',
+      provenance: hasInputs ? 'CALCULATED_LEGACY' : 'UNAVAILABLE',
+      maturity,
       warning: '',
-      unavailable: details.isWorkExperience && !hasInputs,
+      unavailable: !hasInputs,
       hasInputs,
       lectureUnits: Number(details.lectureUnits || 0),
       labUnits: Number(details.labUnits || 0),
@@ -1312,6 +1391,10 @@
       hasDirectFtesData: row.hasDirectFtesData,
       directFtes: row.hasDirectFtesData ? (row.sourceFtes ?? row.ftes) : null,
       census: row.census,
+      reportableCensus: row.reportableCensus,
+      positiveHours: row.positiveHours,
+      dsch: row.dsch,
+      wsch: row.wsch,
       actual: row.actual
     });
     row.ftes = calculation.ftes;
@@ -1319,7 +1402,9 @@
     row.standardizedFtes = calculation.standardizedFtes;
     row.calculationMethod = calculation.calculationMethod;
     row.ftesCalculationMethod = calculation.calculationMethod;
+    row.ftesProvenance = calculation.provenance;
     row.ftesMaturity = calculation.maturity;
+    row.ftesMaturityClass = calculation.unavailable ? 'UNAVAILABLE' : (calculation.provenance === 'POSITIVE_ATTENDANCE_ACTUAL' || row.census != null ? 'CONFIRMED' : 'ESTIMATED');
     row.ftesCalculationWarning = calculation.warning;
     row.standardizedLectureUnits = calculation.lectureUnits;
     row.standardizedLabUnits = calculation.labUnits;
@@ -15607,6 +15692,13 @@ BUS 180 2 units`)
         accountingMethodLabel: ACCOUNTING_METHOD_KNOWN_LABELS[accountingMethod || fill.accountingMethod] || (accountingMethod || fill.accountingMethod),
         partOfTerm: partOfTerm || fill.partOfTerm,
         institutionalEnrollment: cubeNumber(row, ['Enrollment', 'ENROLLMENT', 'Enroll']),
+        institutionalCensusEnrollment: cubeNumber(row, ['Census Enroll', 'CENSUS_ENROLL', 'Census Enrollment']),
+        institutionalReportableCensus: cubeNumber(row, ['Res Census', 'RES_CENSUS', 'Resident Census', 'Reportable Census']),
+        institutionalDch: cubeNumber(row, ['DCH', 'Daily Contact Hours']),
+        institutionalWch: cubeNumber(row, ['WCH', 'Weekly Contact Hours']),
+        institutionalDsch: cubeNumber(row, ['DSCH', 'Daily Student Contact Hours']),
+        institutionalWsch: cubeNumber(row, ['WSCH', 'Weekly Student Contact Hours']),
+        institutionalPositiveHours: cubeNumber(row, ['Positive Hours', 'POSITIVE_HOURS', 'Positive Attendance Hours']),
         studentContactHours,
         institutionalFtes,
         rowType: 'CRN Parent'
@@ -15713,6 +15805,8 @@ BUS 180 2 units`)
           newContactHourBasis: 0,
           includedComponentCount: 0,
           excludedComponentCount: 0,
+          includedComponents: '',
+          excludedComponents: '',
           legacyTimberFtes: null,
           meetingRowCount: 0,
           termLengthMultiplier: 17.5,
@@ -15721,7 +15815,21 @@ BUS 180 2 units`)
           days: '',
           start: '',
           end: '',
-          modality: ''
+          modality: '',
+          actualEnrollment: null,
+          censusEnrollment: null,
+          reportableCensus: null,
+          census2: null,
+          enrollmentBasis: '',
+          positiveHours: null,
+          dsch: null,
+          wsch: null,
+          calculationMethod: '',
+          ftesProvenance: '',
+          ftesMaturity: '',
+          ftesMaturityClass: '',
+          predictedFtes: null,
+          directFtes: null
         });
       }
       const record = grouped.get(crn);
@@ -15742,6 +15850,8 @@ BUS 180 2 units`)
       record.newContactHourBasis = Math.max(record.newContactHourBasis || 0, meetingInputs.newContactHourBasis || 0);
       record.includedComponentCount = Math.max(record.includedComponentCount || 0, meetingInputs.includedComponentCount || 0);
       record.excludedComponentCount = Math.max(record.excludedComponentCount || 0, meetingInputs.excludedComponentCount || 0);
+      record.includedComponents = record.includedComponents || meetingInputs.includedComponents || '';
+      record.excludedComponents = record.excludedComponents || meetingInputs.excludedComponents || '';
       record.legacyTimberFtes = sumNullable(record.legacyTimberFtes, meetingInputs.legacyTimberFtes);
       record.meetingRowCount = Math.max(record.meetingRowCount || 0, meetingInputs.meetingRowCount || 0);
       record.startDate = record.startDate || row.startDate || '';
@@ -15750,6 +15860,20 @@ BUS 180 2 units`)
       record.start = record.start || row.start || '';
       record.end = record.end || row.end || '';
       record.modality = record.modality || row.modality || '';
+      record.actualEnrollment ??= row.actual ?? null;
+      record.censusEnrollment ??= row.census ?? null;
+      record.reportableCensus ??= row.reportableCensus ?? null;
+      record.census2 ??= row.census2 ?? null;
+      record.enrollmentBasis = record.enrollmentBasis || row.ftesEnrollmentBasis || '';
+      record.positiveHours ??= row.positiveHours ?? null;
+      record.dsch ??= row.dsch ?? null;
+      record.wsch ??= row.wsch ?? null;
+      record.calculationMethod = record.calculationMethod || row.ftesCalculationMethod || row.calculationMethod || '';
+      record.ftesProvenance = record.ftesProvenance || row.ftesProvenance || '';
+      record.ftesMaturity = record.ftesMaturity || row.ftesMaturity || '';
+      record.ftesMaturityClass = record.ftesMaturityClass || row.ftesMaturityClass || '';
+      record.predictedFtes ??= row.predictedFtes ?? row.historicalPredictedFtes ?? null;
+      record.directFtes ??= row.sourceFtes ?? null;
       const ftes = currentEnrollmentFtesUnavailable(row) ? null : currentEnrollmentFtesValue(row);
       record.timberFtes = sumNullable(record.timberFtes, ftes);
       record.duplicateCount += 1;
@@ -15782,6 +15906,8 @@ BUS 180 2 units`)
       newContactHourBasis: applicable.weeklyHours || 0,
       includedComponentCount: applicable.componentsIncluded?.length || 0,
       excludedComponentCount: applicable.componentsExcluded?.length || 0,
+      includedComponents: (applicable.componentsIncluded || []).map(component => `${component.scheduleType || 'UNKNOWN'}:${component.weeklyHours || component.totalContactHours || 0}`).join('; '),
+      excludedComponents: (applicable.componentsExcluded || []).map(component => `${component.scheduleType || 'UNKNOWN'}:${component.weeklyHours || component.totalContactHours || 0} (${component.reason || 'excluded'})`).join('; '),
       legacyTimberFtes: legacy,
       contactHourDiagnostic: applicable
     };
@@ -15827,7 +15953,28 @@ BUS 180 2 units`)
         institutionalPartOfTerm: institutional.partOfTerm || '',
         timberPartOfTerm: timber.partOfTerm || '',
         institutionalEnrollment: institutional.institutionalEnrollment,
+        institutionalCensusEnrollment: institutional.institutionalCensusEnrollment,
+        institutionalReportableCensus: institutional.institutionalReportableCensus,
+        institutionalDch: institutional.institutionalDch,
+        institutionalWch: institutional.institutionalWch,
+        institutionalDsch: institutional.institutionalDsch,
+        institutionalWsch: institutional.institutionalWsch,
+        institutionalPositiveHours: institutional.institutionalPositiveHours,
         timberEnrollment: timber.timberEnrollment,
+        actualEnrollment: timber.actualEnrollment,
+        censusEnrollment: timber.censusEnrollment,
+        reportableCensus: timber.reportableCensus,
+        census2: timber.census2,
+        enrollmentBasis: timber.enrollmentBasis,
+        positiveHours: timber.positiveHours,
+        dsch: timber.dsch,
+        wsch: timber.wsch,
+        calculationMethod: timber.calculationMethod,
+        ftesProvenance: timber.ftesProvenance,
+        ftesMaturity: timber.ftesMaturity,
+        ftesMaturityClass: timber.ftesMaturityClass,
+        predictedFtes: timber.predictedFtes,
+        directFtes: timber.directFtes,
         units: timber.units,
         weeklyHours: timber.weeklyHours,
         dailyHours: timber.dailyHours,
@@ -15838,6 +15985,8 @@ BUS 180 2 units`)
         newContactHourBasis: timber.newContactHourBasis,
         includedComponentCount: timber.includedComponentCount,
         excludedComponentCount: timber.excludedComponentCount,
+        includedComponents: timber.includedComponents,
+        excludedComponents: timber.excludedComponents,
         legacyTimberFtes: timber.legacyTimberFtes,
         meetingRowCount: timber.meetingRowCount,
         termLengthMultiplier: timber.termLengthMultiplier,
@@ -15874,6 +16023,13 @@ BUS 180 2 units`)
       accountingMethod: acc.accountingMethod || row.accountingMethod,
       partOfTerm: acc.partOfTerm || row.partOfTerm,
       institutionalEnrollment: type === 'institutional' ? sumNullable(acc.institutionalEnrollment, row.institutionalEnrollment) : acc.institutionalEnrollment,
+      institutionalCensusEnrollment: type === 'institutional' ? sumNullable(acc.institutionalCensusEnrollment, row.institutionalCensusEnrollment) : acc.institutionalCensusEnrollment,
+      institutionalReportableCensus: type === 'institutional' ? sumNullable(acc.institutionalReportableCensus, row.institutionalReportableCensus) : acc.institutionalReportableCensus,
+      institutionalDch: type === 'institutional' ? sumNullable(acc.institutionalDch, row.institutionalDch) : acc.institutionalDch,
+      institutionalWch: type === 'institutional' ? sumNullable(acc.institutionalWch, row.institutionalWch) : acc.institutionalWch,
+      institutionalDsch: type === 'institutional' ? sumNullable(acc.institutionalDsch, row.institutionalDsch) : acc.institutionalDsch,
+      institutionalWsch: type === 'institutional' ? sumNullable(acc.institutionalWsch, row.institutionalWsch) : acc.institutionalWsch,
+      institutionalPositiveHours: type === 'institutional' ? sumNullable(acc.institutionalPositiveHours, row.institutionalPositiveHours) : acc.institutionalPositiveHours,
       studentContactHours: type === 'institutional' ? sumNullable(acc.studentContactHours, row.studentContactHours) : acc.studentContactHours,
       institutionalFtes: type === 'institutional' ? sumNullable(acc.institutionalFtes, row.institutionalFtes) : acc.institutionalFtes,
       timberEnrollment: type === 'timber' ? sumNullable(acc.timberEnrollment, row.timberEnrollment) : acc.timberEnrollment,
@@ -15888,6 +16044,8 @@ BUS 180 2 units`)
       newContactHourBasis: type === 'timber' ? Math.max(acc.newContactHourBasis || 0, row.newContactHourBasis || 0) : acc.newContactHourBasis,
       includedComponentCount: type === 'timber' ? Math.max(acc.includedComponentCount || 0, row.includedComponentCount || 0) : acc.includedComponentCount,
       excludedComponentCount: type === 'timber' ? Math.max(acc.excludedComponentCount || 0, row.excludedComponentCount || 0) : acc.excludedComponentCount,
+      includedComponents: type === 'timber' ? (acc.includedComponents || row.includedComponents) : acc.includedComponents,
+      excludedComponents: type === 'timber' ? (acc.excludedComponents || row.excludedComponents) : acc.excludedComponents,
       legacyTimberFtes: type === 'timber' ? sumNullable(acc.legacyTimberFtes, row.legacyTimberFtes) : acc.legacyTimberFtes,
       meetingRowCount: type === 'timber' ? Math.max(acc.meetingRowCount || 0, row.meetingRowCount || 0) : acc.meetingRowCount,
       termLengthMultiplier: type === 'timber' ? (acc.termLengthMultiplier || row.termLengthMultiplier || 17.5) : acc.termLengthMultiplier,
@@ -15897,6 +16055,20 @@ BUS 180 2 units`)
       start: type === 'timber' ? (acc.start || row.start) : acc.start,
       end: type === 'timber' ? (acc.end || row.end) : acc.end,
       modality: type === 'timber' ? (acc.modality || row.modality) : acc.modality,
+      actualEnrollment: type === 'timber' ? (acc.actualEnrollment ?? row.actualEnrollment) : acc.actualEnrollment,
+      censusEnrollment: type === 'timber' ? (acc.censusEnrollment ?? row.censusEnrollment) : acc.censusEnrollment,
+      reportableCensus: type === 'timber' ? (acc.reportableCensus ?? row.reportableCensus) : acc.reportableCensus,
+      census2: type === 'timber' ? (acc.census2 ?? row.census2) : acc.census2,
+      enrollmentBasis: type === 'timber' ? (acc.enrollmentBasis || row.enrollmentBasis) : acc.enrollmentBasis,
+      positiveHours: type === 'timber' ? (acc.positiveHours ?? row.positiveHours) : acc.positiveHours,
+      dsch: type === 'timber' ? (acc.dsch ?? row.dsch) : acc.dsch,
+      wsch: type === 'timber' ? (acc.wsch ?? row.wsch) : acc.wsch,
+      calculationMethod: type === 'timber' ? (acc.calculationMethod || row.calculationMethod) : acc.calculationMethod,
+      ftesProvenance: type === 'timber' ? (acc.ftesProvenance || row.ftesProvenance) : acc.ftesProvenance,
+      ftesMaturity: type === 'timber' ? (acc.ftesMaturity || row.ftesMaturity) : acc.ftesMaturity,
+      ftesMaturityClass: type === 'timber' ? (acc.ftesMaturityClass || row.ftesMaturityClass) : acc.ftesMaturityClass,
+      predictedFtes: type === 'timber' ? (acc.predictedFtes ?? row.predictedFtes) : acc.predictedFtes,
+      directFtes: type === 'timber' ? (acc.directFtes ?? row.directFtes) : acc.directFtes,
       timberFtesSources: [acc.timberFtesSources, row.timberFtesSources].filter(Boolean).join('; '),
       sourceDataset: [acc.sourceDataset, row.sourceDataset].filter(Boolean).join('; '),
       workExperience: acc.workExperience || row.workExperience,
@@ -15956,13 +16128,17 @@ BUS 180 2 units`)
     const timberPartKnown = row.timberPartOfTerm && row.timberPartOfTerm !== 'Unavailable';
     const partDiff = row.institutionalPartOfTerm && timberPartKnown && row.institutionalPartOfTerm !== row.timberPartOfTerm;
     if (row.status === 'Duplicate / Ambiguous') return 'DUPLICATE';
-    if (row.workExperience && row.status !== 'Exact Match' && row.status !== 'Within Tolerance') return 'WORK EXPERIENCE SOURCE ISSUE';
+    if (row.workExperience && row.status !== 'Exact Match' && row.status !== 'Within Tolerance') return 'WEXP SPECIAL CALCULATION MISMATCH';
     if (row.status === 'Missing From Institutional Source') return 'TIMBER ONLY';
     if (row.status === 'Missing From TIMBER' && (row.timberEnrollment == null || row.timberFtes == null) && row.timberEnrollment == null) return 'MISSING FROM TIMBER';
     if (row.status === 'Missing From TIMBER' && (row.timberEnrollment != null || /unavailable/i.test(row.timberFtesSource || ''))) return 'SOURCE DATA INCOMPLETE';
     if (institutionalMethod && timberMethod && institutionalMethod !== timberMethod) return 'ACCOUNTING METHOD MISMATCH';
+    if (['P', 'E'].includes(institutionalMethod || timberMethod) && row.institutionalPositiveHours != null && row.positiveHours == null) return 'POSITIVE ATTENDANCE BASIS MISMATCH';
+    if (row.institutionalReportableCensus != null && row.reportableCensus == null && row.institutionalReportableCensus !== row.censusEnrollment) return 'ENROLLMENT BASIS MISMATCH';
+    if (((row.institutionalDsch === 0 && (row.totalContactHours || 0) > 0) || (row.institutionalWsch === 0 && (row.weeklyHours || 0) > 0)) && (row.timberFtes || 0) > 0) return 'DSCH/WSCH ELIGIBILITY MISMATCH';
+    if (/STANDARDIZED/.test(row.calculationMethod || '') && Math.abs(row.variance || 0) > tolerance) return 'STANDARDIZED UNIT/COMPONENT MISMATCH';
     if (partDiff) return 'PART OF TERM ISSUE';
-    if (enrollmentDiff != null && enrollmentDiff !== 0) return 'ENROLLMENT MISMATCH';
+    if (enrollmentDiff != null && enrollmentDiff !== 0) return 'ENROLLMENT BASIS MISMATCH';
     if (institutionalMethod === 'P' && (row.timberFtes == null || /unavailable/i.test(row.timberFtesSource || ''))) return 'SOURCE DATA INCOMPLETE';
     if (row.studentContactHours != null && ['P', 'E'].includes(institutionalMethod) && Math.abs(row.variance || 0) > tolerance) return 'CONTACT HOURS MISMATCH';
     if (Math.abs(row.variance || 0) > tolerance && institutionalMethod && timberMethod && institutionalMethod === timberMethod) return 'FORMULA MISMATCH';
@@ -15975,10 +16151,13 @@ BUS 180 2 units`)
     if (rootCause === 'MISSING FROM TIMBER') return 'Institutional CRN has no matching usable TIMBER row.';
     if (rootCause === 'TIMBER ONLY') return 'TIMBER CRN is absent from the institutional source.';
     if (rootCause === 'SOURCE DATA INCOMPLETE') return `TIMBER row is present but FTES source is incomplete or unavailable (${row.timberFtesSource || 'source unavailable'}).`;
-    if (rootCause === 'ENROLLMENT MISMATCH') return `Enrollment differs: institutional ${row.institutionalEnrollment ?? 'N/A'} vs TIMBER ${row.timberEnrollment ?? 'N/A'}.`;
+    if (rootCause === 'ENROLLMENT BASIS MISMATCH') return `FTES enrollment basis differs or the reportable/resident census source is unavailable: institutional ${row.institutionalReportableCensus ?? row.institutionalEnrollment ?? 'N/A'} vs TIMBER ${row.reportableCensus ?? row.censusEnrollment ?? row.timberEnrollment ?? 'N/A'}.`;
     if (rootCause === 'CONTACT HOURS MISMATCH') return `Institutional contact hours are ${row.studentContactHours ?? 'N/A'}; TIMBER source path is ${row.timberFtesSource || 'N/A'}.`;
     if (rootCause === 'PART OF TERM ISSUE') return `Part of Term differs: institutional ${row.institutionalPartOfTerm || 'blank'} vs TIMBER ${row.timberPartOfTerm || 'blank'}.`;
-    if (rootCause === 'WORK EXPERIENCE SOURCE ISSUE') return 'Work Experience CRN requires supplemental source review.';
+    if (rootCause === 'WEXP SPECIAL CALCULATION MISMATCH') return 'Work Experience CRN requires its dedicated authoritative source; generic W/IW/D/ID calculations are not substituted.';
+    if (rootCause === 'POSITIVE ATTENDANCE BASIS MISMATCH') return 'Institutional actual positive-attendance hours are present but TIMBER lacks the equivalent authoritative source field.';
+    if (rootCause === 'DSCH/WSCH ELIGIBILITY MISMATCH') return 'Scheduled hours exist, but the institutional source reports zero eligible DSCH/WSCH; an eligibility indicator is required.';
+    if (rootCause === 'STANDARDIZED UNIT/COMPONENT MISMATCH') return 'Fall 2026+ standardized component units/hours do not reconcile to the institutional result.';
     if (rootCause === 'DUPLICATE') return 'Multiple institutional or TIMBER records collapsed to the same CRN.';
     if (rootCause === 'FORMULA MISMATCH') return `Methods and enrollment appear aligned; TIMBER FTES source path is ${row.timberFtesSource || 'N/A'}.`;
     return 'Insufficient evidence for a primary cause.';
@@ -16014,7 +16193,7 @@ BUS 180 2 units`)
     const rootCause = row.rootCause || classifyFtesVarianceRootCause(row);
     if (rootCause === 'MISSING FROM TIMBER') return 'missing CRN';
     if (rootCause === 'ACCOUNTING METHOD MISMATCH') return 'method mismatch';
-    if (rootCause === 'ENROLLMENT MISMATCH') return 'enrollment mismatch';
+    if (rootCause === 'ENROLLMENT BASIS MISMATCH') return 'enrollment basis mismatch';
     if (rootCause === 'CONTACT HOURS MISMATCH') return 'contact hours mismatch';
     if (rootCause === 'SOURCE DATA INCOMPLETE' && targetMethod === 'P') return 'source data incomplete';
     if (rootCause === 'FORMULA MISMATCH') return 'FTES formula mismatch';
@@ -16291,7 +16470,28 @@ BUS 180 2 units`)
       accountingMethodLabel: row.accountingMethodLabel || ACCOUNTING_METHOD_KNOWN_LABELS[row.accountingMethod] || row.accountingMethod || row.name || '',
       partOfTerm: row.partOfTerm || '',
       institutionalEnrollment: row.institutionalEnrollment ?? '',
+      institutionalCensusEnrollment: row.institutionalCensusEnrollment ?? '',
+      institutionalReportableCensus: row.institutionalReportableCensus ?? '',
+      institutionalDch: row.institutionalDch ?? '',
+      institutionalWch: row.institutionalWch ?? '',
+      institutionalDsch: row.institutionalDsch ?? '',
+      institutionalWsch: row.institutionalWsch ?? '',
+      institutionalPositiveHours: row.institutionalPositiveHours ?? '',
       timberEnrollment: row.timberEnrollment ?? '',
+      actualEnrollment: row.actualEnrollment ?? '',
+      censusEnrollment: row.censusEnrollment ?? '',
+      reportableCensus: row.reportableCensus ?? '',
+      census2: row.census2 ?? '',
+      enrollmentBasis: row.enrollmentBasis || '',
+      positiveHours: row.positiveHours ?? '',
+      dsch: row.dsch ?? '',
+      wsch: row.wsch ?? '',
+      calculationMethod: row.calculationMethod || '',
+      ftesProvenance: row.ftesProvenance || '',
+      ftesMaturity: row.ftesMaturity || '',
+      ftesMaturityClass: row.ftesMaturityClass || '',
+      predictedFtes: row.predictedFtes ?? '',
+      directFtes: row.directFtes ?? '',
       studentContactHours: row.studentContactHours ?? '',
       institutionalFtes: row.institutionalFtes ?? '',
       timberFtes: row.timberFtes ?? '',
@@ -16312,6 +16512,8 @@ BUS 180 2 units`)
       newContactHourBasis: row.newContactHourBasis ?? '',
       includedComponentCount: row.includedComponentCount ?? '',
       excludedComponentCount: row.excludedComponentCount ?? '',
+      includedComponents: row.includedComponents || '',
+      excludedComponents: row.excludedComponents || '',
       oldTimberFtes: row.oldTimberFtes ?? row.legacyTimberFtes ?? '',
       ftesRecovered: row.ftesRecovered ?? ''
     });
@@ -16428,7 +16630,7 @@ BUS 180 2 units`)
         dashboardPanel('Diagnostic Notes', `<p class="analytics-chart-note">Positive Attendance variance: ${round1(summary.positiveAttendance.variance || 0)} FTES. Work Experience variance: ${round1(summary.workExperience.variance || 0)} FTES. Statuses distinguish source-data gaps, calculation variances, mapping issues, and unknown review items.</p>`)
       ].join('');
     }
-    table('ftesReconCrnTable', summary.crnRows, ['crn', 'subject', 'course', 'accountingMethod', 'partOfTerm', 'institutionalEnrollment', 'studentContactHours', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'status', 'diagnosticCategory']);
+    table('ftesReconCrnTable', summary.crnRows, ['crn', 'subject', 'course', 'accountingMethod', 'partOfTerm', 'institutionalEnrollment', 'institutionalReportableCensus', 'timberEnrollment', 'reportableCensus', 'enrollmentBasis', 'institutionalDsch', 'institutionalWsch', 'institutionalPositiveHours', 'positiveHours', 'calculationMethod', 'ftesProvenance', 'ftesMaturityClass', 'institutionalFtes', 'timberFtes', 'variance', 'variancePercent', 'status', 'diagnosticCategory']);
     refreshGeneratedCollapsibleSections(document.getElementById('ftesReconciliationReport'));
   }
 
