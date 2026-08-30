@@ -2844,10 +2844,11 @@ test('fall-to-fall FTES explanation audits incomplete standardized units unavail
 
   assert.equal(warning.attendanceAccountingCode, 'W');
   assert.equal(warning.enrollment, 24);
-  assert.equal(warning.calculationPath, 'STANDARDIZED FTES UNAVAILABLE');
+  assert.equal(warning.calculationPath, 'LEGACY_WEEKLY_CENSUS');
   assert.match(warning.reason, /lecture\/activity\/lab units|standardized hours/i);
-  assert.equal(unavailable.requiredInformation, 'Lecture/activity/lab unit components or standardized hours are required.');
-  assert.equal(bridge.explanation.legacyFallbackRows.length, 0);
+  assert.equal(unavailable, undefined);
+  assert.equal(bridge.explanation.legacyFallbackRows.length, 1);
+  assert.equal(bridge.explanation.legacyFallbackRows[0].calculationMethod, 'LEGACY_WEEKLY_CENSUS');
   assert.equal(valid.calculationMethod, 'STANDARDIZED_ATTENDANCE');
 });
 
@@ -3457,15 +3458,62 @@ test('standardized attendance calculates lecture lab activity and mixed units', 
   assert.equal(mixed.unitStatus, 'OK');
 });
 
-test('standardized attendance flags component mismatch and incomplete unit data', () => {
+test('standardized attendance flags component limitations while preserving defensible production fallback', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const mismatch = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 10, SESSION_CREDIT_HOURS: 2, LECTURE_UNITS: 2, LAB_UNITS: 1 });
   const incomplete = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 10, SESSION_CREDIT_HOURS: 3 });
 
   assert.equal(mismatch.standardizedUnitStatus, 'UNIT COMPONENT MISMATCH');
-  assert.equal(mismatch.ftesUnavailable, true);
+  assert.equal(mismatch.ftesUnavailable, false);
+  assert.equal(mismatch.ftesProvenance, 'CALCULATED_LEGACY');
+  assert.equal(mismatch.ftesReconciliationStatus, 'LIMITED_SOURCE_DATA');
   assert.equal(incomplete.standardizedUnitStatus, 'STANDARDIZED UNIT DATA INCOMPLETE');
-  assert.equal(incomplete.ftesUnavailable, true);
+  assert.equal(incomplete.ftesUnavailable, false);
+  assert.equal(incomplete.ftesProvenance, 'CALCULATED_LEGACY');
+  assert.equal(incomplete.ftesReconciliationWarnings.join(','), 'RECONCILIATION_LIMITED_MISSING_COMPONENT_UNITS');
+});
+
+test('Fall 2026 ordinary census methods remain calculated when reconciliation-only component fields are missing', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const fixtures = [
+    ['W', { HOURS_PER_WEEK: 3 }, 'LEGACY_WEEKLY_CENSUS', (20 * 3 * 17.5) / 525],
+    ['IW', { HOURS_PER_WEEK: 3 }, 'LEGACY_INDEPENDENT_WEEKLY_CENSUS', (20 * 3 * 17.5) / 525],
+    ['D', { TOTAL_CONTACT_HOURS: 54 }, 'LEGACY_DAILY_CENSUS', (20 * 54) / 525],
+    ['ID', { TOTAL_CONTACT_HOURS: 54 }, 'LEGACY_INDEPENDENT_DAILY_CENSUS', (20 * 54) / 525]
+  ];
+
+  fixtures.forEach(([method, inputs, calculationMethod, expected]) => {
+    const row = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: `F-${method}`, ACCOUNTING_METHOD: method, CENSUS_ENROLL: 20, ...inputs });
+    assert.equal(row.ftesUnavailable, false, `${method} should remain calculable`);
+    assert.equal(row.ftesValueStatus, 'CALCULATED_LEGACY');
+    assert.equal(row.calculationMethod, calculationMethod);
+    assert.equal(row.ftesReconciliationStatus, 'LIMITED_SOURCE_DATA');
+    assert.ok(Math.abs(row.ftes - expected) < 0.000001);
+  });
+
+  ['P', 'E'].forEach(method => {
+    const row = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: `F-${method}`, ACCOUNTING_METHOD: method, CENSUS_ENROLL: 20, TOTAL_CONTACT_HOURS: 54 });
+    assert.equal(row.ftesUnavailable, true);
+    assert.equal(row.ftesValueStatus, 'UNAVAILABLE');
+    assert.equal(row.scheduledHoursDiagnosticProvenance, 'SCHEDULED_HOURS_DIAGNOSTIC_ONLY');
+  });
+});
+
+test('Summer 2026 ordinary census methods retain legacy production calculations while scheduled-only P E stays unavailable', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const daily = COSEnrollmentAnalytics.normalizeRow({ term: 'SUMMER 2026', CRN: 'SU-D', ACCOUNTING_METHOD: 'D', CENSUS_ENROLL: 25, TOTAL_CONTACT_HOURS: 48 });
+  const independentDaily = COSEnrollmentAnalytics.normalizeRow({ term: 'SUMMER 2026', CRN: 'SU-ID', ACCOUNTING_METHOD: 'ID', CENSUS_ENROLL: 25, TOTAL_CONTACT_HOURS: 48 });
+  assert.equal(daily.calculationMethod, 'LEGACY_DAILY_CENSUS');
+  assert.equal(independentDaily.calculationMethod, 'LEGACY_INDEPENDENT_DAILY_CENSUS');
+  assert.equal(daily.ftesUnavailable, false);
+  assert.equal(independentDaily.ftesUnavailable, false);
+  assert.ok(Math.abs(daily.ftes - ((25 * 48) / 525)) < 0.000001);
+  assert.ok(Math.abs(independentDaily.ftes - ((25 * 48) / 525)) < 0.000001);
+  ['P', 'E'].forEach(method => {
+    const row = COSEnrollmentAnalytics.normalizeRow({ term: 'SUMMER 2026', CRN: `SU-${method}`, ACCOUNTING_METHOD: method, CENSUS_ENROLL: 25, TOTAL_CONTACT_HOURS: 48 });
+    assert.equal(row.ftesUnavailable, true);
+    assert.equal(row.ftes, 0);
+  });
 });
 
 test('standardized attendance uses current enrollment before census and census enrollment after census', () => {
@@ -3502,7 +3550,9 @@ test('FTES hardening fixtures preserve provenance enrollment basis and unavailab
   assert.equal(rows.standardizedLab.standardizedHours, 54);
   assert.equal(rows.standardizedActivity.standardizedHours, 36);
   assert.equal(rows.standardizedMixed.standardizedHours, 90);
-  assert.equal(rows.standardizedMissing.ftesUnavailable, true);
+  assert.equal(rows.standardizedMissing.ftesUnavailable, false);
+  assert.equal(rows.standardizedMissing.ftesProvenance, 'CALCULATED_LEGACY');
+  assert.equal(rows.standardizedMissing.ftesReconciliationStatus, 'LIMITED_SOURCE_DATA');
   assert.equal(rows.standardizedLecture.ftesProvenance, 'CALCULATED_STANDARDIZED');
 
   assert.equal(rows.reportableCensus.reportableCensus, 33);
@@ -7083,7 +7133,7 @@ test('W and IW production FTES uses component aggregation while protected specia
   assert.equal(byCrn.get('51008').timberFtes, 0);
 });
 
-test('D and ID contact-hour aggregation combines distinct components without summing duplicate representations', () => {
+test('D and ID retain the established maximum CRN contact-hour basis when component identity is ambiguous', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const normalize = raw => COSEnrollmentAnalytics.normalizeRow({ Term: 'SUMMER 2026', CRN: 'D-COMP', Subject: 'BIOL', Course: '040', ACTUAL_ENROLL: '10', ACCOUNTING_METHOD: 'D', Campus: 'COS', ...raw });
   const rows = [
@@ -7095,29 +7145,28 @@ test('D and ID contact-hour aggregation combines distinct components without sum
   const aggregate = COSEnrollmentAnalytics.getSectionApplicableContactHours({ accountingMethod: 'D', _meetingRows: meetings }, meetings, 'D');
 
   assert.equal(aggregate.oldTotalContactHourBasis, 56.1);
-  assert.equal(aggregate.totalContactHours, 112.2);
-  assert.equal(aggregate.componentsIncluded.length, 2);
-  assert.equal(aggregate.componentsExcluded.length, 1);
-  assert.match(aggregate.componentsExcluded[0].reason, /Repeated lecture D\/ID representation/);
+  assert.equal(aggregate.totalContactHours, 56.1);
+  assert.equal(aggregate.componentsIncluded.length, 0);
+  assert.equal(aggregate.componentsExcluded.length, 0);
 });
 
-test('D production FTES uses deterministic lecture plus lab component basis', () => {
+test('D production FTES does not double a repeated complete-section contact-hour basis', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const cubeRows = [
-    { Term: 'SUMMER 2026', CRN: 'D2001', Subject: 'CHEM', Course: '020', 'Accounting Method': 'D', Enrollment: '10', 'Individual FTES': String((10 * 108) / 525) },
-    { Campus: 'Total by COLUMNS', 'Individual FTES': String((10 * 108) / 525) }
+    { Term: 'SUMMER 2026', CRN: 'D2001', Subject: 'CHEM', Course: '020', 'Accounting Method': 'D', Enrollment: '10', 'Individual FTES': String((10 * 54) / 525) },
+    { Campus: 'Total by COLUMNS', 'Individual FTES': String((10 * 54) / 525) }
   ];
   const timberRows = [
     COSEnrollmentAnalytics.normalizeRow({ Term: 'SUMMER 2026', CRN: 'D2001', Subject: 'CHEM', Course: '020', ACTUAL_ENROLL: '10', ACCOUNTING_METHOD: 'D', TOTAL_CONTACT_HOURS: '54', SCHD_CODE_SSRMEET: 'LEC', Days: 'M' }),
     COSEnrollmentAnalytics.normalizeRow({ Term: 'SUMMER 2026', CRN: 'D2001', Subject: 'CHEM', Course: '020', ACTUAL_ENROLL: '10', ACCOUNTING_METHOD: 'D', TOTAL_CONTACT_HOURS: '54', SCHD_CODE_SSRMEET: 'LAB', Days: 'W' })
   ];
-  const expected = (10 * 108) / 525;
+  const expected = (10 * 54) / 525;
   const summary = COSEnrollmentAnalytics.buildFtesReconciliation(cubeRows, timberRows, { term: 'SUMMER 2026', expectedInstitutionalTotal: expected });
   const row = summary.crnRows[0];
 
   assert.ok(Math.abs(row.timberFtes - expected) < 0.000001);
   assert.equal(row.oldTotalContactHourBasis, 54);
-  assert.equal(row.newTotalContactHourBasis, 108);
+  assert.equal(row.newTotalContactHourBasis, 54);
   assert.equal(summary.reconciliationStatistics.within001, 1);
   assert.equal(summary.reconciliationStatistics.absoluteCrnVarianceSum, 0);
   assert.equal(summary.reconciliationStatistics.top20[0].crn, 'D2001');

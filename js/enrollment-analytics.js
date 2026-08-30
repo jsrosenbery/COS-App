@@ -885,10 +885,14 @@
       calculationMethod: calculation.calculationMethod,
       ftesCalculationMethod: calculation.calculationMethod,
       ftesProvenance: calculation.provenance,
+      ftesValueStatus: calculation.provenance,
+      ftesReconciliationStatus: calculation.reconciliationStatus || 'UNRESOLVED',
+      ftesReconciliationWarnings: calculation.reconciliationWarnings || [],
       scheduledHoursDiagnosticFtes: calculation.scheduledHoursDiagnosticFtes ?? null,
       scheduledHoursDiagnosticProvenance: calculation.scheduledHoursDiagnosticProvenance || '',
       ftesMaturity: calculation.maturity,
       ftesMaturityClass: calculation.unavailable ? 'UNAVAILABLE' : (calculation.provenance === 'POSITIVE_ATTENDANCE_ACTUAL' || census != null ? 'CONFIRMED' : 'ESTIMATED'),
+      ftesMaturityStatusCode: calculation.unavailable ? 'UNAVAILABLE' : (calculation.provenance === 'POSITIVE_ATTENDANCE_ACTUAL' || census != null ? 'CONFIRMED' : 'ESTIMATED'),
       ftesCalculationWarning: calculation.warning,
       standardizedLectureUnits: calculation.lectureUnits,
       standardizedLabUnits: calculation.labUnits,
@@ -1138,6 +1142,36 @@
     }
     if (useStandardized) {
       const standardized = standardizedFtes(enrollment, details);
+      const legacyHasInputs = ['weekly', 'independentWeekly'].includes(info.category)
+        ? Number(details.weeklyHours || 0) > 0 || Number(details.units || details.sessionCreditHours || 0) > 0
+        : ['daily', 'independentDaily'].includes(info.category)
+          ? Number(details.totalContactHours || 0) > 0 || Number(details.units || details.sessionCreditHours || 0) > 0
+          : false;
+      if (standardized.unavailable && legacyHasInputs) {
+        return {
+          ftes: legacyFtes,
+          legacyFtes,
+          standardizedFtes: null,
+          calculationMethod: legacyCalculationMethodName(details.accountingMethod),
+          provenance: 'CALCULATED_LEGACY',
+          maturity,
+          warning: `${standardized.warning} Production FTES continues using the established ${info.label || details.accountingMethod} fallback; standardized reconciliation is limited until component units or standardized hours are supplied.`,
+          reconciliationStatus: 'LIMITED_SOURCE_DATA',
+          reconciliationWarnings: ['RECONCILIATION_LIMITED_MISSING_COMPONENT_UNITS'],
+          unavailable: false,
+          hasInputs: true,
+          lectureUnits: standardized.lectureUnits,
+          labUnits: standardized.labUnits,
+          activityUnits: standardized.activityUnits,
+          lectureHours: standardized.lectureHours,
+          labHours: standardized.labHours,
+          activityHours: standardized.activityHours,
+          standardizedHours: standardized.standardizedHours,
+          unitStatus: standardized.unitStatus,
+          componentSource: standardized.source,
+          info
+        };
+      }
       return {
         ftes: standardized.unavailable ? 0 : standardized.ftes,
         legacyFtes,
@@ -1157,6 +1191,8 @@
         standardizedHours: standardized.standardizedHours,
         unitStatus: standardized.unitStatus,
         componentSource: standardized.source,
+        reconciliationStatus: standardized.unavailable ? 'LIMITED_SOURCE_DATA' : 'UNRESOLVED',
+        reconciliationWarnings: standardized.unavailable ? ['RECONCILIATION_LIMITED_MISSING_COMPONENT_UNITS'] : [],
         info
       };
     }
@@ -1300,7 +1336,10 @@
       componentsExcluded: [],
       diagnosticReason: 'Existing max-contact-hour basis retained.'
     };
-    if (['daily', 'independentDaily'].includes(info.category)) return aggregateDailyContactHourComponents(sourceRows, result);
+    // D/ID total-contact-hour fields commonly repeat the complete CRN basis across
+    // schedule rows. Keep the established maximum CRN basis until source data can
+    // distinguish component-only hours from complete-section hours reliably.
+    if (['daily', 'independentDaily'].includes(info.category)) return result;
     if (!['weekly', 'independentWeekly'].includes(info.category)) return result;
 
     const weeklyRows = sourceRows.filter(row => (Number(row.weeklyHours) || 0) > 0);
@@ -1414,7 +1453,7 @@
     row.totalContactHours = hours.totalContactHours || row.totalContactHours || 0;
     row.units = row.units || hours.sessionCreditHours || 0;
     row.ftesContactHourDiagnostic = hours;
-    const calculation = ftesCalculationDetails(row.census == null ? row.actual : row.census, {
+    const calculation = ftesCalculationDetails(row.reportableCensus ?? row.census ?? row.actual, {
       term: row.term,
       units: row.units,
       lectureUnits: row.lectureUnits,
@@ -1446,9 +1485,13 @@
     row.calculationMethod = calculation.calculationMethod;
     row.ftesCalculationMethod = calculation.calculationMethod;
     row.ftesProvenance = calculation.provenance;
+    row.ftesValueStatus = calculation.provenance;
     row.ftesMaturity = calculation.maturity;
     row.ftesMaturityClass = calculation.unavailable ? 'UNAVAILABLE' : (calculation.provenance === 'POSITIVE_ATTENDANCE_ACTUAL' || row.census != null ? 'CONFIRMED' : 'ESTIMATED');
+    row.ftesMaturityStatusCode = calculation.unavailable ? 'UNAVAILABLE' : (row.ftesMaturityClass === 'CONFIRMED' ? 'CONFIRMED' : 'ESTIMATED');
     row.ftesCalculationWarning = calculation.warning;
+    row.ftesReconciliationStatus = calculation.reconciliationStatus || 'UNRESOLVED';
+    row.ftesReconciliationWarnings = calculation.reconciliationWarnings || [];
     row.standardizedLectureUnits = calculation.lectureUnits;
     row.standardizedLabUnits = calculation.labUnits;
     row.standardizedActivityUnits = calculation.activityUnits;
@@ -15906,6 +15949,9 @@ BUS 180 2 units`)
           ftesProvenance: '',
           ftesMaturity: '',
           ftesMaturityClass: '',
+          ftesValueStatus: '',
+          ftesReconciliationStatus: '',
+          ftesReconciliationWarnings: new Set(),
           predictedFtes: null,
           directFtes: null,
           scheduledHoursDiagnosticFtes: null,
@@ -15959,6 +16005,9 @@ BUS 180 2 units`)
       record.ftesProvenance = record.ftesProvenance || row.ftesProvenance || '';
       record.ftesMaturity = record.ftesMaturity || row.ftesMaturity || '';
       record.ftesMaturityClass = record.ftesMaturityClass || row.ftesMaturityClass || '';
+      record.ftesValueStatus = record.ftesValueStatus || row.ftesValueStatus || row.ftesProvenance || '';
+      record.ftesReconciliationStatus = record.ftesReconciliationStatus || row.ftesReconciliationStatus || '';
+      (row.ftesReconciliationWarnings || []).forEach(warning => record.ftesReconciliationWarnings.add(warning));
       record.predictedFtes ??= row.predictedFtes ?? row.historicalPredictedFtes ?? null;
       record.directFtes ??= row.sourceFtes ?? null;
       record.scheduledHoursDiagnosticFtes ??= row.scheduledHoursDiagnosticFtes ?? null;
@@ -15973,6 +16022,7 @@ BUS 180 2 units`)
       sourceDataset: [...record.sourceDataset].join('; '),
       timberFtesSources: [...record.timberFtesSources].join('; '),
       scheduleTypes: [...record.scheduleTypes].filter(Boolean).join('; '),
+      ftesReconciliationWarnings: [...record.ftesReconciliationWarnings].join('; '),
       duplicateCount: Math.max(0, record.duplicateCount - 1)
     }));
   }
@@ -16030,6 +16080,18 @@ BUS 180 2 units`)
       const variance = institutionalFtes == null || timberFtes == null ? null : timberFtes - institutionalFtes;
       const absVariance = variance == null ? null : Math.abs(variance);
       const status = ftesMatchStatus(group, variance, tolerance, institutionalFtes, timberFtes);
+      const limitedSourceData = timber.ftesReconciliationStatus === 'LIMITED_SOURCE_DATA'
+        || institutional.institutionalReportableCensus == null
+        || (institutional.institutionalDsch == null && institutional.institutionalWsch == null);
+      const reconciliationStatus = /Missing|Ambiguous/.test(status)
+        ? 'UNRESOLVED'
+        : limitedSourceData
+          ? 'LIMITED_SOURCE_DATA'
+          : absVariance <= 0.001
+            ? 'EXACT'
+            : absVariance <= tolerance
+              ? 'WITHIN_TOLERANCE'
+              : 'MATERIAL_VARIANCE';
       return {
         term: institutional.term || timber.term || options.term || '',
         campus: institutional.campus || timber.campus || '',
@@ -16065,6 +16127,9 @@ BUS 180 2 units`)
         ftesProvenance: timber.ftesProvenance,
         ftesMaturity: timber.ftesMaturity,
         ftesMaturityClass: timber.ftesMaturityClass,
+        ftesValueStatus: timber.ftesValueStatus || timber.ftesProvenance || '',
+        reconciliationStatus,
+        reconciliationWarnings: timber.ftesReconciliationWarnings || '',
         predictedFtes: timber.predictedFtes,
         directFtes: timber.directFtes,
         scheduledHoursDiagnosticFtes: timber.scheduledHoursDiagnosticFtes,
@@ -16176,6 +16241,9 @@ BUS 180 2 units`)
       ftesProvenance: type === 'timber' ? (acc.ftesProvenance || row.ftesProvenance) : acc.ftesProvenance,
       ftesMaturity: type === 'timber' ? (acc.ftesMaturity || row.ftesMaturity) : acc.ftesMaturity,
       ftesMaturityClass: type === 'timber' ? (acc.ftesMaturityClass || row.ftesMaturityClass) : acc.ftesMaturityClass,
+      ftesValueStatus: type === 'timber' ? (acc.ftesValueStatus || row.ftesValueStatus) : acc.ftesValueStatus,
+      ftesReconciliationStatus: type === 'timber' ? (acc.ftesReconciliationStatus || row.ftesReconciliationStatus) : acc.ftesReconciliationStatus,
+      ftesReconciliationWarnings: type === 'timber' ? [acc.ftesReconciliationWarnings, row.ftesReconciliationWarnings].filter(Boolean).join('; ') : acc.ftesReconciliationWarnings,
       predictedFtes: type === 'timber' ? (acc.predictedFtes ?? row.predictedFtes) : acc.predictedFtes,
       directFtes: type === 'timber' ? (acc.directFtes ?? row.directFtes) : acc.directFtes,
       scheduledHoursDiagnosticFtes: type === 'timber' ? (acc.scheduledHoursDiagnosticFtes ?? row.scheduledHoursDiagnosticFtes) : acc.scheduledHoursDiagnosticFtes,
@@ -16623,6 +16691,9 @@ BUS 180 2 units`)
       ftesProvenance: row.ftesProvenance || '',
       ftesMaturity: row.ftesMaturity || '',
       ftesMaturityClass: row.ftesMaturityClass || '',
+      ftesValueStatus: row.ftesValueStatus || row.ftesProvenance || '',
+      reconciliationStatus: row.reconciliationStatus || '',
+      reconciliationWarnings: row.reconciliationWarnings || '',
       predictedFtes: row.predictedFtes ?? '',
       directFtes: row.directFtes ?? '',
       projectedFinalFtes: row.projectedFinalFtes ?? '',
@@ -16789,7 +16860,7 @@ BUS 180 2 units`)
         dashboardPanel('Diagnostic Notes', `<p class="analytics-chart-note">Positive Attendance variance: ${round1(summary.positiveAttendance.variance || 0)} FTES. Work Experience variance: ${round1(summary.workExperience.variance || 0)} FTES. Statuses distinguish source-data gaps, calculation variances, mapping issues, and unknown review items.</p>`)
       ].join('');
     }
-    table('ftesReconCrnTable', summary.crnRows, ['crn', 'subject', 'course', 'accountingMethod', 'workExperience', 'scheduleTypes', 'partOfTerm', 'institutionalEnrollment', 'institutionalReportableCensus', 'timberEnrollment', 'censusEnrollment', 'reportableCensus', 'enrollmentBasis', 'institutionalDch', 'institutionalWch', 'oldContactHourBasis', 'newContactHourBasis', 'oldTotalContactHourBasis', 'newTotalContactHourBasis', 'institutionalDsch', 'institutionalWsch', 'institutionalPositiveHours', 'positiveHours', 'standardizedHours', 'lectureUnits', 'labUnits', 'activityUnits', 'includedComponents', 'excludedComponents', 'calculationMethod', 'ftesProvenance', 'ftesMaturityClass', 'scheduledHoursDiagnosticFtes', 'predictedFtes', 'projectedFinalFtes', 'institutionalFtes', 'timberFtes', 'variance', 'absVariance', 'status', 'diagnosticCategory']);
+    table('ftesReconCrnTable', summary.crnRows, ['crn', 'subject', 'course', 'accountingMethod', 'workExperience', 'scheduleTypes', 'partOfTerm', 'institutionalEnrollment', 'institutionalReportableCensus', 'timberEnrollment', 'censusEnrollment', 'reportableCensus', 'enrollmentBasis', 'institutionalDch', 'institutionalWch', 'oldContactHourBasis', 'newContactHourBasis', 'oldTotalContactHourBasis', 'newTotalContactHourBasis', 'institutionalDsch', 'institutionalWsch', 'institutionalPositiveHours', 'positiveHours', 'standardizedHours', 'lectureUnits', 'labUnits', 'activityUnits', 'includedComponents', 'excludedComponents', 'calculationMethod', 'ftesValueStatus', 'ftesMaturityClass', 'reconciliationStatus', 'reconciliationWarnings', 'scheduledHoursDiagnosticFtes', 'predictedFtes', 'projectedFinalFtes', 'institutionalFtes', 'timberFtes', 'variance', 'absVariance', 'status', 'diagnosticCategory']);
     refreshGeneratedCollapsibleSections(document.getElementById('ftesReconciliationReport'));
   }
 
