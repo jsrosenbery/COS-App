@@ -38,3 +38,20 @@ test('duplicate CRNs block import', () => {
   assert.equal(result.valid, false);
   assert.match(result.errors.join(' '), /Duplicate CRN 10001/);
 });
+
+test('accepts Argos XLS headers containing HTML breaks and nonbreaking spaces', () => {
+  const rows = fixture();
+  rows[1] = ['Spring 2025'];
+  rows[18] = [
+    'Campus', 'Subj\u00a0Course\u00a0No', 'CRN', 'Start Date', 'End Date', 'Faculty', 'Status',
+    'Acct Method', 'Meetings', 'DCH', 'WCH', 'Pos Hrs Res', 'Census Enroll', 'Current Enroll',
+    'Res Census', 'Total<br>Contact Hrs', 'DSCH', 'WSCH', 'Total\u00a0FTES<br>Census', 'FTEF',
+    'Total\u00a0FTES<br>Last\u00a0Day', 'FTES<br>Diff', 'Credit', 'Instr<br />Method'
+  ];
+  const result = institutional.parseWorksheetRows(rows);
+  assert.equal(result.valid, true);
+  assert.equal(result.term, 'SPRING 2025');
+  assert.equal(result.records.length, 3);
+  assert.equal(result.audit.headerRow, 19);
+  assert.equal(institutional.normalizeHeader('Total\u00a0FTES<br>Census'), 'TOTAL FTES CENSUS');
+});

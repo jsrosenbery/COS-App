@@ -42,9 +42,20 @@
     return text(value).replace(/\.0$/, '');
   }
 
+  function normalizeHeader(value) {
+    return text(value)
+      .replace(/<br\s*\/?\s*>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;|\u00a0/gi, ' ')
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toUpperCase();
+  }
+
   function findHeaderIndex(rows) {
     return rows.findIndex(row => {
-      const cells = (row || []).map(value => text(value).toUpperCase());
+      const cells = (row || []).map(normalizeHeader);
       return cells.includes('CRN') && cells.some(value => value === 'ACCT METHOD' || value === 'ACCOUNTING METHOD') && cells.some(value => value.includes('TOTAL FTES CENSUS'));
     });
   }
@@ -122,5 +133,5 @@
     return index.get(recordKey(term, crn)) || null;
   }
 
-  return Object.freeze({ parseWorksheetRows, indexRecords, findRecord, recordKey, round2 });
+  return Object.freeze({ parseWorksheetRows, indexRecords, findRecord, recordKey, round2, normalizeHeader });
 });
