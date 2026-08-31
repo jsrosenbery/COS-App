@@ -11861,7 +11861,14 @@ BUS 180 2 units`)
     const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
     const preview = window.COSInstitutionalFtes.parseWorksheetRows(rows, { tolerance: 0.02 });
     preview.sourceName = file.name;
-    preview.reportDate = rows.slice(0, 20).flat().map(String).find(value => /report date/i.test(value)) || '';
+    preview.reportDate = '';
+    for (const row of rows.slice(0, 20)) {
+      const labelIndex = (row || []).findIndex(value => /report date/i.test(String(value || '')));
+      if (labelIndex < 0) continue;
+      const label = String(row[labelIndex] || '');
+      preview.reportDate = String(row[labelIndex + 1] || label.replace(/^.*?report date\s*:\s*/i, '') || '').trim();
+      if (preview.reportDate) break;
+    }
     return preview;
   }
 
@@ -13658,9 +13665,30 @@ BUS 180 2 units`)
     return window.COSInstitutionalFtes?.findRecord?.(state.institutionalFtesIndex, row) || null;
   }
 
+  function institutionalFtesActualForRow(row, asOfContext = null, options = {}) {
+    const record = institutionalFtesRecordForRow(row);
+    if (!record || record.censusFtes == null || !Number.isFinite(Number(record.censusFtes))) return null;
+    const term = normalizeTermLabel(row?.term || row?.sourceTerm || row?.__sourceTerm || record.term);
+    const metadata = state.institutionalFtesMetadataByTerm?.[term.toUpperCase()] || {};
+    return institutionalFtesCensusReached(row, metadata, asOfContext, options) ? record : null;
+  }
+
+  function institutionalFtesCensusReached(row, metadata = {}, asOfContext = null, options = {}) {
+    if (options.completedHistorical === true) return true;
+    const term = normalizeTermLabel(row?.term || row?.sourceTerm || row?.__sourceTerm);
+    const rawAsOf = asOfContext?.iso || asOfContext?.raw || metadata.reportDate || metadata.updatedAt || metadata.uploadedAt || row?.sourceUploadedAt || '';
+    const asOfDate = dateValue(String(rawAsOf).replace(/^Report Date:\s*/i, ''));
+    const censusDate = dateValue(row?.censusEnrollmentDateIso || row?.censusEnrollmentDate);
+    if (censusDate && asOfDate) return asOfDate >= censusDate;
+    const endDate = dateValue(row?.endDate);
+    if (endDate && asOfDate) return asOfDate >= endDate;
+    const activeTerm = normalizeTermLabel(currentTerm());
+    return Boolean(term && activeTerm && termSortValue(term) < termSortValue(activeTerm));
+  }
+
   function currentEnrollmentFtesUnavailable(row, asOfContext = null) {
     if (!row) return true;
-    if (institutionalFtesRecordForRow(row)?.censusFtes != null) return false;
+    if (institutionalFtesActualForRow(row, asOfContext)) return false;
     if (row.hasDirectFtesData) return false;
     if (row.ftesProvenance === 'UNAVAILABLE' || row.ftesUnavailable) return true;
     const method = canon(row.accountingMethod);
@@ -13679,8 +13707,8 @@ BUS 180 2 units`)
   }
 
   function currentEnrollmentFtesValue(row, asOfContext = null) {
-    const institutional = institutionalFtesRecordForRow(row);
-    if (institutional?.censusFtes != null) return Number(institutional.censusFtes) || 0;
+    const institutional = institutionalFtesActualForRow(row, asOfContext);
+    if (institutional) return Number(institutional.censusFtes) || 0;
     if (currentEnrollmentFtesUnavailable(row, asOfContext)) return 0;
     if (row?.hasDirectFtesData) return Number(row?.sourceFtes ?? row?.ftes) || 0;
     const basisEnrollment = currentEnrollmentFtesBasisEnrollment(row, asOfContext);
@@ -13806,8 +13834,8 @@ BUS 180 2 units`)
     let status = FTES_MATURITY_STATUS.CONFIRMED_FINAL;
     let reason = 'FTES is available and does not depend on a pending census milestone in this report.';
 
-    const institutionalActual = institutionalFtesRecordForRow(row);
-    if (institutionalActual?.censusFtes != null) {
+    const institutionalActual = institutionalFtesActualForRow(row, asOfContext);
+    if (institutionalActual) {
       return {
         status: FTES_MATURITY_STATUS.CONFIRMED_FINAL,
         label: FTES_MATURITY_LABELS[FTES_MATURITY_STATUS.CONFIRMED_FINAL],
@@ -14487,7 +14515,9 @@ BUS 180 2 units`)
           ftesEnrollmentSourceCode: maturity.ftesEnrollmentSourceCode || '',
           ftesEnrollmentWarning: maturity.ftesEnrollmentWarning || '',
           ftes: currentEnrollmentFtesUnavailable(row, focusAsOf) ? '' : currentEnrollmentFtesValue(row, focusAsOf),
-          ftesSource: row.hasDirectFtesData ? 'Direct FTES' : row.hasFtesData ? 'Formula-calculated FTES' : 'FTES unavailable',
+          ftesSource: institutionalFtesActualForRow(row, focusAsOf)
+            ? 'Institutional Total FTES Census'
+            : row.hasDirectFtesData ? 'Direct FTES' : row.hasFtesData ? 'Formula-calculated FTES' : 'FTES unavailable',
           ftesWarning: row.ftesWarning || maturity.ftesEnrollmentWarning || (currentEnrollmentFtesUnavailable(row, focusAsOf) ? 'FTES unavailable: row-level FTES inputs are missing.' : '')
         };
       }),
@@ -20628,6 +20658,8 @@ BUS 180 2 units`)
     setDemandMessage('Loading enrollment planning forecast...');
     try {
       const loadedRows = await loadDemandRows();
+      const institutionalTerms = [...new Set(loadedRows.map(row => normalizeTermLabel(row.sourceTerm || row.term)).filter(Boolean))];
+      await Promise.all(institutionalTerms.map(term => loadInstitutionalFtesTerm(term).catch(err => console.warn(`Institutional FTES load skipped for ${term}:`, err))));
       const populationSelections = demandPopulationSelections();
       const allRows = demandRowsForPopulationSelections(loadedRows, populationSelections);
       const diagnostics = standardExclusionDiagnostics(allRows, 'dem');
@@ -20772,7 +20804,7 @@ BUS 180 2 units`)
   }
 
   function demandColumns() {
-    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'growthSeriesUsed', 'growthTermsUsed', 'finalEnrollmentGrowthRateUsed', 'finalFtesGrowthRateUsed', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'historicalAverageBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'forecastConstraintMode', 'currentSeatCapacity', 'scheduleCapacityLimit', 'unconstrainedExpectedEnrollment', 'constrainedExpectedEnrollment', 'constrainedEnrollmentReduction', 'expectedEnrollmentNextTerm', 'expectedRangeConservative', 'expectedRangeMostLikely', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'unconstrainedExpectedFtes', 'constrainedExpectedFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeMostLikely', 'expectedFtesRangeHigh', 'historicalFtesPerEnrollment', 'currentFtesPerEnrollment', 'projectedFtesPerEnrollment', 'ftesProjectionMethod', 'ftesProjectionFormula', 'ftesProjectionWarningSummary', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'projectedWaitlistLabel', 'projectedWaitlistMethod', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'historicalAverageGrowth', 'historicalCagr', 'historicalMaxGrowth', 'recencyWeightedGrowth', 'sustainableGrowthRate', 'recoverySpikeGrowthThreshold', 'recoverySpikeGrowthCap', 'cappedRecoverySpikeCount', 'negativeGrowthFlooredCount', 'scheduleSupplyReadinessFactor', 'scheduleAdjustmentUsedAsDemandFactor', 'uncappedAdjustedForecastGrowth', 'adjustedForecastGrowth', 'projectedGrowthCapped', 'materialScheduleIncrease', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
+    return ['forecastLevel', 'groupName', 'course', 'courseTitle', 'terms', 'growthSeriesUsed', 'growthTermsUsed', 'finalEnrollmentGrowthRateUsed', 'finalFtesGrowthRateUsed', 'totalSectionsOffered', 'avgSectionsOffered', 'historicalBaselineEnrollment', 'historicalAverageBaselineEnrollment', 'trendProjectionEnrollment', 'scheduleAdjustedProjectionEnrollment', 'forecastConstraintMode', 'currentSeatCapacity', 'scheduleCapacityLimit', 'unconstrainedExpectedEnrollment', 'constrainedExpectedEnrollment', 'constrainedEnrollmentReduction', 'expectedEnrollmentNextTerm', 'expectedRangeConservative', 'expectedRangeMostLikely', 'expectedRangeLow', 'expectedRangeHigh', 'avgCensusEnrollment', 'avgFinalEnrollment', 'avgFtes', 'trendProjectionFtes', 'scheduleAdjustedProjectionFtes', 'unconstrainedExpectedFtes', 'constrainedExpectedFtes', 'expectedFtesNextTerm', 'expectedFtesRangeDisplay', 'expectedFtesRangeLow', 'expectedFtesRangeMostLikely', 'expectedFtesRangeHigh', 'historicalFtesPerEnrollment', 'currentFtesPerEnrollment', 'projectedFtesPerEnrollment', 'institutionalFtesMatchedSections', 'institutionalFtesFallbackSections', 'institutionalFtesTotalSections', 'institutionalFtesCoverageRate', 'institutionalHistoricalFtes', 'fallbackHistoricalFtes', 'ftesProjectionMethod', 'ftesProjectionFormula', 'ftesProjectionWarningSummary', 'avgFillRate', 'avgFinalFillRate', 'avgAttritionCount', 'avgAttritionRate', 'avgWaitlistCount', 'projectedWaitlistLabel', 'projectedWaitlistMethod', 'hasWaitlistData', 'collegeGrowth', 'divisionGrowth', 'disciplineGrowth', 'courseGrowth', 'modifierGrowth', 'historicalAverageGrowth', 'historicalCagr', 'historicalMaxGrowth', 'recencyWeightedGrowth', 'sustainableGrowthRate', 'recoverySpikeGrowthThreshold', 'recoverySpikeGrowthCap', 'cappedRecoverySpikeCount', 'negativeGrowthFlooredCount', 'scheduleSupplyReadinessFactor', 'scheduleAdjustmentUsedAsDemandFactor', 'uncappedAdjustedForecastGrowth', 'adjustedForecastGrowth', 'projectedGrowthCapped', 'materialScheduleIncrease', 'expectedFillRate', 'expectedSectionsNeeded', 'suggestedSectionCount', 'forecastConfidence', 'capacityGuidance', 'forecastMethod'];
   }
 
   function demandExportColumns() {
@@ -21156,6 +21188,12 @@ BUS 180 2 units`)
       forecastScopeLabel: selectedGrowthSeries,
       constrainByCapacity: context.constrainByCapacity
     });
+    const institutionalCoverage = demandInstitutionalFtesCoverage(rows);
+    const institutionalCoverageWarning = institutionalCoverage.matchedSections < institutionalCoverage.totalSections
+      ? `Institutional census FTES matched ${institutionalCoverage.matchedSections} of ${institutionalCoverage.totalSections} historical sections (${pct(institutionalCoverage.coverageRate)}); unmatched sections use the existing Section Seating FTES fallback.`
+      : '';
+    const ftesProjectionWarnings = [...(trendModel?.ftesProjectionWarnings || [])];
+    if (institutionalCoverageWarning) ftesProjectionWarnings.push(institutionalCoverageWarning);
     const hasWaitlistData = rows.some(row => row.hasWaitlistData);
     const divisionGrowth = level === 'Division'
       ? context.division.get(groupName) ?? context.collegeGrowth
@@ -21229,8 +21267,14 @@ BUS 180 2 units`)
       projectedFtesPerEnrollment: trendModel?.ftesPerEnrollmentDiagnostics?.projectedFtesPerEnrollment ?? safeDiv(expectedFtesNextTerm, expectedEnrollmentNextTerm),
       ftesProjectionMethod: trendModel?.ftesProjectionMethod || 'Historical FTES per Enrollment Ratio',
       ftesProjectionFormula: trendModel?.ftesProjectionFormula || 'Historical Trend Estimated FTES = Historical Trend Expected Enrollment x Historical FTES per Enrollment Ratio',
-      ftesProjectionWarnings: trendModel?.ftesProjectionWarnings || [],
-      ftesProjectionWarningSummary: (trendModel?.ftesProjectionWarnings || []).join(' '),
+      ftesProjectionWarnings,
+      ftesProjectionWarningSummary: ftesProjectionWarnings.join(' '),
+      institutionalFtesMatchedSections: institutionalCoverage.matchedSections,
+      institutionalFtesFallbackSections: institutionalCoverage.fallbackSections,
+      institutionalFtesTotalSections: institutionalCoverage.totalSections,
+      institutionalFtesCoverageRate: institutionalCoverage.coverageRate,
+      institutionalHistoricalFtes: institutionalCoverage.institutionalFtes,
+      fallbackHistoricalFtes: institutionalCoverage.fallbackFtes,
       ftesPerEnrollmentDiagnostics: trendModel?.ftesPerEnrollmentDiagnostics || null,
       avgFillRate,
       avgFinalFillRate,
@@ -21293,6 +21337,38 @@ BUS 180 2 units`)
     };
   }
 
+  function demandHistoricalFtesValue(row, institutionalOverride = undefined) {
+    const institutional = institutionalOverride === undefined
+      ? institutionalFtesActualForRow(row, null, { completedHistorical: true })
+      : institutionalOverride;
+    return institutional ? Number(institutional.censusFtes) || 0 : Number(row?.ftes) || 0;
+  }
+
+  function demandInstitutionalFtesCoverage(rows = [], resolver = row => institutionalFtesActualForRow(row, null, { completedHistorical: true })) {
+    const sections = distinctDemandSections(rows);
+    let institutionalFtes = 0;
+    let fallbackFtes = 0;
+    let matchedSections = 0;
+    sections.forEach(row => {
+      const institutional = resolver(row);
+      if (institutional) {
+        matchedSections += 1;
+        institutionalFtes += Number(institutional.censusFtes) || 0;
+      } else {
+        fallbackFtes += Number(row.ftes) || 0;
+      }
+    });
+    return {
+      totalSections: sections.length,
+      matchedSections,
+      fallbackSections: Math.max(0, sections.length - matchedSections),
+      coverageRate: safeDiv(matchedSections, sections.length),
+      institutionalFtes,
+      fallbackFtes,
+      totalFtes: institutionalFtes + fallbackFtes
+    };
+  }
+
   function demandTermStats(term, rows) {
     const census = rows.reduce((total, row) => total + (row.census == null ? row.actual : row.census), 0);
     const final = sum(rows, 'actual');
@@ -21302,7 +21378,7 @@ BUS 180 2 units`)
       sections: rows.length,
       census,
       final,
-      ftes: sum(rows, 'ftes'),
+      ftes: rows.reduce((total, row) => total + demandHistoricalFtesValue(row), 0),
       capacity,
       waitlist: sum(rows, 'waitlist'),
       fillRate: safeDiv(census, capacity),
@@ -24493,6 +24569,9 @@ BUS 180 2 units`)
         <div><dt>Projected Enrollment</dt><dd>${Math.round(diagnostics.projectedEnrollment || row.expectedEnrollmentNextTerm || 0)}</dd></div>
         <div><dt>Projected FTES</dt><dd>${round1(diagnostics.projectedFtes || row.expectedFtesNextTerm || 0)}</dd></div>
         <div><dt>Projected FTES / Enrollment</dt><dd>${round1(Number(diagnostics.projectedFtesPerEnrollment || row.projectedFtesPerEnrollment || 0) * 1000) / 1000}</dd></div>
+        <div><dt>Institutional FTES coverage</dt><dd>${row.institutionalFtesMatchedSections || 0} of ${row.institutionalFtesTotalSections || 0} historical sections (${pct(row.institutionalFtesCoverageRate || 0)})</dd></div>
+        <div><dt>Authoritative institutional FTES</dt><dd>${round1(row.institutionalHistoricalFtes || 0)}</dd></div>
+        <div><dt>Section Seating fallback FTES</dt><dd>${round1(row.fallbackHistoricalFtes || 0)}</dd></div>
         <div><dt>FTES Method</dt><dd>${escapeAttr(row.ftesProjectionMethod || 'Historical FTES per Enrollment Ratio')}</dd></div>
       </dl>
       ${warnings.length ? `<ul class="analytics-warning-list">${warnings.map(item => `<li>${escapeAttr(item)}</li>`).join('')}</ul>` : '<p class="analytics-chart-note">No FTES/enrollment divergence warning detected.</p>'}
@@ -24522,6 +24601,8 @@ BUS 180 2 units`)
       <p>${escapeAttr(context.target?.label || 'Forecast')} expected enrollment starts from the most recent comparable completed term or FY/AY, then applies a sustainable growth rate. Unusually high recovery spikes are capped and negative routine-growth assumptions are floored at zero. In unconstrained mode, current schedule size is readiness context; in constrained mode, expected growth is capped at current target schedule seat capacity.</p>
       <dl>
         <div><dt>Historical terms included</dt><dd>${escapeAttr(termListLabel(terms))}</dd></div>
+        <div><dt>Institutional FTES historical coverage</dt><dd>${college.institutionalFtesMatchedSections || 0} of ${college.institutionalFtesTotalSections || 0} sections (${pct(college.institutionalFtesCoverageRate || 0)})</dd></div>
+        <div><dt>Historical FTES source rule</dt><dd>Authoritative institutional Total FTES Census by term + CRN when matched; Section Seating FTES fallback when unmatched.</dd></div>
         <div><dt>Historical values by term</dt><dd>${escapeAttr(historicalValues.join('; ') || 'N/A')}</dd></div>
         <div><dt>Recency weights</dt><dd>${escapeAttr(weights.join('; ') || 'N/A')}</dd></div>
         <div><dt>Year-over-year growth rates</dt><dd>${escapeAttr(yoy.join('; ') || 'N/A')}</dd></div>
@@ -28139,6 +28220,11 @@ BUS 180 2 units`)
     currentEnrollmentFtesBasisEnrollment,
     currentEnrollmentFtesUnavailable,
     currentEnrollmentFtesValue,
+    institutionalFtesActualForRow,
+    institutionalFtesCensusReached,
+    demandHistoricalFtesValue,
+    demandInstitutionalFtesCoverage,
+    demandTermStats,
     attendanceAuditExpectedMethod,
     attendanceAuditTimberMethod,
     attendanceAuditLegacyExpectedFtes,

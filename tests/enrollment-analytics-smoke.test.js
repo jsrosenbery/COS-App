@@ -61,7 +61,7 @@ function loadEnrollmentAnalyticsRuntime() {
   context.window.document = context.document;
   context.window.sessionStorage = sessionStorage;
   vm.createContext(context);
-  [...CONFIG_SCRIPTS, ...UTILITY_SCRIPTS, 'js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/campus-classification.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment/historical-institutional.js', 'js/enrollment-analytics.js'].forEach(file => {
+  [...CONFIG_SCRIPTS, ...UTILITY_SCRIPTS, 'js/core/dom-utils.js', 'js/core/term-utils.js', 'js/core/day-utils.js', 'js/core/csv-normalizer.js', 'js/core/formatters.js', 'js/core/modality-normalizer.js', 'js/core/institutional-ftes.js', 'js/core/campus-classification.js', 'js/core/physical-time.js', 'js/core/section-model.js', 'js/enrollment/metrics.js', 'js/enrollment/filters.js', 'js/enrollment/consolidation.js', 'js/enrollment/dashboard.js', 'js/enrollment/trend-projection.js', 'js/enrollment/historical-institutional.js', 'js/enrollment-analytics.js'].forEach(file => {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     vm.runInContext(source, context, { filename: file });
   });
@@ -6358,6 +6358,32 @@ test('current enrollment FTES deterministic methods classify before and after ce
     assert.equal(COSEnrollmentAnalytics.classifySectionFtes(before, { asOfContext }).classification, 'estimated', `${method} before census`);
     assert.equal(COSEnrollmentAnalytics.classifySectionFtes(after, { asOfContext }).classification, 'confirmed', `${method} after census`);
   });
+});
+
+test('institutional census FTES is gated by the section census milestone', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = section({ term: 'FALL 2026', censusEnrollmentDate: '2026-09-10', endDate: '2026-12-18' });
+  assert.equal(COSEnrollmentAnalytics.institutionalFtesCensusReached(row, { reportDate: '2026-09-01' }), false);
+  assert.equal(COSEnrollmentAnalytics.institutionalFtesCensusReached(row, { reportDate: '2026-09-10' }), true);
+  assert.equal(COSEnrollmentAnalytics.institutionalFtesCensusReached(row, { reportDate: '2026-09-20' }), true);
+  assert.equal(COSEnrollmentAnalytics.institutionalFtesCensusReached(row, {}, null, { completedHistorical: true }), true);
+});
+
+test('enrollment planning historical FTES prefers institutional actuals and audits fallback coverage', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    section({ term: 'SPRING 2025', crn: '10001', ftes: 6.5 }),
+    section({ term: 'SPRING 2025', crn: '10002', ftes: 3.25 })
+  ];
+  const resolver = row => row.crn === '10001' ? { censusFtes: 4.93 } : null;
+  const coverage = COSEnrollmentAnalytics.demandInstitutionalFtesCoverage(rows, resolver);
+  assert.equal(COSEnrollmentAnalytics.demandHistoricalFtesValue(rows[0], resolver(rows[0])), 4.93);
+  assert.equal(COSEnrollmentAnalytics.demandHistoricalFtesValue(rows[1], resolver(rows[1])), 3.25);
+  assert.equal(coverage.matchedSections, 1);
+  assert.equal(coverage.fallbackSections, 1);
+  assert.equal(coverage.coverageRate, 0.5);
+  assert.equal(coverage.institutionalFtes, 4.93);
+  assert.equal(coverage.fallbackFtes, 3.25);
 });
 
 test('current enrollment FTES historical prediction hierarchy falls back by evidence level', () => {
