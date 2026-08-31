@@ -483,6 +483,11 @@
     ftesReconciliation: null,
     ftesReconciliationExportRows: [],
     ftesReconciliationRan: false,
+    institutionalFtesPreview: null,
+    institutionalFtesSources: [],
+    institutionalFtesRecords: [],
+    institutionalFtesIndex: new Map(),
+    institutionalFtesMetadataByTerm: {},
     historicalInstitutionalPreview: null,
     historicalInstitutionalPayload: null,
     historicalInstitutionalRepository: null,
@@ -3009,6 +3014,18 @@
               <p id="dataHubHistoricalInstitutionalStatus" class="analytics-note">No Historical Institutional Results import has been previewed.</p>
               <div id="dataHubHistoricalInstitutionalPreview" class="analytics-table"></div>
               <div id="dataHubHistoricalInstitutionalDiagnostics" class="analytics-table"></div>
+            </section>
+            <section class="source-data-card" data-source-type="institutional-ftes">
+              <h3>Institutional FTES Analysis</h3>
+              <p>Upload the Full-Time Equivalent Student Analysis report. Total FTES Census becomes the authoritative section-level actual; Timber projections remain available where no confirmed institutional value exists.</p>
+              <div class="analytics-toolbar">
+                <label>FTES Analysis Workbook <input id="dataHubInstitutionalFtesFile" type="file" accept=".xlsx,.xls"></label>
+                <button id="dataHubPreviewInstitutionalFtes" type="button">Preview Institutional FTES</button>
+                <button id="dataHubCommitInstitutionalFtes" type="button">Save Institutional FTES</button>
+                <button id="dataHubRefreshInstitutionalFtes" type="button">Refresh Saved Sources</button>
+              </div>
+              <p id="dataHubInstitutionalFtesStatus" class="analytics-note">No institutional FTES report has been previewed.</p>
+              <div id="dataHubInstitutionalFtesPreview" class="analytics-table"></div>
             </section>
             <section class="source-data-card" data-source-type="snapshots">
               <h3>Enrollment Snapshots</h3>
@@ -11831,6 +11848,97 @@ BUS 180 2 units`)
     });
   }
 
+  function rebuildInstitutionalFtesIndex() {
+    state.institutionalFtesIndex = window.COSInstitutionalFtes?.indexRecords?.(state.institutionalFtesRecords || []) || new Map();
+  }
+
+  async function parseInstitutionalFtesFile(file) {
+    if (!file) throw new Error('Choose a Full-Time Equivalent Student Analysis workbook.');
+    if (!window.XLSX?.read) throw new Error('Excel parsing library is unavailable.');
+    if (!window.COSInstitutionalFtes?.parseWorksheetRows) throw new Error('Institutional FTES parser is unavailable.');
+    const workbook = window.XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
+    const preview = window.COSInstitutionalFtes.parseWorksheetRows(rows, { tolerance: 0.02 });
+    preview.sourceName = file.name;
+    preview.reportDate = rows.slice(0, 20).flat().map(String).find(value => /report date/i.test(value)) || '';
+    return preview;
+  }
+
+  function renderInstitutionalFtesPreview() {
+    const preview = state.institutionalFtesPreview;
+    const status = document.getElementById('dataHubInstitutionalFtesStatus');
+    const node = document.getElementById('dataHubInstitutionalFtesPreview');
+    if (!status || !node) return;
+    if (!preview) {
+      status.textContent = 'No institutional FTES report has been previewed.';
+      node.innerHTML = '';
+      return;
+    }
+    status.textContent = preview.valid
+      ? `${preview.term}: ${formatWholeNumber(preview.audit.recordCount)} section(s), ${formatDecimal(preview.audit.censusFtesTotal, 2)} authoritative census FTES. ${formatWholeNumber(preview.audit.formulaMismatchCount)} formula-audit variance(s); direct Total FTES Census will be preserved.`
+      : `Preview blocked: ${preview.errors.join(' ')}`;
+    const byMethod = [...group(preview.records || [], row => row.accountingMethod || 'UNKNOWN').entries()].map(([method, records]) => ({
+      method,
+      sections: records.length,
+      censusFtes: window.COSInstitutionalFtes.round2(records.reduce((sum, record) => sum + (record.censusFtes || 0), 0)),
+      formulaAuditVariances: records.filter(record => record.formulaVariance != null && Math.abs(record.formulaVariance) > 0.02).length
+    }));
+    node.innerHTML = miniTable(byMethod, ['method', 'sections', 'censusFtes', 'formulaAuditVariances'], 'ftes');
+  }
+
+  async function previewInstitutionalFtesImport() {
+    state.institutionalFtesPreview = await parseInstitutionalFtesFile(document.getElementById('dataHubInstitutionalFtesFile')?.files?.[0]);
+    renderInstitutionalFtesPreview();
+    if (!state.institutionalFtesPreview.valid) throw new Error(state.institutionalFtesPreview.errors.join(' '));
+  }
+
+  async function loadInstitutionalFtesTerm(term, options = {}) {
+    const normalizedTerm = normalizeTermLabel(term).toUpperCase();
+    if (!normalizedTerm || !window.BACKEND_BASE_URL) return [];
+    if (!options.force && state.institutionalFtesMetadataByTerm[normalizedTerm]) {
+      return (state.institutionalFtesRecords || []).filter(record => normalizeTermLabel(record.term).toUpperCase() === normalizedTerm);
+    }
+    const response = await fetch(`${window.BACKEND_BASE_URL}/api/institutional-ftes/${encodeURIComponent(normalizedTerm)}`);
+    if (!response.ok) throw new Error(await response.text() || `Institutional FTES load failed for ${normalizedTerm}.`);
+    const payload = await response.json();
+    const incoming = Array.isArray(payload.data) ? payload.data : [];
+    state.institutionalFtesRecords = (state.institutionalFtesRecords || []).filter(record => normalizeTermLabel(record.term).toUpperCase() !== normalizedTerm).concat(incoming);
+    state.institutionalFtesMetadataByTerm = { ...state.institutionalFtesMetadataByTerm, [normalizedTerm]: payload.source || { loaded: true } };
+    rebuildInstitutionalFtesIndex();
+    return incoming;
+  }
+
+  async function refreshInstitutionalFtesSources() {
+    if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured.');
+    const response = await fetch(`${window.BACKEND_BASE_URL}/api/institutional-ftes`);
+    if (!response.ok) throw new Error(await response.text() || 'Institutional FTES source list failed.');
+    const payload = await response.json();
+    state.institutionalFtesSources = Array.isArray(payload.data) ? payload.data : [];
+    const status = document.getElementById('dataHubInstitutionalFtesStatus');
+    if (status) status.textContent = state.institutionalFtesSources.length
+      ? `${state.institutionalFtesSources.length} saved institutional FTES term source(s): ${state.institutionalFtesSources.map(item => `${item.term} (${formatWholeNumber(item.count)})`).join(', ')}.`
+      : 'No institutional FTES term sources are saved.';
+    return state.institutionalFtesSources;
+  }
+
+  async function commitInstitutionalFtesImport() {
+    const preview = state.institutionalFtesPreview;
+    if (!preview?.valid) throw new Error('Preview a valid institutional FTES workbook before saving.');
+    const token = enrollmentManagementToken();
+    if (!token) throw new Error('Open Enrollment Management access before saving institutional FTES.');
+    const response = await fetch(`${window.BACKEND_BASE_URL}/api/institutional-ftes/${encodeURIComponent(preview.term)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ records: preview.records, sourceName: preview.sourceName, reportDate: preview.reportDate })
+    });
+    if (!response.ok) throw new Error(await response.text() || 'Institutional FTES save failed.');
+    await loadInstitutionalFtesTerm(preview.term, { force: true });
+    await refreshInstitutionalFtesSources();
+    renderInstitutionalFtesPreview();
+    if (state.currentEnrollmentFtesRows?.length) renderCurrentEnrollmentFtesSummary();
+  }
+
   function renderSourceDataHubStatus(message = '') {
     const archiveTerms = state.archivedAnalyticsTerms || [];
     const facultyTerms = state.facultyScheduleArchiveTerms || [];
@@ -12823,6 +12931,8 @@ BUS 180 2 units`)
     const selectedFocusTerm = dashboardFocusTerm();
     const currentRows = applyFilters(dashboardCurrentRows(sourceRows, selectedFocusTerm), 'dash');
     const historicalRows = applyFilters(dashboardHistoricalRows(sourceRows, selectedFocusTerm), 'dash');
+    const institutionalTerms = [...new Set(currentRows.map(row => normalizeTermLabel(row.term)).filter(Boolean))];
+    await Promise.all(institutionalTerms.map(term => loadInstitutionalFtesTerm(term).catch(err => console.warn(`Institutional FTES load skipped for ${term}:`, err))));
     const reductionRows = dashboardReductionRows(selectedFocusTerm);
     const ftesSummary = buildCurrentEnrollmentFtesSummary(currentRows, {
       focusTerm: selectedFocusTerm,
@@ -13544,8 +13654,13 @@ BUS 180 2 units`)
     };
   }
 
+  function institutionalFtesRecordForRow(row) {
+    return window.COSInstitutionalFtes?.findRecord?.(state.institutionalFtesIndex, row) || null;
+  }
+
   function currentEnrollmentFtesUnavailable(row, asOfContext = null) {
     if (!row) return true;
+    if (institutionalFtesRecordForRow(row)?.censusFtes != null) return false;
     if (row.hasDirectFtesData) return false;
     if (row.ftesProvenance === 'UNAVAILABLE' || row.ftesUnavailable) return true;
     const method = canon(row.accountingMethod);
@@ -13564,6 +13679,8 @@ BUS 180 2 units`)
   }
 
   function currentEnrollmentFtesValue(row, asOfContext = null) {
+    const institutional = institutionalFtesRecordForRow(row);
+    if (institutional?.censusFtes != null) return Number(institutional.censusFtes) || 0;
     if (currentEnrollmentFtesUnavailable(row, asOfContext)) return 0;
     if (row?.hasDirectFtesData) return Number(row?.sourceFtes ?? row?.ftes) || 0;
     const basisEnrollment = currentEnrollmentFtesBasisEnrollment(row, asOfContext);
@@ -13688,6 +13805,19 @@ BUS 180 2 units`)
     const ftesUnavailable = currentEnrollmentFtesUnavailable(row, asOfContext);
     let status = FTES_MATURITY_STATUS.CONFIRMED_FINAL;
     let reason = 'FTES is available and does not depend on a pending census milestone in this report.';
+
+    const institutionalActual = institutionalFtesRecordForRow(row);
+    if (institutionalActual?.censusFtes != null) {
+      return {
+        status: FTES_MATURITY_STATUS.CONFIRMED_FINAL,
+        label: FTES_MATURITY_LABELS[FTES_MATURITY_STATUS.CONFIRMED_FINAL],
+        group: 'CONFIRMED_FINAL',
+        reason: 'Authoritative Total FTES Census loaded from the institutional Full-Time Equivalent Student Analysis report.',
+        asOfDate: asOfDate ? dateIso(asOfDate) : '',
+        censusDate: censusDate ? dateIso(censusDate) : '',
+        endDate: endDate ? dateIso(endDate) : ''
+      };
+    }
 
     if (ftesUnavailable) {
       status = FTES_MATURITY_STATUS.FTES_UNAVAILABLE;
@@ -14499,6 +14629,8 @@ BUS 180 2 units`)
     if (document.getElementById('dataHubWorkExperienceCsv')?.files?.length) await loadWorkExperienceRows('dataHubWorkExperienceCsv');
     const rows = dedupeEnrollmentRows([...currentRows(), ...uploadedRows.map(normalize), ...archivedRows.map(normalize)]);
     state.currentEnrollmentFtesRows = rowsWithWorkExperience(rows, 'cef');
+    const terms = [...new Set(state.currentEnrollmentFtesRows.map(row => normalizeTermLabel(row.term)).filter(Boolean))];
+    await Promise.all(terms.map(term => loadInstitutionalFtesTerm(term).catch(err => console.warn(`Institutional FTES load skipped for ${term}:`, err))));
     updateCurrentEnrollmentFtesTermOptions(state.currentEnrollmentFtesRows);
     return state.currentEnrollmentFtesRows;
   }
@@ -14508,6 +14640,7 @@ BUS 180 2 units`)
     const focusTerm = normalizeTermLabel(document.getElementById('cefFocusTerm')?.value || currentTerm());
     const comparisonTerm = normalizeTermLabel(document.getElementById('cefCompareTerm')?.value || '');
     const selectedTerms = [...new Set([focusTerm, comparisonTerm].filter(Boolean))];
+    await Promise.all(selectedTerms.map(term => loadInstitutionalFtesTerm(term).catch(err => console.warn(`Institutional FTES load skipped for ${term}:`, err))));
     const termRows = (await Promise.all(selectedTerms.map(term => loadScheduleTermRows(term).catch(() => [])))).flat();
     const savedWorkRows = includeWorkExperience('cef')
       ? (await Promise.all(selectedTerms.map(term => loadWorkExperienceTermRows(term).catch(() => [])))).flat()
@@ -27260,6 +27393,9 @@ BUS 180 2 units`)
     attachBusyClick('dataHubRefreshWorkExperienceArchives', 'Refreshing Work Experience archives...', () => refreshWorkExperienceArchives(), { key: 'dataHubRefreshWorkExperienceArchives', runningLabel: 'Refreshing...' });
     attachBusyClick('dataHubPreviewHistoricalInstitutional', 'Previewing Historical Institutional Results...', () => previewHistoricalInstitutionalImport(), { key: 'dataHubPreviewHistoricalInstitutional', runningLabel: 'Previewing...' });
     attachBusyClick('dataHubCommitHistoricalInstitutional', 'Committing Historical Institutional Results...', () => commitHistoricalInstitutionalImport(), { key: 'dataHubCommitHistoricalInstitutional', runningLabel: 'Committing...' });
+    attachBusyClick('dataHubPreviewInstitutionalFtes', 'Previewing Institutional FTES...', () => previewInstitutionalFtesImport(), { key: 'dataHubPreviewInstitutionalFtes', runningLabel: 'Previewing...' });
+    attachBusyClick('dataHubCommitInstitutionalFtes', 'Saving Institutional FTES...', () => commitInstitutionalFtesImport(), { key: 'dataHubCommitInstitutionalFtes', runningLabel: 'Saving...' });
+    attachBusyClick('dataHubRefreshInstitutionalFtes', 'Refreshing Institutional FTES sources...', () => refreshInstitutionalFtesSources(), { key: 'dataHubRefreshInstitutionalFtes', runningLabel: 'Refreshing...' });
     attachBusyClick('dataHubSaveSnapshotBatch', 'Saving enrollment snapshot...', () => saveDataHubSnapshotBatch(), { key: 'dataHubSaveSnapshotBatch', runningLabel: 'Saving...' });
     attachBusyClick('dataHubPreviewBulkSnapshot', 'Previewing Section Seating snapshot...', () => previewDataHubBulkSnapshotImport(), { key: 'dataHubPreviewBulkSnapshot', runningLabel: 'Previewing...' });
     attachBusyClick('dataHubSaveBulkSnapshot', 'Saving previewed Section Seating snapshot...', () => saveDataHubBulkSnapshotImport(), { key: 'dataHubSaveBulkSnapshot', runningLabel: 'Saving...' });

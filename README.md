@@ -105,6 +105,8 @@ Faculty Schedule Data is a separate optional dataset used only for faculty-patte
 
 Work Experience Enrollment is a separate optional source dataset stored through `/api/work-experience` endpoints. Current Enrollment & FTES and related Enrollment Management reports can load saved Work Experience rows by selected focus/comparison term and display them as their own planning category. Work Experience archives do not share Section Seating, Faculty Schedule, Room Availability, or analytics archive storage.
 
+Institutional FTES Analysis is a separate term-specific source imported from the Full-Time Equivalent Student Analysis workbook and stored by the backend through `/api/institutional-ftes`. `Total FTES Census` is preserved as the authoritative section-level actual and joined to Section Seating by normalized term and CRN. Where no institutional actual exists, TIMBER continues to use its existing deterministic calculation and historical prediction paths. Historical Institutional Results used to train projections remain a separate browser repository and are not overwritten by this source.
+
 Schema references:
 
 - [Schedule CSV schema](docs/csv-schema.md)
