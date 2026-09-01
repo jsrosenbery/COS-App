@@ -13495,6 +13495,17 @@ BUS 180 2 units`)
       0;
   }
 
+  function comparisonCensusEnrollmentValue(row) {
+    return finiteOrNull(row?.census) ??
+      finiteOrNull(row?.census1) ??
+      finiteOrNull(row?.censusEnrollment) ??
+      finiteOrNull(row?.finalEnrollment) ??
+      finiteOrNull(row?.actual) ??
+      finiteOrNull(row?.currentEnrollment) ??
+      finiteOrNull(row?.enrollment) ??
+      0;
+  }
+
   function currentEnrollmentPopulation(row) {
     if (row?.isWorkExperience || row?.modality === 'WORK EXPERIENCE') return 'Work Experience';
     if (isDualEnrollmentRow(row)) return 'Dual Enrollment';
@@ -13562,6 +13573,7 @@ BUS 180 2 units`)
 
   function aggregateCurrentEnrollmentFtes(rows, getter, options = {}) {
     const buckets = new Map();
+    const enrollmentValue = options.enrollmentValue || currentEnrollmentValue;
     (rows || []).forEach(row => {
       const name = getter(row) || 'Unknown';
       if (!buckets.has(name)) {
@@ -13583,7 +13595,7 @@ BUS 180 2 units`)
       }
       const bucket = buckets.get(name);
       bucket.classOfferings += 1;
-      bucket.enrollment += currentEnrollmentValue(row);
+      bucket.enrollment += enrollmentValue(row);
       bucket.ftes += currentEnrollmentFtesValue(row, options.asOfContext || null);
       bucket.seats += Number(row.cap) || 0;
       if (row.hasDirectFtesData) bucket.directFtesRows += 1;
@@ -14357,16 +14369,21 @@ BUS 180 2 units`)
     return (rows || []).filter(row => normalizedTerm && normalizeTermLabel(row.term) === normalizedTerm);
   }
 
-  function currentEnrollmentFtesTotals(sourceRows, asOfContext = null) {
+  function currentEnrollmentFtesTotals(sourceRows, asOfContext = null, options = {}) {
     const rows = sourceRows || [];
     const ftesRows = rows.filter(row => !currentEnrollmentFtesUnavailable(row, asOfContext));
     const unavailableRows = rows.filter(row => currentEnrollmentFtesUnavailable(row, asOfContext));
     const ftes = ftesRows.reduce((total, row) => total + currentEnrollmentFtesValue(row, asOfContext), 0);
-    const enrollment = rows.reduce((total, row) => total + currentEnrollmentValue(row), 0);
+    const enrollmentValue = options.enrollmentValue || currentEnrollmentValue;
+    const enrollment = rows.reduce((total, row) => total + enrollmentValue(row), 0);
+    const censusEnrollmentRows = rows.filter(row => finiteOrNull(row?.census) != null || finiteOrNull(row?.census1) != null || finiteOrNull(row?.censusEnrollment) != null).length;
     return {
       rowsLoaded: rows.length,
       classOfferings: rows.length,
       enrollment,
+      enrollmentBasis: options.enrollmentBasis || 'Current enrollment',
+      censusEnrollmentRows,
+      enrollmentFallbackRows: options.enrollmentValue === comparisonCensusEnrollmentValue ? rows.length - censusEnrollmentRows : 0,
       ftes,
       ftesPerEnrollment: safeDiv(ftes, enrollment),
       seats: rows.reduce((total, row) => total + (Number(row.cap) || 0), 0),
@@ -14398,10 +14415,10 @@ BUS 180 2 units`)
       warnings.push(`No exact prior-year like-term comparison is selected for ${summary.focusTerm}. Choose one manually if a valid comparison term should be used.`);
     }
     if (summary.focus.unavailableFtesRows) {
-      warnings.push(`${summary.focus.unavailableFtesRows} selected-term row(s) have enrollment but missing FTES inputs. Their FTES is marked unavailable rather than inferred from historical ratios.`);
+      warnings.push(`${summary.focus.unavailableFtesRows} selected-term row(s) have missing official current-calculated FTES inputs. ${summary.ftesClassification.focus.predictedSections || 0} have planning predictions shown separately; ${summary.ftesClassification.focus.unavailableSectionCount || 0} remain unavailable. Predictions do not alter official/current-calculated FTES.`);
     }
     if (summary.comparisonTerm && summary.comparison.unavailableFtesRows) {
-      warnings.push(`${summary.comparison.unavailableFtesRows} comparison-term row(s) have enrollment but missing FTES inputs. Their FTES is marked unavailable rather than inferred from historical ratios.`);
+      warnings.push(`${summary.comparison.unavailableFtesRows} comparison-term row(s) have missing official calculated FTES inputs. ${summary.ftesClassification.comparison.predictedSections || 0} have planning predictions shown separately; ${summary.ftesClassification.comparison.unavailableSectionCount || 0} remain unavailable.`);
     }
     if (!summary.reconciliation.focus.matches) {
       warnings.push(`Selected-term FTES component total does not reconcile to total FTES. Difference: ${round1(summary.reconciliation.focus.difference)} FTES.`);
@@ -14423,7 +14440,7 @@ BUS 180 2 units`)
       warnings.push(`FTES maturity incomplete - ${round1(summary.maturity.focus.maturityUnknownFtes)} FTES could not be fully classified because ${reason}. These valid FTES remain included in Projected FTES.`);
     }
     if (summary.maturity?.focus?.unavailableRows) {
-      warnings.push(`${summary.maturity.focus.unavailableRows} selected-term row(s) have unavailable FTES amounts because calculation inputs are missing. These rows are excluded from Projected FTES.`);
+      warnings.push(`${summary.maturity.focus.unavailableRows} selected-term row(s) are excluded from maturity-based current calculated FTES because official calculation inputs are missing. Historical planning predictions, when supported, appear separately in Projected Final FTES.`);
     }
     return warnings;
   }
@@ -14448,9 +14465,15 @@ BUS 180 2 units`)
     const focusClassification = ftesClassificationSummary(focusClassifiedRows);
     const comparisonClassification = ftesClassificationSummary(comparisonClassifiedRows);
     const focus = currentEnrollmentFtesTotals(focusRows, focusAsOf);
-    const comparison = currentEnrollmentFtesTotals(comparisonRows, comparisonAsOf);
+    const comparison = currentEnrollmentFtesTotals(comparisonRows, comparisonAsOf, {
+      enrollmentValue: comparisonCensusEnrollmentValue,
+      enrollmentBasis: 'Census enrollment first; final/current enrollment only when census is unavailable'
+    });
     const focusComponents = aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentFtesComponent, { asOfContext: focusAsOf });
-    const comparisonComponents = aggregateCurrentEnrollmentFtes(comparisonRows, currentEnrollmentFtesComponent, { asOfContext: comparisonAsOf });
+    const comparisonComponents = aggregateCurrentEnrollmentFtes(comparisonRows, currentEnrollmentFtesComponent, {
+      asOfContext: comparisonAsOf,
+      enrollmentValue: comparisonCensusEnrollmentValue
+    });
     const pendingFtesAnalysis = buildHistoricalPendingFtesAnalysis(scoped, { targetTerm: focusTerm || 'FALL 2026' });
     const maturityByCrn = new Map(focusMaturity.classifiedRows.map(item => [sectionKey(item.row), item.maturity]));
     const classificationByCrn = new Map(focusClassifiedRows.map(item => [sectionKey(item.row), item]));
@@ -14481,7 +14504,10 @@ BUS 180 2 units`)
       context: {
         selectedTerm: focusTerm,
         comparisonTerm,
-        enrollmentSource: 'ACTUAL_ENROLL/current enrollment first; census/final fields only when current enrollment is unavailable.',
+        enrollmentSource: 'Selected term uses ACTUAL_ENROLL/current enrollment first. Comparison term uses CENSUS_ENROLL first, with final/current enrollment only when census is unavailable.',
+        comparisonEnrollmentBasis: comparison.enrollmentBasis,
+        comparisonCensusEnrollmentRows: comparison.censusEnrollmentRows,
+        comparisonEnrollmentFallbackRows: comparison.enrollmentFallbackRows,
         ftesSource: 'Confirmed and Estimated FTES wrap existing production calculations. Historical FTES/enrollment ratios are not used for deterministic confirmed/estimated FTES. Predicted FTES is separate Historical Institutional Model output for P/E/Work Experience planning and is not official/reportable FTES.',
         censusDateSource: 'Authoritative schedule CSV CENSUS_ENRL_DATE when present; not calculated from Part of Term.',
         censusEnrollmentSource: 'CENSUS_ENROLL from the source schedule CSV when present; current enrollment remains separately available.',
@@ -14622,6 +14648,7 @@ BUS 180 2 units`)
           term: focusTerm || 'Selected focus term',
           classOfferings: focus.classOfferings,
           enrollment: focus.enrollment,
+          enrollmentBasis: 'Current enrollment',
           ftes: focus.ftes,
           seats: focus.seats
         },
@@ -14630,6 +14657,7 @@ BUS 180 2 units`)
           term: comparisonTerm || 'No comparison selected',
           classOfferings: comparison.classOfferings,
           enrollment: comparison.enrollment,
+          enrollmentBasis: comparison.enrollmentBasis,
           ftes: comparison.ftes,
           seats: comparison.seats
         },
@@ -14638,13 +14666,14 @@ BUS 180 2 units`)
           term: comparisonTerm ? `${focusTerm || 'Focus'} minus ${comparisonTerm}` : 'No comparison selected',
           classOfferings: focus.classOfferings - comparison.classOfferings,
           enrollment: focus.enrollment - comparison.enrollment,
+          enrollmentBasis: 'Selected current enrollment minus comparison census-first enrollment',
           ftes: focus.ftes - comparison.ftes,
           seats: focus.seats - comparison.seats
         }
       ],
       metricComparisonRows: [
         {
-          metric: 'Enrollment',
+          metric: 'Enrollment (Current vs Comparison Census)',
           selectedTerm: focus.enrollment,
           comparisonTerm: comparisonTerm ? comparison.enrollment : '',
           change: comparisonTerm ? focus.enrollment - comparison.enrollment : '',
@@ -15089,6 +15118,7 @@ BUS 180 2 units`)
         { metric: 'Selected Term', value: summary.context.selectedTerm || 'None' },
         { metric: 'Comparison Term', value: summary.context.comparisonTerm || 'No exact prior-year like-term selected' },
         { metric: 'Enrollment Source', value: summary.context.enrollmentSource },
+        { metric: 'Comparison Enrollment Basis', value: `${summary.context.comparisonEnrollmentBasis}; ${formatWholeNumber(summary.context.comparisonCensusEnrollmentRows)} census row(s), ${formatWholeNumber(summary.context.comparisonEnrollmentFallbackRows)} fallback row(s).` },
         { metric: 'FTES Source', value: summary.context.ftesSource },
         { metric: 'Census Date Source', value: summary.context.censusDateSource },
         { metric: 'Census Enrollment Source', value: summary.context.censusEnrollmentSource },
@@ -15121,7 +15151,7 @@ BUS 180 2 units`)
         historicalPendingFtesAnalysisPanel(pendingFtesAnalysis),
         dashboardPanel('FTES Classification Summary', `<p class="analytics-chart-note">Projected Final FTES equals Confirmed FTES plus Estimated FTES plus Predicted FTES. Predicted FTES is a planning value from Historical Institutional Results and does not alter official/reportable FTES.</p>${miniTable(summary.breakdowns.ftesClassification, ['classification', 'classOfferings', 'ftes', 'share', 'note'], 'ftes')}`),
         dashboardPanel('Predicted FTES Explainability', `<p class="analytics-chart-note">Predicted rows show the historical basis selected by the model. Comparable terms, observation counts, weighted yield, range, confidence, and backtesting error are shown for audit review.</p>${miniTable(predictedRows, ['crn', 'course', 'normalizedCourseKey', 'rawAttendanceMethod', 'normalizedAttendanceMethod', 'currentEnrollment', 'historicalModelReadiness', 'historicalModelLevel', 'historicalTermsUsed', 'historicalObservationCount', 'weightedHistoricalYield', 'predictedFtes', 'predictionLowerBound', 'predictionUpperBound', 'confidence', 'backtestingError', 'reason'], 'ftes')}`),
-        dashboardPanel('Focus vs Comparison Totals', miniTable(summary.comparisonRows, ['line', 'term', 'classOfferings', 'enrollment', 'ftes', 'seats'], 'ftes')),
+        dashboardPanel('Focus vs Comparison Totals', miniTable(summary.comparisonRows, ['line', 'term', 'classOfferings', 'enrollment', 'enrollmentBasis', 'ftes', 'seats'], 'ftes')),
         dashboardPanel('Selected vs Comparison Metrics', miniTable(summary.metricComparisonRows, ['metric', 'selectedTerm', 'comparisonTerm', 'change', 'changePct'], 'ftes')),
         dashboardPanel('FTES Status Breakdown', `<p class="analytics-chart-note">Projected FTES equals confirmed/final plus estimated plus maturity-unknown valid FTES. FTES Unavailable rows are only rows where the FTES amount itself cannot be calculated from the loaded source.</p>${miniTable(summary.breakdowns.ftesMaturityStatus, ['name', 'group', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'reason'], 'ftes')}`),
         dashboardPanel('Selected Term FTES Components', miniTable(summary.breakdowns.ftesComponents, ['name', 'classOfferings', 'enrollment', 'ftes', 'directFtesRows', 'estimatedFtesRows', 'unavailableFtesRows', 'calculationNote'], 'ftes')),
@@ -15154,6 +15184,7 @@ BUS 180 2 units`)
       'Change %': row.changePct ?? '',
       'Class Offerings': row.classOfferings ?? '',
       Enrollment: row.enrollment ?? row.currentEnrollment ?? '',
+      'Enrollment Basis': row.enrollmentBasis || '',
       Seats: row.seats ?? '',
       FTES: row.ftes ?? '',
       'Enrollment Share': row.enrollmentShare == null ? '' : row.enrollmentShare,
@@ -15267,7 +15298,7 @@ BUS 180 2 units`)
       ['Census Enrollment Source', summary.context.censusEnrollmentSource],
       ['Projected FTES Reconciliation Difference', summary.reconciliation.projectedFtes.difference],
       ['Selected Term FTES per Enrollment', summary.focus.ftesPerEnrollment],
-      ['Comparison Term Enrollment', summary.comparison.enrollment],
+      ['Comparison Term Census Enrollment', summary.comparison.enrollment],
       ['Comparison Term FTES', summary.comparison.ftes],
       ['Executive Comparison FTES Basis', currentEnrollmentExecutivePrimaryComparisonFtes(summary)],
       ['Comparison Confirmed/Final FTES', summary.maturity.comparison.confirmedFinalFtes],
