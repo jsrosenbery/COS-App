@@ -705,6 +705,13 @@
       : formatDecimal(value, 2);
   }
 
+  function formatUploadedTimestamp(value) {
+    const text = String(value || '').trim();
+    if (!text) return 'Timestamp unavailable';
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? text : parsed.toLocaleString();
+  }
+
   function formatPresenceValue(value) {
     return window.COSFormatters?.formatPresenceValue
       ? window.COSFormatters.formatPresenceValue(value)
@@ -15193,7 +15200,7 @@ BUS 180 2 units`)
         { metric: 'Selected Term', value: summary.context.selectedTerm || 'None' },
         { metric: 'Comparison Term', value: summary.context.comparisonTerm || 'No exact prior-year like-term selected' },
         { metric: 'Selected Section Seating Source', value: summary.context.selectedSectionSourceName || 'Shared current Section Seating source' },
-        { metric: 'Selected Section Seating Uploaded', value: summary.context.selectedSectionSourceUploadedAt ? displayDate(summary.context.selectedSectionSourceUploadedAt) : 'Timestamp unavailable' },
+        { metric: 'Selected Section Seating Uploaded', value: formatUploadedTimestamp(summary.context.selectedSectionSourceUploadedAt) },
         { metric: 'Enrollment Source', value: summary.context.enrollmentSource },
         { metric: 'Selected Enrollment Basis', value: `${summary.context.selectedEnrollmentBasis}; ${formatWholeNumber(summary.context.selectedCensusLockedEnrollmentRows)} census-locked row(s), ${formatWholeNumber(summary.context.selectedCurrentEnrollmentRows)} live row(s), ${formatWholeNumber(summary.context.selectedCensusMissingFallbackRows)} post-census fallback row(s).` },
         { metric: 'Comparison Enrollment Basis', value: `${summary.context.comparisonEnrollmentBasis}; ${formatWholeNumber(summary.context.comparisonCensusEnrollmentRows)} census row(s), ${formatWholeNumber(summary.context.comparisonEnrollmentFallbackRows)} fallback row(s).` },
