@@ -8850,3 +8850,11 @@ test('schedule change form shows draft-first email UI with mailto fallback', () 
   assert.match(form, /readEmailFields\(shadow, \{ requireRecipient: graphDraft \}\)/);
   assert.match(form, /openEmailDraft\(shadow\)/);
 });
+
+test('current enrollment reports format Section Seating upload timestamps without an undefined displayDate dependency', () => {
+  const analytics = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+
+  assert.match(analytics, /function formatUploadedTimestamp\(value\)/);
+  assert.match(analytics, /value: formatUploadedTimestamp\(summary\.context\.selectedSectionSourceUploadedAt\)/);
+  assert.doesNotMatch(analytics, /\bdisplayDate\s*\(/);
+});
