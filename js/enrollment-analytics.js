@@ -2186,7 +2186,7 @@
     const requestedTerm = normalizeTermLabel(term);
     if (!requestedTerm) return [];
     const liveRows = currentRowsForTerm(requestedTerm);
-    if (liveRows.length && normalizeTermLabel(currentTerm()) === requestedTerm) {
+    if (!options.preferBackend && liveRows.length && normalizeTermLabel(currentTerm()) === requestedTerm) {
       state.scheduleTermCacheStatus = `Using ${liveRows.length} row(s) already loaded in the workspace for ${requestedTerm}.`;
       return liveRows;
     }
@@ -2205,11 +2205,17 @@
       let source = 'schedule';
       let scheduleError = '';
       try {
-        const response = await fetch(`${window.BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(requestedTerm.toUpperCase())}/current`);
+        const response = await fetch(`${window.BACKEND_BASE_URL}/api/section-seating/${encodeURIComponent(requestedTerm.toUpperCase())}/current?_=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' }
+        });
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
         payload = await response.json();
       } catch (err) {
         scheduleError = err?.message || String(err);
+      }
+      if (options.requireCurrentSource && (!Array.isArray(payload.data) || !payload.data.length)) {
+        throw new Error(`Could not load authoritative current ${requestedTerm} Section Seating source: ${scheduleError || 'the backend returned no rows'}. Refresh and retry after confirming the Source Data Hub upload.`);
       }
       if (!Array.isArray(payload.data) || !payload.data.length) {
         try {
@@ -2235,6 +2241,8 @@
           ...(state.scheduleTermMetadataCache || {}),
           [requestedTerm]: {
             lastUpdated: payload.lastUpdated || '',
+            sourceName: payload.source?.filename || payload.source?.sourceName || payload.sourceName || '',
+            uploadedAt: payload.source?.uploadedAt || payload.source?.updatedAt || payload.lastUpdated || '',
             loadedAt: new Date().toISOString(),
             rowCount: rows.length,
             source
@@ -2255,6 +2263,14 @@
       });
     state.scheduleTermLoading = { ...(state.scheduleTermLoading || {}), [requestedTerm]: promise };
     return promise;
+  }
+
+  function replaceTermRowsWithAuthoritativeSource(baseRows = [], authoritativeRows = [], term = '') {
+    const requestedTerm = normalizeTermLabel(term);
+    return dedupeEnrollmentRows([
+      ...(baseRows || []).filter(row => normalizeTermLabel(row.term) !== requestedTerm),
+      ...(authoritativeRows || [])
+    ]);
   }
 
   function preloadScheduleTermsInBackground() {
@@ -14840,15 +14856,26 @@ BUS 180 2 units`)
     const selectedTerms = [...new Set([focusTerm, comparisonTerm].filter(Boolean))];
     await Promise.all(selectedTerms.map(term => loadInstitutionalFtesTerm(term).catch(err => console.warn(`Institutional FTES load skipped for ${term}:`, err))));
     await loadInstitutionalFtesPredictionModel([focusTerm]).catch(err => console.warn('Institutional FTES prediction model load skipped:', err));
-    const termRows = (await Promise.all(selectedTerms.map(term => loadScheduleTermRows(term).catch(() => [])))).flat();
+    const focusScheduleRows = await loadScheduleTermRows(focusTerm, {
+      force: true,
+      preferBackend: true,
+      requireCurrentSource: true
+    });
+    const comparisonScheduleRows = comparisonTerm
+      ? await loadScheduleTermRows(comparisonTerm).catch(err => {
+          console.warn(`Comparison Section Seating load skipped for ${comparisonTerm}:`, err);
+          return [];
+        })
+      : [];
     const savedWorkRows = includeWorkExperience('cef')
       ? (await Promise.all(selectedTerms.map(term => loadWorkExperienceTermRows(term).catch(() => [])))).flat()
       : [];
     const matchingWorkRows = includeWorkExperience('cef') ? dedupeEnrollmentRows([...workExperienceRowsForTerms(selectedTerms), ...savedWorkRows]) : [];
     const selectedTermSet = new Set(selectedTerms);
+    const authoritativeRows = replaceTermRowsWithAuthoritativeSource(loadedRows, focusScheduleRows, focusTerm);
     const rows = dedupeEnrollmentRows([
-      ...loadedRows.filter(row => !row.isWorkExperience || !selectedTermSet.size || selectedTermSet.has(normalizeTermLabel(row.term))),
-      ...termRows,
+      ...authoritativeRows.filter(row => !row.isWorkExperience || !selectedTermSet.size || selectedTermSet.has(normalizeTermLabel(row.term))),
+      ...comparisonScheduleRows,
       ...matchingWorkRows
     ]);
     const diagnosticHistory = await loadHistoricalPendingFtesDiagnosticRows(focusTerm, {
@@ -14871,6 +14898,10 @@ BUS 180 2 units`)
       pendingFtesDiagnosticArchiveLoad: diagnosticHistory,
       historicalModel
     });
+    const selectedSource = state.scheduleTermMetadataCache?.[focusTerm] || {};
+    state.currentEnrollmentFtesSummary.context.selectedSectionSourceName = selectedSource.sourceName || 'Shared current Section Seating source';
+    state.currentEnrollmentFtesSummary.context.selectedSectionSourceUploadedAt = selectedSource.uploadedAt || selectedSource.lastUpdated || '';
+    state.currentEnrollmentFtesSummary.context.selectedSectionSourceType = selectedSource.source || 'schedule';
     if (document.getElementById('cefShowHistoricalPendingEstimates')?.checked) {
       await ensureHistoricalInstitutionalReady();
       const focusRows = rows.filter(row => normalizeTermLabel(row.term) === focusTerm && pendingFtesPopulation(row));
@@ -15161,6 +15192,8 @@ BUS 180 2 units`)
       const contextRows = [
         { metric: 'Selected Term', value: summary.context.selectedTerm || 'None' },
         { metric: 'Comparison Term', value: summary.context.comparisonTerm || 'No exact prior-year like-term selected' },
+        { metric: 'Selected Section Seating Source', value: summary.context.selectedSectionSourceName || 'Shared current Section Seating source' },
+        { metric: 'Selected Section Seating Uploaded', value: summary.context.selectedSectionSourceUploadedAt ? displayDate(summary.context.selectedSectionSourceUploadedAt) : 'Timestamp unavailable' },
         { metric: 'Enrollment Source', value: summary.context.enrollmentSource },
         { metric: 'Selected Enrollment Basis', value: `${summary.context.selectedEnrollmentBasis}; ${formatWholeNumber(summary.context.selectedCensusLockedEnrollmentRows)} census-locked row(s), ${formatWholeNumber(summary.context.selectedCurrentEnrollmentRows)} live row(s), ${formatWholeNumber(summary.context.selectedCensusMissingFallbackRows)} post-census fallback row(s).` },
         { metric: 'Comparison Enrollment Basis', value: `${summary.context.comparisonEnrollmentBasis}; ${formatWholeNumber(summary.context.comparisonCensusEnrollmentRows)} census row(s), ${formatWholeNumber(summary.context.comparisonEnrollmentFallbackRows)} fallback row(s).` },
@@ -28310,6 +28343,7 @@ BUS 180 2 units`)
     dashboardScopeWarnings,
     summaryLifecycleAvailability,
     buildCurrentEnrollmentFtesSummary,
+    replaceTermRowsWithAuthoritativeSource,
     currentEnrollmentExecutivePrimaryComparisonFtes,
     determineCensusStatus,
     isHistoricallyPredictedSection,

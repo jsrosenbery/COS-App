@@ -159,6 +159,17 @@ test('regression baseline: current Section Seating upload refreshes Room Availab
   assert.ok(archiveSave > activeRefresh, 'Room Availability refresh must not wait for the historical archive save');
 });
 
+test('regression baseline: Current Enrollment FTES forces the authoritative current Section Seating source', () => {
+  const analytics = read('js/enrollment-analytics.js');
+
+  assert.match(analytics, /current\?_\=\$\{Date\.now\(\)\}/);
+  assert.match(analytics, /cache: 'no-store'/);
+  assert.match(analytics, /preferBackend: true/);
+  assert.match(analytics, /requireCurrentSource: true/);
+  assert.match(analytics, /replaceTermRowsWithAuthoritativeSource\(loadedRows, focusScheduleRows, focusTerm\)/);
+  assert.match(analytics, /Selected Section Seating Uploaded/);
+});
+
 test('regression baseline: Schedule Builder accepts course inputs and produces options', () => {
   const builder = require('../js/core/schedule-builder.js');
   const result = builder.buildScheduleOptions([
