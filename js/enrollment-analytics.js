@@ -488,6 +488,8 @@
     institutionalFtesRecords: [],
     institutionalFtesIndex: new Map(),
     institutionalFtesMetadataByTerm: {},
+    institutionalFtesPredictionModel: null,
+    institutionalFtesPredictionModelKey: '',
     historicalInstitutionalPreview: null,
     historicalInstitutionalPayload: null,
     historicalInstitutionalRepository: null,
@@ -11929,6 +11931,78 @@ BUS 180 2 units`)
     return state.institutionalFtesSources;
   }
 
+  function institutionalFtesModelRecord(record = {}) {
+    const courseText = String(record.course || '').trim().toUpperCase();
+    const match = courseText.match(/^([A-Z&]+)\s+(.+)$/);
+    const subject = match?.[1] || '';
+    const courseNumber = match?.[2] || courseText;
+    const termLabel = normalizeTermLabel(record.term);
+    const termParts = termLabel.match(/^(FALL|SPRING|SUMMER)\s+(\d{4})$/);
+    const termCode = termParts
+      ? `${termParts[1] === 'FALL' ? Number(termParts[2]) + 1 : termParts[2]}${termParts[1] === 'FALL' ? '10' : termParts[1] === 'SPRING' ? '20' : '30'}`
+      : record.term;
+    return {
+      termCode,
+      subject,
+      courseNumber,
+      courseKey: historicalInstitutional?.stableCourseKeyForRow?.({ subject, courseNumber }) || courseText,
+      attendanceMethod: record.accountingMethod,
+      censusEnrollment: record.reportableCensus ?? record.censusEnrollment,
+      finalInstitutionalFtes: record.censusFtes,
+      division: record.division || '',
+      campus: record.campus || '',
+      crn: record.crn,
+      sourceQuality: historicalInstitutional?.SOURCE_QUALITY || 'FINAL_INSTITUTIONAL_ACTUAL',
+      source: 'FULL_TIME_EQUIVALENT_STUDENT_ANALYSIS'
+    };
+  }
+
+  function mergeFtesPredictionModels(primary = null, secondary = null) {
+    const groups = new Map();
+    (primary?.groups || []).forEach(group => groups.set(`${group.modelLevel}:${group.groupKey}`, group));
+    (secondary?.groups || []).forEach(group => {
+      const key = `${group.modelLevel}:${group.groupKey}`;
+      if (!groups.has(key)) groups.set(key, group);
+    });
+    return {
+      ...(secondary || {}),
+      ...(primary || {}),
+      groups: [...groups.values()],
+      backtests: [...(primary?.backtests || []), ...(secondary?.backtests || [])],
+      records: Number(primary?.records || 0) + Number(secondary?.records || 0),
+      source: primary?.groups?.length ? 'Institutional FTES Analysis with Historical Institutional Results fallback' : secondary?.source || ''
+    };
+  }
+
+  async function loadInstitutionalFtesPredictionModel(excludedTerms = []) {
+    if (!historicalInstitutional?.buildYieldModel || !window.BACKEND_BASE_URL) return null;
+    if (!state.institutionalFtesSources?.length) await refreshInstitutionalFtesSources();
+    const excluded = new Set((excludedTerms || []).map(normalizeTermLabel));
+    const cutoff = Math.min(...[...excluded].map(termSortValue).filter(Number.isFinite));
+    const isPriorTerm = term => !Number.isFinite(cutoff) || termSortValue(term) < cutoff;
+    const terms = (state.institutionalFtesSources || [])
+      .map(item => normalizeTermLabel(item.term))
+      .filter(term => term && !excluded.has(term) && isPriorTerm(term));
+    await Promise.all(terms.map(term => loadInstitutionalFtesTerm(term).catch(err => console.warn(`Institutional prediction history load skipped for ${term}:`, err))));
+    const modelRows = (state.institutionalFtesRecords || [])
+      .filter(record => {
+        const term = normalizeTermLabel(record.term);
+        return !excluded.has(term) && isPriorTerm(term);
+      })
+      .map(institutionalFtesModelRecord)
+      .filter(record => Number(record.censusEnrollment) > 0 && Number.isFinite(Number(record.finalInstitutionalFtes)));
+    const key = `${terms.sort().join('|')}::${modelRows.length}`;
+    if (state.institutionalFtesPredictionModelKey === key && state.institutionalFtesPredictionModel) return state.institutionalFtesPredictionModel;
+    state.institutionalFtesPredictionModel = historicalInstitutional.buildYieldModel(modelRows);
+    state.institutionalFtesPredictionModel.source = 'Full-Time Equivalent Student Analysis history';
+    state.institutionalFtesPredictionModelKey = key;
+    return state.institutionalFtesPredictionModel;
+  }
+
+  function effectiveFtesPredictionModel(fallback = null) {
+    return mergeFtesPredictionModels(state.institutionalFtesPredictionModel, fallback || state.historicalInstitutionalModel);
+  }
+
   async function commitInstitutionalFtesImport() {
     const preview = state.institutionalFtesPreview;
     if (!preview?.valid) throw new Error('Preview a valid institutional FTES workbook before saving.');
@@ -11941,6 +12015,8 @@ BUS 180 2 units`)
     });
     if (!response.ok) throw new Error(await response.text() || 'Institutional FTES save failed.');
     await loadInstitutionalFtesTerm(preview.term, { force: true });
+    state.institutionalFtesPredictionModel = null;
+    state.institutionalFtesPredictionModelKey = '';
     await refreshInstitutionalFtesSources();
     renderInstitutionalFtesPreview();
     if (state.currentEnrollmentFtesRows?.length) renderCurrentEnrollmentFtesSummary();
@@ -12940,10 +13016,11 @@ BUS 180 2 units`)
     const historicalRows = applyFilters(dashboardHistoricalRows(sourceRows, selectedFocusTerm), 'dash');
     const institutionalTerms = [...new Set(currentRows.map(row => normalizeTermLabel(row.term)).filter(Boolean))];
     await Promise.all(institutionalTerms.map(term => loadInstitutionalFtesTerm(term).catch(err => console.warn(`Institutional FTES load skipped for ${term}:`, err))));
+    await loadInstitutionalFtesPredictionModel(institutionalTerms).catch(err => console.warn('Institutional FTES prediction model load skipped:', err));
     const reductionRows = dashboardReductionRows(selectedFocusTerm);
     const ftesSummary = buildCurrentEnrollmentFtesSummary(currentRows, {
       focusTerm: selectedFocusTerm,
-      historicalModel: state.historicalInstitutionalModel || null,
+      historicalModel: effectiveFtesPredictionModel(),
       includeWorkExperience: true,
       includeDualEnrollment: true
     });
@@ -14019,10 +14096,15 @@ BUS 180 2 units`)
     const attendanceMethod = method || null;
     const censusStatus = determineCensusStatus(section, asOfContext, context.termMetadata || {});
     const currentEnrollment = currentEnrollmentValue(section);
-    const currentUnavailable = currentEnrollmentFtesUnavailable(section);
-    const currentCalculatedFtes = currentUnavailable ? null : currentEnrollmentFtesValue(section, asOfContext);
+    const institutionalActual = context.institutionalActual === undefined
+      ? institutionalFtesActualForRow(section, asOfContext)
+      : context.institutionalActual;
+    const currentUnavailable = institutionalActual ? false : currentEnrollmentFtesUnavailable(section, asOfContext);
+    const currentCalculatedFtes = institutionalActual
+      ? Number(institutionalActual.censusFtes) || 0
+      : currentUnavailable ? null : currentEnrollmentFtesValue(section, asOfContext);
     const eligiblePrediction = isHistoricallyPredictedSection(section);
-    const directOrDeterministic = section.hasDirectFtesData || DETERMINISTIC_FTES_METHODS.has(method);
+    const directOrDeterministic = Boolean(institutionalActual) || section.hasDirectFtesData || DETERMINISTIC_FTES_METHODS.has(method);
     const basePredictionDiagnostics = predictionDiagnosticsFromResult(section, context.historicalModel || {}, {});
     const common = {
       attendanceMethod,
@@ -14046,6 +14128,19 @@ BUS 180 2 units`)
     }
     if (currentEnrollment == null || !Number.isFinite(Number(currentEnrollment))) {
       return { ...common, classification: 'unavailable', confidence: 'insufficient-data', reason: 'Current enrollment is missing or invalid.' };
+    }
+
+    if (institutionalActual) {
+      return {
+        ...common,
+        classification: 'confirmed',
+        displayValue: currentCalculatedFtes,
+        confirmedFtes: currentCalculatedFtes,
+        projectedFinalFtes: currentCalculatedFtes,
+        confidence: 'very-high',
+        derivation: 'institutional-census-actual',
+        reason: 'Authoritative Total FTES Census is available for this term and CRN, and the section has reached its census milestone.'
+      };
     }
 
     if (eligiblePrediction && !section.hasDirectFtesData) {
@@ -14250,7 +14345,7 @@ BUS 180 2 units`)
       bucket.ftes += currentEnrollmentFtesValue(row, asOfContext);
       if (row.hasDirectFtesData) bucket.directFtesRows += 1;
       else if (row.hasFtesData) bucket.estimatedFtesRows += 1;
-      if (currentEnrollmentFtesUnavailable(row) || maturity.group === 'UNAVAILABLE') bucket.unavailableFtesRows += 1;
+      if (currentEnrollmentFtesUnavailable(row, asOfContext) || maturity.group === 'UNAVAILABLE') bucket.unavailableFtesRows += 1;
     });
     totals.rows = [...buckets.values()].sort((a, b) => a.name.localeCompare(b.name));
     totals.classifiedRows = classifiedRows;
@@ -14671,6 +14766,7 @@ BUS 180 2 units`)
     const comparisonTerm = normalizeTermLabel(document.getElementById('cefCompareTerm')?.value || '');
     const selectedTerms = [...new Set([focusTerm, comparisonTerm].filter(Boolean))];
     await Promise.all(selectedTerms.map(term => loadInstitutionalFtesTerm(term).catch(err => console.warn(`Institutional FTES load skipped for ${term}:`, err))));
+    await loadInstitutionalFtesPredictionModel([focusTerm]).catch(err => console.warn('Institutional FTES prediction model load skipped:', err));
     const termRows = (await Promise.all(selectedTerms.map(term => loadScheduleTermRows(term).catch(() => [])))).flat();
     const savedWorkRows = includeWorkExperience('cef')
       ? (await Promise.all(selectedTerms.map(term => loadWorkExperienceTermRows(term).catch(() => [])))).flat()
@@ -14687,9 +14783,9 @@ BUS 180 2 units`)
       limit: 3
     }).catch(err => ({ terms: [], rows: [], results: [{ term: focusTerm, rows: [], failed: true, error: err?.message || String(err) }] }));
     const diagnosticRows = dedupeEnrollmentRows([...rows, ...(diagnosticHistory.rows || [])]);
-    let historicalModel = state.historicalInstitutionalModel || null;
+    let historicalModel = effectiveFtesPredictionModel();
     try {
-      historicalModel = await hydrateHistoricalInstitutionalModel();
+      historicalModel = effectiveFtesPredictionModel(await hydrateHistoricalInstitutionalModel());
     } catch (err) {
       state.historicalInstitutionalModelStatus = 'error';
       state.historicalInstitutionalStorageError = err?.message || String(err);
@@ -20660,6 +20756,7 @@ BUS 180 2 units`)
       const loadedRows = await loadDemandRows();
       const institutionalTerms = [...new Set(loadedRows.map(row => normalizeTermLabel(row.sourceTerm || row.term)).filter(Boolean))];
       await Promise.all(institutionalTerms.map(term => loadInstitutionalFtesTerm(term).catch(err => console.warn(`Institutional FTES load skipped for ${term}:`, err))));
+      await loadInstitutionalFtesPredictionModel(demandTargetTerms(demandForecastTarget())).catch(err => console.warn('Institutional FTES prediction model load skipped:', err));
       const populationSelections = demandPopulationSelections();
       const allRows = demandRowsForPopulationSelections(loadedRows, populationSelections);
       const diagnostics = standardExclusionDiagnostics(allRows, 'dem');
@@ -20855,7 +20952,7 @@ BUS 180 2 units`)
       };
     }
     const asOfContext = resolveFtesAsOfDate(rows, options);
-    const historicalModel = options.historicalModel || state.historicalInstitutionalModel || null;
+    const historicalModel = effectiveFtesPredictionModel(options.historicalModel || state.historicalInstitutionalModel || null);
     const classifiedRows = ftesClassificationRows(rows, { asOfContext, historicalModel });
     const summary = ftesClassificationSummary(classifiedRows);
     return {
@@ -28222,6 +28319,8 @@ BUS 180 2 units`)
     currentEnrollmentFtesValue,
     institutionalFtesActualForRow,
     institutionalFtesCensusReached,
+    institutionalFtesModelRecord,
+    mergeFtesPredictionModels,
     demandHistoricalFtesValue,
     demandInstitutionalFtesCoverage,
     demandTermStats,
