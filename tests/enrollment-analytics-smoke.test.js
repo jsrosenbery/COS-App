@@ -6369,6 +6369,50 @@ test('institutional census FTES is gated by the section census milestone', () =>
   assert.equal(COSEnrollmentAnalytics.institutionalFtesCensusReached(row, {}, null, { completedHistorical: true }), true);
 });
 
+test('institutional census actuals classify before prediction-eligible P E and Work Experience fallbacks', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  ['P', 'E', 'IW'].forEach(method => {
+    const row = section({
+      term: 'FALL 2026',
+      crn: `ACTUAL-${method}`,
+      subject: method === 'IW' ? 'WEXP' : 'HLTH',
+      course: method === 'IW' ? '191' : '406',
+      accountingMethod: method,
+      hasFtesData: false,
+      hasDirectFtesData: false,
+      actual: 10,
+      census: 10
+    });
+    const result = COSEnrollmentAnalytics.classifySectionFtes(row, {
+      asOfContext: { iso: '2026-09-01' },
+      institutionalActual: { censusFtes: 1.25 },
+      historicalModel: { groups: [] }
+    });
+    assert.equal(result.classification, 'confirmed', method);
+    assert.equal(result.confirmedFtes, 1.25, method);
+    assert.equal(result.projectedFinalFtes, 1.25, method);
+    assert.equal(result.derivation, 'institutional-census-actual', method);
+  });
+});
+
+test('institutional FTES analysis records build the existing historical yield model', () => {
+  const { COSEnrollmentAnalytics, COSHistoricalInstitutional } = loadEnrollmentAnalyticsRuntime();
+  const source = [
+    { term: 'FALL 2023', course: 'WEXP 191', crn: '1', accountingMethod: 'IW', censusEnrollment: 20, censusFtes: 2.2 },
+    { term: 'FALL 2024', course: 'WEXP 191', crn: '2', accountingMethod: 'IW', censusEnrollment: 22, censusFtes: 2.4 },
+    { term: 'FALL 2025', course: 'WEXP 191', crn: '3', accountingMethod: 'IW', censusEnrollment: 24, censusFtes: 2.6 }
+  ];
+  const records = source.map(COSEnrollmentAnalytics.institutionalFtesModelRecord);
+  const model = COSHistoricalInstitutional.buildYieldModel(records);
+  const estimate = COSHistoricalInstitutional.estimatePendingSection({
+    term: 'FALL 2026', subject: 'WEXP', course: '191', accountingMethod: 'IW', actual: 8, isWorkExperience: true
+  }, model);
+  assert.equal(records.every(row => row.sourceQuality === 'FINAL_INSTITUTIONAL_ACTUAL'), true);
+  assert.equal(model.groups.length > 0, true);
+  assert.equal(estimate.estimated, true);
+  assert.equal(Number.isFinite(Number(estimate.estimatedFtes)), true);
+});
+
 test('enrollment planning historical FTES prefers institutional actuals and audits fallback coverage', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
