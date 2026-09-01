@@ -6058,7 +6058,7 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   assert.equal(summary.variances.enrollment, 58);
   assert.equal(summary.comparisonRows[0].line, 'Focus Term');
   assert.equal(summary.comparisonRows[2].enrollment, 58);
-  assert.equal(summary.metricComparisonRows[0].metric, 'Enrollment');
+  assert.equal(summary.metricComparisonRows[0].metric, 'Enrollment (Current vs Comparison Census)');
   assert.equal(summary.metricComparisonRows[1].metric, 'FTES');
   assert.equal(summary.metricComparisonRows[2].metric, 'FTES per Enrollment');
   assert.equal(summary.reconciliation.focus.matches, true);
@@ -6068,7 +6068,7 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   assert.equal(summary.context.selectedWorkExperienceRows, 2);
   assert.equal(summary.context.comparisonWorkExperienceRows, 1);
   assert.match(summary.context.ftesSource, /Historical FTES\/enrollment ratios are not used/);
-  assert.ok(summary.warnings.some(warning => /missing FTES inputs/i.test(warning)));
+  assert.ok(summary.warnings.some(warning => /missing official.*FTES inputs/i.test(warning)));
   assert.ok(summary.breakdowns.ftesComponents.some(row => row.name === 'Work Experience'));
   assert.ok(summary.breakdowns.comparisonFtesComponents.some(row => row.name === 'Work Experience'));
   assert.ok(accountingRows.some(row => /Open Entry\/Open Exit|Positive Attendance/.test(row.name) && /total contact hours|direct FTES/i.test(row.calculationNote)));
@@ -6091,6 +6091,27 @@ test('current enrollment and FTES summary dedupes CRNs and separates populations
   assert.ok(exportRows.every(row => Object.hasOwn(row, 'Class Offerings') && Object.hasOwn(row, 'Formula-Calculated FTES Rows')));
   assert.ok(exportRows.some(row => row.Section === 'Summary' && row.Metric === 'Selected Term FTES per Enrollment' && row.Value === 6.7 / 92));
   assert.ok(exportRows.some(row => row.Section === 'Calculation Context' && row.Metric === 'Ftes Source' && /Historical FTES\/enrollment ratios are not used/.test(row.Value)));
+});
+
+test('current enrollment FTES comparison uses census enrollment with an explicit fallback audit', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'F26', Subject: 'ENGL', Course: '001', ACTUAL_ENROLL: '40', CENSUS_ENROLL: '35', FTES: '4' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: 'C25', Subject: 'ENGL', Course: '001', ACTUAL_ENROLL: '50', CENSUS_ENROLL: '42', FTES: '4.2' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: 'F25', Subject: 'MATH', Course: '001', ACTUAL_ENROLL: '20', FINAL_ENROLLMENT: '18', FTES: '1.8' })
+  ];
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, { focusTerm: 'FALL 2026', comparisonTerm: 'FALL 2025' });
+  const exported = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
+
+  assert.equal(summary.focus.enrollment, 40);
+  assert.equal(summary.comparison.enrollment, 60);
+  assert.equal(summary.comparison.censusEnrollmentRows, 1);
+  assert.equal(summary.comparison.enrollmentFallbackRows, 1);
+  assert.equal(summary.variances.enrollment, -20);
+  assert.match(summary.comparisonRows[1].enrollmentBasis, /Census enrollment first/);
+  assert.equal(summary.breakdowns.comparisonFtesComponents.reduce((sum, row) => sum + row.enrollment, 0), 60);
+  assert.ok(exported.some(row => row.Section === 'Summary' && row.Metric === 'Comparison Term Census Enrollment' && row.Value === 60));
+  assert.ok(exported.some(row => row.Section === 'Calculation Context' && row.Metric === 'Comparison Enrollment Fallback Rows' && row.Value === 1));
 });
 
 test('current enrollment and FTES classifies CRN-level maturity from census and source as-of dates', () => {
