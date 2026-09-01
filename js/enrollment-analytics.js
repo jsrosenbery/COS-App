@@ -13506,6 +13506,23 @@ BUS 180 2 units`)
       0;
   }
 
+  function selectedTermEnrollmentResolution(row, asOfContext = null) {
+    const censusStatus = determineCensusStatus(row, asOfContext);
+    const census = finiteOrNull(row?.census) ?? finiteOrNull(row?.census1) ?? finiteOrNull(row?.censusEnrollment);
+    const live = currentEnrollmentValue(row);
+    if (censusStatus === 'after-census' && census != null) {
+      return { value: census, source: 'Census Enrollment', sourceCode: 'census-locked', censusStatus };
+    }
+    if (censusStatus === 'after-census') {
+      return { value: live, source: 'Current Enrollment (census missing fallback)', sourceCode: 'current-census-missing', censusStatus };
+    }
+    return { value: live, source: 'Current Enrollment', sourceCode: 'current-pre-census', censusStatus };
+  }
+
+  function selectedTermEnrollmentValue(row, asOfContext = null) {
+    return selectedTermEnrollmentResolution(row, asOfContext).value;
+  }
+
   function currentEnrollmentPopulation(row) {
     if (row?.isWorkExperience || row?.modality === 'WORK EXPERIENCE') return 'Work Experience';
     if (isDualEnrollmentRow(row)) return 'Dual Enrollment';
@@ -14107,7 +14124,8 @@ BUS 180 2 units`)
     const method = normalizedHistoricalAttendanceMethodForSection(section);
     const attendanceMethod = method || null;
     const censusStatus = determineCensusStatus(section, asOfContext, context.termMetadata || {});
-    const currentEnrollment = currentEnrollmentValue(section);
+    const currentEnrollment = selectedTermEnrollmentValue(section, asOfContext);
+    const predictionSection = { ...section, actual: currentEnrollment, currentEnrollment, enrollment: currentEnrollment };
     const institutionalActual = context.institutionalActual === undefined
       ? institutionalFtesActualForRow(section, asOfContext)
       : context.institutionalActual;
@@ -14117,7 +14135,7 @@ BUS 180 2 units`)
       : currentUnavailable ? null : currentEnrollmentFtesValue(section, asOfContext);
     const eligiblePrediction = isHistoricallyPredictedSection(section);
     const directOrDeterministic = Boolean(institutionalActual) || section.hasDirectFtesData || DETERMINISTIC_FTES_METHODS.has(method);
-    const basePredictionDiagnostics = predictionDiagnosticsFromResult(section, context.historicalModel || {}, {});
+    const basePredictionDiagnostics = predictionDiagnosticsFromResult(predictionSection, context.historicalModel || {}, {});
     const common = {
       attendanceMethod,
       censusStatus,
@@ -14158,9 +14176,9 @@ BUS 180 2 units`)
     if (eligiblePrediction && !section.hasDirectFtesData) {
       const model = context.historicalModel || {};
       const prediction = historicalInstitutional?.estimatePendingSection
-        ? historicalInstitutional.estimatePendingSection(section, model)
+        ? historicalInstitutional.estimatePendingSection(predictionSection, model)
         : { estimated: false, confidence: 'INSUFFICIENT_DATA', reason: 'Historical Institutional Model is unavailable.' };
-      const predictionDiagnostics = predictionDiagnosticsFromResult(section, model, prediction);
+      const predictionDiagnostics = predictionDiagnosticsFromResult(predictionSection, model, prediction);
       if (prediction.estimated) {
         const predictedFtes = Number(prediction.estimatedFtes);
         return {
@@ -14353,7 +14371,7 @@ BUS 180 2 units`)
       }
       const bucket = buckets.get(maturity.status);
       bucket.classOfferings += 1;
-      bucket.enrollment += currentEnrollmentValue(row);
+      bucket.enrollment += selectedTermEnrollmentValue(row, asOfContext);
       bucket.ftes += currentEnrollmentFtesValue(row, asOfContext);
       if (row.hasDirectFtesData) bucket.directFtesRows += 1;
       else if (row.hasFtesData) bucket.estimatedFtesRows += 1;
@@ -14374,14 +14392,18 @@ BUS 180 2 units`)
     const ftesRows = rows.filter(row => !currentEnrollmentFtesUnavailable(row, asOfContext));
     const unavailableRows = rows.filter(row => currentEnrollmentFtesUnavailable(row, asOfContext));
     const ftes = ftesRows.reduce((total, row) => total + currentEnrollmentFtesValue(row, asOfContext), 0);
-    const enrollmentValue = options.enrollmentValue || currentEnrollmentValue;
-    const enrollment = rows.reduce((total, row) => total + enrollmentValue(row), 0);
+    const enrollmentResolution = options.enrollmentResolution || (row => ({ value: (options.enrollmentValue || currentEnrollmentValue)(row), sourceCode: '' }));
+    const enrollmentResolutions = rows.map(enrollmentResolution);
+    const enrollment = enrollmentResolutions.reduce((total, resolution) => total + (Number(resolution.value) || 0), 0);
     const censusEnrollmentRows = rows.filter(row => finiteOrNull(row?.census) != null || finiteOrNull(row?.census1) != null || finiteOrNull(row?.censusEnrollment) != null).length;
     return {
       rowsLoaded: rows.length,
       classOfferings: rows.length,
       enrollment,
       enrollmentBasis: options.enrollmentBasis || 'Current enrollment',
+      censusLockedEnrollmentRows: enrollmentResolutions.filter(item => item.sourceCode === 'census-locked').length,
+      currentEnrollmentRows: enrollmentResolutions.filter(item => item.sourceCode === 'current-pre-census').length,
+      censusMissingFallbackRows: enrollmentResolutions.filter(item => item.sourceCode === 'current-census-missing').length,
       censusEnrollmentRows,
       enrollmentFallbackRows: options.enrollmentValue === comparisonCensusEnrollmentValue ? rows.length - censusEnrollmentRows : 0,
       ftes,
@@ -14464,12 +14486,17 @@ BUS 180 2 units`)
     const comparisonClassifiedRows = ftesClassificationRows(comparisonRows, { asOfContext: comparisonAsOf, historicalModel });
     const focusClassification = ftesClassificationSummary(focusClassifiedRows);
     const comparisonClassification = ftesClassificationSummary(comparisonClassifiedRows);
-    const focus = currentEnrollmentFtesTotals(focusRows, focusAsOf);
+    const focusEnrollmentResolution = row => selectedTermEnrollmentResolution(row, focusAsOf);
+    const focusEnrollmentValue = row => focusEnrollmentResolution(row).value;
+    const focus = currentEnrollmentFtesTotals(focusRows, focusAsOf, {
+      enrollmentResolution: focusEnrollmentResolution,
+      enrollmentBasis: 'Current enrollment until each section reaches census; CENSUS_ENROLL thereafter'
+    });
     const comparison = currentEnrollmentFtesTotals(comparisonRows, comparisonAsOf, {
       enrollmentValue: comparisonCensusEnrollmentValue,
       enrollmentBasis: 'Census enrollment first; final/current enrollment only when census is unavailable'
     });
-    const focusComponents = aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentFtesComponent, { asOfContext: focusAsOf });
+    const focusComponents = aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentFtesComponent, { asOfContext: focusAsOf, enrollmentValue: focusEnrollmentValue });
     const comparisonComponents = aggregateCurrentEnrollmentFtes(comparisonRows, currentEnrollmentFtesComponent, {
       asOfContext: comparisonAsOf,
       enrollmentValue: comparisonCensusEnrollmentValue
@@ -14504,7 +14531,11 @@ BUS 180 2 units`)
       context: {
         selectedTerm: focusTerm,
         comparisonTerm,
-        enrollmentSource: 'Selected term uses ACTUAL_ENROLL/current enrollment first. Comparison term uses CENSUS_ENROLL first, with final/current enrollment only when census is unavailable.',
+        enrollmentSource: 'Selected term uses current enrollment until each section reaches its census date, then locks to CENSUS_ENROLL. Comparison term uses CENSUS_ENROLL first, with final/current enrollment only when census is unavailable.',
+        selectedEnrollmentBasis: focus.enrollmentBasis,
+        selectedCensusLockedEnrollmentRows: focus.censusLockedEnrollmentRows,
+        selectedCurrentEnrollmentRows: focus.currentEnrollmentRows,
+        selectedCensusMissingFallbackRows: focus.censusMissingFallbackRows,
         comparisonEnrollmentBasis: comparison.enrollmentBasis,
         comparisonCensusEnrollmentRows: comparison.censusEnrollmentRows,
         comparisonEnrollmentFallbackRows: comparison.enrollmentFallbackRows,
@@ -14550,12 +14581,12 @@ BUS 180 2 units`)
           { name: 'Unavailable FTES', classification: 'Unavailable', classOfferings: focusClassification.unavailableSectionCount, ftes: '', share: '', note: 'No reliable FTES value can be produced from current or historical evidence.' }
         ],
         ftesMaturityStatus: focusMaturity.rows,
-        population: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulation, { asOfContext: focusAsOf }),
-        populationDetail: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulationDetail, { asOfContext: focusAsOf }),
-        populationCampus: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulationCampus, { asOfContext: focusAsOf }),
-        campus: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentCampusBucket, { asOfContext: focusAsOf }),
-        instructionalMethod: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentInstructionalMethod, { asOfContext: focusAsOf }),
-        accountingMethod: aggregateCurrentEnrollmentFtes(focusRows, row => row.accountingMethodLabel || row.accountingMethod || 'Unknown', { asOfContext: focusAsOf }),
+        population: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulation, { asOfContext: focusAsOf, enrollmentValue: focusEnrollmentValue }),
+        populationDetail: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulationDetail, { asOfContext: focusAsOf, enrollmentValue: focusEnrollmentValue }),
+        populationCampus: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentPopulationCampus, { asOfContext: focusAsOf, enrollmentValue: focusEnrollmentValue }),
+        campus: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentCampusBucket, { asOfContext: focusAsOf, enrollmentValue: focusEnrollmentValue }),
+        instructionalMethod: aggregateCurrentEnrollmentFtes(focusRows, currentEnrollmentInstructionalMethod, { asOfContext: focusAsOf, enrollmentValue: focusEnrollmentValue }),
+        accountingMethod: aggregateCurrentEnrollmentFtes(focusRows, row => row.accountingMethodLabel || row.accountingMethod || 'Unknown', { asOfContext: focusAsOf, enrollmentValue: focusEnrollmentValue }),
         ftesComponents: focusComponents,
         comparisonFtesComponents: comparisonComponents
       },
@@ -14629,7 +14660,9 @@ BUS 180 2 units`)
           weightedHistoricalYield: basis.weightedYield ?? '',
           backtestingError: basis.backtestingError ?? '',
           classOfferings: 1,
-          currentEnrollment: currentEnrollmentValue(row),
+          currentEnrollment: focusEnrollmentValue(row),
+          liveEnrollment: currentEnrollmentValue(row),
+          enrollmentBasis: focusEnrollmentResolution(row).source,
           seats: row.cap || 0,
           ftesEnrollmentUsed: maturity.ftesEnrollmentUsed == null ? '' : maturity.ftesEnrollmentUsed,
           ftesEnrollmentSource: maturity.ftesEnrollmentSource || '',
@@ -14648,7 +14681,7 @@ BUS 180 2 units`)
           term: focusTerm || 'Selected focus term',
           classOfferings: focus.classOfferings,
           enrollment: focus.enrollment,
-          enrollmentBasis: 'Current enrollment',
+          enrollmentBasis: focus.enrollmentBasis,
           ftes: focus.ftes,
           seats: focus.seats
         },
@@ -14666,14 +14699,14 @@ BUS 180 2 units`)
           term: comparisonTerm ? `${focusTerm || 'Focus'} minus ${comparisonTerm}` : 'No comparison selected',
           classOfferings: focus.classOfferings - comparison.classOfferings,
           enrollment: focus.enrollment - comparison.enrollment,
-          enrollmentBasis: 'Selected current enrollment minus comparison census-first enrollment',
+          enrollmentBasis: 'Selected census-maturity enrollment minus comparison census-first enrollment',
           ftes: focus.ftes - comparison.ftes,
           seats: focus.seats - comparison.seats
         }
       ],
       metricComparisonRows: [
         {
-          metric: 'Enrollment (Current vs Comparison Census)',
+          metric: 'Enrollment (Census-Maturity vs Comparison Census)',
           selectedTerm: focus.enrollment,
           comparisonTerm: comparisonTerm ? comparison.enrollment : '',
           change: comparisonTerm ? focus.enrollment - comparison.enrollment : '',
@@ -15118,6 +15151,7 @@ BUS 180 2 units`)
         { metric: 'Selected Term', value: summary.context.selectedTerm || 'None' },
         { metric: 'Comparison Term', value: summary.context.comparisonTerm || 'No exact prior-year like-term selected' },
         { metric: 'Enrollment Source', value: summary.context.enrollmentSource },
+        { metric: 'Selected Enrollment Basis', value: `${summary.context.selectedEnrollmentBasis}; ${formatWholeNumber(summary.context.selectedCensusLockedEnrollmentRows)} census-locked row(s), ${formatWholeNumber(summary.context.selectedCurrentEnrollmentRows)} live row(s), ${formatWholeNumber(summary.context.selectedCensusMissingFallbackRows)} post-census fallback row(s).` },
         { metric: 'Comparison Enrollment Basis', value: `${summary.context.comparisonEnrollmentBasis}; ${formatWholeNumber(summary.context.comparisonCensusEnrollmentRows)} census row(s), ${formatWholeNumber(summary.context.comparisonEnrollmentFallbackRows)} fallback row(s).` },
         { metric: 'FTES Source', value: summary.context.ftesSource },
         { metric: 'Census Date Source', value: summary.context.censusDateSource },
@@ -15184,6 +15218,7 @@ BUS 180 2 units`)
       'Change %': row.changePct ?? '',
       'Class Offerings': row.classOfferings ?? '',
       Enrollment: row.enrollment ?? row.currentEnrollment ?? '',
+      'Live Enrollment': row.liveEnrollment ?? '',
       'Enrollment Basis': row.enrollmentBasis || '',
       Seats: row.seats ?? '',
       FTES: row.ftes ?? '',
@@ -15275,7 +15310,7 @@ BUS 180 2 units`)
       ['Focus Term', summary.focusTerm || ''],
       ['Comparison Term', summary.comparisonTerm || ''],
       ['Selected Term Class Offerings', summary.focus.classOfferings],
-      ['Selected Term Enrollment', summary.focus.enrollment],
+      ['Selected Term Enrollment (Current Until Census)', summary.focus.enrollment],
       ['Selected Term Current Calculated FTES', summary.focus.ftes],
       ['Projected Final FTES', summary.ftesClassification.focus.projectedFinalFtesTotal],
       ['Confirmed FTES', summary.ftesClassification.focus.confirmedFtesTotal],
@@ -17242,7 +17277,7 @@ BUS 180 2 units`)
       assumptions: 'Class offerings are unique CRNs. Work Experience and Dual Enrollment are reported as separate planning categories so they can be reviewed without blending into COS regular classes. Online campus codes are grouped together for campus-level review.',
       limitations: 'This report is not a lifecycle snapshot manager and does not measure first-day registration progression. It reflects the most recently loaded or archived source rows available to the application. Positive Attendance, Open Entry/Open Exit, and Work Experience final FTES may not be fully known until completed attendance hours or units are submitted; a conservative completed-FTES planning estimate should use explicit historical completion assumptions before being treated as a forecast.',
       items: [
-        ['Selected Term Enrollment', 'Point-in-time enrollment from ACTUAL_ENROLL/current enrollment, with documented fallback fields only when needed.'],
+        ['Selected Term Enrollment', 'Section-level census-maturity enrollment: ACTUAL_ENROLL/current enrollment before the section census date, then CENSUS_ENROLL after that section reaches census. Sections without an applicable census milestone remain on current enrollment.'],
         ['Selected Term FTES', 'Direct section-level FTES or formula-calculated FTES from attendance accounting method, enrollment, and available contact-hour/unit inputs. This report does not infer FTES from a historical FTES/enrollment ratio.'],
         ['Class Offerings', 'Unique CRNs after selected filters are applied. Duplicate meeting rows for the same CRN do not inflate this count.'],
         ['COS Classes', 'Regular non-Dual Enrollment, non-Work Experience class offerings.'],
