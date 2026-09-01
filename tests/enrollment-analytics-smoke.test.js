@@ -6165,6 +6165,25 @@ test('current enrollment FTES excludes zero-enrollment sections from both terms 
   assert.ok(exported.some(row => row.Section === 'Calculation Context' && row.Metric === 'Comparison Zero Enrollment Rows Excluded' && row.Value === 1));
 });
 
+test('current enrollment FTES replaces stale workspace focus rows with authoritative current source rows', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const stale = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'SAME', Subject: 'ENGL', Course: '001', ACTUAL_ENROLL: '10', __uploadedAt: '2026-08-27T10:00:00Z' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: 'OLD', Subject: 'ENGL', Course: '001', ACTUAL_ENROLL: '8' })
+  ];
+  const authoritative = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'SAME', Subject: 'ENGL', Course: '001', ACTUAL_ENROLL: '18', __uploadedAt: '2026-08-31T09:00:00Z' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'NEW', Subject: 'MATH', Course: '001', ACTUAL_ENROLL: '12', __uploadedAt: '2026-08-31T09:00:00Z' })
+  ];
+  const replaced = COSEnrollmentAnalytics.replaceTermRowsWithAuthoritativeSource(stale, authoritative, 'FALL 2026');
+  const focus = replaced.filter(row => row.term === 'FALL 2026');
+
+  assert.equal(focus.length, 2);
+  assert.equal(focus.find(row => row.crn === 'SAME').actual, 18);
+  assert.equal(focus.some(row => row.sourceUploadedAt.includes('2026-08-27')), false);
+  assert.equal(replaced.some(row => row.crn === 'OLD'), true);
+});
+
 test('current enrollment and FTES classifies CRN-level maturity from census and source as-of dates', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
