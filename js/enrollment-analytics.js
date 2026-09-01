@@ -14471,14 +14471,18 @@ BUS 180 2 units`)
     const focusTerm = normalizeTermLabel(options.focusTerm || '');
     const comparisonTerm = normalizeTermLabel(options.comparisonTerm || '');
     const scoped = filterCurrentEnrollmentFtesRows(dedupeEnrollmentRows(rows || []), options);
-    const focusRows = focusTerm ? currentEnrollmentFtesRowsForTerm(scoped, focusTerm) : scoped;
-    const comparisonRows = comparisonTerm ? currentEnrollmentFtesRowsForTerm(scoped, comparisonTerm) : [];
-    const focusAsOf = resolveFtesAsOfDate(focusRows, options);
-    const comparisonAsOf = resolveFtesAsOfDate(comparisonRows, {
+    const focusCandidates = focusTerm ? currentEnrollmentFtesRowsForTerm(scoped, focusTerm) : scoped;
+    const comparisonCandidates = comparisonTerm ? currentEnrollmentFtesRowsForTerm(scoped, comparisonTerm) : [];
+    const focusAsOf = resolveFtesAsOfDate(focusCandidates, options);
+    const comparisonAsOf = resolveFtesAsOfDate(comparisonCandidates, {
       effectiveAsOfDate: options.comparisonEffectiveAsOfDate || options.comparisonSnapshotDate || '',
       snapshotDate: options.comparisonSnapshotDate || '',
       asOfDate: options.comparisonAsOfDate || ''
     });
+    const focusRows = focusCandidates.filter(row => selectedTermEnrollmentValue(row, focusAsOf) > 0);
+    const comparisonRows = comparisonCandidates.filter(row => comparisonCensusEnrollmentValue(row) > 0);
+    const focusZeroEnrollmentRowsExcluded = focusCandidates.length - focusRows.length;
+    const comparisonZeroEnrollmentRowsExcluded = comparisonCandidates.length - comparisonRows.length;
     const focusMaturity = currentEnrollmentFtesMaturitySummary(focusRows, focusAsOf);
     const comparisonMaturity = currentEnrollmentFtesMaturitySummary(comparisonRows, comparisonAsOf);
     const historicalModel = options.historicalModel || state.historicalInstitutionalModel || null;
@@ -14501,7 +14505,12 @@ BUS 180 2 units`)
       asOfContext: comparisonAsOf,
       enrollmentValue: comparisonCensusEnrollmentValue
     });
-    const pendingFtesAnalysis = buildHistoricalPendingFtesAnalysis(scoped, { targetTerm: focusTerm || 'FALL 2026' });
+    const pendingFtesAnalysis = buildHistoricalPendingFtesAnalysis(scoped.filter(row => {
+      const term = normalizeTermLabel(row.term);
+      if (term === focusTerm) return selectedTermEnrollmentValue(row, focusAsOf) > 0;
+      if (term === comparisonTerm) return comparisonCensusEnrollmentValue(row) > 0;
+      return currentEnrollmentValue(row) > 0;
+    }), { targetTerm: focusTerm || 'FALL 2026' });
     const maturityByCrn = new Map(focusMaturity.classifiedRows.map(item => [sectionKey(item.row), item.maturity]));
     const classificationByCrn = new Map(focusClassifiedRows.map(item => [sectionKey(item.row), item]));
     const summary = {
@@ -14546,6 +14555,8 @@ BUS 180 2 units`)
         includeDualEnrollment: options.includeDualEnrollment !== false,
         selectedRowsLoaded: focus.rowsLoaded,
         comparisonRowsLoaded: comparison.rowsLoaded,
+        selectedZeroEnrollmentRowsExcluded: focusZeroEnrollmentRowsExcluded,
+        comparisonZeroEnrollmentRowsExcluded,
         selectedWorkExperienceRows: focus.workExperienceRows,
         comparisonWorkExperienceRows: comparison.workExperienceRows,
         selectedDualEnrollmentRows: focus.dualEnrollmentRows,
@@ -15167,6 +15178,7 @@ BUS 180 2 units`)
         { metric: 'Dual Enrollment Included', value: summary.context.includeDualEnrollment ? `Yes (${summary.context.selectedDualEnrollmentRows} selected / ${summary.context.comparisonDualEnrollmentRows} comparison rows)` : 'No' },
         { metric: 'Historical Institutional Estimates', value: historicalProjectionEnabled ? `Displayed separately (${historicalEstimates.length} pending row(s)); production FTES totals unchanged.` : 'Off. Existing production totals preserved.' },
         { metric: 'Rows Loaded', value: `${formatWholeNumber(summary.context.selectedRowsLoaded)} selected / ${formatWholeNumber(summary.context.comparisonRowsLoaded)} comparison` },
+        { metric: 'Zero-Enrollment Sections Excluded', value: `${formatWholeNumber(summary.context.selectedZeroEnrollmentRowsExcluded)} selected / ${formatWholeNumber(summary.context.comparisonZeroEnrollmentRowsExcluded)} comparison` },
         { metric: 'FTES Reconciliation', value: summary.reconciliation.focus.matches ? 'Selected-term component totals reconcile to total FTES.' : `Selected-term component totals differ by ${round1(summary.reconciliation.focus.difference)} FTES.` },
         { metric: 'Projected Final FTES Reconciliation', value: summary.reconciliation.projectedFtes.matches ? 'Projected Final FTES reconciles to Confirmed + Estimated + Predicted classification totals.' : `Projected Final FTES differs from classification components by ${summary.reconciliation.projectedFtes.difference} FTES.` }
       ];
@@ -15310,6 +15322,8 @@ BUS 180 2 units`)
       ['Focus Term', summary.focusTerm || ''],
       ['Comparison Term', summary.comparisonTerm || ''],
       ['Selected Term Class Offerings', summary.focus.classOfferings],
+      ['Selected Zero-Enrollment Sections Excluded', summary.context.selectedZeroEnrollmentRowsExcluded],
+      ['Comparison Zero-Enrollment Sections Excluded', summary.context.comparisonZeroEnrollmentRowsExcluded],
       ['Selected Term Enrollment (Current Until Census)', summary.focus.enrollment],
       ['Selected Term Current Calculated FTES', summary.focus.ftes],
       ['Projected Final FTES', summary.ftesClassification.focus.projectedFinalFtesTotal],
@@ -17280,6 +17294,7 @@ BUS 180 2 units`)
         ['Selected Term Enrollment', 'Section-level census-maturity enrollment: ACTUAL_ENROLL/current enrollment before the section census date, then CENSUS_ENROLL after that section reaches census. Sections without an applicable census milestone remain on current enrollment.'],
         ['Selected Term FTES', 'Direct section-level FTES or formula-calculated FTES from attendance accounting method, enrollment, and available contact-hour/unit inputs. This report does not infer FTES from a historical FTES/enrollment ratio.'],
         ['Class Offerings', 'Unique CRNs after selected filters are applied. Duplicate meeting rows for the same CRN do not inflate this count.'],
+        ['Zero-Enrollment Sections', 'Excluded consistently from selected-term and comparison-term enrollment, class-offering, FTES-classification, prediction, breakdown, and export totals. Selected-term zero status uses the same current-until-census enrollment basis; comparison-term zero status uses census-first enrollment.'],
         ['COS Classes', 'Regular non-Dual Enrollment, non-Work Experience class offerings.'],
         ['Dual Enrollment', 'Sections identified as Dual Enrollment in source instructional method fields.'],
         ['Work Experience', 'Rows identified by code 20 or supplemental Work Experience source rows loaded from the Source Data Hub. Work Experience final FTES depends on completed student hours/units.'],

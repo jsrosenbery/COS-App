@@ -3331,7 +3331,7 @@ test('historical pending FTES analysis reports confidence outliers ranges and do
 
 test('current enrollment FTES calculation labels reflect standardized method without renaming Banner code', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
-  const row = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: 'STD2', Subject: 'MATH', Course: '101', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 20, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3 });
+  const row = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', CRN: 'STD2', Subject: 'MATH', Course: '101', 'ACCOUNTING METHOD': 'W', ACTUAL_ENROLL: 20, CENSUS_ENROLL: 20, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3 });
   const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary([row], { focusTerm: 'FALL 2026' });
   const accountingRow = summary.breakdowns.accountingMethod.find(item => /Weekly Census|W/.test(item.name));
 
@@ -6136,6 +6136,33 @@ test('selected enrollment uses live enrollment until each section census then lo
   assert.equal(byCrn.POS.currentEnrollment, 11);
   assert.equal(summary.breakdowns.ftesComponents.reduce((sum, row) => sum + row.enrollment, 0), 60);
   assert.ok(exported.some(row => row.Section === 'Summary' && row.Metric === 'Selected Term Enrollment (Current Until Census)' && row.Value === 60));
+});
+
+test('current enrollment FTES excludes zero-enrollment sections from both terms across report outputs', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'KEEP26', Subject: 'ENGL', Course: '001', ACCOUNTING_METHOD: 'W', ACTUAL_ENROLL: '12', CENSUS_ENROLL: '10', CENSUS_ENRL_DATE: '09/10/2026', FTES: '1' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2026', CRN: 'ZERO26', Subject: 'LA', Course: '425', ACCOUNTING_METHOD: 'E', ACTUAL_ENROLL: '0', CENSUS_ENROLL: '0' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: 'KEEP25', Subject: 'ENGL', Course: '001', ACCOUNTING_METHOD: 'W', ACTUAL_ENROLL: '15', CENSUS_ENROLL: '14', FTES: '1.4' }),
+    COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2025', CRN: 'ZERO25', Subject: 'MATH', Course: '400', ACCOUNTING_METHOD: 'W', ACTUAL_ENROLL: '8', CENSUS_ENROLL: '0', FTES: '0' })
+  ];
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary(rows, {
+    focusTerm: 'FALL 2026',
+    comparisonTerm: 'FALL 2025',
+    effectiveAsOfDate: '2026-08-27'
+  });
+  const exported = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary);
+
+  assert.equal(summary.focus.classOfferings, 1);
+  assert.equal(summary.comparison.classOfferings, 1);
+  assert.equal(summary.context.selectedZeroEnrollmentRowsExcluded, 1);
+  assert.equal(summary.context.comparisonZeroEnrollmentRowsExcluded, 1);
+  assert.equal(summary.rows.map(row => row.crn).join('|'), 'KEEP26');
+  assert.equal(summary.ftesClassification.focus.predictedSections, 0);
+  assert.equal(summary.breakdowns.ftesComponents.reduce((sum, row) => sum + row.classOfferings, 0), 1);
+  assert.equal(exported.some(row => row.Section === 'Detail' && ['ZERO26', 'ZERO25'].includes(row.CRN)), false);
+  assert.ok(exported.some(row => row.Section === 'Summary' && row.Metric === 'Selected Zero-Enrollment Sections Excluded' && row.Value === 1));
+  assert.ok(exported.some(row => row.Section === 'Calculation Context' && row.Metric === 'Comparison Zero Enrollment Rows Excluded' && row.Value === 1));
 });
 
 test('current enrollment and FTES classifies CRN-level maturity from census and source as-of dates', () => {
