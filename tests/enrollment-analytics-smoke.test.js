@@ -6451,6 +6451,69 @@ test('current enrollment FTES deterministic methods classify before and after ce
   });
 });
 
+test('pre-census deterministic FTES prefers calibrated uploaded institutional history over generic formula output', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const asOfContext = { iso: '2026-09-01', display: '2026-09-01', source: 'Test as-of date' };
+  const row = section({
+    term: 'FALL 2026', crn: 'CAL-W', subject: 'MATH', course: '101', accountingMethod: 'W',
+    hasFtesData: true, hasDirectFtesData: false, standardizedHours: 180, actual: 20, census: 20,
+    censusEnrollmentDate: '2026-09-10'
+  });
+  const historicalModel = { groups: [{
+    modelLevel: 'course', groupKey: 'Fall|W|MATH 101', terms: ['202510', '202410'],
+    observationCount: 8, totalCensusEnrollment: 160, totalInstitutionalFtes: 16,
+    weightedYield: 0.1, coefficientOfVariation: 0.05, confidence: 'HIGH', distinctTerms: 2,
+    backtesting: { weightedAbsolutePercentageError: 0.08, rows: [] }
+  }] };
+
+  const result = COSEnrollmentAnalytics.classifySectionFtes(row, { asOfContext, historicalModel });
+
+  assert.equal(result.classification, 'estimated');
+  assert.equal(result.estimatedFtes, 2);
+  assert.equal(result.currentCalculatedFtes, 2);
+  assert.equal(result.derivation, 'institutional-calibrated-course-estimate');
+  assert.equal(result.historicalBasis.weightedYield, 0.1);
+  assert.match(result.reason, /uploaded final institutional FTES history/i);
+
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary([row], {
+    focusTerm: 'FALL 2026', effectiveAsOfDate: '2026-09-01', historicalModel
+  });
+  assert.equal(summary.ftesClassification.focus.calibratedEstimatedSections, 1);
+  assert.equal(summary.ftesClassification.focus.formulaEstimatedSections, 0);
+  const detail = COSEnrollmentAnalytics.currentEnrollmentFtesExportRows(summary)
+    .find(item => item.Section === 'Detail');
+  assert.equal(detail['FTES Source'], 'Uploaded institutional history calibrated estimate');
+});
+
+test('pre-census deterministic FTES rejects broad or poorly backtested history and preserves formula fallback', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const asOfContext = { iso: '2026-09-01' };
+  const row = section({
+    term: 'FALL 2026', crn: 'CAL-FALLBACK', subject: 'MATH', course: '999', accountingMethod: 'W',
+    hasFtesData: true, hasDirectFtesData: false, weeklyHours: 3, actual: 20, census: 20,
+    censusEnrollmentDate: '2026-09-10'
+  });
+  const historicalModel = { groups: [{
+    modelLevel: 'institution', groupKey: 'Fall', terms: ['202510', '202410'], observationCount: 100,
+    totalCensusEnrollment: 1000, totalInstitutionalFtes: 500, weightedYield: 0.5,
+    coefficientOfVariation: 0.05, confidence: 'HIGH', distinctTerms: 2,
+    backtesting: { weightedAbsolutePercentageError: 0.02, rows: [] }
+  }] };
+
+  const result = COSEnrollmentAnalytics.classifySectionFtes(row, { asOfContext, historicalModel });
+
+  assert.equal(result.classification, 'estimated');
+  assert.equal(result.derivation, 'current-enrollment-calculation');
+  assert.notEqual(result.estimatedFtes, 10);
+
+  const summary = COSEnrollmentAnalytics.buildCurrentEnrollmentFtesSummary([row], {
+    focusTerm: 'FALL 2026', effectiveAsOfDate: '2026-09-01', historicalModel
+  });
+  assert.equal(summary.ftesClassification.focus.calibratedEstimatedSections, 0);
+  assert.equal(summary.ftesClassification.focus.formulaEstimatedSections, 1);
+  assert.match(summary.warnings.join(' '), /production formula fallback/i);
+});
+
 test('institutional census FTES is gated by the section census milestone', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const row = section({ term: 'FALL 2026', censusEnrollmentDate: '2026-09-10', endDate: '2026-12-18' });

@@ -14142,6 +14142,22 @@ BUS 180 2 units`)
     }[level] || 'unavailable';
   }
 
+  function calibratedDeterministicFtesEstimate(section = {}, currentEnrollment = null, historicalModel = null) {
+    if (!historicalInstitutional?.estimatePendingSection || !historicalModel?.groups?.length) return null;
+    const predictionSection = { ...section, actual: currentEnrollment, currentEnrollment, enrollment: currentEnrollment };
+    const prediction = historicalInstitutional.estimatePendingSection(predictionSection, historicalModel, { allowAllAttendanceMethods: true });
+    if (!prediction?.estimated || !Number.isFinite(Number(prediction.estimatedFtes))) return null;
+    const confidence = canon(prediction.confidence).replace(/_/g, '-');
+    const level = prediction.historicalBasisLevel || '';
+    const terms = String(prediction.historicalTermsUsed || '').split(';').map(item => item.trim()).filter(Boolean);
+    const backtestingError = prediction.backtestingError == null ? null : Number(prediction.backtestingError);
+    const courseOrSubjectEvidence = ['course', 'subject'].includes(level) && terms.length >= 1;
+    const broaderEvidence = ['division', 'attendanceMethod'].includes(level) && ['HIGH', 'MEDIUM'].includes(confidence) && terms.length >= 2;
+    const backtestAcceptable = backtestingError == null || backtestingError <= (courseOrSubjectEvidence ? 0.25 : 0.15);
+    if ((!courseOrSubjectEvidence && !broaderEvidence) || !backtestAcceptable || ['HIGH-VARIANCE', 'INSUFFICIENT-DATA'].includes(confidence)) return null;
+    return prediction;
+  }
+
   function classifySectionFtes(section = {}, context = {}) {
     const asOfContext = context.asOfContext || context.reportAsOfDate || {};
     const method = normalizedHistoricalAttendanceMethodForSection(section);
@@ -14194,6 +14210,39 @@ BUS 180 2 units`)
         derivation: 'institutional-census-actual',
         reason: 'Authoritative Total FTES Census is available for this term and CRN, and the section has reached its census milestone.'
       };
+    }
+
+    if (DETERMINISTIC_FTES_METHODS.has(method) && !section.hasDirectFtesData && censusStatus === 'before-census') {
+      const model = context.historicalModel || {};
+      const calibrated = calibratedDeterministicFtesEstimate(section, currentEnrollment, model);
+      if (calibrated) {
+        const estimatedFtes = Number(calibrated.estimatedFtes);
+        const predictionDiagnostics = predictionDiagnosticsFromResult(predictionSection, model, calibrated);
+        predictionDiagnostics.predictionEligibility = true;
+        return {
+          ...common,
+          currentCalculatedFtes: estimatedFtes,
+          classification: 'estimated',
+          displayValue: estimatedFtes,
+          estimatedFtes,
+          projectedFinalFtes: estimatedFtes,
+          confidence: ftesConfidenceFromHistorical(calibrated.confidence),
+          derivation: `institutional-calibrated-${calibrated.historicalBasisLevel || 'historical'}-estimate`,
+          reason: `Pre-census estimate calibrated from uploaded final institutional FTES history. ${calibrated.explanation || calibrated.selectedReason || ''}`.trim(),
+          historicalBasis: {
+            modelLevel: calibrated.historicalBasisLevel || '',
+            groupKey: calibrated.historicalGroupKey || '',
+            termsUsed: String(calibrated.historicalTermsUsed || '').split(';').map(item => item.trim()).filter(Boolean),
+            observationCount: calibrated.historicalRecordsUsed || 0,
+            weightedYield: calibrated.weightedHistoricalYield ?? null,
+            lowerBound: calibrated.lowerEstimate ?? null,
+            upperBound: calibrated.upperEstimate ?? null,
+            backtestingError: calibrated.backtestingError ?? null
+          },
+          predictionDetail: calibrated,
+          predictionDiagnostics
+        };
+      }
     }
 
     if (eligiblePrediction && !section.hasDirectFtesData) {
@@ -14325,6 +14374,8 @@ BUS 180 2 units`)
       const value = Number(item.projectedFinalFtes);
       if (classification === 'confirmed' && Number.isFinite(Number(item.confirmedFtes))) acc.confirmedFtesTotal += Number(item.confirmedFtes);
       if (classification === 'estimated' && Number.isFinite(Number(item.estimatedFtes))) acc.estimatedFtesTotal += Number(item.estimatedFtes);
+      if (classification === 'estimated' && String(item.derivation || '').startsWith('institutional-calibrated-')) acc.calibratedEstimatedSections += 1;
+      if (classification === 'estimated' && item.derivation === 'current-enrollment-calculation') acc.formulaEstimatedSections += 1;
       if (classification === 'predicted' && Number.isFinite(Number(item.predictedFtes))) acc.predictedFtesTotal += Number(item.predictedFtes);
       if (classification === 'unavailable') acc.unavailableSectionCount += 1;
       if (Number.isFinite(value)) acc.projectedFinalFtesTotal += value;
@@ -14339,6 +14390,8 @@ BUS 180 2 units`)
       unavailableSectionCount: 0,
       confirmedSections: 0,
       estimatedSections: 0,
+      calibratedEstimatedSections: 0,
+      formulaEstimatedSections: 0,
       predictedSections: 0,
       unavailableSections: 0,
       predictionPendingSectionCount: 0,
@@ -14487,6 +14540,9 @@ BUS 180 2 units`)
     if (summary.maturity?.focus?.unavailableRows) {
       warnings.push(`${summary.maturity.focus.unavailableRows} selected-term row(s) are excluded from maturity-based current calculated FTES because official calculation inputs are missing. Historical planning predictions, when supported, appear separately in Projected Final FTES.`);
     }
+    if (summary.ftesClassification?.focus?.formulaEstimatedSections) {
+      warnings.push(`${summary.ftesClassification.focus.formulaEstimatedSections} pre-census section(s) lack acceptable uploaded institutional history and still use the production formula fallback. Review their detail-row derivation before relying on the projected total.`);
+    }
     return warnings;
   }
 
@@ -14591,7 +14647,7 @@ BUS 180 2 units`)
         comparisonEffectiveAsOfDate: comparisonAsOf.display,
         comparisonEffectiveAsOfDateSource: comparisonAsOf.source,
         ftesMaturityDefinition: 'FTES Maturity shows how much existing calculated FTES is confirmed/final versus estimated based on source as-of date, section census date, and final-source availability.',
-        ftesClassificationDefinition: 'Confirmed FTES reflects sections whose applicable census milestone has passed. Estimated FTES is calculated from current enrollment before census. Predicted FTES is forecast from comparable historical institutional results for P/E/Work Experience sections and does not alter official FTES reporting.',
+        ftesClassificationDefinition: 'Confirmed FTES reflects uploaded institutional census results after the applicable census milestone. Pre-census Estimated FTES prefers calibrated final institutional history by course or other supported evidence, with the existing production formula retained as a transparent fallback. Predicted FTES covers P/E/Work Experience planning and does not alter official FTES reporting.',
         historicalPredictionMapping: 'Historical prediction normalizes subjects, course numbers, course keys, divisions, attendance methods, and term season before lookup. Positive Attendance maps to Cube accounting method P. Open Entry/Open Exit - Positive Attendance maps to Cube accounting method E. Work Experience is identified by source, division, population, WKEX/WKEXP subject, or Work Experience modality; imported Cube history may appear under accounting method D, so lookup tests Work Experience aliases plus the observed D convention.',
         historicalPredictionEvidenceRule: 'At least one completed Historical Institutional Results term with enough enrollment can support a low-confidence planning prediction. Additional completed terms improve confidence through the Historical Institutional Model thresholds and backtesting.',
         workExperiencePredictionRule: 'Work Experience sections without direct final FTES are prediction-eligible because final FTES can depend on later hours or activity. They remain Estimated only when the loaded current row has deterministic production inputs sufficient for the existing FTES formula and no historical prediction is available.'
@@ -14609,7 +14665,7 @@ BUS 180 2 units`)
       breakdowns: {
         ftesClassification: [
           { name: 'Confirmed FTES', classification: 'Confirmed', classOfferings: focusClassification.confirmedSections, ftes: focusClassification.confirmedFtesTotal, share: focusClassification.confirmedShare, note: 'Applicable census milestone has passed.' },
-          { name: 'Estimated FTES', classification: 'Estimated', classOfferings: focusClassification.estimatedSections, ftes: focusClassification.estimatedFtesTotal, share: focusClassification.estimatedShare, note: 'Calculated from current enrollment before census.' },
+          { name: 'Estimated FTES', classification: 'Estimated', classOfferings: focusClassification.estimatedSections, ftes: focusClassification.estimatedFtesTotal, share: focusClassification.estimatedShare, note: 'Calibrated from uploaded final institutional history before census when reliable; production formula otherwise.' },
           { name: 'Predicted FTES', classification: 'Predicted', classOfferings: focusClassification.predictedSections, ftes: focusClassification.predictedFtesTotal, share: focusClassification.predictedShare, note: 'Forecast from comparable historical institutional results.' },
           { name: 'Prediction Pending', classification: 'Prediction Pending', classOfferings: focusClassification.predictionPendingSectionCount, ftes: '', share: '', note: 'Historical Institutional Model is still loading; eligible rows rerun automatically.' },
           { name: 'Unavailable FTES', classification: 'Unavailable', classOfferings: focusClassification.unavailableSectionCount, ftes: '', share: '', note: 'No reliable FTES value can be produced from current or historical evidence.' }
@@ -14705,6 +14761,8 @@ BUS 180 2 units`)
           ftes: currentEnrollmentFtesUnavailable(row, focusAsOf) ? '' : currentEnrollmentFtesValue(row, focusAsOf),
           ftesSource: institutionalFtesActualForRow(row, focusAsOf)
             ? 'Institutional Total FTES Census'
+            : String(classified.derivation || '').startsWith('institutional-calibrated-')
+              ? 'Uploaded institutional history calibrated estimate'
             : row.hasDirectFtesData ? 'Direct FTES' : row.hasFtesData ? 'Formula-calculated FTES' : 'FTES unavailable',
           ftesWarning: row.ftesWarning || maturity.ftesEnrollmentWarning || (currentEnrollmentFtesUnavailable(row, focusAsOf) ? 'FTES unavailable: row-level FTES inputs are missing.' : '')
         };
@@ -15106,6 +15164,8 @@ BUS 180 2 units`)
       { metric: 'Current Formula Version', value: 'TIMBER Current Enrollment & FTES production formulas' },
       { metric: 'Confirmed Section Count', value: formatWholeNumber(summary.ftesClassification?.focus?.confirmedSections || 0) },
       { metric: 'Estimated Section Count', value: formatWholeNumber(summary.ftesClassification?.focus?.estimatedSections || 0) },
+      { metric: 'Historically Calibrated Pre-Census Sections', value: formatWholeNumber(summary.ftesClassification?.focus?.calibratedEstimatedSections || 0) },
+      { metric: 'Production Formula Fallback Sections', value: formatWholeNumber(summary.ftesClassification?.focus?.formulaEstimatedSections || 0) },
       { metric: 'Predicted Section Count', value: formatWholeNumber(summary.ftesClassification?.focus?.predictedSections || 0) },
       { metric: 'Prediction Pending Section Count', value: formatWholeNumber(summary.ftesClassification?.focus?.predictionPendingSectionCount || 0) },
       { metric: 'Unavailable Classification Count', value: formatWholeNumber(summary.ftesClassification?.focus?.unavailableSectionCount || 0) },
@@ -15371,6 +15431,8 @@ BUS 180 2 units`)
       ['Confirmed FTES Share', summary.ftesClassification.focus.confirmedShare],
       ['Estimated FTES', summary.ftesClassification.focus.estimatedFtesTotal],
       ['Estimated FTES Share', summary.ftesClassification.focus.estimatedShare],
+      ['Historically Calibrated Pre-Census Sections', summary.ftesClassification.focus.calibratedEstimatedSections],
+      ['Production Formula Fallback Sections', summary.ftesClassification.focus.formulaEstimatedSections],
       ['Predicted FTES', summary.ftesClassification.focus.predictedFtesTotal],
       ['Predicted FTES Share', summary.ftesClassification.focus.predictedShare],
       ['Unavailable FTES Sections', summary.ftesClassification.focus.unavailableSectionCount],
