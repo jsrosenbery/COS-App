@@ -3286,7 +3286,10 @@
           <div class="analytics-toolbar">
             <label>Saved Faculty Schedule Term <select id="iaFacultyArchiveTerm"></select></label>
             <button id="loadSavedInstructorAvailabilityFaculty" type="button">Load Saved Faculty Schedule</button>
-            <span id="iaFacultyScheduleStatus" class="analytics-note">Using Section Seating fallback until Faculty Schedule Data is loaded.</span>
+            <div id="iaFacultyScheduleStatus" class="analytics-source-banner is-fallback" role="status" aria-live="polite">
+              <strong>Current data source: Section Seating fallback</strong>
+              <span>Load a saved Faculty Schedule term to display its upload date and source details.</span>
+            </div>
             <label>Faculty Type
               <select id="iaFacultyType">
                 <option value="">All faculty</option>
@@ -12255,7 +12258,20 @@ BUS 180 2 units`)
     try {
       const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-schedules`);
       const payload = response.ok ? await response.json() : { data: [] };
-      state.facultyScheduleArchiveTerms = Array.isArray(payload.data) ? payload.data : [];
+      const refreshedTerms = Array.isArray(payload.data) ? payload.data : [];
+      const refreshedByTerm = new Map(refreshedTerms.map(item => [normalizeTermLabel(item?.term), item]));
+      Object.keys(state.facultyScheduleTermCache || {}).forEach(term => {
+        const normalizedTerm = normalizeTermLabel(term);
+        const prior = state.facultyScheduleTermMetadataCache?.[normalizedTerm];
+        const current = refreshedByTerm.get(normalizedTerm);
+        const priorVersion = [prior?.uploadedAt, prior?.sourceFileName, prior?.rawRowCount].join('|');
+        const currentVersion = [current?.uploadedAt, current?.sourceFileName, current?.rawRowCount].join('|');
+        if (!current || !prior || priorVersion !== currentVersion) {
+          delete state.facultyScheduleTermCache[normalizedTerm];
+          if (state.facultyScheduleTermMetadataCache) delete state.facultyScheduleTermMetadataCache[normalizedTerm];
+        }
+      });
+      state.facultyScheduleArchiveTerms = refreshedTerms;
       updateFacultyScheduleArchiveSelectors();
       renderOptimizationArchiveStatus();
       renderSourceDataHubStatus();
@@ -19623,17 +19639,23 @@ BUS 180 2 units`)
     ]).filter(row => row && row.facultyType !== 'OMIT');
   }
 
+  function instructorAvailabilityRosterRows(rows = []) {
+    return reportableFacultyRows(rows).filter(row => row?.instructor && instructorAvailabilityFacultyType(row) !== 'OMIT');
+  }
+
   function instructorAvailabilitySourceRows(fallbackRows = currentRows()) {
-    const facultyRows = instructorAvailabilityFacultySourceRows();
+    const facultyRows = instructorAvailabilityRosterRows(instructorAvailabilityFacultySourceRows());
     if (facultyRows.length) {
       return {
         rows: instructorScheduleRows(facultyRows),
+        rosterRows: facultyRows,
         source: 'Faculty Schedule Data',
         facultyBacked: true
       };
     }
     return {
       rows: instructorScheduleRows(fallbackRows),
+      rosterRows: instructorAvailabilityRosterRows(fallbackRows),
       source: 'Section Seating / Schedule Data fallback',
       facultyBacked: false
     };
@@ -19696,16 +19718,30 @@ BUS 180 2 units`)
     if (!status) return;
     const info = sourceInfo || instructorAvailabilitySourceRows();
     if (info.facultyBacked) {
-      const terms = [...new Set((info.rows || []).map(facultyTerm).filter(Boolean))].sort().join(', ');
-      status.textContent = `Using ${info.rows.length} Faculty Schedule meeting row(s)${terms ? ` for ${terms}` : ''}. FT/PT filters are available.`;
+      const terms = [...new Set((info.rosterRows || info.rows || []).map(facultyTerm).filter(Boolean))].sort().join(', ');
+      const facultyCount = new Set((info.rosterRows || []).map(row => row.instructor).filter(Boolean)).size;
+      const metadata = state.facultyScheduleMetadata || null;
+      const uploadTime = formatUploadedTimestamp(metadata?.uploadedAt);
+      const sourceFile = metadata?.sourceFileName || 'Filename unavailable';
+      const rawRows = metadata?.rawRowCount;
+      status.classList.remove('is-fallback');
+      status.classList.add('is-current');
+      status.innerHTML = `
+        <strong>Faculty Schedule loaded${terms ? `: ${escapeAttr(terms)}` : ''}</strong>
+        <span><b>Most recent upload:</b> ${escapeAttr(uploadTime)} &nbsp;|&nbsp; <b>File:</b> ${escapeAttr(sourceFile)}${rawRows == null ? '' : ` &nbsp;|&nbsp; <b>Raw rows:</b> ${formatWholeNumber(rawRows)}`}</span>
+        <span>${formatWholeNumber(info.rows.length)} fixed-time meeting row(s) across ${formatWholeNumber(facultyCount)} faculty. Faculty with only Online/TBA or non-fixed meetings remain selectable.</span>`;
     } else {
-      status.textContent = 'Using Section Seating fallback. Load Faculty Schedule Data to use reliable Full-Time / Part-Time filters.';
+      status.classList.remove('is-current');
+      status.classList.add('is-fallback');
+      status.innerHTML = `
+        <strong>Current data source: Section Seating fallback</strong>
+        <span>Faculty Schedule upload date is unavailable. Load a saved Faculty Schedule term to use reliable Full-Time / Part-Time filters and display its data timestamp.</span>`;
     }
   }
 
   function populateInstructorAvailabilityFilters(rows = currentRows()) {
     const sourceInfo = instructorAvailabilitySourceRows(rows);
-    const scheduleRows = sourceInfo.rows;
+    const scheduleRows = sourceInfo.rosterRows || sourceInfo.rows;
     const instructorSelect = document.getElementById('iaInstructor');
     const facultyTypeSelect = document.getElementById('iaFacultyType');
     const divisionSelect = document.getElementById('iaDivision');
@@ -19776,6 +19812,7 @@ BUS 180 2 units`)
   function runInstructorAvailability() {
     const sourceInfo = instructorAvailabilitySourceRows(currentRows());
     const rows = sourceInfo.rows;
+    const rosterRows = sourceInfo.rosterRows || rows;
     populateInstructorAvailabilityFilters(currentRows());
     const selectedInstructors = selectedInstructorAvailabilityInstructors();
     const facultyType = document.getElementById('iaFacultyType')?.value || '';
@@ -19800,6 +19837,13 @@ BUS 180 2 units`)
       renderInstructorAvailabilityLegend();
       return;
     }
+    const scopedRosterRows = rosterRows.filter(row =>
+      instructorAvailabilityMatchesFacultyType(row, facultyType) &&
+      instructorAvailabilityMatchesSelection(instructorAvailabilityDivision(row), divisions) &&
+      instructorAvailabilityMatchesSelection(instructorAvailabilitySubject(row), subjects) &&
+      (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) &&
+      (!campus || instructorAvailabilityCampus(row) === campus)
+    );
     const scopedRows = rows.filter(row =>
       instructorAvailabilityMatchesFacultyType(row, facultyType) &&
       instructorAvailabilityMatchesSelection(instructorAvailabilityDivision(row), divisions) &&
@@ -19807,11 +19851,13 @@ BUS 180 2 units`)
       (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) &&
       (!campus || instructorAvailabilityCampus(row) === campus)
     );
-    const instructors = selectedInstructors.length ? selectedInstructors : [...new Set(scopedRows.map(row => row.instructor).filter(Boolean))].sort();
+    const instructors = selectedInstructors.length ? selectedInstructors : [...new Set(scopedRosterRows.map(row => row.instructor).filter(Boolean))].sort();
     const conflictsByInstructor = group(scopedRows.filter(row => instructorHasConflict(row, day, startMinutes, endMinutes)), row => row.instructor);
     const results = instructors.map(name => {
       const conflicts = conflictsByInstructor.get(name) || [];
       const status = conflicts.length ? 'Known Busy' : 'Potentially Available';
+      const instructorFixedRows = scopedRows.filter(row => row.instructor === name);
+      const instructorRosterRow = scopedRosterRows.find(row => row.instructor === name);
       const hybridConflicts = conflicts.filter(instructorAvailabilityRequiresDateVerification);
       const conflictModalities = [...new Set(conflicts.map(instructorAvailabilityModalityLabel).filter(Boolean))];
       return {
@@ -19820,11 +19866,15 @@ BUS 180 2 units`)
         day: dayLabels[day] || day,
         requestedWindow: `${start}-${end}`,
         conflictCount: conflicts.length,
-        conflicts: conflicts.map(instructorAvailabilityConflictLabel).join('; ') || 'No loaded schedule conflict found',
+        conflicts: conflicts.map(instructorAvailabilityConflictLabel).join('; ') || (instructorFixedRows.length
+          ? 'No loaded schedule conflict found'
+          : 'No fixed-time meetings in the loaded Faculty Schedule; Online/TBA and non-fixed assignments do not establish availability.'),
         modality: conflictModalities.join(', ') || 'N/A',
         requiresDateVerification: hybridConflicts.length ? 'Yes' : 'No',
-        verificationNote: hybridConflicts.length ? 'Verify hybrid meeting dates/pattern.' : '',
-        facultyType: instructorAvailabilityFacultyTypeLabel(instructorAvailabilityFacultyType(conflicts[0] || scopedRows.find(row => row.instructor === name) || {})),
+        verificationNote: hybridConflicts.length
+          ? 'Verify hybrid meeting dates/pattern.'
+          : (!instructorFixedRows.length ? 'Availability cannot be confirmed from non-fixed assignments.' : ''),
+        facultyType: instructorAvailabilityFacultyTypeLabel(instructorAvailabilityFacultyType(conflicts[0] || instructorRosterRow || {})),
         campus: campus || 'All'
       };
     }).sort((a, b) => a.status.localeCompare(b.status) || a.instructor.localeCompare(b.instructor));
@@ -27369,6 +27419,11 @@ BUS 180 2 units`)
       .analytics-toolbar input,.analytics-toolbar select{min-height:34px;border:1px solid #ccd6e2;border-radius:6px;padding:6px 8px}
       .analytics-toolbar input[type=checkbox]{min-height:auto}
       .analytics-toolbar button{min-height:36px;border:0;border-radius:18px;padding:0 16px;background:#cdeffc;color:#002b5c;font-weight:700;cursor:pointer}
+      .analytics-source-banner{flex:1 0 100%;display:grid;gap:4px;margin:0;padding:11px 14px;border:1px solid #82b8d6;border-left:5px solid #1479a8;border-radius:8px;background:#eef9ff;color:#173b5c;font-size:13px;line-height:1.35;box-sizing:border-box}
+      .analytics-source-banner strong{font-size:15px;color:#123367}
+      .analytics-source-banner span{display:block}
+      .analytics-source-banner.is-fallback{border-color:#efc46f;border-left-color:#d88417;background:#fff8e6;color:#65470d}
+      .analytics-source-banner.is-fallback strong{color:#734800}
       .analytics-upload-panel{margin:0 0 16px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff}
       .analytics-upload-panel h3{margin:0 0 6px;color:#123367;font-size:15px}
       .analytics-upload-panel p,.analytics-note{margin:0;color:#51657c;font-size:13px;line-height:1.35}
@@ -28389,6 +28444,7 @@ BUS 180 2 units`)
     instructorAvailabilityFacultyType,
     instructorAvailabilityMatchesFacultyType,
     instructorAvailabilityMatchesSelection,
+    instructorAvailabilityRosterRows,
     instructorAvailabilitySourceRows,
     instructorAvailabilityDivision,
     instructorAvailabilityCampus,

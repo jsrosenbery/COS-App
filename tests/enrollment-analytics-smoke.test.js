@@ -4640,7 +4640,7 @@ test('instructor availability supports all full-time and part-time faculty filte
   const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
   assert.match(source, /id="iaFacultyArchiveTerm"/);
   assert.match(source, /loadSavedInstructorAvailabilityFaculty/);
-  assert.match(source, /Using Section Seating fallback until Faculty Schedule Data is loaded/);
+  assert.match(source, /Current data source: Section Seating fallback/);
   assert.match(source, /state\.instructorAvailabilityFacultyRows/);
   assert.match(source, /id="iaFacultyType"/);
   assert.match(source, /Full-Time Faculty/);
@@ -4651,6 +4651,46 @@ test('instructor availability supports all full-time and part-time faculty filte
   assert.doesNotMatch(source, /id="iaFacultyScheduleCsv"/);
   assert.doesNotMatch(source, /document\.getElementById\('iaFacultyScheduleCsv'\)\?\.addEventListener\('change'/);
   assert.match(source, /\['Faculty Type', facultyType \? instructorAvailabilityFacultyTypeLabel\(facultyType\) : 'All faculty'\]/);
+});
+
+test('instructor availability keeps faculty with only non-fixed assignments in the roster', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const rows = [
+    {
+      sourceTerm: 'FALL 2026',
+      crn: '10735',
+      instructor: 'Keen, Christine',
+      subject: 'MATH',
+      course: '400',
+      courseCode: 'MATH 400',
+      days: [],
+      dayPattern: 'XX',
+      start: '00:00',
+      end: '00:00',
+      facultyType: 'FULL_TIME',
+      divisionId: 'MATH',
+      campus: 'COS'
+    }
+  ];
+
+  assert.equal(COSEnrollmentAnalytics.instructorScheduleRows(rows).length, 0);
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityRosterRows(rows).length, 1);
+  assert.equal(COSEnrollmentAnalytics.instructorAvailabilityRosterRows(rows)[0].instructor, 'Keen, Christine');
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  assert.match(source, /Faculty with only Online\/TBA or non-fixed meetings remain selectable/);
+  assert.match(source, /No fixed-time meetings in the loaded Faculty Schedule/);
+  assert.match(source, /class="analytics-source-banner is-fallback"/);
+  assert.match(source, /Most recent upload:/);
+  assert.match(source, /metadata\?\.uploadedAt/);
+  assert.match(source, /metadata\?\.sourceFileName/);
+});
+
+test('faculty archive refresh invalidates cached rows when a term upload is replaced', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  assert.match(source, /priorVersion !== currentVersion/);
+  assert.match(source, /delete state\.facultyScheduleTermCache\[normalizedTerm\]/);
+  assert.match(source, /uploadedAt.*sourceFileName.*rawRowCount/s);
 });
 
 test('instructor availability suppresses shared windows shorter than 30 minutes', () => {
