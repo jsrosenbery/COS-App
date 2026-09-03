@@ -380,6 +380,10 @@
     facultyScheduleRows: [],
     facultyScheduleMetadata: null,
     instructorAvailabilityFacultyRows: [],
+    instructorAvailabilityOfficeHoursRows: [],
+    facultyOfficeHoursArchiveTerms: [],
+    facultyOfficeHoursMetadata: null,
+    facultyOfficeHoursTermCache: {},
     facultyHeatmapRows: [],
     facultyHeatmapBucketRows: [],
     facultyHeatmapRan: false,
@@ -3015,6 +3019,17 @@
               </div>
               <p id="dataHubFacultyStatus" class="analytics-note">Saved Faculty Schedule archives not refreshed yet.</p>
             </section>
+            <section class="source-data-card" data-source-type="faculty-office-hours">
+              <h3>Faculty Office Hours</h3>
+              <p>Separate recurring office-hours source used by Instructor Availability. Office hours are treated as known busy periods and never alter Faculty Schedule or Room Availability data.</p>
+              <div class="analytics-toolbar">
+                <label>Office Hours CSV <input id="dataHubFacultyOfficeHoursCsv" type="file" accept=".csv"></label>
+                <label>Upload as term <select id="dataHubFacultyOfficeHoursTerm"></select></label>
+                <button id="dataHubSaveFacultyOfficeHours" type="button">Save Faculty Office Hours</button>
+                <button id="dataHubRefreshFacultyOfficeHours" type="button">Refresh Office Hours</button>
+              </div>
+              <p id="dataHubFacultyOfficeHoursStatus" class="analytics-note">Saved Faculty Office Hours archives not refreshed yet.</p>
+            </section>
             <section class="source-data-card" data-source-type="work-experience">
               <h3>Work Experience Enrollment</h3>
               <p>Supplemental Work Experience enrollment/FTES rows used by enrollment dashboard, attrition, and forecast reports when included.</p>
@@ -3266,6 +3281,7 @@
                   <li>Load a saved Faculty Schedule term, then select one or more instructors and a day/time window. Faculty Schedule uploads are managed from the Source Data Hub.</li>
                   <li>Leave all instructors selected for a broad first pass, or select a smaller group to compare schedules side by side.</li>
                   <li>Online/TBA rows are excluded from day/time conflict checks because they do not provide a fixed meeting window.</li>
+                  <li>Load the matching Faculty Office Hours term to treat recurring office hours as a separate known-busy layer. Office-hours date ranges and locations remain visible in conflict details.</li>
                   <li>Hybrid fixed-time meetings are flagged in the grid and conflict table because their physical meeting pattern may require date-level verification.</li>
                 </ul>
               </div>
@@ -3277,7 +3293,8 @@
                   <li>The weekly grid shows loaded meetings by instructor and day. Shared available time windows are calculated by subtracting the combined loaded meetings for all selected instructors from 8:00 AM-6:00 PM, Monday-Friday.</li>
                   <li>Fixed-time hybrid rows are included in overlap calculations, but the report does not evaluate section-specific meeting dates, alternating weeks, or irregular hybrid calendars.</li>
                   <li>Full-Time and Part-Time filters use FCNT_CODE from Faculty Schedule Data: FT and TE are Full-Time, JP is Part-Time, and AE/X rows are excluded.</li>
-                  <li>Availability is inferred only from loaded Faculty Schedule rows or fallback schedule rows; it does not include faculty preferences, office hours, reassigned time, leave, overload limits, or department-specific rules.</li>
+                  <li>Availability is inferred from loaded Faculty Schedule rows, optional Faculty Office Hours rows, or fallback schedule rows; it does not include faculty preferences, reassigned time, leave, overload limits, or department-specific rules.</li>
+                  <li>When a Faculty Office Hours archive is loaded, valid recurring office-hours rows are included as known busy periods. Missing-day or invalid-time rows are retained in source diagnostics but do not create busy blocks.</li>
                   <li>Future enhancement: optional date-aware or week-by-week instructor availability using section meeting-date patterns.</li>
                 </ul>
               </div>
@@ -3289,6 +3306,12 @@
             <div id="iaFacultyScheduleStatus" class="analytics-source-banner is-fallback" role="status" aria-live="polite">
               <strong>Current data source: Section Seating fallback</strong>
               <span>Load a saved Faculty Schedule term to display its upload date and source details.</span>
+            </div>
+            <label>Saved Office Hours Term <select id="iaOfficeHoursArchiveTerm"></select></label>
+            <button id="loadSavedInstructorAvailabilityOfficeHours" type="button">Load Saved Office Hours</button>
+            <div id="iaOfficeHoursStatus" class="analytics-source-banner is-optional" role="status" aria-live="polite">
+              <strong>Office hours layer: Not loaded</strong>
+              <span>Select a saved term to include recurring faculty office hours as known busy periods.</span>
             </div>
             <label>Faculty Type
               <select id="iaFacultyType">
@@ -12273,6 +12296,7 @@ BUS 180 2 units`)
       });
       state.facultyScheduleArchiveTerms = refreshedTerms;
       updateFacultyScheduleArchiveSelectors();
+      updateFacultyOfficeHoursSelectors();
       renderOptimizationArchiveStatus();
       renderSourceDataHubStatus();
       return state.facultyScheduleArchiveTerms;
@@ -12387,6 +12411,114 @@ BUS 180 2 units`)
       return normalized;
     }));
     return batches.flat();
+  }
+
+  function validateFacultyOfficeHoursRawRows(rows) {
+    const message = 'This does not appear to be a Faculty Office Hours file. Expected FACULTY, DAYS, FROM_TIME, and TO_TIME columns.';
+    if (!Array.isArray(rows) || !rows.length) return { valid: false, message };
+    const has = names => rows.some(row => facultyRawField(row, names));
+    return has(['FACULTY', 'Faculty']) && has(['DAYS', 'Days']) && has(['FROM_TIME', 'From Time']) && has(['TO_TIME', 'To Time'])
+      ? { valid: true, message: '' }
+      : { valid: false, message };
+  }
+
+  function updateFacultyOfficeHoursSelectors() {
+    const terms = state.facultyOfficeHoursArchiveTerms || [];
+    ['iaOfficeHoursArchiveTerm'].forEach(id => {
+      const select = document.getElementById(id);
+      if (!select) return;
+      const previous = select.value;
+      select.replaceChildren(new Option('Saved Office Hours terms', ''));
+      terms.forEach(item => select.appendChild(new Option(item.term || '', item.term || '')));
+      if (terms.some(item => item.term === previous)) select.value = previous;
+    });
+    const uploadTerm = document.getElementById('dataHubFacultyOfficeHoursTerm');
+    if (uploadTerm) {
+      const previous = uploadTerm.value;
+      const available = [...new Set([
+        ...visibleScheduleTerms(),
+        ...(state.facultyScheduleArchiveTerms || []).map(item => item.term),
+        ...terms.map(item => item.term)
+      ].map(normalizeTermLabel).filter(Boolean))].sort((a, b) => termSortValue(a) - termSortValue(b));
+      uploadTerm.replaceChildren(new Option('Select term', ''));
+      available.forEach(term => uploadTerm.appendChild(new Option(term, term)));
+      if (available.includes(previous)) uploadTerm.value = previous;
+    }
+  }
+
+  async function refreshFacultyOfficeHoursArchives() {
+    const status = document.getElementById('dataHubFacultyOfficeHoursStatus');
+    if (!window.BACKEND_BASE_URL) {
+      state.facultyOfficeHoursArchiveTerms = [];
+      updateFacultyOfficeHoursSelectors();
+      if (status) status.textContent = 'Backend is not configured; Office Hours archives cannot be listed.';
+      return [];
+    }
+    const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-office-hours`);
+    if (!response.ok) throw new Error(await response.text() || 'Faculty Office Hours archive list failed.');
+    const payload = await response.json();
+    const refreshed = Array.isArray(payload.data) ? payload.data : [];
+    const refreshedByTerm = new Map(refreshed.map(item => [normalizeTermLabel(item.term), item]));
+    Object.keys(state.facultyOfficeHoursTermCache || {}).forEach(term => {
+      const cached = state.facultyOfficeHoursTermCache[term];
+      const current = refreshedByTerm.get(normalizeTermLabel(term));
+      if (!current || cached?.uploadedAt !== current.uploadedAt) delete state.facultyOfficeHoursTermCache[term];
+    });
+    state.facultyOfficeHoursArchiveTerms = refreshed;
+    updateFacultyOfficeHoursSelectors();
+    if (status) status.textContent = refreshed.length
+      ? `${refreshed.length} saved Office Hours term(s). Most recent: ${formatUploadedTimestamp([...refreshed].sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)))[0]?.uploadedAt)}.`
+      : 'No saved Faculty Office Hours terms.';
+    return refreshed;
+  }
+
+  async function saveFacultyOfficeHoursArchive() {
+    if (!window.BACKEND_BASE_URL) throw new Error('Backend is not configured, so Faculty Office Hours cannot be saved.');
+    const token = enrollmentManagementToken();
+    if (!token) {
+      requestReportAccess(REPORTS.dataHub, REPORT_ACCESS[REPORTS.dataHub] || 'admin');
+      throw new Error('Unlock an authorized report role before saving Faculty Office Hours.');
+    }
+    const input = document.getElementById('dataHubFacultyOfficeHoursCsv');
+    const file = input?.files?.[0];
+    const term = normalizeTermLabel(document.getElementById('dataHubFacultyOfficeHoursTerm')?.value || '');
+    if (!file) throw new Error('Choose a Faculty Office Hours CSV before saving.');
+    if (!term) throw new Error('Select the term represented by the Faculty Office Hours file.');
+    const text = await readTextFile(file);
+    const rawRows = window.COSFacultyParser?.parseFacultyScheduleCsvRows?.(text) || [];
+    const validation = validateFacultyOfficeHoursRawRows(rawRows);
+    if (!validation.valid) throw new Error(validation.message);
+    const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-office-hours/${encodeURIComponent(term)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ rows: rawRows, sourceFileName: file.name })
+    });
+    if (!response.ok) throw new Error(await response.text() || `Faculty Office Hours save failed for ${term}.`);
+    const payload = await response.json();
+    state.facultyOfficeHoursTermCache[term] = { uploadedAt: payload.metadata?.uploadedAt || '', rows: null };
+    await refreshFacultyOfficeHoursArchives();
+    const status = document.getElementById('dataHubFacultyOfficeHoursStatus');
+    if (status) status.textContent = `Saved ${payload.metadata?.rawRowCount ?? rawRows.length} Office Hours row(s) for ${term}; uploaded ${formatUploadedTimestamp(payload.metadata?.uploadedAt)}.`;
+    alert(`Saved Faculty Office Hours for ${term}.`);
+  }
+
+  async function readSavedFacultyOfficeHoursRows(selectId = 'iaOfficeHoursArchiveTerm') {
+    const term = normalizeTermLabel(document.getElementById(selectId)?.value || '');
+    if (!term) return { rows: [], metadata: null };
+    const cached = state.facultyOfficeHoursTermCache?.[term];
+    if (cached?.rows?.length) return cached;
+    const response = await fetch(`${window.BACKEND_BASE_URL}/api/faculty-office-hours/${encodeURIComponent(term)}`);
+    if (!response.ok) throw new Error(await response.text() || `Saved Faculty Office Hours load failed for ${term}.`);
+    const payload = await response.json();
+    const rawRows = Array.isArray(payload.data) ? payload.data : [];
+    const validation = validateFacultyOfficeHoursRawRows(rawRows);
+    if (!validation.valid && rawRows.length) throw new Error(validation.message);
+    const rows = window.COSFacultyOfficeHours?.dedupeRows
+      ? window.COSFacultyOfficeHours.dedupeRows(rawRows.map(row => window.COSFacultyOfficeHours.normalizeRow(row, { term })))
+      : [];
+    const result = { rows, metadata: payload.metadata || null, uploadedAt: payload.metadata?.uploadedAt || '' };
+    state.facultyOfficeHoursTermCache[term] = result;
+    return result;
   }
 
   async function readArchivedRowsWithDiagnostics(selectId, options = {}) {
@@ -19643,19 +19775,45 @@ BUS 180 2 units`)
     return reportableFacultyRows(rows).filter(row => row?.instructor && instructorAvailabilityFacultyType(row) !== 'OMIT');
   }
 
+  function reconcileInstructorOfficeHoursRows(officeRows = [], facultyRows = []) {
+    const identityKey = window.COSFacultyOfficeHours?.facultyIdentityKey || (value => canon(value));
+    const facultyByIdentity = new Map();
+    facultyRows.forEach(row => {
+      const key = identityKey(row.instructor);
+      if (key && !facultyByIdentity.has(key)) facultyByIdentity.set(key, row);
+    });
+    return officeRows.map(row => {
+      const matched = facultyByIdentity.get(row.facultyIdentityKey || identityKey(row.instructor));
+      if (!matched) return row;
+      return {
+        ...row,
+        instructor: matched.instructor,
+        facultyName: matched.instructor,
+        facultyType: matched.facultyType || row.facultyType,
+        divisionId: matched.divisionId || row.divisionId,
+        departmentId: matched.departmentId || row.departmentId
+      };
+    });
+  }
+
   function instructorAvailabilitySourceRows(fallbackRows = currentRows()) {
     const facultyRows = instructorAvailabilityRosterRows(instructorAvailabilityFacultySourceRows());
+    const officeRows = reconcileInstructorOfficeHoursRows(state.instructorAvailabilityOfficeHoursRows || [], facultyRows);
     if (facultyRows.length) {
       return {
-        rows: instructorScheduleRows(facultyRows),
-        rosterRows: facultyRows,
+        rows: instructorScheduleRows([...facultyRows, ...officeRows]),
+        rosterRows: instructorAvailabilityRosterRows([...facultyRows, ...officeRows]),
+        officeHoursRows: officeRows,
         source: 'Faculty Schedule Data',
         facultyBacked: true
       };
     }
+    const fallbackRoster = instructorAvailabilityRosterRows(fallbackRows);
+    const reconciledOfficeRows = reconcileInstructorOfficeHoursRows(state.instructorAvailabilityOfficeHoursRows || [], fallbackRoster);
     return {
-      rows: instructorScheduleRows(fallbackRows),
-      rosterRows: instructorAvailabilityRosterRows(fallbackRows),
+      rows: instructorScheduleRows([...fallbackRows, ...reconciledOfficeRows]),
+      rosterRows: instructorAvailabilityRosterRows([...fallbackRows, ...reconciledOfficeRows]),
+      officeHoursRows: reconciledOfficeRows,
       source: 'Section Seating / Schedule Data fallback',
       facultyBacked: false
     };
@@ -19674,6 +19832,7 @@ BUS 180 2 units`)
   }
 
   function instructorAvailabilityCourseLabel(row) {
+    if (row?.sourceType === 'FACULTY_OFFICE_HOURS') return 'Office Hours';
     return row?.courseCode || [row?.subject, row?.course, row?.section].filter(Boolean).join(' ');
   }
 
@@ -19685,6 +19844,7 @@ BUS 180 2 units`)
   }
 
   function instructorAvailabilityModalityLabel(row) {
+    if (row?.sourceType === 'FACULTY_OFFICE_HOURS') return 'Office Hours';
     const category = instructorAvailabilityModality(row);
     if (category === 'IN PERSON') return 'In-Person';
     if (category === 'HYBRID') return 'Hybrid';
@@ -19702,6 +19862,10 @@ BUS 180 2 units`)
   }
 
   function instructorAvailabilityConflictLabel(row) {
+    if (row?.sourceType === 'FACULTY_OFFICE_HOURS') {
+      const dates = [row.startDate, row.endDate].filter(Boolean).join('-');
+      return `Office Hours / ${row.dayPattern || ''} / ${row.start || row.startTime || ''}-${row.end || row.endTime || ''} / ${row.officeLocation || 'Location N/A'}${dates ? ` / ${dates}` : ''}`;
+    }
     const parts = [
       instructorAvailabilityCourseLabel(row) || row?.crn || 'Course N/A',
       row?.dayPattern || '',
@@ -19885,6 +20049,7 @@ BUS 180 2 units`)
       ['Division Filter', divisions.length ? divisions.join(', ') : 'All divisions'],
       ['Discipline Filter', subjects.length ? subjects.join(', ') : 'All disciplines'],
       ['Day/Time Checked', `${dayLabels[day] || day} ${start}-${end}`],
+      ['Office Hours Included', (sourceInfo.officeHoursRows || []).filter(row => window.COSFacultyOfficeHours?.hasFixedMeeting?.(row)).length],
       ['Known Busy', busy],
       ['Potentially Available', results.length - busy],
       ['Instructors Reviewed', results.length]
@@ -19968,6 +20133,35 @@ BUS 180 2 units`)
     runInstructorAvailability();
   }
 
+  function updateInstructorAvailabilityOfficeHoursStatus() {
+    const status = document.getElementById('iaOfficeHoursStatus');
+    if (!status) return;
+    const rows = state.instructorAvailabilityOfficeHoursRows || [];
+    const metadata = state.facultyOfficeHoursMetadata;
+    if (!rows.length) {
+      status.classList.remove('is-current');
+      status.classList.add('is-optional');
+      status.innerHTML = '<strong>Office hours layer: Not loaded</strong><span>Select a saved term to include recurring faculty office hours as known busy periods.</span>';
+      return;
+    }
+    status.classList.remove('is-optional');
+    status.classList.add('is-current');
+    const fixedRows = rows.filter(row => window.COSFacultyOfficeHours?.hasFixedMeeting?.(row)).length;
+    status.innerHTML = `
+      <strong>Office hours layer loaded: ${escapeAttr(metadata?.term || facultyTerm(rows[0]))}</strong>
+      <span><b>Most recent upload:</b> ${escapeAttr(formatUploadedTimestamp(metadata?.uploadedAt))} &nbsp;|&nbsp; <b>File:</b> ${escapeAttr(metadata?.sourceFileName || 'Filename unavailable')} &nbsp;|&nbsp; <b>Rows:</b> ${formatWholeNumber(metadata?.rawRowCount ?? rows.length)}</span>
+      <span>${formatWholeNumber(fixedRows)} recurring fixed-time office-hours row(s) are included as known busy periods.</span>`;
+  }
+
+  async function loadSavedInstructorAvailabilityOfficeHours() {
+    const result = await readSavedFacultyOfficeHoursRows('iaOfficeHoursArchiveTerm');
+    state.instructorAvailabilityOfficeHoursRows = result.rows;
+    state.facultyOfficeHoursMetadata = result.metadata;
+    updateInstructorAvailabilityOfficeHoursStatus();
+    populateInstructorAvailabilityFilters(currentRows());
+    runInstructorAvailability();
+  }
+
   function renderInstructorAvailabilityCalendar(instructors, rows, campus) {
     const node = document.getElementById('instructorAvailabilityCalendar');
     if (!node) return;
@@ -20023,7 +20217,8 @@ BUS 180 2 units`)
       const modality = instructorAvailabilityModality(event);
       const modalityLabel = instructorAvailabilityModalityLabel(event);
       const isHybrid = modality === 'HYBRID';
-      const modalityClass = isHybrid ? ' is-hybrid' : (modality === 'OTHER' ? ' is-other-modality' : '');
+      const isOfficeHours = event.sourceType === 'FACULTY_OFFICE_HOURS';
+      const modalityClass = isOfficeHours ? ' is-office-hours' : (isHybrid ? ' is-hybrid' : (modality === 'OTHER' ? ' is-other-modality' : ''));
       const title = isHybrid
         ? 'Hybrid section - physical meeting pattern may not occur every week. Verify section dates before treating this as a date-specific conflict.'
         : `${modalityLabel} meeting`;
@@ -27219,7 +27414,7 @@ BUS 180 2 units`)
     }
     if (selected === REPORTS.dataHub) {
       updateDataHubSectionTermOptions();
-      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), refreshWorkExperienceArchives(), loadEnrollmentSnapshots(), ensureHistoricalInstitutionalReady().catch(err => {
+      Promise.all([refreshAnalyticsArchiveOptions(), refreshFacultyScheduleArchives(), refreshFacultyOfficeHoursArchives(), refreshWorkExperienceArchives(), loadEnrollmentSnapshots(), ensureHistoricalInstitutionalReady().catch(err => {
         console.warn('Historical Institutional Results IndexedDB initialization skipped:', err);
       })])
         .then(() => renderSourceDataHubStatus())
@@ -27256,6 +27451,7 @@ BUS 180 2 units`)
       runStudentPresence().catch(err => console.warn('Student Presence failed:', err));
     }
     if (selected === REPORTS.instructorAvailability) {
+      refreshFacultyOfficeHoursArchives().catch(err => console.warn('Faculty Office Hours archive refresh skipped:', err));
       populateInstructorAvailabilityFilters(currentRows());
       runInstructorAvailability();
     }
@@ -27424,6 +27620,7 @@ BUS 180 2 units`)
       .analytics-source-banner span{display:block}
       .analytics-source-banner.is-fallback{border-color:#efc46f;border-left-color:#d88417;background:#fff8e6;color:#65470d}
       .analytics-source-banner.is-fallback strong{color:#734800}
+      .analytics-source-banner.is-optional{border-color:#cbd5e1;border-left-color:#64748b;background:#f8fafc;color:#475569}
       .analytics-upload-panel{margin:0 0 16px;padding:12px;border:1px solid #d8e1ec;border-radius:10px;background:#f8fbff}
       .analytics-upload-panel h3{margin:0 0 6px;color:#123367;font-size:15px}
       .analytics-upload-panel p,.analytics-note{margin:0;color:#51657c;font-size:13px;line-height:1.35}
@@ -27482,6 +27679,7 @@ BUS 180 2 units`)
       .instructor-grid-event{align-self:start;z-index:3;box-sizing:border-box;min-height:26px;border:1px solid #1f7aa8;border-left:4px solid #1f7aa8;border-radius:8px;background:linear-gradient(135deg,#e8f4fb,#cdeffc);box-shadow:0 4px 10px rgba(15,45,75,.14);padding:6px;color:#123367;overflow:hidden}
       .instructor-grid-event.is-hybrid{border-color:#b45309;border-left-color:#b45309;background:repeating-linear-gradient(135deg,#fff7ed 0,#fff7ed 6px,#fed7aa 6px,#fed7aa 12px);color:#7c2d12}
       .instructor-grid-event.is-other-modality{border-color:#64748b;border-left-color:#64748b;background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#334155}
+      .instructor-grid-event.is-office-hours{border-color:#7c3aed;border-left-color:#7c3aed;background:repeating-linear-gradient(135deg,#f5f3ff 0,#f5f3ff 6px,#ddd6fe 6px,#ddd6fe 12px);color:#4c1d95}
       .instructor-grid-event strong,.instructor-grid-event span,.instructor-grid-event small{display:block;line-height:1.15}
       .instructor-grid-event strong{font-size:12px}
       .instructor-grid-event span,.instructor-grid-event small{font-size:11px}
@@ -27800,6 +27998,8 @@ BUS 180 2 units`)
     attachBusyClick('dataHubRefreshArchives', 'Refreshing Section Seating archives...', () => refreshAnalyticsArchiveOptions(), { key: 'dataHubRefreshArchives', runningLabel: 'Refreshing...' });
     attachBusyClick('dataHubSaveFacultySchedule', 'Saving Faculty Schedule archive...', () => saveFacultyScheduleArchive('dataHubFacultyScheduleCsv'), { key: 'dataHubSaveFacultySchedule', runningLabel: 'Saving...' });
     attachBusyClick('dataHubRefreshFacultyArchives', 'Refreshing Faculty Schedule archives...', () => refreshFacultyScheduleArchives(), { key: 'dataHubRefreshFacultyArchives', runningLabel: 'Refreshing...' });
+    attachBusyClick('dataHubSaveFacultyOfficeHours', 'Saving Faculty Office Hours...', () => saveFacultyOfficeHoursArchive(), { key: 'dataHubSaveFacultyOfficeHours', runningLabel: 'Saving...' });
+    attachBusyClick('dataHubRefreshFacultyOfficeHours', 'Refreshing Faculty Office Hours...', () => refreshFacultyOfficeHoursArchives(), { key: 'dataHubRefreshFacultyOfficeHours', runningLabel: 'Refreshing...' });
     document.getElementById('dataHubLoadWorkExperience')?.addEventListener('click', () => {
       loadWorkExperienceRows('dataHubWorkExperienceCsv')
         .then(() => renderSourceDataHubStatus('Work Experience rows loaded for this browser session.'))
@@ -28088,6 +28288,7 @@ BUS 180 2 units`)
     attachBusyClick('runInstructorAvailability', 'Building instructor availability...', () => runInstructorAvailability(), { key: 'runInstructorAvailability', runningLabel: 'Building...' });
     document.getElementById('clearInstructorAvailability')?.addEventListener('click', clearInstructorAvailability);
     attachBusyClick('loadSavedInstructorAvailabilityFaculty', 'Loading saved Faculty Schedule...', () => loadSavedInstructorAvailabilityFacultySchedule(), { key: 'loadSavedInstructorAvailabilityFaculty', runningLabel: 'Loading...' });
+    attachBusyClick('loadSavedInstructorAvailabilityOfficeHours', 'Loading saved Faculty Office Hours...', () => loadSavedInstructorAvailabilityOfficeHours(), { key: 'loadSavedInstructorAvailabilityOfficeHours', runningLabel: 'Loading...' });
     document.getElementById('iaMinSharedWindow')?.addEventListener('change', runInstructorAvailability);
     document.getElementById('iaCustomSharedWindow')?.addEventListener('input', runInstructorAvailability);
     document.getElementById('iaTargetMeetingLength')?.addEventListener('input', runInstructorAvailability);
@@ -28385,6 +28586,7 @@ BUS 180 2 units`)
     refreshAnalyticsArchiveOptions();
     refreshWorkExperienceArchives();
     refreshFacultyScheduleArchives();
+    refreshFacultyOfficeHoursArchives().catch(err => console.warn('Faculty Office Hours archive preload skipped:', err));
     loadEnrollmentSnapshots().catch(err => console.warn('Enrollment snapshot preload skipped:', err));
     updateVisibility();
     setTimeout(preloadScheduleTermsInBackground, 1200);

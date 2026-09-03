@@ -4693,6 +4693,19 @@ test('faculty archive refresh invalidates cached rows when a term upload is repl
   assert.match(source, /uploadedAt.*sourceFileName.*rawRowCount/s);
 });
 
+test('instructor availability supports a separate persistent faculty office-hours layer', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(index, /js\/core\/faculty-office-hours\.js/);
+  assert.match(source, /id="dataHubFacultyOfficeHoursCsv"/);
+  assert.match(source, /id="dataHubFacultyOfficeHoursTerm"/);
+  assert.match(source, /id="iaOfficeHoursArchiveTerm"/);
+  assert.match(source, /\/api\/faculty-office-hours/);
+  assert.match(source, /sourceType === 'FACULTY_OFFICE_HOURS'/);
+  assert.match(source, /Office Hours Included/);
+  assert.match(source, /is-office-hours/);
+});
+
 test('instructor availability suppresses shared windows shorter than 30 minutes', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const start = 8 * 60;
