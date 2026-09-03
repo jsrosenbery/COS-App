@@ -4165,7 +4165,7 @@
         <div id="attritionReport" class="analytics-view">
           <div class="analytics-report-intro">
             <h2>Enrollment Attrition</h2>
-            <p>Review archived historical enrollment snapshot data for Census 1 and End/Final movement over time. This report is a historical trend baseline for planning; current or future planning terms are excluded from the trend rather than treated as the analysis target.</p>
+            <p>Follow enrollment movement for a selected focus term from stored First Day snapshots through Census 1 and End/Final, with optional archived terms available for historical context.</p>
             <div class="analytics-methodology">
               <div>
                 <h3>How to Use This Report</h3>
@@ -4173,8 +4173,8 @@
                   <li>This report requires the <strong>Seating (All Columns)</strong> version of the Section Seating report housed in Argos.</li>
                   <li>Use historical enrollment files loaded through the Source Data Hub, such as Fall to Fall, Spring to Spring, or Summer to Summer.</li>
                   <li>Use comparison terms from 2022 forward only. Earlier terms should be avoided because COVID-era disruption can distort normal enrollment and attrition patterns.</li>
-                  <li>Select one archived term for a single-term attrition view, or multiple archived terms for a trend view.</li>
-                  <li>Use the active/planning term exclusion only when an active, future, or otherwise non-final term should be removed from the analysis.</li>
+                  <li>Select the focus term from the archived terms list. Select additional archived terms when historical context is needed.</li>
+                  <li>Use the focus-term exclusion only when intentionally producing a historical-only trend.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
                   <li>Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled sections and can contain non-comparable milestone values. Clear the checkbox only when intentionally auditing those rows.</li>
                   <li>First Day comes from stored First Day snapshots only when the snapshot date matches that section's own start date. Late-start sections need their own first-day snapshot.</li>
@@ -4198,15 +4198,15 @@
           </div>
           <div class="analytics-toolbar">
             <label>Archived terms <select id="attrArchiveTerms" multiple data-placeholder="No archived terms"></select></label>
-            <label><input id="attrExcludePlanningTerm" type="checkbox" checked> Exclude active/planning term</label>
-            <label>Active/planning term
+            <label><input id="attrExcludePlanningTerm" type="checkbox"> Exclude focus term (historical-only view)</label>
+            <label>Focus term
               <select id="attrDecisionSeason">
                 <option value="SUMMER">Summer</option>
                 <option value="FALL">Fall</option>
                 <option value="SPRING">Spring</option>
               </select>
             </label>
-            <label>Exclude year <input id="attrDecisionYear" type="number" min="2022" max="2035" step="1"></label>
+            <label>Focus year <input id="attrDecisionYear" type="number" min="2022" max="2035" step="1"></label>
             ${filters('attr', { includeGroup: true, includeCancelled: false, includeDivision: true })}
             <label><input id="attrIncludeWorkExperience" type="checkbox" checked> include Work Experience</label>
             <button id="runAttrition" type="button">Run</button>
@@ -12730,7 +12730,12 @@ BUS 180 2 units`)
   async function loadEnrollmentSnapshots() {
     if (window.BACKEND_BASE_URL) {
       try {
-        const payload = await fetch(`${window.BACKEND_BASE_URL}/api/enrollment-snapshots`).then(response => response.ok ? response.json() : { data: [] });
+        const token = enrollmentManagementToken();
+        const response = await fetch(`${window.BACKEND_BASE_URL}/api/enrollment-snapshots`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        if (!response.ok) throw new Error(`Snapshot request failed (${response.status})`);
+        const payload = await response.json();
         state.enrollmentSnapshots = Array.isArray(payload.data) ? payload.data : [];
         state.snapshotLastUpdated = payload.lastUpdated || null;
         saveSnapshotsToLocal(state.enrollmentSnapshots);
@@ -12922,6 +12927,14 @@ BUS 180 2 units`)
     const season = canon(document.getElementById('attrDecisionSeason')?.value || 'FALL');
     const year = Number(document.getElementById('attrDecisionYear')?.value || termParts(currentTerm()).year || new Date().getFullYear());
     return `${season || 'FALL'} ${year}`;
+  }
+
+  function setAttritionFocusTerm(term) {
+    const parts = termParts(term);
+    const season = document.getElementById('attrDecisionSeason');
+    const year = document.getElementById('attrDecisionYear');
+    if (season && parts.season) season.value = parts.season;
+    if (year && parts.year) year.value = String(parts.year);
   }
 
   function attritionPlanningTermExclusionEnabled() {
@@ -19316,6 +19329,8 @@ BUS 180 2 units`)
   }
 
   async function loadAttritionFiles() {
+    const selectedArchiveTerms = selectedValues(document.getElementById('attrArchiveTerms'));
+    if (selectedArchiveTerms.length === 1) setAttritionFocusTerm(selectedArchiveTerms[0]);
     const uploaded = await readCsv(document.getElementById('enrollmentCsv'));
     const archived = await readArchivedRows('attrArchiveTerms');
     await loadEnrollmentSnapshots();
@@ -19353,7 +19368,8 @@ BUS 180 2 units`)
     setAttritionStatus('Running enrollment attrition/lifecycle report...', true);
     const allEnrollment = await loadAttritionFiles();
     const excludePlanningTerm = attritionPlanningTermExclusionEnabled();
-    const excludedPlanningTerm = excludePlanningTerm ? (attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms)) : '';
+    const focusTerm = attritionDecisionTerm() || updateDecisionTermOptions(state.attritionTerms);
+    const excludedPlanningTerm = excludePlanningTerm ? focusTerm : '';
     const excludedPlanningTermKey = canon(excludedPlanningTerm);
     const diagnostics = standardExclusionDiagnostics(allEnrollment, 'attr');
     const enrollment = applyFilters(allEnrollment, 'attr')
@@ -19393,7 +19409,7 @@ BUS 180 2 units`)
     enrollment.forEach((row) => {
       const key = groupKey(row, groupBy);
       const item = grouped.get(key) || emptyAttritionRecord(key);
-      const isDecisionTerm = false;
+      const isDecisionTerm = Boolean(focusTerm && canon(row.term) === canon(focusTerm));
       const crnKey = sectionKey(row);
       const censusEnroll = rowCensus1(row) ?? censusEnrollment(row);
       const census2Enroll = rowCensus2(row);
@@ -19477,15 +19493,18 @@ BUS 180 2 units`)
       };
     }).sort((a, b) => num(b.attritionCount) - num(a.attritionCount) || num(b.historicalAttritionCount) - num(a.historicalAttritionCount));
     const decisionRows = state.attritionRows.filter(row => row.decisionSections > 0);
-    const historicalMilestones = milestonePopulationDiagnostics(enrollment);
+    const focusEnrollment = enrollment.filter(row => focusTerm && canon(row.term) === canon(focusTerm));
+    const focusMilestones = milestonePopulationDiagnostics(focusEnrollment.length ? focusEnrollment : enrollment);
     const filteredTerms = collectRowTerms(enrollment);
     const historicalTerms = collectRowTerms(enrollment);
-    const coverage = snapshotCoverage(enrollment, state.enrollmentSnapshots, '');
+    const coverage = snapshotCoverage(focusEnrollment.length ? focusEnrollment : enrollment, state.enrollmentSnapshots, focusEnrollment.length ? focusTerm : '');
+    const decisionSummary = summarizeAttritionRows(decisionRows, 'decision');
     const historicalSummary = summarizeAttritionRows(state.attritionRows, 'history');
     const allSummary = summarizeAttritionRows(state.attritionRows, 'all');
+    const primarySummary = decisionSummary.sections > 0 ? decisionSummary : historicalSummary;
     const workExperience = workExperienceSummary(enrollment);
     const dataQualityWarnings = [];
-    if (historicalMilestones.mismatch) {
+    if (focusMilestones.mismatch) {
       dataQualityWarnings.push('Milestone populations differ. Attrition rates are calculated using matched CRNs for each comparison.');
     }
     if (SHOW_CENSUS2 && diagnostics.hasInvalidNegativeCensus2) {
@@ -19494,8 +19513,8 @@ BUS 180 2 units`)
     if (diagnostics.tutoringOpenLabRowsExcluded > 0) {
       dataQualityWarnings.push('Tutoring/Open Lab sections were excluded.');
     }
-    if (coverage.firstDayCoveragePct === 0 && historicalSummary.sections > 0) {
-      dataQualityWarnings.push('First Day snapshots are unavailable for the selected historical terms.');
+    if (coverage.firstDayCoveragePct === 0 && primarySummary.sections > 0) {
+      dataQualityWarnings.push(`First Day snapshots are unavailable for ${focusEnrollment.length ? focusTerm : 'the selected terms'}.`);
     }
     if (coverage.sectionsWithFirstDaySnapshotDateMismatch > 0) {
       dataQualityWarnings.push(`${coverage.sectionsWithFirstDaySnapshotDateMismatch} First Day snapshot(s) exist but do not match the section start date. Late-start sections require their own First Day snapshot.`);
@@ -19505,13 +19524,18 @@ BUS 180 2 units`)
     }
     state.attritionRows = state.attritionRows.map(row => ({
       ...row,
-      courseHistoricalAverage: lifecycleMetricLabel(row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate),
+      courseHistoricalAverage: lifecycleMetricLabel(
+        row.decisionSections > 0
+          ? row.decisionCensus1ToEndAttritionRate
+          : (row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate)
+      ),
       disciplineAverage: row.disciplineAverage ?? 'Unavailable',
       divisionAverage: row.divisionAverage ?? 'Unavailable',
-      collegeAverage: lifecycleMetricLabel(historicalSummary.census1ToEndRate ?? historicalSummary.overallAttritionRate ?? allSummary.census1ToEndRate),
+      collegeAverage: lifecycleMetricLabel(primarySummary.census1ToEndRate ?? primarySummary.overallAttritionRate ?? allSummary.census1ToEndRate),
       dataQualityNotes: dataQualityWarnings.join(' ') || 'None'
     }));
     renderReportContext(REPORTS.attrition, attritionContextOverrides(allEnrollment, enrollment, diagnostics, excludedPlanningTerm, {
+      focusTerm,
       historicalTerms,
       rowsIncluded: enrollment.length,
       historicalSections: historicalSummary.sections,
@@ -19519,21 +19543,22 @@ BUS 180 2 units`)
     }));
     renderAttritionSummarySections({
       executive: [
-        ['Analysis Mode', historicalTerms.length === 1 ? 'Single Term' : 'Multiple Terms'],
-        ['Active/Planning Term Excluded', excludedPlanningTerm || 'None'],
+        ['Analysis Mode', decisionSummary.sections > 0 ? 'Focus Term Lifecycle' : (historicalTerms.length === 1 ? 'Single Historical Term' : 'Historical Trend')],
+        ['Focus Term', focusTerm || 'None'],
+        ['Focus Term Excluded', excludedPlanningTerm || 'No'],
         ['Terms Included', historicalTerms.length],
-        ['Sections / CRNs Included', historicalSummary.sections],
-        ['First Day to Census 1 Attrition', lifecycleMetricLabel(historicalSummary.startToCensus1Rate)],
-        ['First Day to End/Final Attrition', lifecycleMetricLabel(historicalSummary.startToEndRate)],
-        ['Census 1 to End/Final Attrition', lifecycleMetricLabel(historicalSummary.census1ToEndRate)]
+        ['Sections / CRNs Included', primarySummary.sections],
+        ['First Day to Census 1 Attrition', lifecycleMetricLabel(primarySummary.startToCensus1Rate)],
+        ['First Day to End/Final Attrition', lifecycleMetricLabel(primarySummary.startToEndRate)],
+        ['Census 1 to End/Final Attrition', lifecycleMetricLabel(primarySummary.census1ToEndRate)]
       ],
       dataQuality: attritionVisibleItems([
-        ['Historical Census 1 Total', historicalMilestones.census1.total],
-        ['Historical Census 2 Total', historicalMilestones.census2.total],
-        ['Historical End/Final Total', historicalMilestones.final.total],
-        ['Historical CRNs with Census 1', historicalMilestones.census1.count],
-        ['Historical CRNs with Census 2', historicalMilestones.census2.count],
-        ['Historical CRNs with End/Final', historicalMilestones.final.count],
+        ['Focus Census 1 Total', focusMilestones.census1.total],
+        ['Focus Census 2 Total', focusMilestones.census2.total],
+        ['Focus End/Final Total', focusMilestones.final.total],
+        ['Focus CRNs with Census 1', focusMilestones.census1.count],
+        ['Focus CRNs with Census 2', focusMilestones.census2.count],
+        ['Focus CRNs with End/Final', focusMilestones.final.count],
         ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
         ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
         ['First Day Date Mismatches', coverage.sectionsWithFirstDaySnapshotDateMismatch],
@@ -19546,6 +19571,7 @@ BUS 180 2 units`)
       ])
     });
     renderAttritionDiagnosticRates({
+      decision: decisionSummary.sections > 0 ? decisionSummary : null,
       historical: historicalSummary,
       all: allSummary,
       includeAll: false
@@ -19553,8 +19579,8 @@ BUS 180 2 units`)
     renderAttritionDataQualityNotes(dataQualityWarnings);
     table('attritionTable', attritionDisplayRows(state.attritionRows), [
       'courseGroup',
-      'historicalTermsUsed',
-      'historicalSectionsCrns',
+      'termsUsed',
+      'sectionsCrns',
       'census1Enrollment',
       'endFinalEnrollment',
       'studentsLostCensus1ToEnd',
@@ -19577,7 +19603,7 @@ BUS 180 2 units`)
     const historicalTerms = summary.historicalTerms || collectRowTerms(rowsIncluded || []);
     return {
       prefix: 'attr',
-      focusTerm: excludedPlanningTerm || 'No planning term selected',
+      focusTerm: summary.focusTerm || excludedPlanningTerm || 'No focus term selected',
       historicalTerms,
       rowsLoaded: (rowsLoaded || []).length,
       rowsIncluded: summary.rowsIncluded ?? (rowsIncluded || []).length,
@@ -19585,7 +19611,7 @@ BUS 180 2 units`)
       distinctCrns: summary.distinctCrns ?? summary.historicalSections ?? '',
       exclusions: [
         ...collectExclusionChips('attr'),
-        { label: 'Active/Planning Term Excluded', value: excludedPlanningTerm || 'None' },
+        { label: 'Focus Term Excluded', value: excludedPlanningTerm || 'No' },
         { label: 'Tutoring/Open Lab', value: `${diagnostics.tutoringOpenLabRowsExcluded || 0} rows excluded` },
         ...(SHOW_CENSUS2 ? [{ label: 'Invalid Census 2', value: `${diagnostics.invalidNegativeCensus2Rows || 0} rows treated as missing` }] : [])
       ],
@@ -19617,29 +19643,35 @@ BUS 180 2 units`)
   }
 
   function attritionDisplayRows(rows = []) {
-    return rows.map(row => ({
+    return rows.map(row => {
+      const useDecision = Number(row.decisionSections || 0) > 0;
+      const prefix = useDecision ? 'decision' : 'history';
+      return ({
       ...row,
       courseGroup: row.group || '',
-      historicalTermsUsed: row.courseHistoricalTermsIncluded || row.historyTerms || 0,
-      historicalSectionsCrns: row.historySections || 0,
-      census1Enrollment: row.historyCensus || row.census || 0,
+      termsUsed: useDecision ? 1 : (row.courseHistoricalTermsIncluded || row.historyTerms || 0),
+      sectionsCrns: row[`${prefix}Sections`] || 0,
+      census1Enrollment: row[`${prefix}Census`] || 0,
       census2Enrollment: row.historyCensus2 || row.census2 || 0,
-      endFinalEnrollment: row.historyFinal || row.final || 0,
-      studentsLostCensus1ToEnd: row.historyCensus1ToEndAttritionCount ?? row.historicalAttritionCount,
-      missingCensusData: Number(row.historyMissingCensus1Count || row.allMissingCensus1Count || 0) > 0 ? 'Some CRNs missing Census 1' : 'None detected',
-      missingEndOfTermData: Number(row.historyMissingFinalCount || row.allMissingFinalCount || 0) > 0 ? 'Some CRNs missing End/Final' : 'None detected',
-      firstDayToCensus1AttritionDisplay: row.historyStartToCensus1MatchedCrns ? row.historyStartToCensus1AttritionRate : 'Attrition unavailable because census enrollment is missing.',
-      firstDayToEndAttritionDisplay: row.historyStartToEndMatchedCrns ? row.historyStartToEndAttritionRate : 'Attrition unavailable because census enrollment is missing.',
+      endFinalEnrollment: row[`${prefix}Final`] || 0,
+      studentsLostCensus1ToEnd: row[`${prefix}Census1ToEndAttritionCount`] ?? row.attritionCount,
+      missingCensusData: Number(row[`${prefix}MissingCensus1Count`] || 0) > 0 ? 'Some CRNs missing Census 1' : 'None detected',
+      missingEndOfTermData: Number(row[`${prefix}MissingFinalCount`] || 0) > 0 ? 'Some CRNs missing End/Final' : 'None detected',
+      firstDayToCensus1AttritionDisplay: row[`${prefix}StartToCensus1MatchedCrns`] ? row[`${prefix}StartToCensus1AttritionRate`] : 'N/A - First Day/Census 1 pair unavailable',
+      firstDayToEndAttritionDisplay: row[`${prefix}StartToEndMatchedCrns`] ? row[`${prefix}StartToEndAttritionRate`] : 'N/A - First Day/End pair unavailable',
       census1ToCensus2AttritionDisplay: row.historyCensus1ToCensus2MatchedCrns ? row.historyCensus1ToCensus2AttritionRate : 'Attrition unavailable because census enrollment is missing.',
       census2ToFinalAttritionDisplay: row.historyCensus2ToEndMatchedCrns ? row.historyCensus2ToEndAttritionRate : 'Attrition unavailable because census enrollment is missing.',
-      census1ToFinalAttritionDisplay: row.historyCensus1ToEndMatchedCrns ? (row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate) : 'Attrition unavailable because census enrollment is missing.',
+      census1ToFinalAttritionDisplay: row[`${prefix}Census1ToEndMatchedCrns`] ? row[`${prefix}Census1ToEndAttritionRate`] : 'N/A - Census 1/End pair unavailable',
       trendInterpretation: attritionTrendInterpretation(row),
       confidence: attritionConfidence(row)
-    }));
+    });
+    });
   }
 
   function attritionTrendInterpretation(row) {
-    const rate = row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate;
+    const rate = row.decisionSections > 0
+      ? row.decisionCensus1ToEndAttritionRate
+      : (row.historyCensus1ToEndAttritionRate ?? row.historicalAttritionRate);
     if (rate == null) return 'Insufficient lifecycle data';
     if (rate < 0) return 'Enrollment increased by final';
     if (rate >= 0.15) return 'High attrition pattern';
@@ -19648,8 +19680,9 @@ BUS 180 2 units`)
   }
 
   function attritionConfidence(row) {
-    const terms = Number(row.courseHistoricalTermsIncluded || row.historyTerms || 0);
-    const crns = Number(row.historySections || 0);
+    const hasFocus = Number(row.decisionSections || 0) > 0;
+    const terms = hasFocus ? 1 : Number(row.courseHistoricalTermsIncluded || row.historyTerms || 0);
+    const crns = hasFocus ? Number(row.decisionSections || 0) : Number(row.historySections || 0);
     if (terms >= 4 && crns >= 8) return 'High';
     if (terms >= 2 && crns >= 3) return 'Medium';
     return 'Limited';

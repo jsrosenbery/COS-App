@@ -1555,9 +1555,13 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
 
   assert.match(text, /Enrollment Attrition/);
   assert.match(text, /Diagnostic Attrition Rates/);
-  assert.match(text, /Active\/Planning Term Excluded/);
+  assert.match(text, /Focus Term Excluded/);
   assert.match(text, /attrExcludePlanningTerm/);
-  assert.match(text, /Single Term/);
+  assert.match(text, /Focus Term Lifecycle/);
+  assert.match(text, /const isDecisionTerm = Boolean\(focusTerm/);
+  assert.match(text, /if \(selectedArchiveTerms\.length === 1\) setAttritionFocusTerm/);
+  assert.match(text, /id="attrExcludePlanningTerm" type="checkbox">/);
+  assert.match(text, /Authorization: `Bearer \$\{token\}`/);
   assert.match(text, /Late-start sections require their own First Day snapshot/);
   assert.match(text, /Attrition Executive Summary/);
   assert.match(text, /Data Quality & Coverage/);
@@ -1565,8 +1569,8 @@ test('lifecycle diagnostics presentation keeps mismatch warnings out of headline
   assert.doesNotMatch(text.slice(text.indexOf('renderAttritionSummarySections'), text.indexOf('renderAttritionDiagnosticRates')), /N\/A - Different section populations/);
   [
     'courseGroup',
-    'historicalTermsUsed',
-    'historicalSectionsCrns',
+    'termsUsed',
+    'sectionsCrns',
     'census1Enrollment',
     'endFinalEnrollment',
     'studentsLostCensus1ToEnd',
