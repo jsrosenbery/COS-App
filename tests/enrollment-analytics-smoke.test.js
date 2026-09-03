@@ -4700,10 +4700,13 @@ test('instructor availability supports a separate persistent faculty office-hour
   assert.match(source, /id="dataHubFacultyOfficeHoursCsv"/);
   assert.match(source, /id="dataHubFacultyOfficeHoursTerm"/);
   assert.match(source, /id="iaOfficeHoursArchiveTerm"/);
+  assert.match(source, /id="iaIncludeOfficeHours"[^>]*checked/);
   assert.match(source, /\/api\/faculty-office-hours/);
   assert.match(source, /sourceType === 'FACULTY_OFFICE_HOURS'/);
   assert.match(source, /Office Hours Included/);
   assert.match(source, /is-office-hours/);
+  assert.match(source, /Office Hours Layer/);
+  assert.match(source, /renderInstructorAvailabilityCalendar\(instructors, scopedRows, ''\)/);
 });
 
 test('instructor availability keeps Faculty Schedule meetings distinct from office hours', () => {

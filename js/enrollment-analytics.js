@@ -3281,7 +3281,7 @@
                   <li>Load a saved Faculty Schedule term, then select one or more instructors and a day/time window. Faculty Schedule uploads are managed from the Source Data Hub.</li>
                   <li>Leave all instructors selected for a broad first pass, or select a smaller group to compare schedules side by side.</li>
                   <li>Online/TBA rows are excluded from day/time conflict checks because they do not provide a fixed meeting window.</li>
-                  <li>Load the matching Faculty Office Hours term to treat recurring office hours as a separate known-busy layer. Office-hours date ranges and locations remain visible in conflict details.</li>
+                  <li>Load the matching Faculty Office Hours term to treat recurring office hours as a separate known-busy layer. Use the Include Office Hours toggle to show or omit that layer from the grid and availability checks. Office-hours date ranges and locations remain visible in conflict details.</li>
                   <li>Hybrid fixed-time meetings are flagged in the grid and conflict table because their physical meeting pattern may require date-level verification.</li>
                 </ul>
               </div>
@@ -3324,6 +3324,7 @@
             <label>Discipline <select id="iaSubject" multiple size="4" aria-label="Select one or more disciplines"></select></label>
             <label>Instructor <select id="iaInstructor" multiple size="4"></select></label>
             <button id="iaSelectVisible" type="button">Select All Visible Instructors</button>
+            <label class="analytics-check"><input id="iaIncludeOfficeHours" type="checkbox" checked> Include Office Hours in grid and availability checks</label>
             <label>Day
               <select id="iaDay">
                 <option value="MO">Monday</option>
@@ -19997,6 +19998,7 @@ BUS 180 2 units`)
     const start = document.getElementById('iaStart')?.value || '';
     const end = document.getElementById('iaEnd')?.value || '';
     const campus = document.getElementById('iaCampus')?.value || '';
+    const includeOfficeHours = document.getElementById('iaIncludeOfficeHours')?.checked !== false;
     const startMinutes = minutesFromTime(start);
     const endMinutes = minutesFromTime(end);
     if (!start || !end || startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
@@ -20019,12 +20021,16 @@ BUS 180 2 units`)
       (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) &&
       (!campus || instructorAvailabilityCampus(row) === campus)
     );
+    const eligibleInstructorNames = new Set(scopedRosterRows.map(row => row.instructor).filter(Boolean));
     const scopedRows = rows.filter(row =>
-      instructorAvailabilityMatchesFacultyType(row, facultyType) &&
-      instructorAvailabilityMatchesSelection(instructorAvailabilityDivision(row), divisions) &&
-      instructorAvailabilityMatchesSelection(instructorAvailabilitySubject(row), subjects) &&
       (!selectedInstructors.length || selectedInstructors.includes(row.instructor)) &&
-      (!campus || instructorAvailabilityCampus(row) === campus)
+      eligibleInstructorNames.has(row.instructor) &&
+      (row.sourceType === 'FACULTY_OFFICE_HOURS'
+        ? includeOfficeHours
+        : instructorAvailabilityMatchesFacultyType(row, facultyType) &&
+          instructorAvailabilityMatchesSelection(instructorAvailabilityDivision(row), divisions) &&
+          instructorAvailabilityMatchesSelection(instructorAvailabilitySubject(row), subjects) &&
+          (!campus || instructorAvailabilityCampus(row) === campus))
     );
     const instructors = selectedInstructors.length ? selectedInstructors : [...new Set(scopedRosterRows.map(row => row.instructor).filter(Boolean))].sort();
     const conflictsByInstructor = group(scopedRows.filter(row => instructorHasConflict(row, day, startMinutes, endMinutes)), row => row.instructor);
@@ -20059,6 +20065,7 @@ BUS 180 2 units`)
       ['Faculty Type', facultyType ? instructorAvailabilityFacultyTypeLabel(facultyType) : 'All faculty'],
       ['Division Filter', divisions.length ? divisions.join(', ') : 'All divisions'],
       ['Discipline Filter', subjects.length ? subjects.join(', ') : 'All disciplines'],
+      ['Office Hours Layer', includeOfficeHours ? 'Included' : 'Excluded'],
       ['Day/Time Checked', `${dayLabels[day] || day} ${start}-${end}`],
       ['Faculty Meetings Included', scopedRows.filter(row => row.sourceType !== 'FACULTY_OFFICE_HOURS').length],
       ['Office Hours Included', scopedRows.filter(row => row.sourceType === 'FACULTY_OFFICE_HOURS').length],
@@ -20066,8 +20073,10 @@ BUS 180 2 units`)
       ['Potentially Available', results.length - busy],
       ['Instructors Reviewed', results.length]
     ]);
-    renderInstructorAvailabilityCalendar(instructors, scopedRows, campus);
-    renderInstructorAvailableTimes(instructors, scopedRows, campus);
+    // scopedRows already applies campus and faculty scope. Reapplying campus here
+    // would incorrectly remove Office Hours rows, which do not carry a campus.
+    renderInstructorAvailabilityCalendar(instructors, scopedRows, '');
+    renderInstructorAvailableTimes(instructors, scopedRows, '');
     table('instructorAvailabilityTable', results, [
       'instructor',
       'status',
@@ -20113,11 +20122,13 @@ BUS 180 2 units`)
     const division = document.getElementById('iaDivision');
     const subject = document.getElementById('iaSubject');
     const campus = document.getElementById('iaCampus');
+    const includeOfficeHours = document.getElementById('iaIncludeOfficeHours');
     if (instructor) [...instructor.options].forEach(option => { option.selected = true; });
     if (facultyType) facultyType.value = '';
     if (division) [...division.options].forEach(option => { option.selected = false; });
     if (subject) [...subject.options].forEach(option => { option.selected = false; });
     if (campus) campus.value = '';
+    if (includeOfficeHours) includeOfficeHours.checked = true;
     const day = document.getElementById('iaDay');
     const start = document.getElementById('iaStart');
     const end = document.getElementById('iaEnd');
@@ -28292,6 +28303,7 @@ BUS 180 2 units`)
       populateInstructorAvailabilityFilters(currentRows());
       runInstructorAvailability();
     });
+    document.getElementById('iaIncludeOfficeHours')?.addEventListener('change', runInstructorAvailability);
     document.getElementById('iaSelectVisible')?.addEventListener('click', () => {
       const select = document.getElementById('iaInstructor');
       if (select) [...select.options].forEach(option => { option.selected = true; });
