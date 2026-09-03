@@ -1676,7 +1676,7 @@
 
   function rowInstructionModality(row) {
     if (window.COSPhysicalTime?.rowInstructionModality) return window.COSPhysicalTime.rowInstructionModality(row);
-    const direct = row?.modality || row?.Modality || row?.instructionalMethod || row?.INSTRUCTIONAL_METHOD || row?.INSM_CODE_SSBSECT || row?.raw?.INSTRUCTIONAL_METHOD || row?.raw?.INSM_CODE_SSBSECT || '';
+    const direct = row?.modality || row?.Modality || row?.insmCode || row?.instructionalMethod || row?.INSTRUCTIONAL_METHOD || row?.INSM_CODE_SSBSECT || row?.raw?.INSTRUCTIONAL_METHOD || row?.raw?.INSM_CODE_SSBSECT || '';
     return canon(normalizeModality(direct, row));
   }
 
@@ -19777,13 +19777,20 @@ BUS 180 2 units`)
 
   function reconcileInstructorOfficeHoursRows(officeRows = [], facultyRows = []) {
     const identityKey = window.COSFacultyOfficeHours?.facultyIdentityKey || (value => canon(value));
+    const facultyByExactName = new Map();
     const facultyByIdentity = new Map();
     facultyRows.forEach(row => {
+      const exactName = canon(row.instructor);
       const key = identityKey(row.instructor);
-      if (key && !facultyByIdentity.has(key)) facultyByIdentity.set(key, row);
+      if (exactName && !facultyByExactName.has(exactName)) facultyByExactName.set(exactName, row);
+      if (!key) return;
+      if (!facultyByIdentity.has(key)) facultyByIdentity.set(key, []);
+      facultyByIdentity.get(key).push(row);
     });
     return officeRows.map(row => {
-      const matched = facultyByIdentity.get(row.facultyIdentityKey || identityKey(row.instructor));
+      const exactMatch = facultyByExactName.get(canon(row.instructor));
+      const identityMatches = facultyByIdentity.get(row.facultyIdentityKey || identityKey(row.instructor)) || [];
+      const matched = exactMatch || (identityMatches.length ? identityMatches[0] : null);
       if (!matched) return row;
       return {
         ...row,
@@ -19802,7 +19809,9 @@ BUS 180 2 units`)
     if (facultyRows.length) {
       return {
         rows: instructorScheduleRows([...facultyRows, ...officeRows]),
-        rosterRows: instructorAvailabilityRosterRows([...facultyRows, ...officeRows]),
+        // Office hours augment known faculty; they must not replace the Faculty Schedule roster.
+        rosterRows: facultyRows,
+        facultyRows,
         officeHoursRows: officeRows,
         source: 'Faculty Schedule Data',
         facultyBacked: true
@@ -19812,7 +19821,8 @@ BUS 180 2 units`)
     const reconciledOfficeRows = reconcileInstructorOfficeHoursRows(state.instructorAvailabilityOfficeHoursRows || [], fallbackRoster);
     return {
       rows: instructorScheduleRows([...fallbackRows, ...reconciledOfficeRows]),
-      rosterRows: instructorAvailabilityRosterRows([...fallbackRows, ...reconciledOfficeRows]),
+      rosterRows: fallbackRoster,
+      facultyRows: fallbackRows,
       officeHoursRows: reconciledOfficeRows,
       source: 'Section Seating / Schedule Data fallback',
       facultyBacked: false
@@ -19837,6 +19847,7 @@ BUS 180 2 units`)
   }
 
   function instructorAvailabilityModality(row) {
+    if (row?.sourceType === 'FACULTY_OFFICE_HOURS') return 'OFFICE_HOURS';
     const category = rowInstructionModality(row);
     if (category === 'IN PERSON') return 'IN PERSON';
     if (category === 'HYBRID') return 'HYBRID';
@@ -19893,7 +19904,7 @@ BUS 180 2 units`)
       status.innerHTML = `
         <strong>Faculty Schedule loaded${terms ? `: ${escapeAttr(terms)}` : ''}</strong>
         <span><b>Most recent upload:</b> ${escapeAttr(uploadTime)} &nbsp;|&nbsp; <b>File:</b> ${escapeAttr(sourceFile)}${rawRows == null ? '' : ` &nbsp;|&nbsp; <b>Raw rows:</b> ${formatWholeNumber(rawRows)}`}</span>
-        <span>${formatWholeNumber(info.rows.length)} fixed-time meeting row(s) across ${formatWholeNumber(facultyCount)} faculty. Faculty with only Online/TBA or non-fixed meetings remain selectable.</span>`;
+        <span>${formatWholeNumber(instructorScheduleRows(info.facultyRows || []).length)} Faculty Schedule meeting row(s) across ${formatWholeNumber(facultyCount)} faculty. Office Hours are displayed as a separate layer. Faculty with only Online/TBA or non-fixed meetings remain selectable.</span>`;
     } else {
       status.classList.remove('is-current');
       status.classList.add('is-fallback');
@@ -20049,7 +20060,8 @@ BUS 180 2 units`)
       ['Division Filter', divisions.length ? divisions.join(', ') : 'All divisions'],
       ['Discipline Filter', subjects.length ? subjects.join(', ') : 'All disciplines'],
       ['Day/Time Checked', `${dayLabels[day] || day} ${start}-${end}`],
-      ['Office Hours Included', (sourceInfo.officeHoursRows || []).filter(row => window.COSFacultyOfficeHours?.hasFixedMeeting?.(row)).length],
+      ['Faculty Meetings Included', scopedRows.filter(row => row.sourceType !== 'FACULTY_OFFICE_HOURS').length],
+      ['Office Hours Included', scopedRows.filter(row => row.sourceType === 'FACULTY_OFFICE_HOURS').length],
       ['Known Busy', busy],
       ['Potentially Available', results.length - busy],
       ['Instructors Reviewed', results.length]

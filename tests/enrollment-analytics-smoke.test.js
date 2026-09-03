@@ -4706,6 +4706,14 @@ test('instructor availability supports a separate persistent faculty office-hour
   assert.match(source, /is-office-hours/);
 });
 
+test('instructor availability keeps Faculty Schedule meetings distinct from office hours', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/enrollment-analytics.js'), 'utf8');
+  assert.match(source, /row\?\.insmCode/);
+  assert.match(source, /rosterRows:\s*facultyRows/);
+  assert.match(source, /Faculty Meetings Included/);
+  assert.match(source, /Office Hours are displayed as a separate layer/);
+});
+
 test('instructor availability suppresses shared windows shorter than 30 minutes', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const start = 8 * 60;
