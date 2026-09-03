@@ -3432,16 +3432,19 @@ test('standardized attendance production keeps Fall 2025 W IW D ID legacy', () =
   });
 });
 
-test('standardized attendance production converts Fall 2026 W IW D ID ordinary credit', () => {
+test('standardized attendance production begins Summer 2026 for W IW D ID ordinary credit', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   ['W', 'IW', 'D', 'ID'].forEach(code => {
-    const row = COSEnrollmentAnalytics.normalizeRow({ term: 'FALL 2026', 'ACCOUNTING METHOD': code, CENSUS_ENROLL: 100, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3, HOURS_PER_WEEK: 99, TOTAL_CONTACT_HOURS: 999 });
+    const row = COSEnrollmentAnalytics.normalizeRow({ term: 'SUMMER 2026', 'ACCOUNTING METHOD': code, CENSUS_ENROLL: 100, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3, HOURS_PER_WEEK: 99, TOTAL_CONTACT_HOURS: 999 });
     assert.equal(row.attendanceAccountingCode, code);
     assert.equal(row.calculationMethod, 'STANDARDIZED_ATTENDANCE');
     assert.equal(row.standardizedHours, 54);
     assert.equal(Number(row.ftes.toFixed(1)), 10.3);
     assert.notEqual(row.ftes, row.legacyFtes);
   });
+  const prior = COSEnrollmentAnalytics.normalizeRow({ term: 'SPRING 2026', 'ACCOUNTING METHOD': 'W', CENSUS_ENROLL: 100, SESSION_CREDIT_HOURS: 3, LECTURE_UNITS: 3, HOURS_PER_WEEK: 3 });
+  assert.equal(prior.calculationMethod, 'LEGACY_WEEKLY_CENSUS');
+  assert.equal(Number(prior.ftes.toFixed(1)), 10);
 });
 
 test('standardized attendance calculates lecture lab activity and mixed units', () => {

@@ -985,7 +985,7 @@
   }
 
   function standardizedStartApplies(term) {
-    return termSortValue(term) >= termSortValue('FALL 2026');
+    return termSortValue(term) >= termSortValue('SUMMER 2026');
   }
 
   function scheduleTypeComponent(value) {
@@ -1065,7 +1065,7 @@
     let warning = '';
     if (!componentTotal && !standardizedHours) {
       unitStatus = 'STANDARDIZED UNIT DATA INCOMPLETE';
-      warning = 'STANDARDIZED UNIT DATA INCOMPLETE: lecture/activity/lab units or standardized hours are required for Fall 2026+ standardized FTES.';
+      warning = 'STANDARDIZED UNIT DATA INCOMPLETE: lecture/activity/lab units or standardized hours are required for Summer 2026+ standardized FTES.';
     } else if (units > 0 && componentTotal > units + 0.05) {
       unitStatus = 'UNIT COMPONENT MISMATCH';
       warning = 'UNIT COMPONENT MISMATCH: lecture/activity/lab units exceed total course units.';
@@ -13732,18 +13732,18 @@ BUS 180 2 units`)
 
   function accountingMethodCalculationNote(row = {}) {
     const method = canon(row.accountingMethod || row.name || '');
-    if ((row.calculationMethod || row.ftesCalculationMethod) === 'STANDARDIZED_ATTENDANCE' || (['W', 'D', 'IW', 'ID'].includes(method) && standardizedStartApplies(row.term || 'FALL 2026'))) {
-      return 'Fall 2026+ standardized credit calculation: Source/Banner accounting code remains W/D/IW/ID, but FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. FTES maturity is separate and only changes the enrollment basis once census is reached.';
+    if ((row.calculationMethod || row.ftesCalculationMethod) === 'STANDARDIZED_ATTENDANCE' || (['W', 'D', 'IW', 'ID'].includes(method) && standardizedStartApplies(row.term || 'SUMMER 2026'))) {
+      return 'Summer 2026+ standardized credit calculation: Source/Banner accounting code remains W/D/IW/ID, but FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. FTES maturity is separate and only changes the enrollment basis once census is reached.';
     }
     const directInfo = accountingMethodInfo(method);
     const labelInfo = Object.values(ACCOUNTING_METHODS).find(item => canon(item.label) === method);
     const info = directInfo.category !== 'unknown' ? directInfo : (labelInfo || directInfo);
     const hasZeroFtes = Number(row.ftes || 0) === 0 && Number(row.enrollment || 0) > 0;
     const formula = {
-      weekly: 'For Fall 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Fall 2025 and earlier remain legacy weekly census: enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
-      independentWeekly: 'For Fall 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Fall 2025 and earlier remain legacy independent weekly census: enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
-      daily: 'For Fall 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Fall 2025 and earlier remain legacy daily census: enrollment x total contact hours / 525 when direct FTES is missing.',
-      independentDaily: 'For Fall 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Fall 2025 and earlier remain legacy independent daily census: enrollment x total contact hours / 525 when direct FTES is missing.',
+      weekly: 'For Summer 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Spring 2026 and earlier remain legacy weekly census: enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
+      independentWeekly: 'For Summer 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Spring 2026 and earlier remain legacy independent weekly census: enrollment x weekly hours x 17.5 / 525 when direct FTES is missing.',
+      daily: 'For Summer 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Spring 2026 and earlier remain legacy daily census: enrollment x total contact hours / 525 when direct FTES is missing.',
+      independentDaily: 'For Summer 2026+ ordinary credit rows, FTES Calculation Method is Standardized Attendance: (lecture units x 18 + activity units x 36 + lab units x 54) x applicable enrollment / 525. Spring 2026 and earlier remain legacy independent daily census: enrollment x total contact hours / 525 when direct FTES is missing.',
       positive: 'Formula-calculated as enrollment x total contact hours / 525 when direct FTES is missing. Positive Attendance final FTES is normally confirmed after completed student hours are submitted.',
       omit: 'Marked non-reportable in Section Seating. It contributes 0 FTES unless supplied through the separate Work Experience source.',
       unknown: 'Formula-calculated only when usable hours, contact hours, or units are present; otherwise FTES remains unavailable.'
@@ -16944,7 +16944,7 @@ BUS 180 2 units`)
     if (rootCause === 'WEXP SPECIAL CALCULATION MISMATCH') return 'Work Experience CRN requires its dedicated authoritative source; generic W/IW/D/ID calculations are not substituted.';
     if (rootCause === 'POSITIVE ATTENDANCE BASIS MISMATCH') return 'Institutional actual positive-attendance hours are present but TIMBER lacks the equivalent authoritative source field.';
     if (rootCause === 'DSCH/WSCH ELIGIBILITY MISMATCH') return 'Scheduled hours exist, but the institutional source reports zero eligible DSCH/WSCH; an eligibility indicator is required.';
-    if (rootCause === 'STANDARDIZED UNIT/COMPONENT MISMATCH') return 'Fall 2026+ standardized component units/hours do not reconcile to the institutional result.';
+    if (rootCause === 'STANDARDIZED UNIT/COMPONENT MISMATCH') return 'Summer 2026+ standardized component units/hours do not reconcile to the institutional result.';
     if (rootCause === 'DUPLICATE') return 'Multiple institutional or TIMBER records collapsed to the same CRN.';
     if (rootCause === 'FORMULA MISMATCH') return `Methods and enrollment appear aligned; TIMBER FTES source path is ${row.timberFtesSource || 'N/A'}.`;
     return 'Insufficient evidence for a primary cause.';
@@ -23363,7 +23363,7 @@ BUS 180 2 units`)
     if (expectedMethod === 'STANDARDIZED_ATTENDANCE' && timberMethod !== expectedMethod) {
       return {
         auditStatus: 'WRONG CALCULATION METHOD',
-        auditReason: 'Fall 2026+ ordinary credit sections should use Standardized Attendance Accounting based on unit components.'
+        auditReason: 'Summer 2026+ ordinary credit sections should use Standardized Attendance Accounting based on unit components.'
       };
     }
     if (auditedFtes == null) {
