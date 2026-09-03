@@ -164,9 +164,59 @@
     return [...map.values()];
   }
 
-  function enrollmentForSection(section) {
+  function numericOrNull(value) {
+    if (value === null || value === undefined || String(value).trim() === '') return null;
+    const parsed = Number(String(value).replace(/[$,%]/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function dateOnlyValue(value) {
+    if (!value) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    const text = String(value).trim().replace(/^Report Date:\s*/i, '');
+    const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    const us = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    let date = null;
+    if (iso) date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+    else if (us) {
+      let year = Number(us[3]);
+      if (year < 100) year += year >= 70 ? 1900 : 2000;
+      date = new Date(year, Number(us[1]) - 1, Number(us[2]));
+    } else {
+      const parsed = new Date(text);
+      if (!Number.isNaN(parsed.getTime())) date = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+    }
+    return date && !Number.isNaN(date.getTime()) ? date : null;
+  }
+
+  function enrollmentResolution(section, options = {}) {
     const row = section?.canonical ? section : normalizeSection(section);
-    return row.census == null ? row.actual || 0 : row.census;
+    const census = numericOrNull(row.census ?? row.censusEnrollment);
+    const current = numericOrNull(row.actual ?? row.currentEnrollment ?? row.enrollment) ?? 0;
+    const censusDate = dateOnlyValue(row.censusEnrollmentDateIso || row.censusEnrollmentDate);
+    const raw = row.raw || section?.raw || section || {};
+    const asOfDate = dateOnlyValue(
+      options.asOfDate || options.snapshotDate || options.effectiveAsOfDate ||
+      row.effectiveAsOfDate || row.snapshotDateIso || row.snapshotDate || row.sourceUploadedAt ||
+      raw.snapshotDate || raw.SnapshotDate || raw['Snapshot Date'] || raw.asOfDate || raw['As Of Date'] ||
+      raw.uploadDate || raw.UploadDate || raw.sourceUploadedAt || new Date()
+    );
+    const censusReached = censusDate ? Boolean(asOfDate && asOfDate >= censusDate) : census !== null;
+    if (censusReached && census !== null) {
+      return { value: census, source: 'Census Enrollment', sourceCode: 'census', censusReached: true, censusDate, asOfDate };
+    }
+    return {
+      value: current,
+      source: censusReached ? 'Current Enrollment (census unavailable)' : 'Current Enrollment',
+      sourceCode: censusReached ? 'current-census-missing' : 'current',
+      censusReached,
+      censusDate,
+      asOfDate
+    };
+  }
+
+  function enrollmentForSection(section, options = {}) {
+    return enrollmentResolution(section, options).value;
   }
 
   function sumEnrollmentByCrn(rows) {
@@ -268,6 +318,7 @@
     normalizeSections,
     sectionIdentity,
     dedupeSectionsByCrn,
+    enrollmentResolution,
     enrollmentForSection,
     sumEnrollmentByCrn,
     buildHalfHourPresenceSeries

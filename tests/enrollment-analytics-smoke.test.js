@@ -386,6 +386,7 @@ function loadScheduleAppRuntime() {
   return Object.assign(context.window.COSScheduleApp.modalityBalanceTestHooks, {
     roomCatalogTestHooks: context.window.COSScheduleApp.roomCatalogTestHooks,
     roomEventsTestHooks: context.window.COSScheduleApp.roomEventsTestHooks,
+    heatmapFilterTestHooks: context.window.COSScheduleApp.heatmapFilterTestHooks,
     testDocument: context.document
   });
 }
@@ -841,6 +842,39 @@ test('canonical CRN deduplication prevents enrollment inflation from repeated me
 
   assert.equal(sectionModel.dedupeSectionsByCrn(rows).length, 2);
   assert.equal(sectionModel.sumEnrollmentByCrn(rows), 50);
+});
+
+test('canonical enrollment uses census only after the section census date', () => {
+  const { sectionModel } = loadCoreModules();
+  const row = {
+    Term: 'FALL 2026',
+    CRN: '90001',
+    CENSUS_ENROLL: '18',
+    ACTUAL_ENROLL: '24',
+    CENSUS_ENRL_DATE: '09/08/2026'
+  };
+
+  assert.deepEqual(
+    sectionModel.enrollmentResolution(row, { asOfDate: '09/07/2026' }).sourceCode,
+    'current'
+  );
+  assert.equal(sectionModel.enrollmentForSection(row, { asOfDate: '09/07/2026' }), 24);
+  assert.equal(sectionModel.enrollmentForSection(row, { asOfDate: '09/08/2026' }), 18);
+});
+
+test('canonical enrollment preserves census zero and falls back when census is unavailable', () => {
+  const { sectionModel } = loadCoreModules();
+  assert.equal(sectionModel.enrollmentForSection({
+    CENSUS_ENROLL: '0',
+    ACTUAL_ENROLL: '9',
+    CENSUS_ENRL_DATE: '08/01/2026'
+  }, { asOfDate: '09/01/2026' }), 0);
+  assert.equal(sectionModel.enrollmentForSection({
+    CENSUS_ENROLL: '',
+    ACTUAL_ENROLL: '9',
+    CENSUS_ENRL_DATE: '08/01/2026'
+  }, { asOfDate: '09/01/2026' }), 9);
+  assert.equal(sectionModel.enrollmentForSection({ CENSUS_ENROLL: '12', ACTUAL_ENROLL: '15' }), 12);
 });
 
 test('student presence graph series counts enrollment by overlapping half-hour interval', () => {
@@ -5291,6 +5325,21 @@ test('course heatmap is Division Chair and faculty schedule heatmap is Dean repo
   assert.match(text, /Seats Supported/);
   assert.match(text, /Peak Time/);
   assert.match(text, /Peak Value/);
+});
+
+test('course start-time heatmap cascades division discipline and course options', () => {
+  const hooks = loadScheduleAppRuntime().heatmapFilterTestHooks;
+  const rows = [
+    { Campus: 'COS', Division: 'BUSINESS', Discipline: 'ACCT', key: 'ACCT 001' },
+    { Campus: 'COS', Division: 'BUSINESS', Discipline: 'BUS', key: 'BUS 101' },
+    { Campus: 'COS', Division: 'LANGUAGE', Discipline: 'ENGL', key: 'ENGL C1000' },
+    { Campus: 'TCC', Division: 'BUSINESS', Discipline: 'ACCT', key: 'ACCT 002' }
+  ];
+  const business = hooks.heatmapCascadeOptions(rows, { campus: 'COS', division: 'BUSINESS' });
+  assert.deepEqual(Array.from(business.disciplines), ['ACCT', 'BUS']);
+  assert.deepEqual(Array.from(business.courses), ['ACCT 001', 'BUS 101']);
+  const accounting = hooks.heatmapCascadeOptions(rows, { campus: 'COS', division: 'BUSINESS', discipline: 'ACCT' });
+  assert.deepEqual(Array.from(accounting.courses), ['ACCT 001']);
 });
 
 test('faculty modality is a Dean report using INSM codes', () => {

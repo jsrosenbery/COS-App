@@ -1282,14 +1282,29 @@ document.addEventListener('DOMContentLoaded', () => {
       modalityTotalClassOfferingComparisonRows,
       modalityChartData,
       modalityExportRowsForData
+    },
+    heatmapFilterTestHooks: {
+      heatmapCascadeOptions
     }
   };
 
   document.getElementById('courseSelect').addEventListener('change', updateAllHeatmap);
-  document.getElementById('heatmap-campus-select').addEventListener('change', updateAllHeatmap);
-  document.getElementById('heatmap-division-select').addEventListener('change', updateAllHeatmap);
-  document.getElementById('heatmap-discipline-select').addEventListener('change', updateAllHeatmap);
-  document.getElementById('heatmap-calgetc-select').addEventListener('change', updateAllHeatmap);
+  document.getElementById('heatmap-campus-select').addEventListener('change', () => {
+    refreshHeatmapCascadingFilters();
+    updateAllHeatmap();
+  });
+  document.getElementById('heatmap-division-select').addEventListener('change', () => {
+    refreshHeatmapCascadingFilters();
+    updateAllHeatmap();
+  });
+  document.getElementById('heatmap-discipline-select').addEventListener('change', () => {
+    refreshHeatmapCascadingFilters();
+    updateAllHeatmap();
+  });
+  document.getElementById('heatmap-calgetc-select').addEventListener('change', () => {
+    refreshHeatmapCascadingFilters();
+    updateAllHeatmap();
+  });
   document.getElementById('heatmap-metric-select').addEventListener('change', updateHeatmap);
   document.getElementById('heatmap-prime-only').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-underutilized-only').addEventListener('change', updateAllHeatmap);
@@ -1397,6 +1412,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('textSearch').value = '';
       hmTable.search('').draw();
     }
+    refreshHeatmapCascadingFilters();
     updateAllHeatmap();
   };
   document.getElementById('linechart-clear-btn').onclick = () => {
@@ -4303,6 +4319,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
   }
 
   function getEnrollmentValue(section) {
+    if (window.COSSectionModel?.enrollmentForSection) {
+      return window.COSSectionModel.enrollmentForSection(section);
+    }
     const value = extractField(section, ['CENSUS_ENROLL', 'Census_Enroll', 'Census Enroll', 'Census Enrollment', 'ACTUAL_ENROLL', 'Actual_Enroll', 'Actual Enroll', 'Enrollment', 'Enroll']);
     const parsed = Number(String(value || '').replace(/[%,$]/g, '').trim());
     return Number.isFinite(parsed) ? parsed : 0;
@@ -6156,9 +6175,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const linechartDisciplineSelect = document.getElementById('linechart-discipline-select');
     if (heatmapCampusSelect) resetSelect(heatmapCampusSelect, campuses, 'All', '');
     if (linechartCampusSelect) resetSelect(linechartCampusSelect, campuses, 'All', '');
-    if (heatmapDivisionSelect) resetSelect(heatmapDivisionSelect, divisions, 'All', '');
+    if (heatmapDivisionSelect) resetSelect(heatmapDivisionSelect, [], 'All', '');
     if (linechartDivisionSelect) resetSelect(linechartDivisionSelect, divisions, 'All', '');
-    if (heatmapDisciplineSelect) resetSelect(heatmapDisciplineSelect, disciplines, 'All', '');
+    if (heatmapDisciplineSelect) resetSelect(heatmapDisciplineSelect, [], 'All', '');
     if (linechartDisciplineSelect) resetSelect(linechartDisciplineSelect, disciplines, 'All', '');
 
     let uniqueKeys = Array.from(new Set(hmRaw.map(r => r.key).filter(k => k))).sort();
@@ -6166,13 +6185,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       .filter(k => !k.startsWith("CAL-GETC"))
       .map(k => ({ value: k, label: k }));
 
-    if (hmChoices) {
-      hmChoices.setChoices(items, 'value', 'label', true);
-    }
     if (lineCourseChoices) {
       lineCourseChoices.setChoices(items, 'value', 'label', true);
     }
     refreshCalGetcFilterControls();
+    refreshHeatmapCascadingFilters();
     updateAllHeatmap();
     renderLineChart();
   }
@@ -6270,6 +6287,49 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       card('Lowest enrolled time block', formatHeatmapCardValue(lowestEnrollment, 'enrollment'), `${lowestEnrollment.sections} section start${lowestEnrollment.sections === 1 ? '' : 's'}`),
       card('Tutoring/Open Lab rows excluded', document.getElementById('heatmap-exclude-tutoring-openlab')?.checked !== false ? hmRaw.filter(isTutoringOpenLabSection).length : 0, 'Default exclusion for standard analytics')
     ].join('');
+  }
+
+  function heatmapCascadeOptions(rows = [], filters = {}) {
+    const campus = filters.campus || '';
+    const division = filters.division || '';
+    const discipline = filters.discipline || '';
+    const calGetc = filters.calGetc || '';
+    const campusRows = campus ? rows.filter(row => row.Campus === campus) : rows;
+    const divisions = [...new Set(campusRows.map(row => row.Division).filter(Boolean))].sort();
+    const divisionRows = division ? campusRows.filter(row => row.Division === division) : campusRows;
+    const disciplines = [...new Set(divisionRows.map(row => row.Discipline).filter(Boolean))].sort();
+    const disciplineRows = discipline ? divisionRows.filter(row => row.Discipline === discipline) : divisionRows;
+    const courseRows = calGetc ? disciplineRows.filter(row => sectionMatchesCalGetc(row, calGetc)) : disciplineRows;
+    const courses = [...new Set(courseRows.map(row => row.key).filter(key => key && !key.startsWith('CAL-GETC')))].sort();
+    return { divisions, disciplines, courses };
+  }
+
+  function refreshHeatmapCascadingFilters() {
+    const divisionSelect = document.getElementById('heatmap-division-select');
+    const disciplineSelect = document.getElementById('heatmap-discipline-select');
+    const campus = document.getElementById('heatmap-campus-select')?.value || '';
+    const priorDivision = divisionSelect?.value || '';
+    const priorDiscipline = disciplineSelect?.value || '';
+    const calGetc = document.getElementById('heatmap-calgetc-select')?.value || '';
+    const firstPass = heatmapCascadeOptions(hmRaw, { campus });
+    const division = firstPass.divisions.includes(priorDivision) ? priorDivision : '';
+    if (divisionSelect) {
+      resetSelect(divisionSelect, firstPass.divisions, 'All', '');
+      divisionSelect.value = division;
+    }
+    const secondPass = heatmapCascadeOptions(hmRaw, { campus, division });
+    const discipline = secondPass.disciplines.includes(priorDiscipline) ? priorDiscipline : '';
+    if (disciplineSelect) {
+      resetSelect(disciplineSelect, secondPass.disciplines, 'All', '');
+      disciplineSelect.value = discipline;
+    }
+    const options = heatmapCascadeOptions(hmRaw, { campus, division, discipline, calGetc });
+    if (hmChoices) {
+      const selected = hmChoices.getValue(true).filter(value => options.courses.includes(value));
+      hmChoices.setChoices(options.courses.map(value => ({ value, label: value })), 'value', 'label', true);
+      selected.forEach(value => hmChoices.setChoiceByValue(value));
+    }
+    return options;
   }
 
   function heatmapHasFacultyTypeRows(rows) {

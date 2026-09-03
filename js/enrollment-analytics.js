@@ -5631,13 +5631,7 @@
   }
 
   function facultyModalitySectionSupportEnrollment(row) {
-    const census = row?.census;
-    const actual = row?.actual;
-    const finalEnrollment = row?.finalEnrollment;
-    if (census != null && Number.isFinite(Number(census))) return Number(census);
-    if (actual != null && Number.isFinite(Number(actual))) return Number(actual);
-    if (finalEnrollment != null && Number.isFinite(Number(finalEnrollment))) return Number(finalEnrollment);
-    return 0;
+    return window.COSSectionModel?.enrollmentForSection?.(row) ?? finiteOrNull(row?.census) ?? finiteOrNull(row?.actual) ?? finiteOrNull(row?.finalEnrollment) ?? 0;
   }
 
   function facultyModalitySectionSupportSeats(row) {
@@ -6736,7 +6730,7 @@
   }
 
   function supplyDemandEnrollment(row) {
-    return row.census == null ? row.actual || 0 : row.census || 0;
+    return window.COSSectionModel?.enrollmentForSection?.(row) ?? (row.census == null ? row.actual || 0 : row.census || 0);
   }
 
   const SUPPLY_DEMAND_PLANNING_DAYS = ['MO', 'TU', 'WE', 'TH', 'FR'];
@@ -7219,7 +7213,7 @@
   }
 
   function busyTimeEnrollment(row) {
-    return row.census == null ? row.actual || 0 : row.census || 0;
+    return window.COSSectionModel?.enrollmentForSection?.(row) ?? (row.census == null ? row.actual || 0 : row.census || 0);
   }
 
   function choiceDiversityIndex({ uniqueCourses = 0, uniqueSubjects = 0, uniqueCalGetcCourses = 0, sections = 0, maxCourseSections = 0 } = {}) {
@@ -12135,7 +12129,7 @@ BUS 180 2 units`)
     const included = (rows || []).filter(row => row.isWorkExperience);
     return {
       rows: included.length,
-      enrollment: included.reduce((total, row) => total + (Number(row.census ?? row.actual) || 0), 0),
+      enrollment: included.reduce((total, row) => total + planningEnrollmentValue(row), 0),
       ftes: included.reduce((total, row) => total + ftesValue(row), 0),
       terms: collectRowTerms(included),
       estimatedFtesRows: included.filter(row => !row.hasDirectFtesData && row.hasFtesData).length,
@@ -13664,6 +13658,16 @@ BUS 180 2 units`)
       finiteOrNull(row?.census1) ??
       finiteOrNull(row?.census) ??
       finiteOrNull(row?.finalEnrollment) ??
+      0;
+  }
+
+  function planningEnrollmentValue(row, options = {}) {
+    return window.COSSectionModel?.enrollmentForSection?.(row, options) ??
+      finiteOrNull(row?.census) ??
+      finiteOrNull(row?.censusEnrollment) ??
+      finiteOrNull(row?.actual) ??
+      finiteOrNull(row?.currentEnrollment) ??
+      finiteOrNull(row?.enrollment) ??
       0;
   }
 
@@ -21423,7 +21427,7 @@ BUS 180 2 units`)
 
   function demandCurrentTotals(rows = [], options = {}) {
     const distinct = distinctDemandSections(rows);
-    const enrollment = rows.reduce((total, row) => total + (Number.isFinite(Number(row.census)) && Number(row.census) > 0 ? Number(row.census) : Number(row.actual || 0)), 0);
+    const enrollment = rows.reduce((total, row) => total + planningEnrollmentValue(row, options), 0);
     const ftesBasis = demandCurrentFtesClassificationBasis(rows, options);
     return {
       enrollment,
@@ -21918,7 +21922,7 @@ BUS 180 2 units`)
   }
 
   function demandTermStats(term, rows) {
-    const census = rows.reduce((total, row) => total + (row.census == null ? row.actual : row.census), 0);
+    const census = rows.reduce((total, row) => total + planningEnrollmentValue(row), 0);
     const final = sum(rows, 'actual');
     const capacity = sum(rows, 'cap');
     return {
@@ -21933,10 +21937,10 @@ BUS 180 2 units`)
       finalFillRate: safeDiv(final, capacity),
       attritionCount: census - final,
       attritionRate: safeDiv(census - final, census),
-      filledAtCensus: rows.filter(row => row.cap > 0 && (row.census == null ? row.actual : row.census) >= row.cap).length,
+      filledAtCensus: rows.filter(row => row.cap > 0 && planningEnrollmentValue(row) >= row.cap).length,
       closedPriorCensus: rows.filter(row => row.closedPriorCensus || /CLOSED/.test(row.status)).length,
-      under50: rows.filter(row => row.cap > 0 && safeDiv(row.census == null ? row.actual : row.census, row.cap) < 0.5).length,
-      under35: rows.filter(row => row.cap > 0 && safeDiv(row.census == null ? row.actual : row.census, row.cap) < 0.35).length,
+      under50: rows.filter(row => row.cap > 0 && safeDiv(planningEnrollmentValue(row), row.cap) < 0.5).length,
+      under35: rows.filter(row => row.cap > 0 && safeDiv(planningEnrollmentValue(row), row.cap) < 0.35).length,
       cancelled: rows.filter(row => /CANCEL/.test(row.status)).length
     };
   }
@@ -21972,7 +21976,7 @@ BUS 180 2 units`)
     const series = [...group(rows, row => row.term || 'UNKNOWN').entries()]
       .map(([term, termRows]) => ({
         term,
-        census: termRows.reduce((total, row) => total + (row.census == null ? row.actual : row.census), 0)
+        census: termRows.reduce((total, row) => total + planningEnrollmentValue(row), 0)
       }))
       .sort((a, b) => termSortValue(a.term) - termSortValue(b.term));
     return demandTrend(series.map(item => item.census)).rate;
@@ -22166,7 +22170,7 @@ BUS 180 2 units`)
   function dayTimeDemandRows(rows) {
     return [...group(rows, row => [row.dayPattern, row.start || 'ONLINE/TBA', row.modality, row.campus].join(' | ')).entries()]
       .map(([key, groupRows]) => {
-        const census = groupRows.reduce((total, row) => total + (row.census == null ? row.actual : row.census), 0);
+        const census = groupRows.reduce((total, row) => total + planningEnrollmentValue(row), 0);
         const capacity = sum(groupRows, 'cap');
         const waitlist = sum(groupRows, 'waitlist');
         const fillRate = safeDiv(census, capacity);
@@ -22184,7 +22188,7 @@ BUS 180 2 units`)
   function demandTrendSeries(rows) {
     return [...group(rows, row => row.term || 'UNKNOWN').entries()]
       .map(([term, termRows]) => {
-        const census = termRows.reduce((total, row) => total + (row.census == null ? row.actual : row.census), 0);
+        const census = termRows.reduce((total, row) => total + planningEnrollmentValue(row), 0);
         const final = sum(termRows, 'actual');
         const capacity = sum(termRows, 'cap');
         return {
@@ -22209,7 +22213,7 @@ BUS 180 2 units`)
   }
 
   function ftesBridgeEnrollment(row = {}) {
-    return Number(row.census == null ? row.actual || 0 : row.census || 0);
+    return Number(window.COSSectionModel?.enrollmentForSection?.(row) ?? (row.census == null ? row.actual || 0 : row.census || 0));
   }
 
   function ftesBridgePartOfTerm(row = {}) {
@@ -23610,7 +23614,7 @@ BUS 180 2 units`)
       if (!totals.has(season)) return;
       const item = totals.get(season);
       item.ftes += ftesValue(row);
-      item.census += row.census == null ? row.actual : row.census;
+      item.census += planningEnrollmentValue(row);
     });
     const totalFtes = [...totals.values()].reduce((total, row) => total + row.ftes, 0);
     const totalCensus = [...totals.values()].reduce((total, row) => total + row.census, 0);
@@ -24064,14 +24068,14 @@ BUS 180 2 units`)
       const key = type === 'Work Experience' ? 'workExperience' : type === 'Dual Enrollment' ? 'dual' : 'instructional';
       const bucket = buckets[key];
       bucket.rows += 1;
-      bucket.enrollment += row.census == null ? row.actual || 0 : row.census || 0;
+      bucket.enrollment += planningEnrollmentValue(row);
       bucket.ftes += ftesValue(row);
       bucket.seats += row.cap || 0;
       bucket.crns.add(row.crn || [row.term, row.subject, row.course, row.section].filter(Boolean).join('|'));
     });
     Object.values(buckets).forEach(bucket => {
       bucket.projectedFtes = bucket.ftes * scale;
-      bucket.projectedEnrollment = bucket.enrollment * (sourceRows.length && college.expectedEnrollmentNextTerm ? safeDiv(college.expectedEnrollmentNextTerm, sourceRows.reduce((total, row) => total + (row.census == null ? row.actual || 0 : row.census || 0), 0)) : 1);
+      bucket.projectedEnrollment = bucket.enrollment * (sourceRows.length && college.expectedEnrollmentNextTerm ? safeDiv(college.expectedEnrollmentNextTerm, sourceRows.reduce((total, row) => total + planningEnrollmentValue(row), 0)) : 1);
       bucket.distinctCrns = bucket.crns.size;
       delete bucket.crns;
     });
@@ -24124,7 +24128,7 @@ BUS 180 2 units`)
   }
 
   function enrollmentTotal(rows = []) {
-    return (rows || []).reduce((total, row) => total + (row.census == null ? row.actual || 0 : row.census || 0), 0);
+    return (rows || []).reduce((total, row) => total + planningEnrollmentValue(row), 0);
   }
 
   function demandMostRecentComparableRows(rows = []) {

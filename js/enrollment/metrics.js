@@ -2,7 +2,7 @@
   'use strict';
 
   function censusEnrollment(row) {
-    return row?.census == null ? row?.actual || 0 : row.census;
+    return window.COSSectionModel?.enrollmentForSection?.(row) ?? (row?.census == null ? row?.actual || 0 : row.census);
   }
 
   function finalEnrollment(row) {
