@@ -1309,8 +1309,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('heatmap-prime-only').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-underutilized-only').addEventListener('change', updateAllHeatmap);
   document.getElementById('heatmap-exclude-tutoring-openlab')?.addEventListener('change', updateAllHeatmap);
-  document.getElementById('linechart-campus-select').addEventListener('change', renderLineChart);
-  document.getElementById('linechart-division-select').addEventListener('change', renderLineChart);
+  ['linechart-campus-select', 'linechart-division-select'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      refreshLineChartDisciplines();
+      renderLineChart();
+    });
+  });
   document.getElementById('linechart-discipline-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-calgetc-select').addEventListener('change', renderLineChart);
   document.getElementById('linechart-metric-select')?.addEventListener('change', renderLineChart);
@@ -1425,6 +1429,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (excludeTutoring) excludeTutoring.checked = true;
     const metric = document.getElementById('linechart-metric-select');
     if (metric) metric.value = 'count';
+    refreshLineChartDisciplines();
     renderLineChart();
   };
 
@@ -6069,6 +6074,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function initLineChartChoices() {
     lineCourseChoices = new Choices('#lineCourseSelect', {
+      position: 'bottom',
       removeItemButton: true,
       searchEnabled: true,
       placeholderValue: 'Filter by course',
@@ -6192,6 +6198,19 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     refreshHeatmapCascadingFilters();
     updateAllHeatmap();
     renderLineChart();
+  }
+
+  function refreshLineChartDisciplines() {
+    const select = document.getElementById('linechart-discipline-select');
+    if (!select) return;
+    const campus = document.getElementById('linechart-campus-select')?.value || '';
+    const division = document.getElementById('linechart-division-select')?.value || '';
+    const prior = select.value;
+    const disciplines = [...new Set(hmRaw
+      .filter(row => (!campus || row.Campus === campus) && (!division || row.Division === division))
+      .map(row => row.Discipline).filter(Boolean))].sort();
+    resetSelect(select, disciplines, 'All', '');
+    select.value = disciplines.includes(prior) ? prior : '';
   }
 
   function buildCourseFilterSet(selectedCourses) {
