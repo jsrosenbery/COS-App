@@ -5825,6 +5825,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function initHeatmap() {
     hmChoices = new Choices('#courseSelect', {
+      position: 'bottom',
       removeItemButton: true,
       searchEnabled: true,
       placeholderValue: 'Filter by course',

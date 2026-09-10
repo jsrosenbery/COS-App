@@ -2276,29 +2276,28 @@ button:hover,
   background: linear-gradient(135deg, var(--brand), var(--brand-2));
 }
 
-/* Let the duration course picker overlap the chart below its filter panel. */
+/* Let both heatmap course pickers overlap the chart below their filter panels. */
+.collapsible-section[data-collapsible-id="heatmap-controls"]:not(.is-collapsed),
 .collapsible-section[data-collapsible-id="duration-controls"]:not(.is-collapsed) {
   position: relative;
   z-index: 2;
   overflow: visible;
 }
 
+#heatmap-tool #controls .choices,
 #linechart-controls .choices {
   min-width: 240px;
   margin-bottom: 0;
 }
 
+#heatmap-tool #controls .choices__list--dropdown,
 #linechart-controls .choices__list--dropdown {
   z-index: 10;
 }
 
+#heatmap-tool #controls .choices__list--dropdown .choices__list,
 #linechart-controls .choices__list--dropdown .choices__list {
   max-height: 320px;
-  overflow-y: auto;
-}
-
-#heatmap-tool .choices__list--dropdown {
-  max-height: 300px;
   overflow-y: auto;
 }
 
