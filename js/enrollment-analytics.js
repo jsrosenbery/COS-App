@@ -3824,6 +3824,24 @@
             <button id="exportStudentChoiceOpportunity" type="button">Export CSV</button>
           </div>
           <div id="studentChoiceMetrics" class="analytics-metrics"></div>
+          <section id="studentChoiceDelivery">
+            <h3>Prior-Term Comparison &amp; Instructional Delivery</h3>
+            <p>Uses the selected term and each selected historical comparison term separately, with the same report filters. Select one focus term for differences. Registration sections count CRNs; a stack group connects CRNs with confirmed shared teaching components.</p>
+            <p>Only matching cross-list IDs, component types, instructor, location, days, times, and complete date ranges confirm sharing. Possible matches stay separate pending review. Separate labs and support remain counted. Counts describe the filtered scope; a filter can hide another member of a stack.</p>
+            <p>Hours are recurring weekly pattern hours for known fixed meetings, not total term hours, instructor workload, or FTES. Different date ranges or partially overlapping times are not consolidated. Missing/TBA meetings are reported as incomplete, and absence of confirmed sharing does not prove a class is standalone. Seats are registration capacity, not deduplicated shared-room capacity; enrollment and waitlists are section registrations, not unique students.</p>
+            <div id="studentChoiceDeliverySummary" class="analytics-table"></div>
+            <h4>Focus versus each comparison term</h4>
+            <div id="studentChoiceFitnessComparison" class="analytics-table"></div>
+            <h4>Course offering changes</h4>
+            <div id="studentChoiceOfferingChanges" class="analytics-table"></div>
+            <details><summary>Shared portions by section</summary>
+            <div id="studentChoiceDeliverySections" class="analytics-table"></div>
+            </details>
+            <details><summary>Teaching component detail</summary>
+            <p>Tables show up to 500 rows each. Export CSV includes all detail rows.</p>
+            <div id="studentChoiceDeliveryComponents" class="analytics-table"></div>
+            </details>
+          </section>
           <div id="studentChoiceHeatmap" class="analytics-insights"></div>
           <div id="studentChoiceLineGraph" class="analytics-insights"></div>
           <div id="studentChoiceHistoricalTable" class="analytics-table"></div>
@@ -8251,6 +8269,71 @@
     });
   }
 
+  function renderStudentChoiceDelivery(rows, historicalRows, historicalTerms) {
+    if (!document.getElementById('studentChoiceDeliverySummary') || !window.COSInstructionalDelivery) return [];
+    const focusTerms = [...new Set(rows.map(row => normalizeTermLabel(row.term)))].filter(Boolean);
+    const selectedFocus = normalizeTermLabel(document.getElementById('studentChoiceTerm')?.value || '');
+    const focusTerm = selectedFocus || (focusTerms.length === 1 ? focusTerms[0] : '');
+    const terms = [...new Set([...focusTerms, ...(selectedFocus ? [selectedFocus] : []), ...historicalTerms])];
+    const summaries = [], sectionDetails = [], componentDetails = [], comparisons = [], changes = [];
+    const byTerm = new Map();
+    terms.forEach(term => {
+      const isFocus = focusTerms.includes(term) || term === selectedFocus;
+      const source = (isFocus ? rows : historicalRows).filter(row => normalizeTermLabel(row.term) === term);
+      // Analyze all filtered components so separate support/lab rows are retained.
+      const delivery = window.COSInstructionalDelivery.analyze(source);
+      const offerings = distinctScheduleSections(source);
+      const record = { term, role: isFocus ? 'Focus' : 'Comparison', dataStatus: source.length ? 'Rows available' : 'No matching rows — verify source and filters',
+        ...delivery.summary, uniqueCourses: new Set(offerings.map(calGetcCourseCode).filter(Boolean)).size,
+        seatsOffered: offerings.reduce((sum, row) => sum + (row.cap || 0), 0),
+        enrollment: offerings.reduce((sum, row) => sum + scheduleOpportunityEnrollment(row), 0),
+        waitlist: offerings.reduce((sum, row) => sum + (row.waitlist || 0), 0) };
+      summaries.push(record);
+      byTerm.set(term, { record, source });
+      sectionDetails.push(...delivery.sectionDetails);
+      componentDetails.push(...delivery.detail);
+    });
+    const metricNames = {
+      registrationSections: 'Registration sections', uniqueCourses: 'Unique courses', seatsOffered: 'Seats offered',
+      stackedSections: 'Sections in confirmed stacks', stackGroups: 'Confirmed stack groups', sharedComponents: 'Shared teaching components',
+      separateComponents: 'Components not confirmed shared', deliveredComponents: 'Delivered components (known fixed meetings)',
+      sectionWeeklyHours: 'Section weekly pattern hours', deliveredWeeklyHours: 'Unique delivered weekly pattern hours', consolidatedWeeklyHours: 'Weekly pattern hours consolidated',
+      possibleSharedGroups: 'Possible shared groups — review', sectionsWithGroupId: 'Sections with usable cross-list identifiers', unverifiedComponents: 'Components with incomplete or conflicting sharing evidence', incompleteSections: 'Sections with unavailable/TBA meeting hours'
+    };
+    const focus = byTerm.get(focusTerm);
+    historicalTerms.filter(term => term !== focusTerm).forEach(term => {
+      const prior = byTerm.get(term);
+      if (!focus || !prior || !focus.source.length || !prior.source.length) return;
+      Object.entries(metricNames).forEach(([field, metric]) => comparisons.push({ focusTerm, comparisonTerm: term, metric,
+        proposed: focus.record[field], prior: prior.record[field], change: round1(focus.record[field] - prior.record[field]) }));
+      comparisons.push({ focusTerm, comparisonTerm: term, metric: 'Proposed seats versus prior enrollment', proposed: focus.record.seatsOffered, prior: prior.record.enrollment, change: round1(focus.record.seatsOffered - prior.record.enrollment) });
+      const currentCourses = new Set(focus.source.map(calGetcCourseCode).filter(Boolean));
+      const priorCourses = new Set(prior.source.map(calGetcCourseCode).filter(Boolean));
+      [...new Set([...currentCourses, ...priorCourses])].sort().forEach(course => {
+        if (currentCourses.has(course) === priorCourses.has(course)) return;
+        changes.push({ focusTerm, comparisonTerm: term, course, status: currentCourses.has(course) ? 'Added in focus term' : 'Not offered in focus term' });
+      });
+    });
+    // Escape source text before using the shared HTML table renderer. Keep hour
+    // values as strings so generic percentage formatting does not affect them.
+    const deliveryTable = (id, records, columns) => table(id, records.map(record => Object.fromEntries(Object.entries(record).map(([field, value]) => [field, escapeAttr(String(value ?? ''))]))), columns);
+    const summaryMetrics = { ...metricNames, enrollment: 'Enrollment registrations', waitlist: 'Waitlist registrations', missingIdentityRows: 'Rows missing term or CRN' };
+    deliveryTable('studentChoiceDeliverySummary', summaries.flatMap(record => Object.entries(summaryMetrics).map(([field, metric]) => ({ term: record.term, role: record.role, dataStatus: record.dataStatus, metric, value: record[field] }))), ['term', 'role', 'dataStatus', 'metric', 'value']);
+    deliveryTable('studentChoiceFitnessComparison', comparisons, ['focusTerm', 'comparisonTerm', 'metric', 'proposed', 'prior', 'change']);
+    if (!comparisons.length) document.getElementById('studentChoiceFitnessComparison').innerHTML = '<p class="analytics-empty">Select one focus term and a different historical comparison term with matching loaded rows to show differences. Missing data is not treated as a zero baseline.</p>';
+    deliveryTable('studentChoiceOfferingChanges', changes, ['focusTerm', 'comparisonTerm', 'course', 'status']);
+    if (comparisons.length && !changes.length) document.getElementById('studentChoiceOfferingChanges').innerHTML = '<p class="analytics-note">No added or missing courses in the selected comparisons.</p>';
+    deliveryTable('studentChoiceDeliverySections', sectionDetails, ['term', 'crn', 'course', 'weeklyHours', 'sharedWeeklyHours', 'sharedPercent', 'coverage']);
+    deliveryTable('studentChoiceDeliveryComponents', componentDetails, ['term', 'crn', 'course', 'component', 'crossList', 'sharedWith', 'status', 'days', 'start', 'end', 'startDate', 'endDate', 'room', 'weeklyHours']);
+    return [
+      ...summaries.map(row => ({ rowType: 'Instructional delivery summary', ...row })),
+      ...comparisons.map(row => ({ rowType: 'Prior-term fitness comparison', ...row })),
+      ...changes.map(row => ({ rowType: 'Course offering change', ...row })),
+      ...sectionDetails.map(row => ({ rowType: 'Shared section portions', ...row })),
+      ...componentDetails.map(row => ({ rowType: 'Teaching component', ...row }))
+    ];
+  }
+
   function renderStudentChoiceOpportunity() {
     const rows = studentChoiceFilteredRows();
     const historicalTerms = getSelectedValues('studentChoiceHistoricalTerms').map(normalizeTermLabel).filter(Boolean);
@@ -8269,6 +8352,7 @@
       showInactiveHours
     };
     const summaryOptions = { includeOnline: includeOnlineForTreatment(onlineTreatment), onlineTreatment };
+    const deliveryExportRows = renderStudentChoiceDelivery(rows, historicalTerms.length ? historicalRows : [], historicalTerms);
     const aggregationOptions = { ...summaryOptions, aggregationMode };
     const buckets = buildStudentChoiceBuckets(rows, metricName, timeBucketOptions);
     state.studentChoiceBucketRows = buckets;
@@ -8356,6 +8440,7 @@
       interpretation: row.interpretation
     }));
     state.studentChoiceExportRows = [
+      ...deliveryExportRows,
       ...tableRows,
       ...opportunityDetailRows.map(row => ({ analysisMode: 'Feasible Opening Detail', rowType: 'Opportunity Detail', ...row })),
       ...historicalComparisonRows.map(row => ({ analysisMode: 'Historical Evaluation', rowType: 'Historical Comparison', aggregationMode: historicalAggregationLabel(aggregationMode), historicalTermWeights: projection.historicalTermWeights?.map(weight => `${weight.term}:${weight.weight} (${weight.relation})`).join('; ') || '', ...row })),
@@ -26503,6 +26588,7 @@ BUS 180 2 units`)
       { selector: '#busyTimeTable', id: 'busy-time-summary-table', title: 'Busy Time Summary Table' },
       { selector: '#busyTimeLegend', id: 'busy-time-methodology', title: 'Busy Time Definitions and Methodology', defaultOpen: false },
       { selector: '#studentChoiceMetrics', id: 'schedule-opportunity-summary-cards', title: 'Schedule Opportunity Summary Cards' },
+      { selector: '#studentChoiceDelivery', id: 'schedule-opportunity-delivery', title: 'Prior-Term Comparison & Instructional Delivery' },
       { selector: '#studentChoiceHeatmap', id: 'schedule-opportunity-heatmap', title: 'Opportunity Heatmap' },
       { selector: '#studentChoiceLineGraph', id: 'schedule-opportunity-line-graph', title: 'Opportunity Line Graph' },
       { selector: '#studentChoiceHistoricalTable', id: 'schedule-opportunity-historical-comparison-table', title: 'Historical Comparison Table' },
@@ -26557,6 +26643,10 @@ BUS 180 2 units`)
       group: 'Group',
       step: 'Bridge Step',
       metric: 'Metric',
+      crn: 'CRN',
+      sharedPercent: 'Confirmed Shared %',
+      sharedWeeklyHours: 'Confirmed Shared Weekly Hours',
+      sharedWith: 'Shared With CRNs',
       value: 'Value',
       accountingMethod: 'Attendance Accounting Method',
       partOfTerm: 'Part of Term',
@@ -28436,7 +28526,11 @@ BUS 180 2 units`)
       });
     });
     document.getElementById('clearStudentChoiceOpportunity')?.addEventListener('click', clearStudentChoiceOpportunity);
-    document.getElementById('exportStudentChoiceOpportunity')?.addEventListener('click', () => exportRowsWithoutMethodology(state.studentChoiceExportRows || state.studentChoiceBucketRows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist), 'schedule-opportunity-analysis.csv'));
+    document.getElementById('exportStudentChoiceOpportunity')?.addEventListener('click', () => {
+      const rows = state.studentChoiceExportRows || state.studentChoiceBucketRows.filter(row => row.sections || row.seats || row.enrollment || row.waitlist);
+      const columns = [...new Set(rows.flatMap(row => Object.keys(row)))];
+      exportRowsWithoutMethodology(rows.map(row => Object.fromEntries(columns.map(column => [column, row[column] ?? '']))), 'schedule-opportunity-analysis.csv');
+    });
     attachBusyClick('runRecommendationEngine', 'Generating scheduling recommendations...', () => runRecommendationEngine(), { key: 'runRecommendationEngine', runningLabel: 'Generating...' });
     attachBusyClick('loadSavedRecommendationFaculty', 'Loading saved Faculty Schedule...', () => loadSavedRecommendationFacultySchedule(), { key: 'loadSavedRecommendationFaculty', runningLabel: 'Loading...' });
     document.getElementById('recommendationArchiveTerms')?.addEventListener('change', () => runRecommendationEngine().catch(err => console.warn(err)));
