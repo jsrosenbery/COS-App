@@ -9,6 +9,20 @@
   --brand-3: #00a884;
   --accent: #f59e0b;
   --shadow: 0 18px 45px rgba(16, 32, 51, 0.14);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --ink: #eef6fb;
+  --muted: #b2c3d1;
+  --surface: rgba(20, 31, 42, 0.94);
+  --surface-strong: #172431;
+  --line: rgba(190, 215, 232, 0.2);
+  --brand: #176fa1;
+  --brand-2: #1696b7;
+  --brand-3: #16a884;
+  --shadow: 0 18px 45px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
 }
 
 * {
@@ -32,6 +46,56 @@ body {
   color: #fff;
   background: linear-gradient(180deg, #ffffff 0%, #eef5f8 100%);
   box-shadow: 0 8px 24px rgba(16, 32, 51, 0.1);
+}
+
+.theme-toggle {
+  position: absolute;
+  top: clamp(0.65rem, 1.5vw, 1.25rem);
+  right: clamp(0.65rem, 2vw, 1.75rem);
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 42px;
+  padding: 0.48rem 0.72rem;
+  border: 1px solid rgba(0, 51, 102, 0.24);
+  border-radius: 7px;
+  color: #123367;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 5px 18px rgba(16, 32, 51, 0.18);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.theme-toggle-track {
+  position: relative;
+  width: 2.45rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  background: #bfd0dd;
+  transition: background 160ms ease;
+}
+
+.theme-toggle-thumb {
+  position: absolute;
+  top: 0.18rem;
+  left: 0.18rem;
+  width: 0.99rem;
+  height: 0.99rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transition: transform 160ms ease;
+}
+
+.theme-toggle[aria-pressed="true"] .theme-toggle-track { background: #e58a19; }
+.theme-toggle[aria-pressed="true"] .theme-toggle-thumb { transform: translateX(1.1rem); }
+.theme-toggle:focus-visible { outline: 3px solid #f59e0b; outline-offset: 3px; }
+
+@media (max-width: 720px) {
+  .theme-toggle-label { display: none; }
+  .theme-toggle { min-height: 38px; padding: 0.4rem 0.5rem; }
 }
 
 .site-banner {
@@ -2714,3 +2778,100 @@ button:hover,
     max-width: none;
   }
 }
+/* Dark theme is intentionally presentation-only; report and Room Availability logic are unchanged. */
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at top left, rgba(0, 168, 132, 0.13), transparent 28rem),
+    radial-gradient(circle at 80% 10%, rgba(0, 119, 168, 0.12), transparent 24rem),
+    linear-gradient(135deg, #0d151d 0%, #111d25 48%, #0d171f 100%);
+}
+
+:root[data-theme="dark"] .site-header {
+  background: linear-gradient(180deg, #111b24 0%, #172630 100%);
+}
+
+:root[data-theme="dark"] .site-banner {
+  background: #111b24;
+  filter: brightness(0.9);
+}
+
+:root[data-theme="dark"] .theme-toggle {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff4df;
+  background: rgba(25, 38, 49, 0.96);
+}
+
+:root[data-theme="dark"] :is(
+  #view-container,
+  #room-filter,
+  #availability-ui,
+  #calendar-container,
+  #heatmapContainer,
+  #chart-container,
+  .timber-section-intro,
+  .report-section,
+  .report-panel,
+  .analytics-panel,
+  .admin-panel,
+  .card,
+  .metric-card,
+  .summary-card,
+  .freshness-card,
+  details,
+  dialog,
+  .modal-content
+) {
+  color: var(--ink);
+  border-color: var(--line);
+  background-color: var(--surface);
+}
+
+:root[data-theme="dark"] :is(input, select, textarea, .choices__inner, .choices__list--dropdown, .dataTables_filter input) {
+  color: var(--ink);
+  border-color: #496273;
+  background: #101b24;
+}
+
+:root[data-theme="dark"] :is(input, textarea)::placeholder { color: #8fa4b5; }
+:root[data-theme="dark"] option { color: #eef6fb; background: #101b24; }
+
+:root[data-theme="dark"] :is(table, .dataTable) {
+  color: var(--ink);
+  border-color: var(--line);
+  background: #14212b;
+}
+
+:root[data-theme="dark"] :is(table, .dataTable) :is(td, th) { border-color: #344b5c; }
+:root[data-theme="dark"] :is(table, .dataTable) tbody tr:nth-child(even) { background: rgba(58, 86, 104, 0.2); }
+:root[data-theme="dark"] :is(table, .dataTable) tbody tr:hover { background: rgba(229, 138, 25, 0.16); }
+
+:root[data-theme="dark"] :is(
+  .view-helper-text,
+  .freshness-detail,
+  .methodology-note,
+  .report-description,
+  .helper-text,
+  small
+) { color: var(--muted); }
+
+:root[data-theme="dark"] :is(.accordion-header, summary, .panel-heading, .report-heading) {
+  color: var(--ink);
+  border-color: var(--line);
+  background: #1b2c38;
+}
+
+:root[data-theme="dark"] :is(.heatmap-table, .availability-grid) td:not([class*="event"]):not([class*="section"]):empty {
+  background: #13202a;
+}
+
+:root[data-theme="dark"] :is(.choices__list--dropdown, .choices__list[aria-expanded]) .choices__item--selectable.is-highlighted {
+  color: #fff;
+  background: #176fa1;
+}
+
+:root[data-theme="dark"] .dataTables_wrapper :is(.dataTables_info, .dataTables_length, .dataTables_paginate) {
+  color: var(--muted) !important;
+}
+
+:root[data-theme="dark"] a { color: #6fd0ee; }
+:root[data-theme="dark"] hr { border-color: var(--line); }

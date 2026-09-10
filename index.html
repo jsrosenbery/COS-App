@@ -5,8 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>COS Scheduling App</title>
 
+  <script>
+    (function () {
+      try {
+        var savedTheme = localStorage.getItem('cos-app-theme');
+        var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = savedTheme === 'dark' || savedTheme === 'light'
+          ? savedTheme
+          : (systemDark ? 'dark' : 'light');
+      } catch (error) {
+        document.documentElement.dataset.theme = 'light';
+      }
+    }());
+  </script>
+
   <link rel="icon" href="images/favicon.png" type="image/png">
-  <link rel="stylesheet" href="css/style.css?v=2026.09.01.1">
+  <link rel="stylesheet" href="css/style.css?v=2026.09.10.1">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/datatables.net-dt/css/jquery.dataTables.min.css"/>
   <!-- FullCalendar CSS -->
@@ -63,6 +77,10 @@
 <body>
   
 <header class="site-header" aria-label="College of the Sequoias TIMBER scheduling app">
+  <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" aria-label="Switch to dark mode">
+    <span class="theme-toggle-track" aria-hidden="true"><span class="theme-toggle-thumb"></span></span>
+    <span class="theme-toggle-label">Dark mode</span>
+  </button>
   <img src="images/cos-sequoias-banner.png" alt="College of the Sequoias campus banner" class="site-banner">
   <div class="timber-bar">
     <h1>T.I.M.B.E.R.</h1>
@@ -659,6 +677,7 @@
   <script src="js/utils/exportUtils.js"></script>
   <script src="js/utils/index.js"></script>
   <script src="js/core/dom-utils.js"></script>
+  <script src="js/core/theme.js?v=2026.09.10.1"></script>
   <script src="js/core/term-utils.js"></script>
   <script src="js/core/day-utils.js"></script>
   <script src="js/core/csv-normalizer.js"></script>
