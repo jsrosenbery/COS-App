@@ -2276,6 +2276,27 @@ button:hover,
   background: linear-gradient(135deg, var(--brand), var(--brand-2));
 }
 
+/* Let the duration course picker overlap the chart below its filter panel. */
+.collapsible-section[data-collapsible-id="duration-controls"]:not(.is-collapsed) {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+
+#linechart-controls .choices {
+  min-width: 240px;
+  margin-bottom: 0;
+}
+
+#linechart-controls .choices__list--dropdown {
+  z-index: 10;
+}
+
+#linechart-controls .choices__list--dropdown .choices__list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
 #heatmap-tool .choices__list--dropdown {
   max-height: 300px;
   overflow-y: auto;
