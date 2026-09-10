@@ -2583,6 +2583,20 @@ button:hover,
   white-space: pre-line;
 }
 
+/* Keep class details on one line; scroll the table, not the whole report. */
+#dataTable_wrapper,
+#durationDataTable_wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+#dataTable th,
+#dataTable td,
+#durationDataTable th,
+#durationDataTable td {
+  white-space: nowrap;
+}
+
 .archive-loading-status-mount {
   margin: 8px 0 12px;
 }

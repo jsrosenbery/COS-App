@@ -5,6 +5,7 @@
 
 let hmRaw = [];
 let hmTable;
+let durationDetailTable;
 let hmChoices;
 let lineCourseChoices;
 let lineChartInstance;
@@ -1094,7 +1095,8 @@ function registerSchedulingCollapsibleSections() {
     { selector: '#linechart-tool .analysis-explainer', id: 'duration-help', title: 'Course Duration Heatmap Help and Definitions' },
     { selector: '#linechart-standard-methodology', id: 'duration-methodology', title: 'Course Duration Heatmap Methodology', defaultOpen: false },
     { selector: '#linechart-controls', id: 'duration-controls', title: 'Course Duration Heatmap Filters' },
-    { selector: '#chart-container', id: 'duration-chart', title: 'Course Duration Heatmap' }
+    { selector: '#chart-container', id: 'duration-chart', title: 'Course Duration Heatmap' },
+    { selector: '#duration-detail', id: 'duration-detail-table', title: 'Course Duration Detail Table' }
   ]);
   ['#heatmap-tool', '#utilization-tool', '#modality-tool', '#linechart-tool', '#availability-ui'].forEach(selector => {
     const root = document.querySelector(selector);
@@ -5854,22 +5856,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }
     hmTable = $('#dataTable').DataTable({
       data: [],
-      columns: [
-        { title: 'Course', render: $.fn.dataTable.render.text() },
-        { title: 'CRN(s)', render: $.fn.dataTable.render.text() },
-        { title: 'Building', render: $.fn.dataTable.render.text() },
-        { title: 'Room', render: $.fn.dataTable.render.text() },
-        { title: 'Days', render: $.fn.dataTable.render.text() },
-        { title: 'Time', render: $.fn.dataTable.render.text() },
-        { title: 'Enrollment', visible: false },
-        { title: 'Capacity', visible: false },
-        { title: 'Division', visible: false },
-        { title: 'Discipline', visible: false },
-        { title: 'Campus', visible: false },
-        { title: 'Term', visible: false },
-        { title: 'Modality', visible: false },
-        { title: 'Faculty Type', visible: false }
-      ],
+      columns: scheduleDetailColumns(),
       destroy: true,
       searching: true
     });
@@ -6048,9 +6035,9 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
   function registerHeatmapDataTableFilter() {
     if (heatmapDataTableFilterRegistered || !window.jQuery?.fn?.dataTable?.ext?.search) return;
-    $.fn.dataTable.ext.search.push((settings, row) => {
+    $.fn.dataTable.ext.search.push((settings, row, dataIndex, originalRow) => {
       if (settings.nTable?.id !== 'dataTable') return true;
-      return rowMatchesHeatmapCell(row, heatmapCellFilter);
+      return rowMatchesHeatmapCell(originalRow || row, heatmapCellFilter);
     });
     heatmapDataTableFilterRegistered = true;
   }
@@ -6251,6 +6238,32 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
   }
 
+  function scheduleDetailColumns() {
+    // Keep the first 14 data positions stable: heatmap calculations read them.
+    const titles = ['Course', 'CRN(s)', 'Building', 'Room', 'Days', 'Time', 'Enrollment', 'Capacity', 'Division', 'Discipline', 'Campus', 'Term', 'Modality', 'Faculty Type', 'Instructional Method', 'Course Title', 'Instructor', 'Start Date', 'End Date'];
+    return [0, 1, 14, 2, 3, 4, 5, 16, 6, 7, 10, 11, 12, 15, 17, 18, 8, 9, 13]
+      .map(index => ({ title: titles[index], data: index, visible: ![8, 9, 13].includes(index), render: $.fn.dataTable.render.text() }));
+  }
+
+  function scheduleDetailRow(r) {
+    return [r.key, r.CRN || '', r.Building, r.Room,
+      Array.isArray(r.Days) ? r.Days.join(',') : '', `${r.Start_Time}-${r.End_Time}`,
+      r.Enrollment || 0, r.Capacity || 0, r.Division || '', r.Discipline || '', r.Campus || '', r.Term || '',
+      r.ModalityCategory || r.Modality || '', r.FacultyType || '',
+      r.Modality || 'Not provided', r.Title || '', r.Instructor || '', r.Start_Date || '', r.End_Date || ''];
+  }
+
+  function updateDurationDetailTable(rows) {
+    if (!document.getElementById('durationDataTable')) return;
+    if (!durationDetailTable) {
+      durationDetailTable = $('#durationDataTable').DataTable({
+        data: [], columns: scheduleDetailColumns(), searching: true,
+        language: { search: 'Search table (graph unchanged):' }
+      });
+    }
+    durationDetailTable.clear().rows.add(rows.map(scheduleDetailRow)).draw();
+  }
+
   function updateAllHeatmap() {
     clearHeatmapCellFilter(false);
     const primeOnly = document.getElementById('heatmap-prime-only')?.checked;
@@ -6267,22 +6280,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (primeOnly && !r.Days.some(day => isPrimeHeatmapSlot(day, startHour))) return false;
       if (underutilizedOnly && !isUnderutilizedHeatmapRow([r.key, r.CRN || '', r.Building, r.Room, Array.isArray(r.Days) ? r.Days.join(',') : '', r.Start_Time + '-' + r.End_Time, r.Enrollment || 0, r.Capacity || 0])) return false;
       return true;
-    }).map(r => [
-      r.key,
-      r.CRN || '',
-      r.Building,
-      r.Room,
-      Array.isArray(r.Days) ? r.Days.join(',') : '',
-      r.Start_Time + '-' + r.End_Time,
-      r.Enrollment || 0,
-      r.Capacity || 0,
-      r.Division || '',
-      r.Discipline || '',
-      r.Campus || '',
-      r.Term || '',
-      r.ModalityCategory || r.Modality || '',
-      r.FacultyType || ''
-    ]);
+    }).map(scheduleDetailRow);
     hmTable.clear().rows.add(rows).draw();
   }
 
@@ -6550,6 +6548,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     });
 
     const [minHour, maxHour] = getTimeRangeFromData(filtered);
+    updateDurationDetailTable(filtered);
     const hours = buildHalfHourSlots(minHour, maxHour);
     const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const counts = window.COSSectionModel?.buildHalfHourPresenceSeries
