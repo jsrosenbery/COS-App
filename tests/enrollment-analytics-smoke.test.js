@@ -8262,7 +8262,14 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(app, /Faculty Heatmap \(All Faculty\)/);
   assert.match(app, /Faculty Heatmap \(Full-Time Faculty\)/);
   assert.match(app, /Faculty Heatmap \(Part-Time Faculty\)/);
-  assert.match(app, /Faculty Type', visible: false/);
+  const columnSource = app.slice(app.indexOf('  function scheduleDetailColumns()'), app.indexOf('  function scheduleDetailRow('));
+  const columnContext = { $: { fn: { dataTable: { render: { text: () => 'escaped text renderer' } } } } };
+  vm.createContext(columnContext);
+  vm.runInContext(columnSource, columnContext);
+  const detailColumns = columnContext.scheduleDetailColumns();
+  assert.equal(detailColumns.find(column => column.title === 'Faculty Type').visible, false);
+  assert.equal(detailColumns.find(column => column.title === 'Instructional Method').data, 14);
+  assert.equal(detailColumns.find(column => column.title === 'Modality').data, 12);
   assert.match(app, /FacultyType: facultyType/);
   assert.match(app, /if \(r\.FacultyType === 'OMIT'\) return false/);
   assert.match(app, /data-faculty-type="\$\{escapeHTML\(facultyType\)\}"/);
@@ -8271,7 +8278,7 @@ test('heatmap exposes optional metric modes and summary cards', () => {
   assert.match(app, /isUnderutilizedHeatmapRow/);
   assert.match(app, /rowEnrollment/);
   assert.match(app, /rowCapacity/);
-  assert.match(app, /title: 'CRN\(s\)'/);
+  assert.equal(detailColumns.find(column => column.title === 'CRN(s)').data, 1);
   assert.match(app, /function dedupeHeatmapRows/);
   assert.match(app, /function heatmapCrnKey/);
   assert.match(app, /function isOnlineTbaHeatmapRow/);
