@@ -7976,6 +7976,20 @@ test('modality division filter preserves matching rows and summary counts', () =
   assert.equal(cleared.rows.length, 3);
 });
 
+test('modality discipline options cascade from division and support all divisions', () => {
+  const hooks = loadScheduleAppRuntime();
+  const rows = [
+    { Division: 'Business', Subject: 'ACCT', Course: '101' },
+    { DIVISION: 'business', Subject: 'BUS', Course: '100' },
+    { Division: 'Arts', Subject: 'ART', Course: '101' },
+    { Division: 'Arts', Subject: 'MUS', Course: '110' }
+  ];
+
+  assert.equal(JSON.stringify(hooks.modalityDisciplinesForDivisions(rows, ['Business'])), JSON.stringify(['ACCT', 'BUS']));
+  assert.equal(JSON.stringify(hooks.modalityDisciplinesForDivisions(rows, ['arts'])), JSON.stringify(['ART', 'MUS']));
+  assert.equal(JSON.stringify(hooks.modalityDisciplinesForDivisions(rows, [])), JSON.stringify(['ACCT', 'ART', 'BUS', 'MUS']));
+});
+
 test('modality division filtering works for historical comparison rows', () => {
   const hooks = loadScheduleAppRuntime();
   const historicalRows = [

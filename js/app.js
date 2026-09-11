@@ -1274,6 +1274,7 @@ document.addEventListener('DOMContentLoaded', () => {
       normalizeFilterLabel,
       filterMatchesAny,
       modalityDivisionValue,
+      modalityDisciplinesForDivisions,
       modalityFilteredSections,
       modalityMixGraphData,
       getModalityBalanceCategory,
@@ -1349,8 +1350,15 @@ document.addEventListener('DOMContentLoaded', () => {
   if (modalityCampusSelect) modalityCampusSelect.addEventListener('change', renderModalityTool);
   if (modalityDecisionTermSelect) modalityDecisionTermSelect.addEventListener('change', renderModalityTool);
   modalityComparisonSelects.forEach(select => select.addEventListener('change', renderModalityTool));
-  if (modalityDivisionSelect) modalityDivisionSelect.addEventListener('change', renderModalityTool);
-  if (modalityDisciplineSelect) modalityDisciplineSelect.addEventListener('change', renderModalityTool);
+  if (modalityDivisionSelect) modalityDivisionSelect.addEventListener('change', () => {
+    normalizeModalityAllSelection(modalityDivisionSelect);
+    refreshModalityDisciplineOptions();
+    renderModalityTool();
+  });
+  if (modalityDisciplineSelect) modalityDisciplineSelect.addEventListener('change', () => {
+    normalizeModalityAllSelection(modalityDisciplineSelect);
+    renderModalityTool();
+  });
   if (modalityDepartmentSelect) modalityDepartmentSelect.addEventListener('change', renderModalityTool);
   if (modalityCourseSelect) modalityCourseSelect.addEventListener('change', renderModalityTool);
   if (modalityModalitySelect) modalityModalitySelect.addEventListener('change', renderModalityTool);
@@ -4194,6 +4202,45 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     return normalizeFilterLabel(getDepartment(section) || getCanonicalSection(section)?.department);
   }
 
+  function modalityDisciplinesForDivisions(rows = [], divisions = []) {
+    const selectedDivisions = (divisions || []).map(normalizeFilterLabel).filter(Boolean);
+    return [...new Set(rows
+      .filter(section => filterMatchesAny(modalityDivisionValue(section), selectedDivisions))
+      .map(section => getCanonicalSection(section)?.subject || getCourseParts(section).discipline)
+      .map(normalizeFilterLabel)
+      .filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  function resetModalityFilterWithAll(select, options, selected = []) {
+    if (!select) return;
+    select.replaceChildren();
+    select.appendChild(new Option('All', ''));
+    (options || []).forEach(option => {
+      select.appendChild(option && typeof option === 'object'
+        ? new Option(option.label, option.value)
+        : new Option(option, option));
+    });
+    preserveSelected(select, selected);
+    const hasSpecificSelection = selectedValues(select).length > 0;
+    if (!hasSpecificSelection && select.options.length) select.options[0].selected = true;
+  }
+
+  function normalizeModalityAllSelection(select) {
+    if (!select?.multiple) return;
+    const allOption = Array.from(select.options).find(option => option.value === '');
+    if (!allOption?.selected) return;
+    Array.from(select.options).forEach(option => { option.selected = option === allOption; });
+  }
+
+  function refreshModalityDisciplineOptions(rows = getModalitySourceRows()) {
+    if (!modalityDisciplineSelect) return;
+    const selected = selectedValues(modalityDisciplineSelect);
+    const divisions = selectedValues(modalityDivisionSelect);
+    const disciplines = modalityDisciplinesForDivisions(rows, divisions);
+    resetModalityFilterWithAll(modalityDisciplineSelect, disciplines, selected);
+  }
+
   function getCourseCode(section) {
     const parts = getCourseParts(section);
     return [parts.discipline, parts.courseNumber].filter(Boolean).join(' ');
@@ -4280,7 +4327,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const terms = [...new Set(rows.map(getSectionTerm).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const comparisonTerms = getModalityComparisonTerms(terms);
     const divisions = uniqueFilterOptions(rows.map(modalityDivisionValue));
-    const disciplines = [...new Set(rows.map(section => getCourseParts(section).discipline).filter(Boolean))].sort();
+    const disciplines = modalityDisciplinesForDivisions(rows, divisionValues);
     const departments = uniqueFilterOptions(rows.map(modalityDepartmentValue));
     const courses = [...new Set(rows.map(getCourseCode).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const modalityOrder = modalityConfig.MODALITY_BALANCE_CATEGORY_ORDER || ['In-Person', 'Hybrid', 'Online', 'Dual Enrollment'];
@@ -4299,8 +4346,8 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (modalityDecisionTermSelect) resetSelect(modalityDecisionTermSelect, terms, modalityLoadedSourceRows?.length ? 'All loaded source terms' : 'Current room-grid term', '');
     modalityComparisonSelects.forEach(select => resetSelect(select, comparisonTerms, 'None', ''));
     resetSelect(modalityCampusSelect, campuses, 'All', '');
-    resetSelect(modalityDivisionSelect, divisions, 'All', '');
-    resetSelect(modalityDisciplineSelect, disciplines, 'All', '');
+    resetModalityFilterWithAll(modalityDivisionSelect, divisions, divisionValues);
+    resetModalityFilterWithAll(modalityDisciplineSelect, disciplines, disciplineValues);
     if (modalityDepartmentSelect) resetSelect(modalityDepartmentSelect, departments, 'All', '');
     if (modalityCourseSelect) resetSelect(modalityCourseSelect, courses, 'All', '');
     if (modalityModalitySelect) resetSelect(modalityModalitySelect, modalityOptions, 'All', '');
@@ -4312,8 +4359,6 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       if (comparisonTerms.includes(comparisonValues[index])) select.value = comparisonValues[index];
     });
     preserveSelected(modalityCampusSelect, campusValues);
-    preserveSelected(modalityDivisionSelect, divisionValues);
-    preserveSelected(modalityDisciplineSelect, disciplineValues);
     preserveSelected(modalityDepartmentSelect, departmentValues);
     preserveSelected(modalityCourseSelect, courseValues);
     preserveSelected(modalityModalitySelect, modalityValues);
