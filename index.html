@@ -524,7 +524,7 @@
       <button id="modality-export-excel-btn" type="button">Export Excel</button>
     </div>
     <div class="modality-note">
-      Modality Balance analyzes class offerings and student enrollment. Distinct CRNs are counted as class offerings. This view counts Total Class Offerings as distinct CRNs after filters are applied. Duplicate meeting rows for the same CRN are counted once unless the report is explicitly analyzing meeting components. Dual Enrollment is shown as its own planning category rather than blended into In-Person, Hybrid, or Online. Use the totals toggle to include or exclude Dual Enrollment from total/share calculations while keeping the Dual Enrollment reference line visible.
+      Modality Balance analyzes class offerings, units offered, cross-listed/stacked sections, and student enrollment. Distinct CRNs are counted as class offerings. Units Offered sums valid credit units once per distinct CRN; Units Coverage identifies how many offerings supplied a valid unit value. Stacked Groups count distinct CROSS_LIST/XLIST identifiers, while Sections in Stacks count participating distinct CRNs. Duplicate meeting rows for the same CRN are counted once unless the report is explicitly analyzing meeting components. Dual Enrollment is shown as its own planning category rather than blended into In-Person, Hybrid, or Online. Use the totals toggle to include or exclude Dual Enrollment from total/share calculations while keeping the Dual Enrollment reference line visible.
     </div>
     <div id="modality-standard-methodology" class="analysis-explainer"></div>
     <div id="modality-summary" class="modality-summary"></div>
@@ -537,6 +537,11 @@
           <th>Total Class Offerings</th>
           <th>Enrollment</th>
           <th>Enrollment per Offering</th>
+          <th>Units Offered</th>
+          <th>Units Coverage</th>
+          <th>Cross-Listed/Stacked Groups</th>
+          <th>Sections in Stacks</th>
+          <th>Stacked Section Share</th>
           <th>% of Class Offerings</th>
           <th>% of Enrollment</th>
           <th>Class Offerings Visual Share</th>
@@ -716,7 +721,7 @@
   <script src="js/cal_getc_mapping.js"></script>
   <script src="js/curriculum_crosswalk.js"></script>
   <script src="js/roomCatalog.js"></script>
-  <script src="js/app.js?v=2026.09.11.1"></script>
+  <script src="js/app.js?v=2026.09.15.1"></script>
   <script src="js/enrollment/metrics.js?v=2026.09.01.1"></script>
   <script src="js/enrollment/filters.js"></script>
   <script src="js/enrollment/consolidation.js"></script>

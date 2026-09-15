@@ -7939,6 +7939,56 @@ test('modality comparison rows include class offering counts and shares', () => 
   assert.equal(online.comparisonEnrollment, 60);
 });
 
+test('modality balance compares units and cross-listed stacks without duplicate CRNs', () => {
+  const hooks = loadScheduleAppRuntime();
+  const sourceRows = [
+    { Term: 'FALL 2026', CRN: '41001', Subject: 'ART', Course: '101', 'Instructional Method': 'IP', UNITS: '3', CROSS_LIST: 'ART-A', CENSUS_ENROLL: '20', DAYS: 'M' },
+    { Term: 'FALL 2026', CRN: '41001', Subject: 'ART', Course: '101', 'Instructional Method': 'IP', UNITS: '3', CROSS_LIST: 'ART-A', CENSUS_ENROLL: '20', DAYS: 'W' },
+    { Term: 'FALL 2026', CRN: '41002', Subject: 'ART', Course: '102', 'Instructional Method': 'IP', UNITS: '1.5', CROSS_LIST: 'ART-A', CENSUS_ENROLL: '15' },
+    { Term: 'FALL 2026', CRN: '41003', Subject: 'ART', Course: '103', 'Instructional Method': 'IP', UNITS: '', CROSS_LIST: '', CENSUS_ENROLL: '10' }
+  ];
+  const items = hooks.modalityBalanceItemsFromSections(sourceRows);
+  const summary = hooks.calculateModalityBalanceFromItems(items);
+  const inPerson = summary.find(row => row.category === 'In-Person');
+
+  assert.equal(items.length, 3);
+  assert.equal(inPerson.classOfferings, 3);
+  assert.equal(inPerson.unitsOffered, 4.5);
+  assert.equal(inPerson.unitsReportedSections, 2);
+  assert.equal(inPerson.unitCoverageRate, 2 / 3);
+  assert.equal(inPerson.crossListGroups, 1);
+  assert.equal(inPerson.stackedSections, 2);
+  assert.equal(inPerson.additionalStackedSections, 1);
+  assert.equal(inPerson.stackedSectionShare, 2 / 3);
+  assert.equal(inPerson.totalUnitsOffered, 4.5);
+  assert.equal(inPerson.totalCrossListGroups, 1);
+  assert.equal(inPerson.totalStackedSections, 2);
+});
+
+test('modality term comparison reports units and stacked-section differences', () => {
+  const hooks = loadScheduleAppRuntime();
+  const current = hooks.calculateModalityBalanceFromItems([
+    { category: 'In-Person', rawMethod: 'IP', enrollment: 20, units: 3, crossList: 'STACK-1' },
+    { category: 'In-Person', rawMethod: 'IP', enrollment: 15, units: 1.5, crossList: 'STACK-1' }
+  ]);
+  const comparison = hooks.calculateModalityBalanceFromItems([
+    { category: 'In-Person', rawMethod: 'IP', enrollment: 18, units: 3, crossList: '' }
+  ]);
+  const row = hooks.modalityCombinedComparisonRows(
+    new Map(current.map(item => [item.category, item])),
+    new Map(comparison.map(item => [item.category, item]))
+  ).find(item => item.category === 'In-Person');
+
+  assert.equal(row.currentUnitsOffered, 4.5);
+  assert.equal(row.comparisonUnitsOffered, 3);
+  assert.equal(row.unitsOfferedDiff, 1.5);
+  assert.equal(row.currentCrossListGroups, 1);
+  assert.equal(row.comparisonCrossListGroups, 0);
+  assert.equal(row.currentStackedSections, 2);
+  assert.equal(row.stackedSectionsDiff, 2);
+  assert.equal(row.currentStackedSectionShare, 1);
+});
+
 test('modality source exposes total class offerings term comparison', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
 
