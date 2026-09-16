@@ -7989,6 +7989,38 @@ test('modality term comparison reports units and stacked-section differences', (
   assert.equal(row.currentStackedSectionShare, 1);
 });
 
+test('modality division comparison separates modality supply units and stacks', () => {
+  const hooks = loadScheduleAppRuntime();
+  const focusMap = hooks.aggregateDivisionModalityRows([
+    { division: 'Business', category: 'In-Person', units: 3, crossList: 'BUS-A' },
+    { division: 'Business', category: 'Online', units: 1.5, crossList: 'BUS-A' },
+    { division: 'Business', category: 'Hybrid', units: null, crossList: '' },
+    { division: 'Arts', category: 'Dual Enrollment', units: 3, crossList: '' }
+  ]);
+  const comparisonMap = hooks.aggregateDivisionModalityRows([
+    { division: 'Business', category: 'In-Person', units: 3, crossList: '' },
+    { division: 'Business', category: 'Online', units: 1, crossList: '' }
+  ]);
+  const rows = hooks.modalityDivisionComparisonRowsFromMaps(focusMap, comparisonMap, 'FALL 2026', 'FALL 2025');
+  const business = rows.find(row => row.division === 'Business');
+  const arts = rows.find(row => row.division === 'Arts');
+
+  assert.equal(business.focusTotalSections, 3);
+  assert.equal(business.comparisonTotalSections, 2);
+  assert.equal(business.totalSectionsDiff, 1);
+  assert.equal(business.focusInPersonSections, 1);
+  assert.equal(business.focusOnlineSections, 1);
+  assert.equal(business.focusHybridSections, 1);
+  assert.equal(business.focusUnitsOffered, 4.5);
+  assert.equal(business.comparisonUnitsOffered, 4);
+  assert.equal(business.unitsOfferedDiff, 0.5);
+  assert.equal(business.focusCrossListGroups, 1);
+  assert.equal(business.focusStackedSections, 2);
+  assert.equal(business.stackedSectionsDiff, 2);
+  assert.equal(arts.focusDualEnrollmentSections, 1);
+  assert.equal(arts.comparisonTotalSections, 0);
+});
+
 test('modality source exposes total class offerings term comparison', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'js/app.js'), 'utf8');
 

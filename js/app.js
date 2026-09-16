@@ -1094,6 +1094,7 @@ function registerSchedulingCollapsibleSections() {
     { selector: '#modality-chart', id: 'modality-charts', title: 'Modality Balance Charts' },
     { selector: '#modality-comparison', id: 'modality-comparison-tables', title: 'Modality Balance Comparison Tables' },
     { selector: '#modality-table', id: 'modality-current-table', title: 'Current Term Modality Table' },
+    { selector: '.modality-division-comparison', id: 'modality-division-comparison', title: 'Division-by-Division Term Differences' },
     { selector: '.modality-course-comparison', id: 'modality-course-comparison', title: 'Course-Level Term Differences' },
     { selector: '.modality-definitions', id: 'modality-instructional-method-details', title: 'Instructional Method Details' },
     { selector: '#linechart-tool .analysis-explainer', id: 'duration-help', title: 'Course Duration Heatmap Help and Definitions' },
@@ -1186,6 +1187,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalityChart = document.getElementById('modality-chart');
   const modalityTable = document.getElementById('modality-table');
   const modalityCourseComparisonTable = document.getElementById('modality-course-comparison-table');
+  const modalityDivisionComparisonTable = document.getElementById('modality-division-comparison-table');
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
   const calendarContainer = document.getElementById('calendar-container');
@@ -1280,6 +1282,8 @@ document.addEventListener('DOMContentLoaded', () => {
       modalityDivisionValue,
       modalityDisciplinesForDivisions,
       modalityFilteredSections,
+      aggregateDivisionModalityRows,
+      modalityDivisionComparisonRowsFromMaps,
       modalityMixGraphData,
       getModalityBalanceCategory,
       isModalityDualEnrollmentSection,
@@ -4975,6 +4979,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
 
     if (!(rows[0]?.allClassOfferingsIncludingDualEnrollment || 0)) {
       modalityChart.textContent = 'No modality data is available for the selected term.';
+      renderModalityDivisionComparisonTable();
       renderModalityCourseComparisonTable();
       return;
     }
@@ -5027,6 +5032,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         tbody.appendChild(tr);
       }
     });
+    renderModalityDivisionComparisonTable();
     renderModalityCourseComparisonTable();
   }
 
@@ -5479,12 +5485,170 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     }));
   }
 
+  function aggregateDivisionModalityRows(rows = []) {
+    const buckets = new Map();
+    (rows || []).forEach(item => {
+      const division = normalizeFilterLabel(item.division) || 'Unassigned Division';
+      if (!buckets.has(division)) {
+        buckets.set(division, {
+          division,
+          totalSections: 0,
+          inPersonSections: 0,
+          onlineSections: 0,
+          hybridSections: 0,
+          dualEnrollmentSections: 0,
+          unitsOffered: 0,
+          unitsReportedSections: 0,
+          crossListGroupKeys: new Set(),
+          stackedSections: 0
+        });
+      }
+      const bucket = buckets.get(division);
+      bucket.totalSections += 1;
+      if (item.category === 'In-Person') bucket.inPersonSections += 1;
+      if (item.category === 'Online') bucket.onlineSections += 1;
+      if (item.category === 'Hybrid') bucket.hybridSections += 1;
+      if (item.category === 'Dual Enrollment') bucket.dualEnrollmentSections += 1;
+      if (item.units !== null && item.units !== undefined) {
+        bucket.unitsOffered += Number(item.units) || 0;
+        bucket.unitsReportedSections += 1;
+      }
+      if (item.crossList) {
+        bucket.crossListGroupKeys.add(normalizeFilterKey(item.crossList));
+        bucket.stackedSections += 1;
+      }
+    });
+    return new Map([...buckets.entries()].map(([division, bucket]) => [division, {
+      ...bucket,
+      crossListGroups: bucket.crossListGroupKeys.size,
+      unitCoverageRate: bucket.totalSections ? bucket.unitsReportedSections / bucket.totalSections : 0,
+      stackedSectionShare: bucket.totalSections ? bucket.stackedSections / bucket.totalSections : 0
+    }]));
+  }
+
+  function modalityDivisionComparisonRowsFromMaps(focusMap, comparisonMap, focusTerm = '', comparisonTerm = '') {
+    const divisions = [...new Set([...focusMap.keys(), ...comparisonMap.keys()])];
+    const empty = { totalSections: 0, inPersonSections: 0, onlineSections: 0, hybridSections: 0, dualEnrollmentSections: 0, unitsOffered: 0, unitsReportedSections: 0, unitCoverageRate: 0, crossListGroups: 0, stackedSections: 0, stackedSectionShare: 0 };
+    return divisions.map(division => {
+      const focus = focusMap.get(division) || { ...empty, division };
+      const comparison = comparisonMap.get(division) || { ...empty, division };
+      const result = { division, focusTerm, comparisonTerm };
+      ['totalSections', 'inPersonSections', 'onlineSections', 'hybridSections', 'dualEnrollmentSections', 'unitsOffered', 'crossListGroups', 'stackedSections'].forEach(metric => {
+        const stem = metric.charAt(0).toUpperCase() + metric.slice(1);
+        result[`focus${stem}`] = focus[metric] || 0;
+        result[`comparison${stem}`] = comparison[metric] || 0;
+        result[`${metric}Diff`] = (focus[metric] || 0) - (comparison[metric] || 0);
+      });
+      result.focusUnitCoverageRate = focus.unitCoverageRate || 0;
+      result.comparisonUnitCoverageRate = comparison.unitCoverageRate || 0;
+      result.focusStackedSectionShare = focus.stackedSectionShare || 0;
+      result.comparisonStackedSectionShare = comparison.stackedSectionShare || 0;
+      return result;
+    }).sort((a, b) => a.division.localeCompare(b.division, undefined, { numeric: true, sensitivity: 'base' }));
+  }
+
+  function modalityDivisionComparisonRows() {
+    const comparisonTerms = modalitySelectedComparisonTerms();
+    if (!comparisonTerms.length) return [];
+    const focusTerm = modalityDecisionTermSelect?.value || '';
+    const focusMap = aggregateDivisionModalityRows(modalityFilteredSections({ term: focusTerm }).rows);
+    return comparisonTerms.flatMap(term => {
+      const comparisonMap = aggregateDivisionModalityRows(modalityFilteredSections({ term, sourceRows: getModalityComparisonSourceRows(term) }).rows);
+      return modalityDivisionComparisonRowsFromMaps(focusMap, comparisonMap, modalityTermLabel(), term);
+    });
+  }
+
+  function renderModalityDivisionComparisonTable() {
+    if (!modalityDivisionComparisonTable) return;
+    const tbody = modalityDivisionComparisonTable.querySelector('tbody');
+    if (!tbody) return;
+    tbody.replaceChildren();
+    const comparisonTerms = modalitySelectedComparisonTerms();
+    if (!comparisonTerms.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 27;
+      td.textContent = 'Select Compare 1, Compare 2, or Compare 3 to see division-level term differences.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    const rows = modalityDivisionComparisonRows();
+    if (!rows.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 27;
+      td.textContent = 'No division-level modality differences match the selected filters.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+      const values = [row.division, row.focusTerm, row.comparisonTerm];
+      ['TotalSections', 'InPersonSections', 'OnlineSections', 'HybridSections', 'DualEnrollmentSections'].forEach(stem => {
+        const metric = stem.charAt(0).toLowerCase() + stem.slice(1);
+        values.push(row[`focus${stem}`], row[`comparison${stem}`], signedNumber(row[`${metric}Diff`]));
+      });
+      values.push(
+        row.focusUnitsOffered.toFixed(1), row.comparisonUnitsOffered.toFixed(1), signedDecimal(row.unitsOfferedDiff),
+        row.focusCrossListGroups, row.comparisonCrossListGroups, signedNumber(row.crossListGroupsDiff),
+        row.focusStackedSections, row.comparisonStackedSections, signedNumber(row.stackedSectionsDiff)
+      );
+      values.forEach(value => {
+        const td = document.createElement('td');
+        td.textContent = value;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function modalityDivisionComparisonExportRows() {
+    return modalityDivisionComparisonRows().map(row => ({
+      Section: 'Division-by-Division Term Differences',
+      Term: row.focusTerm,
+      ComparisonTerm: row.comparisonTerm,
+      Division: row.division,
+      FocusTotalClassOfferings: row.focusTotalSections,
+      ComparisonTotalClassOfferings: row.comparisonTotalSections,
+      TotalClassOfferingsDifference: row.totalSectionsDiff,
+      FocusInPersonSections: row.focusInPersonSections,
+      ComparisonInPersonSections: row.comparisonInPersonSections,
+      InPersonDifference: row.inPersonSectionsDiff,
+      FocusOnlineSections: row.focusOnlineSections,
+      ComparisonOnlineSections: row.comparisonOnlineSections,
+      OnlineDifference: row.onlineSectionsDiff,
+      FocusHybridSections: row.focusHybridSections,
+      ComparisonHybridSections: row.comparisonHybridSections,
+      HybridDifference: row.hybridSectionsDiff,
+      FocusDualEnrollmentSections: row.focusDualEnrollmentSections,
+      ComparisonDualEnrollmentSections: row.comparisonDualEnrollmentSections,
+      DualEnrollmentDifference: row.dualEnrollmentSectionsDiff,
+      FocusUnitsOffered: row.focusUnitsOffered,
+      ComparisonUnitsOffered: row.comparisonUnitsOffered,
+      UnitsOfferedDifference: row.unitsOfferedDiff,
+      FocusUnitsCoverage: pctLabel(row.focusUnitCoverageRate),
+      ComparisonUnitsCoverage: pctLabel(row.comparisonUnitCoverageRate),
+      FocusStackedGroups: row.focusCrossListGroups,
+      ComparisonStackedGroups: row.comparisonCrossListGroups,
+      StackedGroupsDifference: row.crossListGroupsDiff,
+      FocusSectionsInStacks: row.focusStackedSections,
+      ComparisonSectionsInStacks: row.comparisonStackedSections,
+      SectionsInStacksDifference: row.stackedSectionsDiff,
+      FocusStackedSectionShare: pctLabel(row.focusStackedSectionShare),
+      ComparisonStackedSectionShare: pctLabel(row.comparisonStackedSectionShare),
+      Notes: 'Distinct CRNs by division after active Modality Balance filters. Stack groups use distinct CROSS_LIST/XLIST identifiers.'
+    }));
+  }
+
   function modalityExportRowsForData(focusRows, comparisonTerms) {
     return [
       ...modalityExportContextRows(focusRows, comparisonTerms),
       ...modalitySummaryExportRows(focusRows, modalityTermLabel()),
       ...modalityPieExportRows(focusRows, modalityTermLabel()),
       ...modalityComparisonExportRows(focusRows, comparisonTerms),
+      ...modalityDivisionComparisonExportRows(),
       ...modalityCourseComparisonExportRows()
     ];
   }
