@@ -553,6 +553,14 @@
     <section class="modality-division-comparison">
       <h3>Division-by-Division Term Differences</h3>
       <p class="modality-note">Each row compares one division in the focus term with one selected comparison term. Counts use distinct CRNs; stack groups use distinct CROSS_LIST/XLIST values.</p>
+      <label class="modality-division-view-control">Metric group
+        <select id="modality-division-metric-group">
+          <option value="offerings">Total Offerings</option>
+          <option value="modalities">Modality Mix</option>
+          <option value="units-stacks">Units &amp; Stacks</option>
+          <option value="all">All Metrics</option>
+        </select>
+      </label>
       <div class="table-scroll">
         <table id="modality-division-comparison-table" class="modality-table">
           <thead>

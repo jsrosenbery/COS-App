@@ -7965,6 +7965,20 @@ test('modality balance compares units and cross-listed stacks without duplicate 
   assert.equal(inPerson.totalStackedSections, 2);
 });
 
+test('modality units parser accepts All Columns values with a UNITS suffix', () => {
+  const hooks = loadScheduleAppRuntime();
+  assert.equal(hooks.getModalityUnits({ UNITS: '3 UNITS' }), 3);
+  assert.equal(hooks.getModalityUnits({ SESSION_CREDIT_HOURS: '1.5 credit hours' }), 1.5);
+  assert.equal(hooks.getModalityUnits({ UNITS: '' }), null);
+});
+
+test('future modality terms identify zero enrollment as not yet enrolled', () => {
+  const hooks = loadScheduleAppRuntime();
+  const status = hooks.modalityEnrollmentStatus([{ totalEnrollment: 0 }], 'FALL 2099');
+  assert.equal(status.futureNotEnrolled, true);
+  assert.match(status.label, /not yet enrolled/i);
+});
+
 test('modality term comparison reports units and stacked-section differences', () => {
   const hooks = loadScheduleAppRuntime();
   const current = hooks.calculateModalityBalanceFromItems([

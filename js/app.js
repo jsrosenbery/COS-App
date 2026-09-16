@@ -1188,6 +1188,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalityTable = document.getElementById('modality-table');
   const modalityCourseComparisonTable = document.getElementById('modality-course-comparison-table');
   const modalityDivisionComparisonTable = document.getElementById('modality-division-comparison-table');
+  const modalityDivisionMetricGroup = document.getElementById('modality-division-metric-group');
   const table        = document.getElementById('schedule-table');
   const container    = document.getElementById('schedule-container');
   const calendarContainer = document.getElementById('calendar-container');
@@ -1276,6 +1277,8 @@ document.addEventListener('DOMContentLoaded', () => {
       normalizeTermLabel,
       termMatches,
       getEnrollmentValue,
+      getModalityUnits,
+      modalityEnrollmentStatus,
       getModalitySectionIdentity,
       normalizeFilterLabel,
       filterMatchesAny,
@@ -1373,6 +1376,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (modalityLevelSelect) modalityLevelSelect.addEventListener('change', renderModalityTool);
   if (modalityCalGetcSelect) modalityCalGetcSelect.addEventListener('change', renderModalityTool);
   if (modalityIncludeDe) modalityIncludeDe.addEventListener('change', renderModalityTool);
+  if (modalityDivisionMetricGroup) modalityDivisionMetricGroup.addEventListener('change', renderModalityDivisionComparisonTable);
   if (modalityExportBtn) modalityExportBtn.addEventListener('click', exportModalityBalance);
   if (modalityExportExcelBtn) modalityExportExcelBtn.addEventListener('click', exportModalityBalanceExcel);
   document.getElementById('modality-exclude-tutoring-openlab')?.addEventListener('change', renderModalityTool);
@@ -4393,8 +4397,29 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       'SESSION_CREDIT_HOURS', 'Session Credit Hours'
     ]);
     if (value === null || value === undefined || String(value).trim() === '') return null;
-    const parsed = Number(String(value).replace(/[$,%]/g, '').trim());
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+    const cleaned = String(value).replace(/[$,%]/g, '').trim();
+    const parsed = Number(cleaned);
+    const leadingNumber = cleaned.match(/-?\d+(?:\.\d+)?/);
+    const normalized = Number.isFinite(parsed) ? parsed : (leadingNumber ? Number(leadingNumber[0]) : NaN);
+    return Number.isFinite(normalized) && normalized >= 0 ? normalized : null;
+  }
+
+  function isFutureModalityTerm(termLabel) {
+    const match = String(termLabel || '').toUpperCase().match(/\b(SPRING|SUMMER|FALL|WINTER)\s+(20\d{2})\b/);
+    if (!match) return false;
+    const seasonMonth = { SPRING: 0, SUMMER: 4, FALL: 7, WINTER: 11 }[match[1]];
+    const termStart = new Date(Number(match[2]), seasonMonth, 1);
+    return termStart.getTime() > Date.now();
+  }
+
+  function modalityEnrollmentStatus(rows, termLabel = modalityTermLabel()) {
+    const total = Number(rows?.[0]?.totalEnrollment || 0);
+    const futureNotEnrolled = total === 0 && isFutureModalityTerm(termLabel);
+    return {
+      total,
+      futureNotEnrolled,
+      label: futureNotEnrolled ? '0 (not yet enrolled)' : String(total)
+    };
   }
 
   function getModalityCrossList(section) {
@@ -4928,7 +4953,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!modalitySummary || !modalityChart || !modalityTable) return;
     const rows = calculateModalityBalance();
     const total = rows[0]?.total || 0;
-    const totalEnrollment = rows[0]?.totalEnrollment || 0;
+    const enrollmentStatus = modalityEnrollmentStatus(rows);
     const tutoringOpenLabRowsExcluded = rows[0]?.tutoringOpenLabRowsExcluded || 0;
     const totalUnitsOffered = rows[0]?.totalUnitsOffered || 0;
     const unitCoverageRate = rows[0]?.unitCoverageRateTotal || 0;
@@ -4945,7 +4970,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     const categoryRow = category => rows.find(row => row.category === category) || { classOfferings: 0, enrollment: 0 };
     const summaryItems = [
       ['Total Class Offerings', total, 'scheduled-class-offerings'],
-      ['Enrollment', totalEnrollment, 'enrollment'],
+      ['Enrollment', enrollmentStatus.label, 'enrollment'],
       ['Units Offered', totalUnitsOffered.toFixed(1), ''],
       ['Units Coverage', `${(unitCoverageRate * 100).toFixed(1)}%`, ''],
       ['Cross-Listed/Stacked Groups', totalCrossListGroups, ''],
@@ -5413,6 +5438,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
       return;
     }
     const rows = modalityCourseComparisonRows();
+    const focusEnrollmentPending = isFutureModalityTerm(modalityTermLabel()) && rows.every(row => Number(row.focusEnrollment || 0) === 0);
     if (!rows.length) {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
@@ -5432,14 +5458,14 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
         row.category,
         row.focusTerm,
         row.focusClassOfferings,
-        row.focusEnrollment,
+        focusEnrollmentPending ? 'Not yet enrolled' : row.focusEnrollment,
         row.comparisonTerm,
         row.comparisonClassOfferings,
         row.comparisonEnrollment,
         signedNumber(row.classOfferingDiff),
-        signedNumber(row.enrollmentDiff),
+        focusEnrollmentPending ? 'N/A' : signedNumber(row.enrollmentDiff),
         row.classOfferingPctChange,
-        row.enrollmentPctChange
+        focusEnrollmentPending ? 'N/A' : row.enrollmentPctChange
       ].forEach(value => {
         const td = document.createElement('td');
         td.textContent = value;
@@ -5564,10 +5590,33 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!tbody) return;
     tbody.replaceChildren();
     const comparisonTerms = modalitySelectedComparisonTerms();
+    const metricGroup = modalityDivisionMetricGroup?.value || 'offerings';
+    const metricDefinitions = {
+      offerings: [['Total Class Offerings', 'TotalSections', 'number']],
+      modalities: [
+        ['In-Person', 'InPersonSections', 'number'],
+        ['Online', 'OnlineSections', 'number'],
+        ['Hybrid', 'HybridSections', 'number'],
+        ['Dual Enrollment', 'DualEnrollmentSections', 'number']
+      ],
+      'units-stacks': [
+        ['Units Offered', 'UnitsOffered', 'decimal'],
+        ['Stacked Groups', 'CrossListGroups', 'number'],
+        ['Sections in Stacks', 'StackedSections', 'number']
+      ]
+    };
+    const selectedMetrics = metricGroup === 'all'
+      ? [...metricDefinitions.offerings, ...metricDefinitions.modalities, ...metricDefinitions['units-stacks']]
+      : metricDefinitions[metricGroup] || metricDefinitions.offerings;
+    const thead = modalityDivisionComparisonTable.querySelector('thead');
+    if (thead) {
+      thead.innerHTML = `<tr><th rowspan="2">Division</th><th rowspan="2">Focus Term</th><th rowspan="2">Comparison Term</th>${selectedMetrics.map(([label]) => `<th colspan="3">${escapeHTML(label)}</th>`).join('')}</tr><tr>${selectedMetrics.map(() => '<th>Focus</th><th>Compare</th><th>Diff</th>').join('')}</tr>`;
+    }
+    const columnCount = 3 + selectedMetrics.length * 3;
     if (!comparisonTerms.length) {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
-      td.colSpan = 27;
+      td.colSpan = columnCount;
       td.textContent = 'Select Compare 1, Compare 2, or Compare 3 to see division-level term differences.';
       tr.appendChild(td);
       tbody.appendChild(tr);
@@ -5577,7 +5626,7 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     if (!rows.length) {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
-      td.colSpan = 27;
+      td.colSpan = columnCount;
       td.textContent = 'No division-level modality differences match the selected filters.';
       tr.appendChild(td);
       tbody.appendChild(tr);
@@ -5586,15 +5635,17 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     rows.forEach(row => {
       const tr = document.createElement('tr');
       const values = [row.division, row.focusTerm, row.comparisonTerm];
-      ['TotalSections', 'InPersonSections', 'OnlineSections', 'HybridSections', 'DualEnrollmentSections'].forEach(stem => {
+      selectedMetrics.forEach(([, stem, format]) => {
         const metric = stem.charAt(0).toLowerCase() + stem.slice(1);
-        values.push(row[`focus${stem}`], row[`comparison${stem}`], signedNumber(row[`${metric}Diff`]));
+        const focus = row[`focus${stem}`];
+        const comparison = row[`comparison${stem}`];
+        const diff = row[`${metric}Diff`];
+        values.push(
+          format === 'decimal' ? Number(focus || 0).toFixed(1) : focus,
+          format === 'decimal' ? Number(comparison || 0).toFixed(1) : comparison,
+          format === 'decimal' ? signedDecimal(diff) : signedNumber(diff)
+        );
       });
-      values.push(
-        row.focusUnitsOffered.toFixed(1), row.comparisonUnitsOffered.toFixed(1), signedDecimal(row.unitsOfferedDiff),
-        row.focusCrossListGroups, row.comparisonCrossListGroups, signedNumber(row.crossListGroupsDiff),
-        row.focusStackedSections, row.comparisonStackedSections, signedNumber(row.stackedSectionsDiff)
-      );
       values.forEach(value => {
         const td = document.createElement('td');
         td.textContent = value;
@@ -5698,10 +5749,11 @@ document.getElementById('export-pdf-btn').addEventListener('click', function() {
     modalityChart.replaceChildren();
     const charts = document.createElement('div');
     charts.className = 'modality-pie-grid';
+    const enrollmentStatus = modalityEnrollmentStatus(rows);
     charts.append(
       modalityPieCard(`${modalityTermLabel()} Class Offerings by Category`, 'Total Class Offerings uses unduplicated CRN counts after filters are applied.', rows, 'classOfferings', 'classOfferingShare'),
-      modalityPieCard(`${modalityTermLabel()} Enrollment by Category`, 'Enrollment by category uses census enrollment first, then actual/current enrollment.', rows, 'enrollment', 'enrollmentShare'),
-      modalityPieCard(`${modalityTermLabel()} Enrollment per Offering by Category`, 'Enrollment per offering divides enrollment by distinct class offerings for each category.', rows, 'enrollmentPerOffering')
+      modalityPieCard(`${modalityTermLabel()} Enrollment by Category`, enrollmentStatus.futureNotEnrolled ? 'Enrollment has not begun for this future term. Values are currently zero.' : 'Enrollment by category uses census enrollment first, then actual/current enrollment.', rows, 'enrollment', 'enrollmentShare'),
+      modalityPieCard(`${modalityTermLabel()} Enrollment per Offering by Category`, enrollmentStatus.futureNotEnrolled ? 'Enrollment has not begun for this future term. Enrollment per offering is not yet available.' : 'Enrollment per offering divides enrollment by distinct class offerings for each category.', rows, 'enrollmentPerOffering')
     );
     modalityChart.appendChild(charts);
     renderModalityChartExportMenu(rows);

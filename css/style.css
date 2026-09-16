@@ -2647,6 +2647,18 @@ button:hover,
   white-space: pre-line;
 }
 
+.modality-division-view-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.75rem;
+  font-weight: 700;
+}
+
+.modality-division-view-control select {
+  min-width: 12rem;
+}
+
 /* Keep class details on one line; scroll the table, not the whole report. */
 #dataTable_wrapper,
 #durationDataTable_wrapper {
