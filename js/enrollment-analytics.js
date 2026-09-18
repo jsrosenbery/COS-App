@@ -2090,6 +2090,42 @@
     };
   }
 
+  function snapshotDateDistanceDays(snapshotDate, sectionStartDate) {
+    const snapshotIso = dateIso(snapshotDate || '');
+    const startIso = dateIso(sectionStartDate || '');
+    if (!snapshotIso || !startIso) return null;
+    const snapshotTime = Date.parse(`${snapshotIso}T00:00:00Z`);
+    const startTime = Date.parse(`${startIso}T00:00:00Z`);
+    if (!Number.isFinite(snapshotTime) || !Number.isFinite(startTime)) return null;
+    return Math.round((snapshotTime - startTime) / 86400000);
+  }
+
+  function selectFirstDaySnapshot(records = [], row = {}) {
+    const sectionStartDate = dateIso(row?.startDate || row?.raw?.Start_Date || row?.raw?.START_DATE || row?.raw?.['Start Date'] || '');
+    const candidates = (records || [])
+      .filter(record => normalizeSnapshotType(record?.snapshotType) === 'FIRST DAY')
+      .filter(record => canon(record?.term) === canon(row?.term) && canon(record?.crn) === canon(row?.crn))
+      .filter(record => Number.isFinite(Number(record?.enrollment)))
+      .map(record => ({
+        record,
+        snapshotDate: dateIso(record.snapshotDate || ''),
+        offsetDays: snapshotDateDistanceDays(record.snapshotDate, sectionStartDate)
+      }))
+      .filter(candidate => candidate.snapshotDate);
+    if (!candidates.length) return null;
+    if (!sectionStartDate) return { ...candidates[candidates.length - 1], matchType: 'start-date-unavailable' };
+    candidates.sort((a, b) => {
+      const distance = Math.abs(a.offsetDays) - Math.abs(b.offsetDays);
+      if (distance) return distance;
+      const aAfter = a.offsetDays > 0 ? 1 : 0;
+      const bAfter = b.offsetDays > 0 ? 1 : 0;
+      if (aAfter !== bAfter) return aAfter - bAfter;
+      return b.snapshotDate.localeCompare(a.snapshotDate);
+    });
+    const selected = candidates[0];
+    return { ...selected, matchType: selected.offsetDays === 0 ? 'exact' : 'nearest' };
+  }
+
   function mergeSnapshotsIntoRows(rows, snapshots = []) {
     const byKeyType = new Map();
     (snapshots || []).forEach(record => {
@@ -2098,20 +2134,28 @@
     });
     return (rows || []).map(row => {
       const base = { ...row };
+      const selectedFirstDay = selectFirstDaySnapshot(snapshots, base);
       [
         ['FIRST DAY', 'firstDay', 'firstDaySource'],
         ['CENSUS 1', 'census1', 'census1Source'],
         ['CENSUS 2', 'census2', 'census2Source'],
         ['FINAL', 'finalEnrollment', 'finalEnrollmentSource']
       ].forEach(([type, valueKey, sourceKey]) => {
-        const record = byKeyType.get(snapshotKey({ term: base.term, crn: base.crn, snapshotType: type }));
+        const selected = type === 'FIRST DAY' ? selectedFirstDay : null;
+        const record = selected?.record || byKeyType.get(snapshotKey({ term: base.term, crn: base.crn, snapshotType: type }));
         if (record && Number.isFinite(Number(record.enrollment))) {
           base[valueKey] = Number(record.enrollment);
-          base[sourceKey] = `Stored ${type} snapshot ${record.snapshotDate}`;
+          base[sourceKey] = type === 'FIRST DAY' && selected?.matchType === 'nearest'
+            ? `Stored ${type} snapshot ${record.snapshotDate} (nearest to section start)`
+            : `Stored ${type} snapshot ${record.snapshotDate}`;
           base[`${valueKey}SnapshotDate`] = record.snapshotDate || '';
           base[`${valueKey}SnapshotDateIso`] = dateIso(record.snapshotDate || '');
           base[`${valueKey}SnapshotType`] = record.snapshotType || type;
           base[`${valueKey}SnapshotBatchId`] = record.batchId || '';
+          if (type === 'FIRST DAY') {
+            base.firstDaySnapshotMatchType = selected?.matchType || 'exact';
+            base.firstDaySnapshotOffsetDays = selected?.offsetDays ?? null;
+          }
         } else if (base[valueKey] != null && base[valueKey] !== '') {
           base[sourceKey] = 'Uploaded section seating field';
         }
@@ -2136,6 +2180,9 @@
     let covered = 0;
     let presentButStartDateMismatch = 0;
     let presentButSectionStartMissing = 0;
+    let exactMatches = 0;
+    let nearestDateSubstitutions = 0;
+    let largestNearestDateOffsetDays = 0;
     focusRows.forEach(row => {
       const key = coverageKey(row.term, row.crn);
       if (key === '|') return;
@@ -2146,9 +2193,16 @@
         presentButSectionStartMissing += 1;
         return;
       }
-      const hasAlignedSnapshot = records.some(record => dateIso(record.snapshotDate || '') === sectionStart);
-      if (hasAlignedSnapshot) covered += 1;
-      else presentButStartDateMismatch += 1;
+      const selected = selectFirstDaySnapshot(records, row);
+      if (!selected) return;
+      covered += 1;
+      if (selected.matchType === 'exact') exactMatches += 1;
+      else if (selected.matchType === 'nearest') {
+        nearestDateSubstitutions += 1;
+        largestNearestDateOffsetDays = Math.max(largestNearestDateOffsetDays, Math.abs(selected.offsetDays || 0));
+      } else {
+        presentButStartDateMismatch += 1;
+      }
     });
     const dates = (snapshots || []).map(record => record.snapshotDate).filter(Boolean).sort();
     const batches = new Set((snapshots || []).map(record => record.batchId || [record.term, record.snapshotType, record.snapshotDate].join('|')).filter(Boolean));
@@ -2159,6 +2213,9 @@
       sectionsMissingFirstDaySnapshot: Math.max(0, focusCrns.size - covered),
       sectionsWithFirstDaySnapshotDateMismatch: presentButStartDateMismatch,
       sectionsWithFirstDaySnapshotButMissingStartDate: presentButSectionStartMissing,
+      sectionsWithExactFirstDaySnapshot: exactMatches,
+      sectionsUsingNearestFirstDaySnapshot: nearestDateSubstitutions,
+      largestNearestFirstDayOffsetDays: largestNearestDateOffsetDays,
       snapshotBatchesUploaded: batches.size,
       latestSnapshotDate: dates[dates.length - 1] || '',
       snapshotRecordsStored: snapshots.length
@@ -4195,7 +4252,7 @@
                   <li>Use the focus-term exclusion only when intentionally producing a historical-only trend.</li>
                   <li>Dual Enrollment instructional method rows are omitted from this report so the analysis focuses on general enrollment behavior.</li>
                   <li>Tutoring/Open Lab sections are excluded by default because they behave differently from standard scheduled sections and can contain non-comparable milestone values. Clear the checkbox only when intentionally auditing those rows.</li>
-                  <li>First Day comes from stored First Day snapshots only when the snapshot date matches that section's own start date. Late-start sections need their own first-day snapshot.</li>
+                  <li>First Day prefers a stored snapshot taken on the section's own start date. When that exact upload is unavailable, the closest dated First Day snapshot for the same term and CRN is used and identified as an approximation.</li>
                 </ul>
               </div>
               <div>
@@ -19075,7 +19132,13 @@ BUS 180 2 units`)
     const startDate = dateIso(row?.startDate || row?.raw?.Start_Date || row?.raw?.START_DATE || row?.raw?.['Start Date'] || '');
     if (!startDate) return { valid: false, reason: 'missing-section-start-date', snapshotDate };
     if (!snapshotDate) return { valid: false, reason: 'missing-snapshot-date', startDate };
-    if (snapshotDate !== startDate) return { valid: false, reason: 'snapshot-date-does-not-match-section-start-date', startDate, snapshotDate };
+    if (snapshotDate !== startDate) {
+      const offsetDays = snapshotDateDistanceDays(snapshotDate, startDate);
+      if (row?.firstDaySnapshotMatchType === 'nearest' || canon(row?.firstDaySource || '').includes('NEAREST TO SECTION START')) {
+        return { valid: true, reason: 'nearest-snapshot-date-used', startDate, snapshotDate, offsetDays, approximate: true };
+      }
+      return { valid: false, reason: 'snapshot-date-does-not-match-section-start-date', startDate, snapshotDate, offsetDays };
+    }
     return { valid: true, reason: 'snapshot-date-matches-section-start-date', startDate, snapshotDate };
   }
 
@@ -19604,6 +19667,9 @@ BUS 180 2 units`)
     if (coverage.sectionsWithFirstDaySnapshotDateMismatch > 0) {
       dataQualityWarnings.push(`${coverage.sectionsWithFirstDaySnapshotDateMismatch} First Day snapshot(s) exist but do not match the section start date. Late-start sections require their own First Day snapshot.`);
     }
+    if (coverage.sectionsUsingNearestFirstDaySnapshot > 0) {
+      dataQualityWarnings.push(`${coverage.sectionsUsingNearestFirstDaySnapshot} section(s) use the closest available First Day snapshot because no upload exists on the exact section start date. Largest date difference: ${coverage.largestNearestFirstDayOffsetDays} day(s).`);
+    }
     if (coverage.sectionsWithFirstDaySnapshotButMissingStartDate > 0) {
       dataQualityWarnings.push(`${coverage.sectionsWithFirstDaySnapshotButMissingStartDate} First Day snapshot(s) could not be validated because the section start date is missing.`);
     }
@@ -19646,6 +19712,8 @@ BUS 180 2 units`)
         ['Focus CRNs with End/Final', focusMilestones.final.count],
         ['First Day Snapshot Coverage', pct(coverage.firstDayCoveragePct)],
         ['Missing First Day Snapshots', coverage.sectionsMissingFirstDaySnapshot],
+        ['Exact-Date First Day Snapshots', coverage.sectionsWithExactFirstDaySnapshot],
+        ['Nearest-Date First Day Substitutions', coverage.sectionsUsingNearestFirstDaySnapshot],
         ['First Day Date Mismatches', coverage.sectionsWithFirstDaySnapshotDateMismatch],
         ['First Day Missing Section Start Date', coverage.sectionsWithFirstDaySnapshotButMissingStartDate],
         ['Rows with Invalid Negative Census 2', diagnostics.invalidNegativeCensus2Rows],
@@ -19706,7 +19774,7 @@ BUS 180 2 units`)
         { label: 'Active/Planning Term Exclusion', value: excludedPlanningTerm ? 'Enabled' : 'Disabled' },
         { label: 'Terms Used', value: historicalTerms.join(', ') || 'None' },
         { label: 'Scheduled Class Offerings', value: 'Unique CRNs' },
-        { label: 'Attrition basis', value: 'Matched CRNs for each lifecycle interval; First Day requires snapshot date to match section start date' }
+        { label: 'Attrition basis', value: 'Matched CRNs for each lifecycle interval; First Day prefers an exact section-start-date snapshot and otherwise uses the nearest uploaded First Day snapshot for that term and CRN' }
       ]
     };
   }
@@ -28852,6 +28920,7 @@ BUS 180 2 units`)
     historicalInstitutionalEstimateRows,
     renderHistoricalInstitutionalModel,
     buildSnapshotRecords,
+    selectFirstDaySnapshot,
     buildBulkSectionSeatingSnapshotPreview,
     upsertSnapshotRecords,
     mergeSnapshotsIntoRows,

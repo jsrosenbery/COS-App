@@ -1379,7 +1379,7 @@ test('snapshot coverage counts missing first-day sections', () => {
   assert.equal(coverage.firstDayCoveragePct, 0.5);
 });
 
-test('first-day coverage requires snapshot date to match each section start date', () => {
+test('first-day coverage uses the nearest uploaded snapshot when the exact section start date is unavailable', () => {
   const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
   const rows = [
     COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', Subject: 'ENGL', Course: 'C1000', 'Start Date': '2027-08-16', CENSUS_ENROLL: '25' }),
@@ -1397,12 +1397,31 @@ test('first-day coverage requires snapshot date to match each section start date
   const metrics = COSEnrollmentAnalytics.lifecycleMetrics('decision', record, 2);
 
   assert.equal(coverage.sectionsInFocusTerm, 2);
-  assert.equal(coverage.sectionsWithFirstDaySnapshot, 1);
-  assert.equal(coverage.sectionsWithFirstDaySnapshotDateMismatch, 1);
-  assert.equal(coverage.sectionsMissingFirstDaySnapshot, 1);
-  assert.equal(coverage.firstDayCoveragePct, 0.5);
-  assert.equal(COSEnrollmentAnalytics.firstDaySnapshotAlignment(merged[1]).reason, 'snapshot-date-does-not-match-section-start-date');
-  assert.equal(metrics.decisionStartToCensus1MatchedCrns, 1);
+  assert.equal(coverage.sectionsWithFirstDaySnapshot, 2);
+  assert.equal(coverage.sectionsWithExactFirstDaySnapshot, 1);
+  assert.equal(coverage.sectionsUsingNearestFirstDaySnapshot, 1);
+  assert.equal(coverage.sectionsWithFirstDaySnapshotDateMismatch, 0);
+  assert.equal(coverage.sectionsMissingFirstDaySnapshot, 0);
+  assert.equal(coverage.firstDayCoveragePct, 1);
+  assert.equal(COSEnrollmentAnalytics.firstDaySnapshotAlignment(merged[1]).reason, 'nearest-snapshot-date-used');
+  assert.equal(COSEnrollmentAnalytics.firstDaySnapshotAlignment(merged[1]).offsetDays, -20);
+  assert.equal(metrics.decisionStartToCensus1MatchedCrns, 2);
+});
+
+test('first-day snapshot selection prefers exact then nearest prior date on an equal-distance tie', () => {
+  const { COSEnrollmentAnalytics } = loadEnrollmentAnalyticsRuntime();
+  const row = COSEnrollmentAnalytics.normalizeRow({ Term: 'FALL 2027', CRN: '10001', 'Start Date': '2027-08-16' });
+  const records = [
+    { term: 'FALL 2027', crn: '10001', snapshotType: 'First Day', snapshotDate: '2027-08-14', enrollment: 11 },
+    { term: 'FALL 2027', crn: '10001', snapshotType: 'First Day', snapshotDate: '2027-08-18', enrollment: 13 }
+  ];
+  const nearest = COSEnrollmentAnalytics.selectFirstDaySnapshot(records, row);
+  assert.equal(nearest.snapshotDate, '2027-08-14');
+  assert.equal(nearest.offsetDays, -2);
+  records.push({ term: 'FALL 2027', crn: '10001', snapshotType: 'First Day', snapshotDate: '2027-08-16', enrollment: 12 });
+  const exact = COSEnrollmentAnalytics.selectFirstDaySnapshot(records, row);
+  assert.equal(exact.snapshotDate, '2027-08-16');
+  assert.equal(exact.matchType, 'exact');
 });
 
 test('first-day coverage does not reuse a same CRN snapshot across different terms', () => {
