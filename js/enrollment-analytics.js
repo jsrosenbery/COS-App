@@ -1160,44 +1160,16 @@
     }
     if (useStandardized) {
       const standardized = standardizedFtes(enrollment, details);
-      const legacyHasInputs = ['weekly', 'independentWeekly'].includes(info.category)
-        ? Number(details.weeklyHours || 0) > 0 || Number(details.units || details.sessionCreditHours || 0) > 0
-        : ['daily', 'independentDaily'].includes(info.category)
-          ? Number(details.totalContactHours || 0) > 0 || Number(details.units || details.sessionCreditHours || 0) > 0
-          : false;
-      if (standardized.unavailable && legacyHasInputs) {
-        return {
-          ftes: legacyFtes,
-          legacyFtes,
-          standardizedFtes: null,
-          calculationMethod: legacyCalculationMethodName(details.accountingMethod),
-          provenance: 'CALCULATED_LEGACY',
-          maturity,
-          warning: `${standardized.warning} Production FTES continues using the established ${info.label || details.accountingMethod} fallback; standardized reconciliation is limited until component units or standardized hours are supplied.`,
-          reconciliationStatus: 'LIMITED_SOURCE_DATA',
-          reconciliationWarnings: ['RECONCILIATION_LIMITED_MISSING_COMPONENT_UNITS'],
-          unavailable: false,
-          hasInputs: true,
-          lectureUnits: standardized.lectureUnits,
-          labUnits: standardized.labUnits,
-          activityUnits: standardized.activityUnits,
-          lectureHours: standardized.lectureHours,
-          labHours: standardized.labHours,
-          activityHours: standardized.activityHours,
-          standardizedHours: standardized.standardizedHours,
-          unitStatus: standardized.unitStatus,
-          componentSource: standardized.source,
-          info
-        };
-      }
       return {
         ftes: standardized.unavailable ? 0 : standardized.ftes,
         legacyFtes,
         standardizedFtes: standardized.unavailable ? null : standardized.ftes,
         calculationMethod: 'STANDARDIZED_ATTENDANCE',
-        provenance: 'CALCULATED_STANDARDIZED',
+        provenance: standardized.unavailable ? 'UNAVAILABLE' : 'CALCULATED_STANDARDIZED',
         maturity,
-        warning: standardized.warning,
+        warning: standardized.unavailable
+          ? `${standardized.warning} No legacy FTES fallback is included in production totals for Summer 2026 or later; legacy FTES is retained for diagnostics only.`
+          : standardized.warning,
         unavailable: standardized.unavailable,
         hasInputs: !standardized.unavailable,
         lectureUnits: standardized.lectureUnits,
@@ -1518,7 +1490,9 @@
     row.standardizedActivityHours = calculation.activityHours;
     row.standardizedHours = calculation.standardizedHours || row.standardizedHours || 0;
     row.standardizedUnitStatus = calculation.unitStatus;
-    row.hasFtesData = row.hasFtesData || calculation.hasInputs || row.weeklyHours > 0 || row.totalContactHours > 0 || row.units > 0;
+    row.hasFtesData = calculation.unavailable
+      ? Boolean(row.hasDirectFtesData)
+      : row.hasFtesData || calculation.hasInputs || row.weeklyHours > 0 || row.totalContactHours > 0 || row.units > 0;
     row.ftesUnavailable = calculation.unavailable || Boolean(row.isWorkExperience && !row.hasDirectFtesData && !row.hasFtesData);
     row.ftesWarning = calculation.warning || (row.ftesUnavailable ? 'FTES unavailable: direct FTES, contact hours, and units are missing.' : row.ftesWarning || '');
     return row;
@@ -14134,6 +14108,27 @@ BUS 180 2 units`)
     if (['P', 'E'].includes(method) && row.positiveHours == null) return true;
     const basis = getFtesEnrollmentBasis(row, asOfContext);
     if (CENSUS_DEPENDENT_FTES_METHODS.has(method) && !isWorkExperience && !basis.available) return true;
+    if (standardizedEligible(row)) {
+      const calculation = ftesCalculationDetails(basis.value, {
+        term: row.term,
+        units: row.units,
+        lectureUnits: row.lectureUnits,
+        labUnits: row.labUnits,
+        activityUnits: row.activityUnits,
+        weeklyHours: row.weeklyHours,
+        dailyHours: row.dailyHours,
+        totalContactHours: row.totalContactHours,
+        standardizedHours: row.standardizedHours,
+        accountingMethod: row.accountingMethod,
+        creditStatus: row.creditStatus,
+        scheduleType: row.scheduleType,
+        meetingRows: row._meetingRows || [],
+        census: row.census,
+        reportableCensus: row.reportableCensus,
+        actual: row.actual
+      });
+      return calculation.unavailable;
+    }
     if (row.hasFtesData || row.weeklyHours > 0 || row.totalContactHours > 0 || row.units > 0 || row.positiveHours != null) return false;
     return currentEnrollmentValue(row) > 0;
   }
