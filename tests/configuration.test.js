@@ -141,7 +141,7 @@ test('centralized campus config preserves default campus behavior', () => {
 });
 
 test('centralized scheduling and threshold config preserves planning constants', () => {
-  assert.equal(config.scheduling.DEFAULT_TERM, 'Fall 2026');
+  assert.equal(config.scheduling.DEFAULT_TERM, 'Spring 2027');
   assert.equal(config.scheduling.TERM_START_DATES['Fall 2026'], '2026-08-10');
   assert.equal(config.scheduling.HALF_HOUR_MINUTES, 30);
   assert.equal(config.scheduling.INSTRUCTOR_AVAILABILITY.minSharedAvailabilityMinutes, 30);

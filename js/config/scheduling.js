@@ -12,7 +12,7 @@
     'Summer 2029', 'Fall 2029', 'Spring 2030',
     'Summer 2030', 'Fall 2030'
   ]);
-  const DEFAULT_TERM = 'Fall 2026';
+  const DEFAULT_TERM = 'Spring 2027';
   const TERM_START_DATES = Object.freeze({
     'Summer 2026': '2026-06-01',
     'Fall 2026': '2026-08-10',
